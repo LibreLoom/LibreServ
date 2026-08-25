@@ -21,6 +21,10 @@ SERVICE_NAME="libreserv"
 NO_SYSTEMD=false
 RESTIC_VERSION="0.18.1"
 
+# Baked-in minisign public key (keys/releases.minisign.pub). Do not fetch this from Forgejo.
+RELEASE_MINISIGN_PUB='untrusted comment: minisign public key 7AA9417DBF891F5E
+RWReH4m/fUGpes/VUuaGXFDFDjWMUTSJAELn6FI7hTkBBEyWyxFqfpnm'
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -335,6 +339,7 @@ download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
     DOWNLOAD_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
     CHECKSUM_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
+    SIG_URL="${CHECKSUM_URL}.minisig"
 
     if [ "$NO_SYSTEMD" = false ] && systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
         log_info "Stopping existing service..."
@@ -348,27 +353,56 @@ download_binary() {
     fi
 
     log_info "Downloading checksums..."
-    if curl -fsSL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt" 2>/dev/null; then
-        log_info "Verifying checksum..."
-        EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
-        if [ -z "$EXPECTED_HASH" ]; then
-            log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
-        else
-            ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
-            if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
-                log_error "Checksum verification failed!"
-                log_error "Expected: ${EXPECTED_HASH}"
-                log_error "Got:      ${ACTUAL_HASH}"
-                rm -f "${INSTALL_DIR}/libreserv"
-                return 1
-            fi
-            log_info "Checksum verified"
-        fi
-        rm -f /tmp/SHA256SUMS.txt
-    else
-        log_error "Could not download checksums. Verification is required for security. Check your network connection and that the release includes SHA256SUMS.txt"
+    if ! curl -fsSL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"; then
+        log_error "Could not download checksums. This install needs SHA256SUMS.txt from the release."
         exit 1
     fi
+    if ! curl -fsSL "${SIG_URL}" -o "/tmp/SHA256SUMS.txt.minisig"; then
+        log_error "Could not download the checksum signature. That file proves the download is from us, not whoever owns the download host."
+        rm -f /tmp/SHA256SUMS.txt
+        exit 1
+    fi
+
+    if ! command -v minisign >/dev/null 2>&1; then
+        log_error "minisign is required to verify this download."
+        log_error "Install it, then run this installer again:"
+        log_error "  Arch:    pacman -S minisign"
+        log_error "  Fedora:  dnf install minisign"
+        log_error "  Debian:  apt install minisign"
+        log_error "  Alpine:  apk add minisign"
+        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
+        exit 1
+    fi
+
+    PUB_FILE="$(mktemp)"
+    printf '%s\n' "${RELEASE_MINISIGN_PUB}" > "${PUB_FILE}"
+    if ! minisign -V -q -p "${PUB_FILE}" -m /tmp/SHA256SUMS.txt -x /tmp/SHA256SUMS.txt.minisig; then
+        log_error "The checksum file was not signed by LibreServ. Nothing was installed."
+        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig "${PUB_FILE}"
+        rm -f "${INSTALL_DIR}/libreserv"
+        exit 1
+    fi
+    rm -f "${PUB_FILE}"
+
+    log_info "Verifying checksum..."
+    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
+    if [ -z "$EXPECTED_HASH" ]; then
+        log_error "Checksum not found for ${BINARY_NAME} in SHA256SUMS.txt"
+        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
+        rm -f "${INSTALL_DIR}/libreserv"
+        exit 1
+    fi
+    ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
+    if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+        log_error "Checksum verification failed!"
+        log_error "Expected: ${EXPECTED_HASH}"
+        log_error "Got:      ${ACTUAL_HASH}"
+        rm -f "${INSTALL_DIR}/libreserv"
+        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
+        return 1
+    fi
+    log_info "Checksum and signature verified"
+    rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
 
     chmod +x "${INSTALL_DIR}/libreserv"
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"

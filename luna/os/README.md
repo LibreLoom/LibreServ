@@ -68,10 +68,16 @@ and are ignored by the Luna updater. Release assets:
 
 - `lunad-linux-amd64` (or `lunad-linux-arm64`)
 - `luna-rapidinstall-x86_64.iso` on OS cuts
-- `SHA256SUMS.txt` (required — install refuses a missing or mismatched checksum)
+- `SHA256SUMS.txt` (required)
+- `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/releases.minisign.pub`)
 
-An admin taps **Install update** in Settings. That replaces `/usr/local/bin/lunad`
-and exits so OpenRC restarts the daemon. A new OS image is only needed for a
-full re-flash, not for ordinary lunad updates.
+Before you `dd` an ISO, verify the checksums file:
+
+```sh
+minisign -Vm SHA256SUMS.txt -p keys/releases.minisign.pub
+sha256sum -c SHA256SUMS.txt
+```
+
+An admin taps **Install update** in Settings. That downloads the lunad binary, checks the signature then the checksum, replaces `/usr/local/bin/lunad`, and exits so OpenRC restarts the daemon. A missing or wrong signature installs nothing. A new OS image is only needed for a full re-flash, not for ordinary lunad updates.
 
 Env overrides: `LUNA_UPDATES_API`, `LUNA_UPDATES_OWNER`, `LUNA_UPDATES_REPO`.

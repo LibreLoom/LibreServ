@@ -147,5 +147,9 @@ connect/configs/connect.yaml
 .shots
 .chromium-profile
 
+# Minisign secrets (public key in keys/releases.minisign.pub is committed)
+keys/*.key
+*.minisign.key
+
 # Local T3 Code project config
 t3.json

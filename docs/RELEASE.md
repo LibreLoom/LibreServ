@@ -10,11 +10,15 @@ The Forgejo **tag** and **release title** are the same string. Never prefix titl
 
 | Product | Tag / title | Stable? | Assets (only these) |
 |---------|-------------|---------|---------------------|
-| LibreServ | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | yes (unless `--pre-release`) | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt` |
-| Luna | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` | yes (updater skips prereleases) | `lunad-linux-amd64`, `lunad-linux-arm64` when built, `luna-rapidinstall-x86_64.iso` when this is an OS cut, `SHA256SUMS.txt` |
+| LibreServ | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | yes (unless `--pre-release`) | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
+| Luna | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` | yes (updater skips prereleases) | `lunad-linux-amd64`, `lunad-linux-arm64` when built, `luna-rapidinstall-x86_64.iso` when this is an OS cut, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
 | Connect | `connect-vMAJOR.MINOR.PATCH` | separate module | Connect's own binaries |
 
-`SHA256SUMS.txt` uses GNU `sha256sum` lines: `<hash><two spaces><filename>`.
+`SHA256SUMS.txt` uses GNU `sha256sum` lines: `<hash><two spaces><filename>`. `release.sh` signs that file with minisign (`SHA256SUMS.txt.minisig`). The public key is [`keys/releases.minisign.pub`](../keys/releases.minisign.pub), baked into lunad, LibreServ, and `install.sh`.
+
+The secret key stays off-repo. `release.sh` uses `MINISIGN_SECRET_KEY` if set, otherwise `~/.minisign/libreserv.key`. After signing it verifies against the committed public key and **refuses to publish unsigned checksums**.
+
+See [`keys/README.md`](../keys/README.md) for key locations and how to recreate the public file from a password-protected secret.
 
 LibreServ `install.sh` and the in-app updater only consume **`v*`** tags. Luna's updater only consumes **stable `luna-v*`** tags. Mixing assets across those tags breaks both.
 
@@ -29,9 +33,9 @@ Use `./release.sh`. Do not attach Luna files to a `v*` release or LibreServ bina
 ./release.sh --force      # Auto-delete existing release with same tag (no prompt)
 ./release.sh --pre-release # Mark as pre-release (install.sh and updaters skip these)
 ./release.sh --yes --version v0.0.13 --publish
-# → tag + title v0.0.13, LibreServ linux amd64/arm64 + SHA256SUMS.txt
+# → tag + title v0.0.13, LibreServ linux amd64/arm64 + SHA256SUMS.txt + SHA256SUMS.txt.minisig
 ./release.sh --yes --version v0.0.13 --luna --publish
-# → tag + title luna-v0.0.13, lunad + ISO + SHA256SUMS.txt
+# → tag + title luna-v0.0.13, lunad + ISO + SHA256SUMS.txt + SHA256SUMS.txt.minisig
 ```
 
 ## Prerequisites
@@ -41,6 +45,7 @@ Use `./release.sh`. Do not attach Luna files to a `v*` release or LibreServ bina
 - Go 1.26+ installed locally
 - Node.js 20+ installed locally (for frontend build)
 - Podman installed (for CI tests)
+- `minisign` in PATH, and the secret key that matches [`keys/releases.minisign.pub`](../keys/releases.minisign.pub) (see [`keys/README.md`](../keys/README.md))
 
 ## Release script details
 
@@ -74,8 +79,8 @@ The script will guide you through:
 
 After creation, verify:
 - [ ] Tag equals the release title (`v0.0.13` or `luna-v0.0.13`)
-- [ ] LibreServ `v*`: `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt` only
-- [ ] Luna `luna-v*`: `lunad-linux-*`, ISO when shipping OS, `SHA256SUMS.txt` only
+- [ ] LibreServ `v*`: `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
+- [ ] Luna `luna-v*`: `lunad-linux-*`, ISO when shipping OS, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
 - [ ] Release notes are formatted correctly
 
 ## Manual Token Creation
@@ -224,9 +229,16 @@ After publishing:
 
 ## Security Considerations
 
-- **Checksums** - SHA256SUMS.txt provided for integrity verification
-- **Binary signing** - Future releases may include GPG signatures
-- **Supply chain** - Binaries built from source on your machine, review all code before release
+- **Checksums** — `SHA256SUMS.txt` is required. GNU `sha256sum` lines.
+- **Signatures** — `SHA256SUMS.txt.minisig` is required. minisign, public key pinned in the updaters and `install.sh`. A compromised Forgejo token cannot ship a matching binary + checksum pair.
+- **First hop** — boxes still running unsigned code can apply one last unsigned update (the build that adds verification). Every hop after that must verify. `curl | sudo sh` of `install.sh` still trusts Forgejo for **the script itself**; use a copy of `install.sh` you already trust, or clone the repo.
+- **Supply chain** — binaries are built from source on your machine. Review code before you sign.
+
+## Verify an ISO or checksums file
+
+```bash
+minisign -Vm SHA256SUMS.txt -p keys/releases.minisign.pub
+```
 
 ## Automation (Future)
 

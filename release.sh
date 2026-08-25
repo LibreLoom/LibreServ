@@ -8,6 +8,7 @@ set -e
 FORGEJO_INSTANCE="${FORGEJO_INSTANCE:-https://gt.plainskill.net}"
 REPO_OWNER="LibreLoom"
 REPO_NAME="LibreServ"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DRY_RUN=false
 PRESERVE_BUILD=false
 FORCE=false
@@ -105,6 +106,57 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+
+minisign_secret_key() {
+    if [ -n "${MINISIGN_SECRET_KEY:-}" ]; then
+        printf '%s\n' "$MINISIGN_SECRET_KEY"
+        return 0
+    fi
+    if [ -f "$HOME/.minisign/libreserv.key" ]; then
+        printf '%s\n' "$HOME/.minisign/libreserv.key"
+        return 0
+    fi
+    return 1
+}
+
+# Sign SHA256SUMS.txt in $1. Fail closed — never publish unsigned checksums.
+sign_checksums() {
+    local dir="$1"
+    local pub="$ROOT_DIR/keys/releases.minisign.pub"
+    if ! command -v minisign >/dev/null 2>&1; then
+        log_error "minisign is required to sign SHA256SUMS.txt."
+        log_error "Install it (Arch: pacman -S minisign) and try again. Unsigned releases are not allowed."
+        exit 1
+    fi
+    if [ ! -f "$pub" ]; then
+        log_error "Missing $pub"
+        exit 1
+    fi
+    local key
+    if ! key="$(minisign_secret_key)"; then
+        log_error "No minisign secret key. Set MINISIGN_SECRET_KEY or put the key at ~/.minisign/libreserv.key"
+        exit 1
+    fi
+    if [ ! -f "$dir/SHA256SUMS.txt" ]; then
+        log_error "SHA256SUMS.txt missing in $dir"
+        exit 1
+    fi
+    log_info "Signing SHA256SUMS.txt ($key)..."
+    if ! (cd "$dir" && minisign -S -s "$key" -m SHA256SUMS.txt); then
+        log_error "minisign failed. Nothing will be published unsigned."
+        exit 1
+    fi
+    if [ ! -f "$dir/SHA256SUMS.txt.minisig" ]; then
+        log_error "SHA256SUMS.txt.minisig was not created"
+        exit 1
+    fi
+    if ! minisign -V -q -p "$pub" -m "$dir/SHA256SUMS.txt"; then
+        log_error "Signature does not match keys/releases.minisign.pub."
+        log_error "Use the secret that matches the committed public key (MINISIGN_SECRET_KEY)."
+        exit 1
+    fi
+    log_info "Checksums signed and verified against the committed public key"
+}
 
 print_banner() {
     echo -e "${BLUE}LibreServ Release Script${NC}"
@@ -343,6 +395,7 @@ build_binaries() {
         cd "$BUILD_DIR"
         sha256sum lunad-linux-amd64 luna-rapidinstall-x86_64.iso > SHA256SUMS.txt
         cd ..
+        sign_checksums "$BUILD_DIR"
         log_info "Luna assets built successfully"
         echo ""
         ls -lh "$BUILD_DIR"
@@ -436,6 +489,7 @@ build_binaries() {
     cd "$BUILD_DIR"
     sha256sum libreserv-linux-amd64 libreserv-linux-arm64 > SHA256SUMS.txt
     cd ..
+    sign_checksums "$BUILD_DIR"
     
     log_info "Binaries built successfully"
     echo ""
@@ -660,9 +714,9 @@ upload_assets() {
     echo ""
     
     if [ "$LUNA_RELEASE" = true ]; then
-        REQUIRED_ASSETS=(lunad-linux-amd64 luna-rapidinstall-x86_64.iso SHA256SUMS.txt)
+        REQUIRED_ASSETS=(lunad-linux-amd64 luna-rapidinstall-x86_64.iso SHA256SUMS.txt SHA256SUMS.txt.minisig)
     else
-        REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt)
+        REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt SHA256SUMS.txt.minisig)
     fi
 
     for file in "${REQUIRED_ASSETS[@]}"; do
@@ -806,6 +860,7 @@ cleanup() {
             log_info "Build directory preserved: $BUILD_DIR"
             echo "  Binaries: $BUILD_DIR/libreserv-linux-{amd64,arm64}"
             echo "  Checksums: $BUILD_DIR/SHA256SUMS.txt"
+            echo "  Signature: $BUILD_DIR/SHA256SUMS.txt.minisig"
         else
             log_info "Cleaning up build directory..."
             rm -rf "$BUILD_DIR"

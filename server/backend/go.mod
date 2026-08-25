@@ -11,6 +11,7 @@ replace (
 )
 
 require (
+	aead.dev/minisign v0.3.0
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-git/go-git/v5 v5.19.2

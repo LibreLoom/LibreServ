@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
@@ -42,6 +43,22 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.checker.ApplyUpdate(r.Context(), Version); err != nil {
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "system.update", "", "libreserv", "failure", err.Error(), nil)
+		}
+		if errors.Is(err, system.ErrMissingChecksum) {
+			JSONError(w, http.StatusBadRequest, "That update is missing a checksum file. Nothing was installed.")
+			return
+		}
+		if errors.Is(err, system.ErrMissingSignature) {
+			JSONError(w, http.StatusBadRequest, "That update is missing its signature. Nothing was installed.")
+			return
+		}
+		if errors.Is(err, system.ErrBadSignature) {
+			JSONError(w, http.StatusBadRequest, "That update could not be verified. Nothing was installed.")
+			return
+		}
+		if errors.Is(err, system.ErrChecksumMismatch) {
+			JSONError(w, http.StatusBadRequest, "That update file didn't match its checksum. Nothing was installed.")
+			return
 		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't apply the update. Please try again.")
 		return

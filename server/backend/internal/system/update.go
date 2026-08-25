@@ -21,6 +21,8 @@ import (
 	"golang.org/x/sys/unix"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
+
+	"aead.dev/minisign"
 )
 
 // UpdateState tracks pending update verification
@@ -85,6 +87,7 @@ type UpdateChecker struct {
 	cacheTimestamp map[string]time.Time
 	cacheDuration  time.Duration
 	restartCh      chan<- RestartSignal
+	pinnedKeys     []minisign.PublicKey
 }
 
 const defaultCacheDuration = 1 * time.Hour
@@ -216,8 +219,12 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 		}
 	}
 
-	// Fetch checksum from SHA256SUMS.txt
-	checksum := c.fetchChecksum(latest.TagName)
+	// Fetch signed checksum from SHA256SUMS.txt + .minisig (empty if unverified)
+	checksum, err := c.fetchSignedChecksum(latest.TagName)
+	if err != nil {
+		slog.Debug("release checksums not verified", "error", err, "tag", latest.TagName)
+		checksum = ""
+	}
 
 	info := &UpdateInfo{
 		CurrentVersion:  currentVersion,
@@ -238,40 +245,6 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 	return info, nil
 }
 
-// fetchChecksum retrieves the SHA256 checksum for a release
-func (c *UpdateChecker) fetchChecksum(tagName string) string {
-	checksumURL := fmt.Sprintf("%s/download/%s/SHA256SUMS.txt", c.downloadBaseURL(), tagName)
-	resp, err := c.client.Get(checksumURL)
-	if err != nil {
-		slog.Warn("Failed to fetch checksum file", "error", err)
-		return ""
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		slog.Warn("Checksum file not found", "status", resp.StatusCode)
-		return ""
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		slog.Warn("Failed to read checksum file", "error", err)
-		return ""
-	}
-
-	// Parse SHA256SUMS.txt format: "checksum  filename"
-	lines := strings.Split(string(body), "\n")
-	binaryName := fmt.Sprintf("libreserv-%s-%s", runtime.GOOS, runtime.GOARCH)
-	for _, line := range lines {
-		parts := strings.Fields(line)
-		if len(parts) >= 2 && strings.Contains(parts[1], binaryName) {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-
-	return ""
-}
-
 // ApplyUpdate downloads and replaces the current binary with the latest one
 func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) error {
 	info, err := c.CheckForUpdates(currentVersion)
@@ -286,6 +259,11 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	// 1. Determine download URL for current platform
 	binaryName := fmt.Sprintf("libreserv-%s-%s", runtime.GOOS, runtime.GOARCH)
 	downloadURL := fmt.Sprintf("%s/download/%s/%s", c.downloadBaseURL(), info.LatestVersion, binaryName)
+
+	expectedChecksum, err := c.fetchSignedChecksum(info.LatestVersion)
+	if err != nil {
+		return err
+	}
 
 	// 2. Check available disk space
 	if err := checkDiskSpace(minDiskSpace); err != nil {
@@ -321,16 +299,11 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	}
 	_ = tmpFile.Close()
 
-	// 4. Verify checksum if available
-	if info.Checksum != "" {
-		actualChecksum := hex.EncodeToString(hasher.Sum(nil))
-		if actualChecksum != info.Checksum {
-			return fmt.Errorf("checksum mismatch: expected %s, got %s", info.Checksum, actualChecksum)
-		}
-		slog.Info("Checksum verification passed", "checksum", actualChecksum)
-	} else {
-		slog.Warn("No checksum available for verification")
+	actualChecksum := hex.EncodeToString(hasher.Sum(nil))
+	if actualChecksum != expectedChecksum {
+		return ErrChecksumMismatch
 	}
+	slog.Info("Checksum verification passed", "checksum", actualChecksum)
 
 	// 5. Make temporary file executable
 	if err := os.Chmod(tmpPath, 0755); err != nil {

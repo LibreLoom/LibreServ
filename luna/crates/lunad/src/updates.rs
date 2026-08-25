@@ -1,15 +1,17 @@
 //! Software updates from Forgejo `luna-v*` releases.
 //!
 //! Tags look like `luna-v0.2.0`. LibreServ stays on `v*`. Assets:
-//! `lunad-linux-amd64` plus `SHA256SUMS.txt`. Apply is tap-to-update only —
-//! never silent. Checksum mismatch refuses the install. Draft and prerelease
-//! tags are ignored.
+//! `lunad-linux-amd64`, `SHA256SUMS.txt`, and `SHA256SUMS.txt.minisig`.
+//! Apply is tap-to-update only — never silent. A missing or invalid minisign
+//! signature, or a checksum mismatch, refuses the install. Draft and
+//! prerelease tags are ignored.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -17,6 +19,9 @@ const DEFAULT_API: &str = "https://gt.plainskill.net/api/v1";
 const DEFAULT_OWNER: &str = "LibreLoom";
 const DEFAULT_REPO: &str = "LibreServ";
 const TAG_PREFIX: &str = "luna-v";
+
+/// Committed minisign public key (`keys/releases.minisign.pub`).
+const PINNED_PUB: &str = include_str!("../../../../keys/releases.minisign.pub");
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum UpdateError {
@@ -28,6 +33,10 @@ pub enum UpdateError {
     Checksum,
     #[error("That update is missing a checksum file. Nothing was installed.")]
     MissingChecksum,
+    #[error("That update is missing its signature. Nothing was installed.")]
+    MissingSignature,
+    #[error("That update could not be verified. Nothing was installed.")]
+    BadSignature,
     #[error("{0}")]
     Other(String),
 }
@@ -109,6 +118,7 @@ pub struct UpdateService {
     download_base: String,
     owner: String,
     repo: String,
+    pinned_keys: Vec<String>,
     cache: Mutex<Option<(Instant, UpdateInfo)>>,
 }
 
@@ -133,6 +143,24 @@ impl UpdateService {
         owner: String,
         repo: String,
     ) -> Self {
+        Self::with_keys(
+            http,
+            installer,
+            api_base,
+            owner,
+            repo,
+            parse_minisign_pub(PINNED_PUB),
+        )
+    }
+
+    fn with_keys(
+        http: Box<dyn HttpGet>,
+        installer: Box<dyn Installer>,
+        api_base: String,
+        owner: String,
+        repo: String,
+        pinned_keys: Vec<String>,
+    ) -> Self {
         let api_base = api_base.trim_end_matches('/').to_string();
         let host = api_base
             .trim_end_matches("/api/v1")
@@ -146,6 +174,7 @@ impl UpdateService {
             download_base,
             owner,
             repo,
+            pinned_keys,
             cache: Mutex::new(None),
         }
     }
@@ -186,7 +215,9 @@ impl UpdateService {
             return Ok(info);
         };
 
-        let checksum = self.fetch_checksum(&rel.tag_name, &binary)?;
+        let checksum = self
+            .fetch_signed_checksum(&rel.tag_name, &binary)
+            .unwrap_or_default();
         let latest_ver = strip_tag(&rel.tag_name);
         let available = version_newer(&latest_ver, current_version);
         let info = UpdateInfo {
@@ -202,24 +233,22 @@ impl UpdateService {
         Ok(info)
     }
 
-    fn fetch_checksum(&self, tag: &str, binary: &str) -> Result<String, UpdateError> {
-        let url = format!("{}/download/{tag}/SHA256SUMS.txt", self.download_base);
-        let Ok((status, body)) = self.http.get(&url) else {
-            return Ok(String::new());
+    fn fetch_signed_checksum(&self, tag: &str, binary: &str) -> Result<String, UpdateError> {
+        let sums_url = format!("{}/download/{tag}/SHA256SUMS.txt", self.download_base);
+        let sig_url = format!("{}/download/{tag}/SHA256SUMS.txt.minisig", self.download_base);
+        let (sums_status, sums) = self.http.get(&sums_url)?;
+        if sums_status != 200 {
+            return Err(UpdateError::MissingChecksum);
+        }
+        let (sig_status, sig) = match self.http.get(&sig_url) {
+            Ok(v) => v,
+            Err(_) => return Err(UpdateError::MissingSignature),
         };
-        if status != 200 {
-            return Ok(String::new());
+        if sig_status != 200 {
+            return Err(UpdateError::MissingSignature);
         }
-        let text = String::from_utf8_lossy(&body);
-        for line in text.lines() {
-            let mut parts = line.split_whitespace();
-            let Some(sum) = parts.next() else { continue };
-            let Some(name) = parts.next() else { continue };
-            if name.contains(binary) {
-                return Ok(sum.to_string());
-            }
-        }
-        Ok(String::new())
+        verify_sums_signature(&self.pinned_keys, &sums, &sig)?;
+        checksum_for_binary(&sums, binary)
     }
 
     pub fn apply(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
@@ -227,9 +256,7 @@ impl UpdateService {
         if !info.update_available {
             return Err(UpdateError::NoneAvailable);
         }
-        if info.checksum.is_empty() {
-            return Err(UpdateError::MissingChecksum);
-        }
+        let checksum = self.fetch_signed_checksum(&info.latest_version, &info.binary_name)?;
         let url = format!(
             "{}/download/{}/{}",
             self.download_base, info.latest_version, info.binary_name
@@ -241,12 +268,47 @@ impl UpdateService {
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         let actual = hex_lower(&hasher.finalize());
-        if actual != info.checksum {
+        if actual != checksum {
             return Err(UpdateError::Checksum);
         }
         self.installer.install_lunad(&bytes)?;
         Ok(info)
     }
+}
+
+fn parse_minisign_pub(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("untrusted comment"))
+        .filter(|l| l.starts_with("RW"))
+        .map(|s| s.to_string())
+        .collect()
+}
+
+fn verify_sums_signature(keys: &[String], sums: &[u8], sig: &[u8]) -> Result<(), UpdateError> {
+    let sig_text = std::str::from_utf8(sig).map_err(|_| UpdateError::BadSignature)?;
+    let signature = Signature::decode(sig_text).map_err(|_| UpdateError::BadSignature)?;
+    for k in keys {
+        if let Ok(pk) = PublicKey::from_base64(k)
+            && pk.verify(sums, &signature, false).is_ok()
+        {
+            return Ok(());
+        }
+    }
+    Err(UpdateError::BadSignature)
+}
+
+fn checksum_for_binary(sums: &[u8], binary: &str) -> Result<String, UpdateError> {
+    let text = String::from_utf8_lossy(sums);
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(sum) = parts.next() else { continue };
+        let Some(name) = parts.next() else { continue };
+        if name.contains(binary) {
+            return Ok(sum.to_string());
+        }
+    }
+    Err(UpdateError::MissingChecksum)
 }
 
 #[derive(Debug, Deserialize)]
@@ -314,7 +376,9 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use minisign::KeyPair;
     use std::collections::HashMap;
+    use std::io::Cursor;
     use std::sync::Mutex;
 
     struct MapHttp {
@@ -350,12 +414,50 @@ mod tests {
         format!("[{}]", items.join(",")).into_bytes()
     }
 
+    fn ephemeral_sign(sums: &[u8]) -> (String, Vec<u8>) {
+        let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
+        let pk_line = pk.to_base64();
+        let sig = minisign::sign(
+            None,
+            &sk,
+            Cursor::new(sums),
+            None,
+            None,
+        )
+        .unwrap();
+        (pk_line, sig.to_string().into_bytes())
+    }
+
+    fn svc_with(
+        map: HashMap<String, (u16, Vec<u8>)>,
+        installer: Box<dyn Installer>,
+        pk: String,
+    ) -> UpdateService {
+        UpdateService::with_keys(
+            Box::new(MapHttp { map }),
+            installer,
+            "http://forgejo.test/api/v1".into(),
+            "LibreLoom".into(),
+            "LibreServ".into(),
+            vec![pk],
+        )
+    }
+
+    #[test]
+    fn pinned_pub_parses() {
+        assert!(
+            !parse_minisign_pub(PINNED_PUB).is_empty(),
+            "keys/releases.minisign.pub must contain an RW public key line"
+        );
+    }
+
     #[test]
     fn discovers_newest_luna_tag_and_ignores_libreserv_tags() {
         let api = "http://forgejo.test/api/v1";
         let list = format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50");
-        let sums =
+        let sums_url =
             "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt";
+        let sig_url = "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig";
         let bin = binary_name();
         let payload = b"fake-lunad-bytes";
         let sum = {
@@ -363,6 +465,8 @@ mod tests {
             h.update(payload);
             hex_lower(&h.finalize())
         };
+        let sums = format!("{sum}  {bin}\n");
+        let (pk, sig) = ephemeral_sign(sums.as_bytes());
         let mut map = HashMap::new();
         map.insert(
             list,
@@ -371,18 +475,14 @@ mod tests {
                 json_releases(&["v1.9.0", "luna-v0.1.0", "luna-v0.2.0", "connect-2.0.0"]),
             ),
         );
-        map.insert(
-            sums.to_string(),
-            (200, format!("{sum}  {bin}\n").into_bytes()),
-        );
-        let svc = UpdateService::new(
-            Box::new(MapHttp { map }),
+        map.insert(sums_url.to_string(), (200, sums.into_bytes()));
+        map.insert(sig_url.to_string(), (200, sig));
+        let svc = svc_with(
+            map,
             Box::new(RecInstaller {
                 got: Mutex::new(Vec::new()),
             }),
-            api.into(),
-            "LibreLoom".into(),
-            "LibreServ".into(),
+            pk,
         );
         let info = svc.check("0.1.0", true).unwrap();
         assert_eq!(info.latest_version, "luna-v0.2.0");
@@ -392,7 +492,6 @@ mod tests {
 
     #[test]
     fn apply_requires_matching_checksum() {
-        let api = "http://forgejo.test/api/v1";
         let bin = binary_name();
         let payload = b"good-bytes";
         let sum = {
@@ -400,6 +499,8 @@ mod tests {
             h.update(payload);
             hex_lower(&h.finalize())
         };
+        let sums = format!("{sum}  {bin}\n");
+        let (pk, sig) = ephemeral_sign(sums.as_bytes());
         let got = std::sync::Arc::new(Mutex::new(Vec::new()));
         struct ArcInst(std::sync::Arc<Mutex<Vec<u8>>>);
         impl Installer for ArcInst {
@@ -410,57 +511,117 @@ mod tests {
         }
         let mut map = HashMap::new();
         map.insert(
-            format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50"),
+            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
             (200, json_releases(&["luna-v0.2.0"])),
         );
         map.insert(
             "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
                 .into(),
-            (200, format!("{sum}  {bin}\n").into_bytes()),
+            (200, sums.into_bytes()),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
+                .into(),
+            (200, sig),
         );
         map.insert(
             format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
             (200, payload.to_vec()),
         );
-        let svc = UpdateService::new(
-            Box::new(MapHttp { map }),
-            Box::new(ArcInst(got.clone())),
-            api.into(),
-            "LibreLoom".into(),
-            "LibreServ".into(),
-        );
+        let svc = svc_with(map, Box::new(ArcInst(got.clone())), pk);
         svc.apply("0.1.0").unwrap();
         assert_eq!(*got.lock().unwrap(), payload);
     }
 
     #[test]
     fn apply_rejects_bad_checksum() {
-        let api = "http://forgejo.test/api/v1";
         let bin = binary_name();
+        let sums = format!("deadbeef  {bin}\n");
+        let (pk, sig) = ephemeral_sign(sums.as_bytes());
         let mut map = HashMap::new();
         map.insert(
-            format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50"),
+            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
             (200, json_releases(&["luna-v0.2.0"])),
         );
         map.insert(
             "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
                 .into(),
-            (200, format!("deadbeef  {bin}\n").into_bytes()),
+            (200, sums.into_bytes()),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
+                .into(),
+            (200, sig),
         );
         map.insert(
             format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
             (200, b"tampered".to_vec()),
         );
-        let svc = UpdateService::new(
-            Box::new(MapHttp { map }),
+        let svc = svc_with(
+            map,
             Box::new(RecInstaller {
                 got: Mutex::new(Vec::new()),
             }),
-            api.into(),
-            "LibreLoom".into(),
-            "LibreServ".into(),
+            pk,
         );
         assert_eq!(svc.apply("0.1.0").unwrap_err(), UpdateError::Checksum);
+    }
+
+    #[test]
+    fn apply_rejects_missing_signature() {
+        let bin = binary_name();
+        let mut map = HashMap::new();
+        map.insert(
+            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
+            (200, json_releases(&["luna-v0.2.0"])),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
+                .into(),
+            (200, format!("abc  {bin}\n").into_bytes()),
+        );
+        let svc = svc_with(
+            map,
+            Box::new(RecInstaller {
+                got: Mutex::new(Vec::new()),
+            }),
+            "RWnotarealkey".into(),
+        );
+        assert_eq!(
+            svc.apply("0.1.0").unwrap_err(),
+            UpdateError::MissingSignature
+        );
+    }
+
+    #[test]
+    fn apply_rejects_wrong_key() {
+        let bin = binary_name();
+        let sums = format!("deadbeef  {bin}\n");
+        let (_pk, sig) = ephemeral_sign(sums.as_bytes());
+        let other = ephemeral_sign(b"other").0;
+        let mut map = HashMap::new();
+        map.insert(
+            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
+            (200, json_releases(&["luna-v0.2.0"])),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
+                .into(),
+            (200, sums.into_bytes()),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
+                .into(),
+            (200, sig),
+        );
+        let svc = svc_with(
+            map,
+            Box::new(RecInstaller {
+                got: Mutex::new(Vec::new()),
+            }),
+            other,
+        );
+        assert_eq!(svc.apply("0.1.0").unwrap_err(), UpdateError::BadSignature);
     }
 
     #[test]
