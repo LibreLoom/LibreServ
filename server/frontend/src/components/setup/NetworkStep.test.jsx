@@ -143,7 +143,7 @@ describe("NetworkStep", () => {
     mount();
 
     expect(await screen.findByText("Not available")).toBeTruthy();
-    expect(await screen.findByText(/plug a cable into the back of libreserv/i)).toBeTruthy();
+    expect(await screen.findByText(/plug the included rj45 \(ethernet\) cable into the back of libreserv/i)).toBeTruthy();
     // No modal entry and no exit — only the cable gets the device online.
     expect(screen.queryByRole("button", { name: /^connect to wi-fi$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^continue$/i })).toBeNull();
