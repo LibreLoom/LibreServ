@@ -22,5 +22,7 @@ describe("ProtectionPage", () => {
     );
     expect(await screen.findByText("Nothing protected yet")).toBeInTheDocument();
     expect(screen.getByText("A free second copy")).toBeInTheDocument();
+    expect(screen.getByText(/If you delete a file by accident, the copy stays/i)).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="page-lead"]')).toBeNull();
   });
 });

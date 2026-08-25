@@ -22,5 +22,7 @@ describe("SharesPage", () => {
     );
     expect(await screen.findByText("No links yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Share something/i })).toBeInTheDocument();
+    expect(screen.getByText(/they do not need a Luna account/i)).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="page-lead"]')).toBeNull();
   });
 });

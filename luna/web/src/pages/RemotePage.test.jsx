@@ -24,6 +24,8 @@ describe("RemotePage", () => {
     expect(await screen.findByRole("button", { name: /Save code/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Use booklet code/i })).toBeTruthy();
     expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
+    expect(screen.getByText(/free forever/i)).toBeTruthy();
+    expect(document.querySelector('[data-slot="page-lead"]')).toBeNull();
   });
 
   it("shows hostname and change field when on", async () => {
@@ -39,5 +41,7 @@ describe("RemotePage", () => {
     expect(await screen.findByText("photos.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Save new address/i })).toBeTruthy();
+    expect(screen.getByText(/free forever/i)).toBeTruthy();
+    expect(document.querySelector('[data-slot="page-lead"]')).toBeNull();
   });
 });

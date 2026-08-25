@@ -46,12 +46,12 @@ export default function ProtectionPage() {
     <Page
       title="Protect a folder"
       titleId="protect-title"
-      bottomContent={<p className="text-sm">This keeps a second copy on another drive. If you delete a file by accident, the copy stays.</p>}
     >
       <SettingsCard icon={ShieldCheck} title="A free second copy">
         {tooFewDrives ? (
           <>
             <p className="text-primary text-sm">
+              This keeps a second copy on another drive. If you delete a file by accident, the copy stays.
               You need two drives plugged in: one with the folder, and another for the copy.
               Add a second drive on Drives first.
             </p>
@@ -65,6 +65,7 @@ export default function ProtectionPage() {
           <>
             <p className="text-primary text-sm">
               Choose the folder to keep safe, then a different drive for the copy.
+              If you delete a file by accident, the copy on the other drive stays.
               Type the folder the way it looks on Files — for example family.
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-3">

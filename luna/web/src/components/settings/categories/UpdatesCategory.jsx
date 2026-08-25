@@ -45,6 +45,7 @@ export default function UpdatesCategory() {
         {info.update_available
           ? ` A newer version (${info.latest_version}) is ready.`
           : " You're on the latest Luna software."}
+        {" "}Updates only install when you tap the button — Luna never installs them on its own.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         <Button variant="outline" loading={check.isPending} onClick={() => check.mutate()}>

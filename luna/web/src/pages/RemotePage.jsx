@@ -43,9 +43,7 @@ export default function RemotePage() {
   const address = host ? (host.includes("://") ? host : `https://${host}`) : "";
 
   return (
-    <Page title="Remote access" titleId="remote-title"
-      bottomContent={<p className="text-sm">Pick a name at connect.luna.libreloom.org. The address is free forever.</p>}
-    >
+    <Page title="Remote access" titleId="remote-title">
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-5 md:grid-cols-2">
         <SettingsCard icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
@@ -54,7 +52,8 @@ export default function RemotePage() {
               <p className="text-primary text-sm">
                 Your Luna is reachable anywhere at{" "}
                 <span className="font-mono">{host || "your Luna address"}</span>.
-                Open that address on a phone or computer the same way you open Luna at home, then sign in. That sign-in is a Luna account, not your Luna Connect account.
+                That address is free forever.
+                Open it on a phone or computer the same way you open Luna at home, then sign in. That sign-in is a Luna account, not your Luna Connect account.
               </p>
               {address && (
                 <Button
@@ -93,7 +92,7 @@ export default function RemotePage() {
           ) : (
             <div className="space-y-3">
               <p className="text-primary text-sm">
-                Code from the Luna Connect site. If you bought Luna, the booklet code is already on this disk — tap Use booklet code. If you set this computer up yourself, paste the short code from the website.
+                Pick a name at connect.luna.libreloom.org. That address is free forever.
               </p>
               <SettingsRow
                 label="Code from the Luna Connect site"

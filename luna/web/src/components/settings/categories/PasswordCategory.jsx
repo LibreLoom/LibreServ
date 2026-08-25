@@ -21,7 +21,7 @@ export default function PasswordCategory() {
         ))}
       </ol>
       <p className="mt-4 text-sm text-primary">
-        This only works with a keyboard plugged into Luna. Nobody can reset the password over the internet.
+        Keep this card somewhere safe. This only works with a keyboard plugged into Luna. Nobody can reset the password over the internet.
       </p>
     </SettingsCard>
   );

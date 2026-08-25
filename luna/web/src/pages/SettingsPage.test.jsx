@@ -98,6 +98,7 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("heading", { level: 1, name: RECOVERY_CARD.title })).toBeTruthy();
     expect(screen.getByText(/Plug a USB keyboard into Luna/i)).toBeTruthy();
     expect(screen.getByText(/Press Esc, then type luna, then press Enter/i)).toBeTruthy();
+    expect(screen.getByText(/Keep this card somewhere safe/i)).toBeTruthy();
   });
 
   it("keeps sign-out, tokens, and updates behind their own categories", async () => {
@@ -116,6 +117,7 @@ describe("SettingsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /Software updates/i }));
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
+    expect(screen.getByText(/Updates only install when you tap the button/i)).toBeTruthy();
   });
 
   it("hides admin-only categories from a member", async () => {

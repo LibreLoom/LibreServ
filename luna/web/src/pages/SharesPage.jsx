@@ -33,7 +33,6 @@ export default function SharesPage() {
     <Page
       title="Links"
       titleId="shares-title"
-      bottomContent={<p className="text-sm">Send a link so someone can download files without a Luna account. You can add a password and an expiry date.</p>}
       rightContent={<Button size="sm" variant="primary" onClick={() => { setError(null); setCreating(true); }}><Link2 size={14} /> Share something</Button>}
     >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
