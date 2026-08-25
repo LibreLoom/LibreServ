@@ -2,11 +2,24 @@ package security
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 	"time"
 )
+
+// ConstantTimeEqual compares two secrets without leaking their contents via
+// early-exit or case-folding. Empty values never match.
+func ConstantTimeEqual(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
+}
 
 // GenerateToken creates a cryptographically random token with a prefix.
 func GenerateToken(prefix string) string {
