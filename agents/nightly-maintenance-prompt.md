@@ -21,8 +21,8 @@ worth shipping. If nothing needs doing, say so and exit. Never manufacture work.
 ## The repo is a multi-codebase monorepo — DISCOVER, never assume
 
 This repo contains several independent codebases: the `server/` Go backend +
-React frontend, the `connect/` Go module, `ci-source/`
-Go CI tooling, `e2e-tests/` Playwright, and `luna/` (a Rust workspace with
+React frontend, the `connect/` Go module, `luna-connect/`, `ci-source/`
+Go CI tooling, and `luna/` (a Rust workspace with
 `crates/`, a Tauri desktop app, an npm `web/`, and an Android Gradle `mobile/`).
 **This list will grow.** You must NOT rely on a fixed list of manifests, CI
 scripts, or doc paths — scan the tree fresh on every run and discover them
@@ -93,7 +93,7 @@ otherwise flag with a diagnosis (see ground rule 4).
 - Review commits since the last run (use `LAST_RUN_SHA`, else the last 24h on
   `origin/main`).
 - Discover every doc in the tree: `docs/`, root `.md` files, `AGENTS.md`, and
-  per-codebase docs (`connect/*.md`, `luna/` README/PROGRESS files, …). Exclude generated/vendored docs.
+  per-codebase docs (`connect/README.md`, `luna-connect/README.md`, `luna/README.md`, …). Exclude generated/vendored docs.
 - For every changed symbol / endpoint / config key / Makefile target / CI script,
   check whether any doc references it and whether the reference is still true.
   Fix stale docs in the same commits as the code that invalidated them.
@@ -101,9 +101,9 @@ otherwise flag with a diagnosis (see ground rule 4).
   in an updated tool).
 - If a doc describes a feature that no longer exists, that is a FINDING to report
   in the PR body — not a silent line edit. User-facing docs follow the
-  plain-language rule; internal docs (DEVELOPER_GUIDE, SCRIPT_DEVELOPMENT_GUIDE,
-  app format docs, per-codebase README/PROGRESS) must match the code they
-  describe.
+  plain-language rule; remaining internal docs (AGENTS.md, docs/RELEASE.md,
+  per-codebase READMEs) must match the code they
+  describe. Prefer deleting a false doc over rewriting it.
 - If a codebase ships with no docs at all, note that as a finding — do not
   fabricate documentation.
 
