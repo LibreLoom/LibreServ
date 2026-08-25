@@ -13,12 +13,11 @@ use exif::{In, Reader, Tag, Value};
 /// DateTime. Falls back to `None` when the file has no usable EXIF date.
 pub fn capture_unix(path: &Path) -> Option<i64> {
     if crate::heif::is_heif(path) {
-        if let Ok(bytes) = std::fs::read(path) {
-            if let Some(exif) = crate::heif::exif_tiff_from_heif(&bytes) {
-                if let Some(ts) = unix_from_tiff_bytes(&exif) {
-                    return Some(ts);
-                }
-            }
+        if let Ok(bytes) = std::fs::read(path)
+            && let Some(exif) = crate::heif::exif_tiff_from_heif(&bytes)
+            && let Some(ts) = unix_from_tiff_bytes(&exif)
+        {
+            return Some(ts);
         }
         return None;
     }
@@ -36,10 +35,10 @@ pub fn unix_from_tiff_bytes(tiff: &[u8]) -> Option<i64> {
 
 fn unix_from_exif(exif: &exif::Exif) -> Option<i64> {
     for tag in [Tag::DateTimeOriginal, Tag::DateTimeDigitized, Tag::DateTime] {
-        if let Some(field) = exif.get_field(tag, In::PRIMARY) {
-            if let Some(ts) = parse_exif_datetime(&value_as_ascii(&field.value)) {
-                return Some(ts);
-            }
+        if let Some(field) = exif.get_field(tag, In::PRIMARY)
+            && let Some(ts) = parse_exif_datetime(&value_as_ascii(&field.value))
+        {
+            return Some(ts);
         }
     }
     None
@@ -90,38 +89,12 @@ fn civil_to_unix(year: i32, month: u32, day: u32, hour: u32, min: u32, sec: u32)
     Some(days * 86400 + hour as i64 * 3600 + min as i64 * 60 + sec as i64)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_exif_ascii_as_utc() {
-        assert_eq!(
-            parse_exif_datetime("2020:01:15 12:30:00"),
-            Some(1_579_091_400)
-        );
-        assert_eq!(parse_exif_datetime("not a date"), None);
-        assert_eq!(parse_exif_datetime(""), None);
-    }
-
-    #[test]
-    fn jpeg_exif_fixture_uses_capture_date() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("phone.jpg");
-        std::fs::write(&path, jpeg_with_datetime_original("2018:06:01 08:09:10")).unwrap();
-        assert_eq!(
-            capture_unix(&path),
-            parse_exif_datetime("2018:06:01 08:09:10")
-        );
-    }
-}
-
 /// Minimal JPEG with an APP1 Exif IFD containing DateTimeOriginal.
 #[cfg(test)]
 pub fn jpeg_with_datetime_original(ascii: &str) -> Vec<u8> {
     let mut ascii_bytes = ascii.as_bytes().to_vec();
     ascii_bytes.push(0);
-    while ascii_bytes.len() % 2 != 0 {
+    while !ascii_bytes.len().is_multiple_of(2) {
         ascii_bytes.push(0);
     }
     // TIFF little-endian: IFD0 with ExifOffset -> Exif IFD with DateTimeOriginal.
@@ -175,4 +148,30 @@ pub fn jpeg_with_datetime_original(ascii: &str) -> Vec<u8> {
     // only needs APP1; image crate is not used in the EXIF test.
     jpeg.extend_from_slice(&[0xFF, 0xD9]);
     jpeg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_exif_ascii_as_utc() {
+        assert_eq!(
+            parse_exif_datetime("2020:01:15 12:30:00"),
+            Some(1_579_091_400)
+        );
+        assert_eq!(parse_exif_datetime("not a date"), None);
+        assert_eq!(parse_exif_datetime(""), None);
+    }
+
+    #[test]
+    fn jpeg_exif_fixture_uses_capture_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phone.jpg");
+        std::fs::write(&path, jpeg_with_datetime_original("2018:06:01 08:09:10")).unwrap();
+        assert_eq!(
+            capture_unix(&path),
+            parse_exif_datetime("2018:06:01 08:09:10")
+        );
+    }
 }

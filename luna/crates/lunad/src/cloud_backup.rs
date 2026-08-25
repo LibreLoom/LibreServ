@@ -29,13 +29,12 @@ pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &rus
                 }
             }
             "drive" => {
-                if let Some(id) = source.get("drive_id").and_then(|v| v.as_str()) {
-                    if let Ok(Some(drive)) = db::get_drive(db, id) {
-                        if !drive.mount_point.is_empty() {
-                            let prefix = drive.label.replace('/', "_");
-                            sync_tree(connect, Path::new(&drive.mount_point), &prefix);
-                        }
-                    }
+                if let Some(id) = source.get("drive_id").and_then(|v| v.as_str())
+                    && let Ok(Some(drive)) = db::get_drive(db, id)
+                    && !drive.mount_point.is_empty()
+                {
+                    let prefix = drive.label.replace('/', "_");
+                    sync_tree(connect, Path::new(&drive.mount_point), &prefix);
                 }
             }
             _ => {}

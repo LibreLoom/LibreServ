@@ -165,15 +165,15 @@ impl Mounter for MockMounter {
         }
         std::fs::create_dir_all(target)?;
         // Restore shadowed contents from a previous unmount of this path.
-        if let Some(shadow) = self.shadows.lock().unwrap().remove(target) {
-            if shadow.is_dir() {
-                for entry in std::fs::read_dir(&shadow)? {
-                    let entry = entry?;
-                    let dest = target.join(entry.file_name());
-                    std::fs::rename(entry.path(), dest)?;
-                }
-                let _ = std::fs::remove_dir_all(&shadow);
+        if let Some(shadow) = self.shadows.lock().unwrap().remove(target)
+            && shadow.is_dir()
+        {
+            for entry in std::fs::read_dir(&shadow)? {
+                let entry = entry?;
+                let dest = target.join(entry.file_name());
+                std::fs::rename(entry.path(), dest)?;
             }
+            let _ = std::fs::remove_dir_all(&shadow);
         }
         self.mounts
             .lock()

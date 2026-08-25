@@ -40,13 +40,13 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         }
         lines.push("    luna.local  — if your phone finds it".into());
     }
-    if snap.unclaimed {
-        if let Some(code) = &snap.setup_code {
-            lines.push(String::new());
-            lines.push("  Device code (same as the booklet):".into());
-            lines.push(format!("    {code}"));
-            lines.push("  Type it at connect.luna.libreloom.org".into());
-        }
+    if snap.unclaimed
+        && let Some(code) = &snap.setup_code
+    {
+        lines.push(String::new());
+        lines.push("  Device code (same as the booklet):".into());
+        lines.push(format!("    {code}"));
+        lines.push("  Type it at connect.luna.libreloom.org".into());
     }
     if let Some(host) = &snap.connect_hostname {
         lines.push(String::new());

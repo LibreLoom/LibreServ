@@ -220,7 +220,7 @@ const DEFAULT_IGNORED_SVG_DIRS = new Set(["assets", "public"]);
 const hexRe = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
 const rgbRe = /\brgba?\(\s*[^)]*\)/g;
 const hslRe = /\bhsla?\(\s*[^)]*\)/g;
-const colorFnRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*[^)]*\)/g;
+const colorFnRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(((?:[^()]|\([^()]*\))*)\)/g;
 const keywordRe = new RegExp(
   `(?:^|[^a-zA-Z-])(${COLOR_KEYWORDS.join("|")})(?=$|[^a-zA-Z-])`,
   "gi",
@@ -233,7 +233,7 @@ const tailwindArbitraryRe =
 const hexTestRe = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/i;
 const rgbTestRe = /\brgba?\(\s*[^)]*\)/i;
 const hslTestRe = /\bhsla?\(\s*[^)]*\)/i;
-const colorFnTestRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*[^)]*\)/i;
+const colorFnTestRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(((?:[^()]|\([^()]*\))*)\)/i;
 const keywordTestRe = new RegExp(
   `(?:^|[^a-zA-Z-])(${COLOR_KEYWORDS.join("|")})(?=$|[^a-zA-Z-])`,
   "i",
@@ -418,7 +418,9 @@ function scanTextForColors({
   scanRegex(textHexRe, (match) => match[0]);
   scanRegex(textRgbRe, (match) => match[0]);
   scanRegex(textHslRe, (match) => match[0]);
-  scanRegex(textColorFnRe, (match) => match[0]);
+  scanRegex(textColorFnRe, (match) =>
+    hasHardcodedColorValue(match[0]) ? match[0] : null,
+  );
   scanRegex(textKeywordRe, (match) => {
     const keyword = match[1]?.toLowerCase();
     if (!keyword || ALLOWED_KEYWORDS.has(keyword)) {
@@ -620,6 +622,9 @@ function scanLine(
     );
   }
   while ((match = colorFnRe.exec(strippedLine)) !== null) {
+    if (!hasHardcodedColorValue(match[0])) {
+      continue;
+    }
     recordMatch(
       results,
       filePath,
@@ -920,7 +925,7 @@ function hasHardcodedColorValue(value) {
   if (tailwindThemeTestRe.test(value)) return true;
 
   if (colorFnTestRe.test(value)) {
-    const colorFnMatchRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*([^)]+)\)/gi;
+    const colorFnMatchRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*((?:[^()]|\([^()]*\))*)\)/gi;
     let match;
     while ((match = colorFnMatchRe.exec(value)) !== null) {
       const inner = match[1] || "";

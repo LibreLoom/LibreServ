@@ -49,13 +49,13 @@ async fn timeline(
             "Luna's index is busy. Try again.",
         )
     })?;
-    if let Some(drive_id) = query.drive_id.as_deref() {
-        if !crate::auth::has_drive_access(&user, &conn, drive_id) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to view this drive.",
-            ));
-        }
+    if let Some(drive_id) = query.drive_id.as_deref()
+        && !crate::auth::has_drive_access(&user, &conn, drive_id)
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this drive.",
+        ));
     }
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
     let offset = query.offset.unwrap_or(0);
