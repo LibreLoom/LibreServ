@@ -349,24 +349,101 @@ impl DriveManager {
 
     /// Stop managing a drive: remove the `.luna` marker (when present) and
     /// forget the DB row. Files on the drive are left alone.
+    ///
+    /// If Luna already ejected (unmounted) the drive, this remounts it long
+    /// enough to delete the sticker. If the drive is unplugged, Remove fails
+    /// and the DB row is left alone so the sticker is never silently skipped.
     pub fn remove(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
-        if !drive.mount_point.is_empty() {
-            let root = Path::new(&drive.mount_point);
-            if root.is_dir() {
-                remove_marker(root).map_err(|e| {
-                    anyhow::anyhow!("Luna couldn't remove its sticker file from this drive. {e}")
-                })?;
+        let (root, remounted) = self.mount_for_remove(&drive)?;
+        remove_marker(&root).map_err(|e| {
+            if remounted {
+                let _ = self.mounter.unmount(&root);
+                let _ = std::fs::remove_dir(&root);
             }
-            if self.is_ours(root) {
-                let _ = self.mounter.unmount(root);
-                let _ = std::fs::remove_dir(root);
-            }
+            anyhow::anyhow!("Luna couldn't remove its sticker file from this drive. {e}")
+        })?;
+        if remounted || self.is_ours(&root) {
+            let _ = self.mounter.unmount(&root);
+            let _ = std::fs::remove_dir(&root);
         }
         db::delete_drive_cascade(conn, id)?;
         Ok(())
+    }
+
+    /// Return a live mount root for removing the marker. Remounts a
+    /// Luna-owned path when eject (or a crash) left the mount point empty.
+    fn mount_for_remove(&self, drive: &db::DriveRow) -> anyhow::Result<(PathBuf, bool)> {
+        if !drive.mount_point.is_empty() {
+            let existing = PathBuf::from(&drive.mount_point);
+            if existing.is_dir() {
+                // Confirm we can see the drive root (not just an empty leftover dir
+                // after umount). Prefer remounting Luna-owned paths that no longer
+                // show a marker and have no other top-level entries.
+                if !self.is_ours(&existing)
+                    || luna_core::marker::read_marker(&existing)
+                        .ok()
+                        .flatten()
+                        .is_some()
+                    || std::fs::read_dir(&existing)
+                        .map(|mut d| d.next().is_some())
+                        .unwrap_or(false)
+                {
+                    return Ok((existing, false));
+                }
+            }
+        }
+
+        if drive.device.is_empty() {
+            anyhow::bail!(
+                "Plug the drive back in so Luna can remove its sticker file, then try again."
+            );
+        }
+
+        let device = DetectedDrive {
+            name: drive.device.clone(),
+            model: drive.label.clone(),
+            size_bytes: 0,
+            removable: true,
+            usb: true,
+            mount_point: None,
+            fs_type: if drive.fs_type.is_empty() {
+                None
+            } else {
+                Some(drive.fs_type.clone())
+            },
+            mount_readonly: false,
+        };
+        let choice = self.choice_for(&device);
+        let target = if !drive.mount_point.is_empty() && self.is_ours(Path::new(&drive.mount_point))
+        {
+            PathBuf::from(&drive.mount_point)
+        } else {
+            self.adopted_mount_point(&drive.id)
+        };
+        // Clear a stale empty mount dir left behind after eject.
+        if target.exists() {
+            let _ = std::fs::remove_dir(&target);
+        }
+        self.mounter
+            .mount_typed(
+                &device_path(&choice.name),
+                &target,
+                false,
+                fs_opt(if choice.fs_type.is_empty() {
+                    drive.fs_type.as_str()
+                } else {
+                    choice.fs_type.as_str()
+                }),
+            )
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "Plug the drive back in so Luna can remove its sticker file, then try again."
+                )
+            })?;
+        Ok((target, true))
     }
 
     /// Check every adopted drive is still writable. Drives that fail a safe
@@ -678,6 +755,60 @@ mod tests {
         assert_eq!(
             std::fs::read(existing.join("keep-me.txt")).unwrap(),
             b"hello"
+        );
+    }
+
+    #[test]
+    fn remove_after_eject_remounts_and_clears_marker() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Photos Drive", false)
+            .unwrap();
+        let mount = PathBuf::from(&row.mount_point);
+        assert!(luna_core::marker::read_marker(&mount).unwrap().is_some());
+
+        mgr.eject(&conn, &row.id).unwrap();
+        assert!(
+            !mount.exists(),
+            "eject must clear the Luna mount point like a real umount"
+        );
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "ejected"
+        );
+
+        let mounts_before = mounter.mount_count();
+        mgr.remove(&conn, &row.id).unwrap();
+        assert!(
+            mounter.mount_count() > mounts_before,
+            "remove must remount after eject to reach the sticker"
+        );
+        assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
+        assert!(!mount.exists() || !mount.join(".luna").exists());
+    }
+
+    #[test]
+    fn remove_after_eject_keeps_db_when_remount_fails() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Photos Drive", false)
+            .unwrap();
+        mgr.eject(&conn, &row.id).unwrap();
+        *mounter.fail_mount.lock().unwrap() = true;
+
+        let err = mgr.remove(&conn, &row.id).unwrap_err().to_string();
+        assert!(err.contains("Plug the drive back in"));
+        assert!(
+            db::get_drive(&conn, &row.id).unwrap().is_some(),
+            "DB row must remain when the sticker cannot be removed"
         );
     }
 

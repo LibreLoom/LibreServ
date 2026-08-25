@@ -131,12 +131,16 @@ fn try_ntfs3g(device: &str, target: &Path, read_only: bool) -> anyhow::Result<bo
 
 /// Mounter that records calls and materializes mount points as directories.
 /// Used by unit tests; never touches a real kernel mount table.
+///
+/// Unmount shadows directory contents (like a real umount hiding the
+/// filesystem), and the next mount to the same path restores them.
 #[derive(Debug, Default)]
 pub struct MockMounter {
     pub mounts: std::sync::Mutex<Vec<(String, PathBuf, bool)>>,
     pub unmounts: std::sync::Mutex<Vec<PathBuf>>,
     pub remounts: std::sync::Mutex<Vec<(PathBuf, bool)>>,
     pub fail_mount: std::sync::Mutex<bool>,
+    shadows: std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>>,
 }
 
 impl MockMounter {
@@ -145,12 +149,32 @@ impl MockMounter {
     }
 }
 
+fn shadow_path_for(target: &Path) -> PathBuf {
+    let mut name = target
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(".shadow");
+    target.parent().unwrap_or_else(|| Path::new(".")).join(name)
+}
+
 impl Mounter for MockMounter {
     fn mount(&self, device: &str, target: &Path, read_only: bool) -> anyhow::Result<()> {
         if *self.fail_mount.lock().unwrap() {
             return Err(anyhow::anyhow!("mock mount failure"));
         }
         std::fs::create_dir_all(target)?;
+        // Restore shadowed contents from a previous unmount of this path.
+        if let Some(shadow) = self.shadows.lock().unwrap().remove(target) {
+            if shadow.is_dir() {
+                for entry in std::fs::read_dir(&shadow)? {
+                    let entry = entry?;
+                    let dest = target.join(entry.file_name());
+                    std::fs::rename(entry.path(), dest)?;
+                }
+                let _ = std::fs::remove_dir_all(&shadow);
+            }
+        }
         self.mounts
             .lock()
             .unwrap()
@@ -160,6 +184,19 @@ impl Mounter for MockMounter {
 
     fn unmount(&self, target: &Path) -> anyhow::Result<()> {
         self.unmounts.lock().unwrap().push(target.to_path_buf());
+        if target.is_dir() {
+            let shadow = shadow_path_for(target);
+            let _ = std::fs::remove_dir_all(&shadow);
+            std::fs::create_dir_all(&shadow)?;
+            for entry in std::fs::read_dir(target)? {
+                let entry = entry?;
+                std::fs::rename(entry.path(), shadow.join(entry.file_name()))?;
+            }
+            self.shadows
+                .lock()
+                .unwrap()
+                .insert(target.to_path_buf(), shadow);
+        }
         Ok(())
     }
 
