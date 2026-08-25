@@ -235,7 +235,10 @@ impl UpdateService {
 
     fn fetch_signed_checksum(&self, tag: &str, binary: &str) -> Result<String, UpdateError> {
         let sums_url = format!("{}/download/{tag}/SHA256SUMS.txt", self.download_base);
-        let sig_url = format!("{}/download/{tag}/SHA256SUMS.txt.minisig", self.download_base);
+        let sig_url = format!(
+            "{}/download/{tag}/SHA256SUMS.txt.minisig",
+            self.download_base
+        );
         let (sums_status, sums) = self.http.get(&sums_url)?;
         if sums_status != 200 {
             return Err(UpdateError::MissingChecksum);
@@ -417,14 +420,7 @@ mod tests {
     fn ephemeral_sign(sums: &[u8]) -> (String, Vec<u8>) {
         let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
         let pk_line = pk.to_base64();
-        let sig = minisign::sign(
-            None,
-            &sk,
-            Cursor::new(sums),
-            None,
-            None,
-        )
-        .unwrap();
+        let sig = minisign::sign(None, &sk, Cursor::new(sums), None, None).unwrap();
         (pk_line, sig.to_string().into_bytes())
     }
 

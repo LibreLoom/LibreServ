@@ -115,7 +115,7 @@ fn parse_iinf(payload: &[u8], ctx: &mut ParseCtx) {
         return;
     }
     let version = payload[0];
-    let mut off = 4;
+    let mut off;
     let count = if version == 0 {
         if payload.len() < 6 {
             return;
@@ -244,7 +244,7 @@ fn parse_iloc(payload: &[u8], ctx: &mut ParseCtx) {
             return;
         }
         p += 2; // data_reference_index
-        let base = read_sized(&payload, &mut p, base_offset_size).unwrap_or(0);
+        let base = read_sized(payload, &mut p, base_offset_size).unwrap_or(0);
         if p + 2 > payload.len() {
             return;
         }
@@ -254,10 +254,10 @@ fn parse_iloc(payload: &[u8], ctx: &mut ParseCtx) {
         let mut length = 0u64;
         for _ in 0..extent_count {
             if index_size > 0 {
-                let _ = read_sized(&payload, &mut p, index_size);
+                let _ = read_sized(payload, &mut p, index_size);
             }
-            offset = base + read_sized(&payload, &mut p, offset_size).unwrap_or(0);
-            length = read_sized(&payload, &mut p, length_size).unwrap_or(0);
+            offset = base + read_sized(payload, &mut p, offset_size).unwrap_or(0);
+            length = read_sized(payload, &mut p, length_size).unwrap_or(0);
         }
         if let Some(existing) = ctx.items.iter_mut().find(|i| i.item_id == item_id) {
             existing.method = method;

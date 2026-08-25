@@ -1024,14 +1024,18 @@ mod tests {
 
         assert!(get_drive(&conn, "d1").unwrap().is_none());
         let grants: i64 = conn
-            .query_row("SELECT COUNT(*) FROM grants WHERE drive_id = 'd1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM grants WHERE drive_id = 'd1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         let shares: i64 = conn
-            .query_row("SELECT COUNT(*) FROM shares WHERE drive_id = 'd1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM shares WHERE drive_id = 'd1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(grants, 0);
         assert_eq!(shares, 0);
