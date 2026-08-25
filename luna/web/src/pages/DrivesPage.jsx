@@ -128,7 +128,8 @@ export default function DrivesPage() {
   });
 
   const adopt = useMutation({
-    mutationFn: (/** @type {{ drive: any, label: string }} */ { drive, label }) => postJson(`/api/v1/drives/${drive.name}/adopt`, { label }),
+    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
+      postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
       setInspectFor(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
@@ -208,7 +209,7 @@ export default function DrivesPage() {
           error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
           onClose={() => { setInspectFor(null); inspect.reset(); }}
           onInspect={() => inspect.mutate(inspectFor)}
-          onAdopt={(label) => adopt.mutate({ drive: inspectFor, label })}
+          onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
           adoptError={adoptError}
           adopting={adopt.isPending}
         />
@@ -219,8 +220,10 @@ export default function DrivesPage() {
 
 function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdopt, adoptError, adopting }) {
   const [label, setLabel] = useState(drive.model || "My Drive");
+  const [confirmErase, setConfirmErase] = useState(false);
   const needsInspect = !result && !loading && !error;
   const canAdopt = Boolean(result);
+  const needsErase = Boolean(result?.needs_erase);
 
   return (
     <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
@@ -252,7 +255,17 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
             We found {result.folders} folders and {result.files} files on this
             drive{result.unreadable > 0 ? ` (${result.unreadable} could not be read)` : ""}.
           </p>
-          {result.has_marker ? (
+          {needsErase ? (
+            <div className="mt-4 flex items-center gap-3">
+              <TriangleAlert size={18} className="text-warning shrink-0" />
+              <p className="text-primary text-xs">
+                This USB still has the Luna installer on it. That kind of disk
+                cannot be changed. Luna can erase it and set it up for your
+                photos and files. Everything currently on it will be deleted,
+                including the installer.
+              </p>
+            </div>
+          ) : result.has_marker ? (
             <p className="text-primary text-sm mt-2">
               This drive was used with a Luna before. Add it here to keep using the
               files. Luna only updates its tiny sticker file.
@@ -279,9 +292,19 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
               </label>
               {adoptError && <p className="text-error text-xs mt-2">{adoptError}</p>}
               <div className="mt-4 flex gap-3">
-                <Button variant="primary" loading={adopting} onClick={() => onAdopt(label)}>
-                  Add this drive
-                </Button>
+                {needsErase && !confirmErase ? (
+                  <Button variant="danger" onClick={() => setConfirmErase(true)}>
+                    Erase and add this drive
+                  </Button>
+                ) : (
+                  <Button
+                    variant={needsErase ? "danger" : "primary"}
+                    loading={adopting}
+                    onClick={() => onAdopt(label, needsErase)}
+                  >
+                    {needsErase ? "Yes, erase it" : "Add this drive"}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={onClose}>Not now</Button>
               </div>
             </>

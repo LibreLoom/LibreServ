@@ -11,6 +11,7 @@ pub mod dhcp;
 pub mod drives;
 pub mod exif;
 pub mod files;
+pub mod fsprobe;
 pub mod gallery;
 pub mod heif;
 pub mod hotspot;
