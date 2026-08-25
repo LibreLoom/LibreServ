@@ -30,7 +30,10 @@ if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
     exit 1
 fi
 
-rm -rf "$WORK"
+rm -rf "$WORK" 2>/dev/null || sudo rm -rf "$WORK" || {
+	echo "could not clean $WORK (leftover root-owned live-build files?)" >&2
+	exit 1
+}
 mkdir -p "$ROOTFS" "$OUT"
 
 # Assemble the root filesystem inside Alpine's own apk.
