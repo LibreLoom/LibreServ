@@ -162,9 +162,13 @@ npm ci
 npm run build
 
 # ── 7. Luna (Rust daemon + web) ───────────────────────────────────────────────
+# lunad embeds crates/lunad/web/dist at compile time (include_dir). build.rs
+# writes a stub "build the web app first" page when dist is missing — so we MUST
+# run the Vite production build before cargo, or :8090 serves that stub forever.
 echo ">> Preparing Luna"
 cd "${REPO_ROOT}/luna/web"
 npm ci
+npm run build
 cd "${REPO_ROOT}/luna"
 make build-daemon
 
