@@ -47,11 +47,13 @@ function renderSetup() {
 
 describe("SetupPage", () => {
   it("opens on welcome with the logo, tagline, discovery paths, and begin button", async () => {
-    vi.stubGlobal("fetch", stubFetch());
+    vi.stubGlobal("fetch", stubFetch({ ipv4: ["192.168.1.20"] }));
     renderSetup();
     expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
     expect(screen.getByText(/Your files, your drives, your house/i)).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText(/current address on the screen/i)).toBeTruthy();
     expect(screen.queryByText("http://luna")).toBeNull();
     expect(screen.queryByText("http://169.254.42.42")).toBeNull();
     expect(screen.queryByText(/Luna Setup/i)).toBeNull();
