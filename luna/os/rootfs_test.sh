@@ -19,11 +19,26 @@ assert_file_has "$BUILD" 'luna-network-up' "rootfs must ship wired bring-up scri
 assert_file_has "$BUILD" 'etc/init.d/luna-network' "rootfs must ship luna-network OpenRC service"
 assert_file_has "$BUILD" '/etc/network/interfaces' "rootfs must ship a minimal interfaces file"
 assert_file_has "$BUILD" 'wpa_supplicant_dbus=no' "wpa_supplicant must not depend on dbus on Luna OS"
-assert_file_has "$BUILD" 'for svc in hwclock modules sysctl hostname bootmisc syslog luna-network;' \
-	"boot runlevel must use luna-network instead of stock networking"
+assert_file_has "$BUILD" 'for svc in hwclock modules sysctl hostname bootmisc syslog luna-input luna-network;' \
+	"boot runlevel must start luna-input before luna-network"
+assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers;' \
+	"sysinit must enable Alpine hwdrivers coldplug (USB HID at boot)"
+assert_file_has "$BUILD" 'modules-load.d/luna-input.conf' "rootfs must ship keyboard module list"
+assert_file_has "$BUILD" 'luna-input-up' "rootfs must ship keyboard / HID bring-up script"
+assert_file_has "$BUILD" 'usbhid' "rootfs must load usbhid for USB keyboards"
+assert_file_has "$BUILD" 'hid-generic' "rootfs must load hid-generic"
+assert_file_has "$BUILD" 'evdev' "rootfs must load evdev for /dev/input/event*"
+assert_file_has "$BUILD" 'atkbd' "rootfs must load atkbd for PS/2 keyboards"
+assert_file_has "$BUILD" ' alpine-base openrc linux-lts kmod ' \
+	"rootfs must install kmod so gzipped .ko.gz modules load"
 
 if grep 'for svc in .*networking;' "$BUILD" >/dev/null 2>&1; then
 	echo "FAIL: stock Alpine networking must not stay in boot runlevel" >&2
+	exit 1
+fi
+
+if ! grep -q 'hwdrivers' "$BUILD"; then
+	echo "FAIL: hwdrivers must be enabled so cold-plugged keyboards bind at boot" >&2
 	exit 1
 fi
 

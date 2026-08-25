@@ -188,11 +188,11 @@ impl Iterator for EvdevKeys {
     type Item = u16;
 
     fn next(&mut self) -> Option<u16> {
-        // Blocking poll of every open event node. A missing /dev/input just
-        // parks the recovery thread forever, which is fine.
+        // Blocking poll of every open event node. Rescan often while empty so
+        // a cold-plugged keyboard that appears after luna-input still works.
         loop {
             if self.files.is_empty() {
-                std::thread::sleep(Duration::from_secs(30));
+                std::thread::sleep(Duration::from_secs(2));
                 *self = Self::scan();
                 continue;
             }

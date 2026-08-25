@@ -43,7 +43,7 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
-        alpine-base openrc linux-lts \
+        alpine-base openrc linux-lts kmod \
         avahi wpa_supplicant \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
@@ -89,6 +89,91 @@ depend() {
 }
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"
+
+# Keyboard / HID bring-up for cold-plugged USB (and PS/2) keyboards.
+# Alpine's mdev hotplug loads modules on *new* uevents, so a keyboard
+# plugged in after boot often works, but ones present at power-on are
+# missed unless hwdrivers + an explicit HID pass run before lunad.
+# Password recovery reads /dev/input/event* (see crates/lunad recovery).
+mkdir -p "$ROOTFS/etc/modules-load.d"
+cat > "$ROOTFS/etc/modules-load.d/luna-input.conf" <<'MODS'
+# Core USB HID + evdev (CONFIG_* =m on linux-lts).
+usb-common
+usbcore
+ehci-hcd
+ehci-pci
+ohci-hcd
+ohci-pci
+uhci-hcd
+xhci-hcd
+xhci-pci
+xhci-pci-renesas
+hid
+hid-generic
+usbhid
+evdev
+# Common mini-PC wireless / brand keyboards (same set as the live ISO).
+hid-logitech
+hid-logitech-dj
+hid-logitech-hidpp
+hid-apple
+hid-cherry
+hid-microsoft
+hid-lenovo
+# PS/2 and platform glue used on thin clients / mini PCs.
+atkbd
+i8042
+serio
+libps2
+intel-lpss
+intel-lpss-pci
+pinctrl-intel
+pwm-lpss
+pwm-lpss-pci
+MODS
+
+cat > "$ROOTFS/usr/local/bin/luna-input-up" <<'INIT'
+#!/bin/sh
+set -eu
+
+# Same ordering as the rapidinstall ISO: USB host, then HID, then PS/2.
+for mod in usb-common usbcore \
+    ehci-hcd ehci-pci ohci-hcd ohci-pci uhci-hcd \
+    xhci-hcd xhci-pci xhci-pci-renesas xhci-plat-hcd \
+    dwc3 dwc3-pci \
+    intel-lpss intel-lpss-pci mfd-core \
+    pinctrl-intel pinctrl-cherryview \
+    pwm-lpss pwm-lpss-pci pwm-lpss-platform \
+    hid hid-generic usbhid evdev ff-memless \
+    hid-logitech hid-logitech-dj hid-logitech-hidpp \
+    hid-apple hid-cherry hid-microsoft hid-lenovo hid-corsair \
+    atkbd i8042 serio libps2 \
+    i2c-core i2c-hid i2c-hid-acpi i2c-i801; do
+    modprobe "$mod" 2>/dev/null || true
+done
+
+# Re-coldplug USB so keyboards already enumerated before the modules
+# loaded get bound and /dev/input/event* nodes appear for lunad.
+if [ -d /sys/devices ]; then
+    find /sys/devices -name 'usb[0-9]*' 2>/dev/null | while read -r _usb; do
+        [ -e "$_usb/uevent" ] && echo add >"$_usb/uevent" 2>/dev/null || true
+    done
+fi
+mdev -s 2>/dev/null || true
+INIT
+chmod +x "$ROOTFS/usr/local/bin/luna-input-up"
+
+cat > "$ROOTFS/etc/init.d/luna-input" <<'INIT'
+#!/sbin/openrc-run
+description="Luna keyboard / HID bring-up"
+command="/usr/local/bin/luna-input-up"
+depend() {
+    need localmount
+    after modules mdev hwdrivers bootmisc
+    before luna
+}
+INIT
+chmod +x "$ROOTFS/etc/init.d/luna-input"
 
 # Wired bring-up: DHCP every non-wireless interface on cable insert / boot.
 # Alpine's stock `networking` service requires /etc/network/interfaces; Luna
@@ -140,10 +225,12 @@ printf 'wpa_supplicant_dbus=no\nwpa_supplicant_args="-Dnl80211"\n' \
     > "$ROOTFS/etc/conf.d/wpa_supplicant"
 
 mkdir -p "$ROOTFS/etc/runlevels/default" "$ROOTFS/etc/runlevels/boot" "$ROOTFS/etc/runlevels/sysinit"
-for svc in devfs dmesg mdev; do
+# hwdrivers: Alpine's coldplug modalias pass. Without it, USB HID present at
+# power-on often never loads (hot-plug after boot still works via mdev).
+for svc in devfs dmesg mdev hwdrivers; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/sysinit/$svc" 2>/dev/null || true
 done
-for svc in hwclock modules sysctl hostname bootmisc syslog luna-network; do
+for svc in hwclock modules sysctl hostname bootmisc syslog luna-input luna-network; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/boot/$svc" 2>/dev/null || true
 done
 for svc in avahi-daemon wpa_supplicant luna crond chronyd; do
