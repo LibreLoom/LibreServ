@@ -343,9 +343,9 @@ export default function DashboardPage() {
                   <TextLink surface="secondary" to="/drives">Open Drives</TextLink>
                 </li>
                 <li>
-                  Add the people in your house so each person has their own sign-in.
+                  Add users so each person has their own sign-in.
                   {" "}
-                  <TextLink surface="secondary" to="/settings/users">People</TextLink>
+                  <TextLink surface="secondary" to="/settings/users">Users</TextLink>
                 </li>
                 <li>
                   On a phone: install the Luna app and turn on photo backup. On a computer:

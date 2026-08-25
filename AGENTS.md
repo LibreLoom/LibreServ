@@ -151,7 +151,7 @@ These showed up in product UI. Do not write them again. Use the replacement (and
 
 | Shame (never ship) | Why it failed | Use instead |
 |---|---|---|
-| Takes care of Luna / Takes care of this Luna | Role is Admin, not a babysitter | `Admin` + InfoHint: who can add people, change settings, and manage this Luna |
+| Takes care of Luna / Takes care of this Luna | Role is Admin, not a babysitter | `Admin` + InfoHint: who can add users, change settings, and manage this Luna |
 | person who takes care of this Luna | Same dodge | `admin` / `an admin` |
 | Household (as a role badge) | Vague; sounds like a species | `Member` |
 | Can look / Can add and change | Read and Write already exist | `Read` / `Write` + TermHint |

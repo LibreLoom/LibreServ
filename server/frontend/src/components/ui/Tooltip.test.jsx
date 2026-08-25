@@ -10,13 +10,13 @@ describe("InfoHint", () => {
       <InfoHint
         delayMs={0}
         label="What Admin means"
-        content="An admin can add people, change settings, and manage this Luna."
+        content="An admin can add users, change settings, and manage this Luna."
       />,
     );
     expect(screen.queryByRole("tooltip")).toBeNull();
     await user.click(screen.getByRole("button", { name: /What Admin means/i }));
     const tip = await screen.findByRole("tooltip");
-    expect(tip).toHaveTextContent(/An admin can add people/i);
+    expect(tip).toHaveTextContent(/An admin can add users/i);
     expect(tip.className).toMatch(/bg-secondary/);
     expect(tip.className).toMatch(/text-primary/);
     expect(tip.className).toMatch(/rounded-large-element/);
