@@ -53,7 +53,7 @@ Discover every CI/test entrypoint in the tree and run the full suite on clean
 `origin/main` BEFORE changing anything. Discovery: top-level and per-codebase
 `ci.sh` / CI scripts (e.g. `./ci run -profile nightly`, `./ci run -profile luna`, `luna/ci.sh`), Makefile
 test targets, and standard toolchain commands (`go test ./...`, `npm test`,
-`cargo test --workspace`, `./gradlew testDebugUnitTest`, Playwright) for any
+`cargo test --workspace`, `./gradlew testDebugUnitTest`) for any
 codebase with no dedicated script. Record results per codebase. If anything is
 already red, diagnose why (flaky / regression / env) and carry that into the PR
 body — do not proceed to deps pretending the tree was green.
