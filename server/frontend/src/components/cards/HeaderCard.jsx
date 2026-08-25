@@ -43,12 +43,17 @@ export default function HeaderCard({
   const hasSides = hasLeft || hasRight;
 
   const titleClasses = cn(
-    "font-mono text-2xl font-normal tracking-tight text-center truncate min-w-0",
+    "font-mono text-2xl font-normal tracking-tight text-center truncate min-w-0 leading-none",
     titleClassName,
   );
 
+  // One surface (no clip/fill split): a pill header with a side icon must
+  // v-center the chrome in the cap. Card's default p-5 + height clip leaves
+  // extra space under leftContent.
   return (
     <Card
+      padding={false}
+      noHeightAnim
       className={cn(
         "border border-primary/30",
         dynamicRounding && "rounded-pill",
@@ -57,22 +62,24 @@ export default function HeaderCard({
     >
       <div
         className={cn(
-          "flex items-center gap-3 min-h-10",
-          hasSides && "grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]",
-          !hasSides && "justify-center",
+          "items-center gap-3 min-h-10",
+          hasLeft ? "pl-1.5 pr-5 py-1.5" : "px-5 py-5",
+          hasSides
+            ? "grid grid-cols-[auto_minmax(0,1fr)_auto]"
+            : "flex justify-center",
         )}
       >
         {hasSides ? (
           <>
-            <div className="flex items-center justify-start min-w-0">
+            <div className="flex items-center justify-start self-center">
               {hasLeft ? leftContent : <span aria-hidden="true" />}
             </div>
-            <h1 id={id} className={titleClasses}>
+            <h1 id={id} className={cn(titleClasses, "flex items-center justify-center")}>
               {title}
             </h1>
             <div
               className={cn(
-                "flex items-center justify-end gap-3 min-w-0",
+                "flex items-center justify-end gap-3 self-center",
                 rightContentClassName,
               )}
             >
@@ -81,7 +88,7 @@ export default function HeaderCard({
             </div>
           </>
         ) : (
-          <h1 id={id} className={titleClasses}>
+          <h1 id={id} className={cn(titleClasses, "flex items-center")}>
             {title}
           </h1>
         )}

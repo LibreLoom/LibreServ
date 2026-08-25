@@ -27,7 +27,7 @@ export default function IconCircle({
 
   return (
     <div
-      className={cn("rounded-pill flex items-center justify-center", sizeConfig.container, variantClasses, className)}
+      className={cn("rounded-pill flex items-center justify-center shrink-0", sizeConfig.container, variantClasses, className)}
       {...props}
       data-slot="icon-circle"
     >

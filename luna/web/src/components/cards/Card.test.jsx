@@ -23,10 +23,22 @@ describe("Card", () => {
 });
 
 describe("HeaderCard", () => {
-  it("stays a pill header after Card clip/radius split", () => {
+  it("is a single pill surface so side chrome can v-center in the cap", () => {
     const { container } = render(<HeaderCard title="Drives" />);
-    const clip = container.querySelector("[data-slot=card-clip]");
-    expect(clip.className).toMatch(/rounded-pill/);
-    expect(clip.className).not.toMatch(/rounded-large-element/);
+    const fill = container.querySelector("[data-slot=card]");
+    expect(container.querySelector("[data-slot=card-clip]")).toBeNull();
+    expect(fill.className).toMatch(/rounded-pill/);
+    expect(fill.className).not.toMatch(/rounded-large-element/);
+  });
+
+  it("vertically centers leftContent on the header row", () => {
+    const { container } = render(
+      <HeaderCard title="Nothing here" leftContent={<span data-testid="hdr-icon">i</span>} />,
+    );
+    const row = container.querySelector("[data-slot=card] > div");
+    expect(row.className).toMatch(/items-center/);
+    expect(row.className).toMatch(/py-1\.5/);
+    expect(row.className).toMatch(/pl-1\.5/);
+    expect(row.querySelector("[data-testid=hdr-icon]").parentElement.className).toMatch(/self-center/);
   });
 });
