@@ -123,7 +123,13 @@ function driveNextStep(drive) {
 
 function plainDriveState(state) {
   if (state === "as_is") return "Ready";
-  if (state === "readonly") return "Read only";
+  if (state === "readonly") {
+    return (
+      <TermHint content="Luna can open files on this drive but cannot save changes here.">
+        Read only
+      </TermHint>
+    );
+  }
   if (state === "missing") return "Unplugged";
   if (state === "ejected") return "Ejected";
   if (state === "failed") return "Problem";
