@@ -96,8 +96,12 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Family photos")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open files/i })).toHaveAttribute("href", "/drives/d1");
     expect(screen.getByText(/On this network/i)).toBeInTheDocument();
-    expect(screen.getByText(/Remote access on/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Remote access on/i })).toHaveAttribute(
+      "href",
+      "/settings/remote",
+    );
     expect(screen.getByText("luna.example")).toBeInTheDocument();
+    expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/No subscription/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Anywhere, free/i)).not.toBeInTheDocument();
   });
@@ -125,5 +129,17 @@ describe("DashboardPage", () => {
     stubFetch({ username: "sam", role: "user", connect: 403 });
     renderPage();
     expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
+  });
+
+  it("shows remote access as a single link when it is off", async () => {
+    stubFetch({ connect: { enabled: false, tunnel_active: false } });
+    renderPage();
+    expect(await screen.findByRole("link", { name: /Remote access off/i })).toHaveAttribute(
+      "href",
+      "/settings/remote",
+    );
+    expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
   });
 });
