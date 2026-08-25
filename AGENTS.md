@@ -125,16 +125,47 @@ Env prefix: `LUNACONNECT_`. Public URL `https://connect.luna.libreloom.org`.
 
 ### PLAIN LANGUAGE (non-negotiable)
 
-LibreServ's users are **not technical**. The product goal is "99% of users shouldn't need a terminal." Every piece of user-facing text — error messages, UI labels, help text, setup wizards — must be written for someone who doesn't know what any of these acronyms mean:
+LibreServ's users are **not technical**. The product goal is "99% of users shouldn't need a terminal." Write **simple** copy — short sentences, what to do next, why a field exists. Simple is **not** baby talk. Do not invent household metaphors that dodge ordinary words.
 
-- **Never** expose raw technical terms in user-facing text without a plain-language gloss
+**The point of this rule:** never dump a ritual like `curl -xOStR https://connect.com` and "now find the CORS header" into the UI. The point is **not** to replace `router`, `ethernet`, `admin`, or `read` with a euphemism.
+
+**If a term needs a definition, define it:**
+
+- In the sentence: `Plug Luna into your router or modem with the included RJ45 (ethernet) cable.`
+- With **InfoHint** (`ⓘ`, longer aside next to a label) or **TermHint** (dotted underline on one word) from `src/components/ui/Tooltip.jsx`. Duplicate that file in Luna web and LibreServ web — keep them in sync.
+
+Rules that still hold:
+
+- **Never** expose raw technical terms **without a gloss** (parenthetical, InfoHint, or TermHint)
 - **Never** assume the user knows where to find a credential, what a protocol does, or what an error code means
 - **Always** explain what to **do**, not just what went wrong. A bad error: `"SMTP connection refused"`. A good error: `"Could not connect to your email provider. Check that the server address and port are correct in Settings → Email."`
 - **Always** explain where a value comes from before asking for it. A bare input field labeled "API Token" is a failure. Say: `"Your API token is on cloudflare.com → Profile → API Tokens → Create Token."`
-- **Always** explain why something is needed, not just what it is. A user doesn't care what DNS is — they care that `"We need this so your apps can be reached at addresses like nextcloud.yourdomain.com instead of a numbered IP address."` Every settings field, every wizard step, every permission prompt must answer "why do you need this?" before asking for it.
-- Technical terms that need plain-language treatment at point of use: SMTP, SSH, DNS, ACME, TLS/HTTPS, CSRF, JWT, port, subdomain, Caddy, Podman, API, webhook, OIDC, DNS-01, DDNS
+- **Always** explain why something is needed, not just what it is. A user doesn't care what DNS is — they care that `"We need this so your apps can be reached at addresses like nextcloud.yourdomain.com instead of a numbered IP address."`
+- Terms that usually need a gloss at point of use: SMTP, SSH, DNS, ACME, TLS/HTTPS, CSRF, JWT, port, subdomain, Caddy, Podman, API, webhook, OIDC, DNS-01, DDNS, RJ45, ethernet (when first used)
 
-This applies to frontend UI, API error messages shown to users, and any documentation a user might see. It does **not** apply to code comments, log entries, or internal developer docs.
+This applies to frontend UI, API error messages shown to users, and any documentation a user might see. It does **not** apply to code comments, log entries, or internal developer docs. Dashboard greetings (pigeons, snacks) are personality — leave them. Role names, permissions, and setup instructions are not a place for personality.
+
+#### WALL OF SHAME — oversimplified language
+
+These showed up in product UI. Do not write them again. Use the replacement (and a tooltip when the real word needs a gloss).
+
+| Shame (never ship) | Why it failed | Use instead |
+|---|---|---|
+| Takes care of Luna / Takes care of this Luna | Role is Admin, not a babysitter | `Admin` + InfoHint: who can add people, change settings, and manage this Luna |
+| person who takes care of this Luna | Same dodge | `admin` / `an admin` |
+| Household (as a role badge) | Vague; sounds like a species | `Member` |
+| Can look / Can add and change | Read and Write already exist | `Read` / `Write` + TermHint |
+| internet box | People own a router or modem | `router or modem` + TermHint on `router` |
+| LAN socket — the same kind of socket your home internet uses | Talks around the cable in the box | `RJ45 (ethernet) cable` + TermHint on `RJ45` |
+| Spare copy in the cloud | Avoids the word backup | `Cloud backup` + InfoHint if you need to explain off-site copies |
+| Apps and helper tools | Nobody knows what a helper tool is | `Apps and access tokens` |
+| Luna is asking this drive how it feels | Drive health is not a mood | `Checking this drive's health` |
+| this box (for the Luna device, in settings) | We already named it Luna | `Luna` / `this Luna` |
+| Couldn't do that | Says nothing | Name the action that failed and what to try |
+
+Good: `Plug Luna into your router or modem with the included RJ45 (ethernet) cable.`
+Bad: `Connect Luna to the internet box with the included cable. Use a LAN socket — the same kind of socket your home internet uses.`
+Also bad: `ssh into the box and journalctl -u caddy until the ACME DNS-01 challenge succeeds.`
 
 ### Go
 - Module path: `gt.plainskill.net/LibreLoom/LibreServ`
@@ -275,6 +306,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
   - **Page** (`src/components/ui/Page.jsx`) — the standard page shell (`bg-primary text-secondary`, skip-link target, optional HeaderCard title). Every routed content page uses it (full-screen flows like Login/Setup are the exception).
   - **Card / ModalCard / HeaderCard** (`src/components/cards/`) — surfaces. `bg-secondary text-primary` by default; `surface="primary"` inverts.
   - **HeaderCard is always one line.** Never stack a second/third card under the title for back links or nav (the old mobile vertical-split layout is banned). Optional `leftContent`/`rightContent` stay on the same row. Put navigation in the bottom navbar (`Navbar` — desktop pill + mobile FAB/dialog; Luna mirrors LibreServ). Put taglines in Page `bottomContent` (renders below the header, not inside it).
+  - **Tooltip** (`src/components/ui/Tooltip.jsx`, same file in Luna web) — `InfoHint` (ⓘ, longer aside) and `TermHint` (dotted underline on a word). Hover, focus, and tap. Do not use native `title=` for new glosses. Keep Luna and LibreServ copies in sync.
 - **Dropdown** — Always use the project's `Dropdown` component (`src/components/common/Dropdown.jsx`) instead of a raw `<select>`. It accepts `options` as `Array<{value: string, label: string}>`, supports `fullWidth`, `bg` ( `"primary"` | `"secondary"`), and `onChange(value: string)`.
 - **Haptics** — `src/utils/haptics.js` (`haptic("tap"|"confirm"|"error")`) is wired into Button/Toggle/SegmentedControl/Dropdown — do not sprinkle it through pages. The user toggle lives in Settings → Appearance.
 - **Model fetch endpoint** — `POST /settings/ai-support/models` (admin-only) accepts `{ base_url, api_key }` and returns `{ models: [] }` fetched live from the provider. Use this to populate model Dropdowns in AI config modals.
