@@ -130,3 +130,63 @@ func IsLocalRequest(r *http.Request) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
+
+// failLimiter counts failed authentication attempts per IP so credential
+// spraying on authenticated routes is bounded the same way login is.
+type failLimiter struct {
+	limit  int
+	window time.Duration
+	mu     sync.Mutex
+	data   map[string]*rateBucket
+}
+
+func newFailLimiter(limit int, window time.Duration) *failLimiter {
+	l := &failLimiter{limit: limit, window: window, data: make(map[string]*rateBucket)}
+	go l.cleanup()
+	return l
+}
+
+func (l *failLimiter) blocked(ip string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.data[ip]
+	if !ok || now.Sub(b.windowStart) >= l.window {
+		return false
+	}
+	return b.count >= l.limit
+}
+
+func (l *failLimiter) fail(ip string) {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.data[ip]
+	if !ok || now.Sub(b.windowStart) >= l.window {
+		l.data[ip] = &rateBucket{count: 1, windowStart: now}
+		return
+	}
+	b.count++
+}
+
+func (l *failLimiter) cleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		l.mu.Lock()
+		for key, b := range l.data {
+			if now.Sub(b.windowStart) > time.Hour {
+				delete(l.data, key)
+			}
+		}
+		l.mu.Unlock()
+	}
+}
+
+func writeAuthRateLimited(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "60")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte(`{"error":"too many requests, please slow down"}`))
+}
