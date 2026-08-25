@@ -1,7 +1,7 @@
 /**
  * Spinner — 3×3 comet-trail loading indicator.
  *
- * Outer eight dots chase around the ring with a bright head and fading tail.
+ * Outer eight same-size dots chase around the ring; trail is opacity only.
  * The center cell stays off (or faintly present). Color comes from
  * `currentColor` so it inherits contrasting button text on every variant.
  *

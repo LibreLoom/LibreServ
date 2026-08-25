@@ -424,24 +424,20 @@ body {
     }
 }
 
-/* Button / Spinner — 3×3 comet trail around the outer ring */
+/* Button / Spinner — 3×3 comet trail (equal-size dots; trail = opacity only) */
 @keyframes comet-trail {
     0%,
     100% {
         opacity: 0.14;
-        transform: scale(0.85);
     }
     8% {
         opacity: 1;
-        transform: scale(1.15);
     }
     20% {
         opacity: 0.55;
-        transform: scale(1);
     }
     36% {
         opacity: 0.22;
-        transform: scale(0.9);
     }
 }
 
@@ -469,7 +465,6 @@ body {
 
 .comet-spinner__dot {
     opacity: 0.14;
-    transform-origin: center;
     animation: comet-trail 720ms linear infinite;
     animation-delay: calc(var(--comet-i, 0) * -90ms);
 }
@@ -478,7 +473,6 @@ body {
     .comet-spinner__dot {
         animation: none;
         opacity: 0.35;
-        transform: none;
     }
 
     .comet-spinner__dot:nth-child(1),
