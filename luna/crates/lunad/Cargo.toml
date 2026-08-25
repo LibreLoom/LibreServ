@@ -37,6 +37,7 @@ getrandom.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
