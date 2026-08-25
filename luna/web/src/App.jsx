@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/ui/Navbar";
+import LoadingBar from "./components/common/LoadingBar";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
@@ -34,11 +35,16 @@ function RequireAuth({ children }) {
 
 /** Authenticated chrome: page content + fixed bottom navbar. */
 function AppShell() {
+  const location = useLocation();
   return (
     <RequireAuth>
-      <div data-slot="app-shell" className="min-h-screen bg-primary text-secondary">
+      <div data-slot="app-shell" className="relative flex min-h-screen flex-col bg-primary text-secondary">
+        <LoadingBar />
         <a href="#main-content" className="skip-link">Skip to main content</a>
-        <Outlet />
+        {/* Keying by pathname gives every navigation a smooth entrance. */}
+        <div key={location.pathname} className="grow w-full animate-page-enter">
+          <Outlet />
+        </div>
         <Navbar />
       </div>
     </RequireAuth>
