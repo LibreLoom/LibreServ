@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -24,6 +25,7 @@ type ServerConfig struct {
 	BaseURL    string `mapstructure:"base_url"`
 	PublicZone string `mapstructure:"public_zone"`
 	AdminToken string `mapstructure:"admin_token"`
+	AtRestKey  string `mapstructure:"at_rest_key"`
 	WebDir     string `mapstructure:"web_dir"`
 }
 
@@ -38,17 +40,17 @@ type CloudflareConfig struct {
 }
 
 type StripeConfig struct {
-	SecretKey     string `mapstructure:"secret_key"`
-	WebhookSecret string `mapstructure:"webhook_secret"`
-	PriceID       string `mapstructure:"price_id"`
-	Enabled       bool   `mapstructure:"enabled"`
+	SecretKey      string `mapstructure:"secret_key"`
+	PublishableKey string `mapstructure:"publishable_key"`
+	WebhookSecret  string `mapstructure:"webhook_secret"`
+	PriceID        string `mapstructure:"price_id"`
+	Enabled        bool   `mapstructure:"enabled"`
 }
 
 type BackupConfig struct {
-	Driver           string `mapstructure:"driver"`
-	B2AccountID      string `mapstructure:"b2_account_id"`
-	B2ApplicationKey string `mapstructure:"b2_application_key"`
-	Bucket           string `mapstructure:"bucket"`
+	Driver          string `mapstructure:"driver"`
+	MaxObjectBytes  int64  `mapstructure:"max_object_bytes"`
+	MaxAccountBytes int64  `mapstructure:"max_account_bytes"`
 }
 
 func Load(path string) error {
@@ -81,4 +83,15 @@ func (c CloudflareConfig) Ready() bool {
 
 func (c StripeConfig) Ready() bool {
 	return c.Enabled && c.SecretKey != ""
+}
+
+// DevMode is explicit local/dev only (LUNACONNECT_DEV=1/true/yes).
+// stripe.enabled: false is not a production bypass by itself.
+func DevMode() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("LUNACONNECT_DEV")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func CookieSecure() bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(C.Server.BaseURL)), "https://")
 }

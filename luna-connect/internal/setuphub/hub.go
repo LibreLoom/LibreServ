@@ -182,7 +182,7 @@ func (h *Hub) ClaimAndDrop(tokenHash string, msg Message) bool {
 	if sock == nil {
 		return false
 	}
-	ok := sock.Send(msg)
-	h.Drop(tokenHash)
-	return ok
+	// Send first; SetupWS writes the message then defer Drop closes the socket.
+	// Closing here raced the websocket writer and dropped the claimed payload.
+	return sock.Send(msg)
 }

@@ -18,7 +18,7 @@ make run
 
 Env prefix: `LUNACONNECT_` (viper), e.g. `LUNACONNECT_SERVER_PORT`.
 
-Stripe only skips real charges when `stripe.enabled` is **false** (local/dev). `enabled: true` with an empty key fails closed.
+Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1` and `stripe.enabled: false`. Production must enable Stripe and fill `secret_key`, `publishable_key`, `webhook_secret`, and `price_id`. Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud copies.
 
 ## Official booklet codes
 
@@ -42,7 +42,7 @@ sudo caddy reload --config /etc/caddy/Caddyfile
 
 Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreloom.org`.
 
-Fill Cloudflare and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml`, then restart both units.
+Fill Cloudflare and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml` (same `admin_token` and `at_rest_key` on both), then restart both units.
 
 ## Tests
 

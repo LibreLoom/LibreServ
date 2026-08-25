@@ -20,9 +20,17 @@ fn login(
     let token = luna::login(&base_url, &username, &password).map_err(|e| e.to_string())?;
     *state.token.lock().unwrap() = Some(token.clone());
     *state.username.lock().unwrap() = Some(username);
-    Ok(format!(
-        "Signed in. Folder mounts use this access token as the password — not your household password:\n{token}"
-    ))
+    Ok("Signed in. Folder mounts use Copy access token as the password — not your household password.".into())
+}
+
+#[tauri::command]
+fn copy_access_token(state: State<Session>) -> Result<String, String> {
+    state
+        .token
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "Sign in first.".into())
 }
 
 #[tauri::command]
@@ -102,6 +110,7 @@ fn mount_drive(
     luna::mount_instructions(&base_url, &token, &username, &drive_id)
 }
 
+#[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -144,6 +153,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             login,
+            copy_access_token,
             list_drives,
             pick_folder,
             start_backup,

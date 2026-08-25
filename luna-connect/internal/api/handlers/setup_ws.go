@@ -17,7 +17,7 @@ const (
 )
 
 var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: originAllowed,
 }
 
 func rejectHello(conn *websocket.Conn, message string) {
@@ -55,7 +55,7 @@ func (h OnboardingHandler) SetupWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, ok := lookupIssued(h.DB, norm)
-	if !ok || (tok.Status != "issued" && tok.Status != "claimed") {
+	if !ok || tok.Status != "issued" {
 		_ = allowGuess(h.DB, clientKeyToken(norm), setupGuessMax, setupGuessWindow)
 		rejectHello(conn, "unknown")
 		return

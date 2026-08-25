@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_hash TEXT NOT NULL,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
+  stripe_subscription_item_id TEXT,
+  backup_quota_bytes INTEGER,
   has_card INTEGER NOT NULL DEFAULT 0,
   billing_status TEXT NOT NULL DEFAULT 'none',
   created_at INTEGER NOT NULL
@@ -108,5 +110,7 @@ CREATE TABLE IF NOT EXISTS oss_payments (
 	// Existing files created before these columns; ignore duplicate-column errors.
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN device_token TEXT`)
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN setup_secret TEXT`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN stripe_subscription_item_id TEXT`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
 	return nil
 }

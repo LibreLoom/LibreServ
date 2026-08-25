@@ -30,6 +30,8 @@ func testDeps(t *testing.T) Deps {
 		t.Fatal(err)
 	}
 	config.C.Server.PublicZone = "luna.servers.libreloom.org"
+	config.C.Server.BaseURL = "https://connect.luna.libreloom.org"
+	t.Setenv("LUNACONNECT_DEV", "1")
 	return Deps{
 		DB: db, Store: st,
 		Tunnel: &providers.TunnelClient{MockMode: true},

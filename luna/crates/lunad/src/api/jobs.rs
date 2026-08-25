@@ -64,6 +64,7 @@ async fn create(
             body.from_path.as_deref().unwrap_or(""),
             &body.to_drive,
             body.to_path.as_deref().unwrap_or(""),
+            &user.id,
         )
         .await
         .map_err(map_job_err)?;
@@ -78,15 +79,24 @@ async fn create(
 
 async fn list(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
-    let jobs = state.job_manager.list(limit).map_err(map_job_err)?;
+    let jobs = if user.role == "admin" {
+        state.job_manager.list(limit).map_err(map_job_err)?
+    } else {
+        state
+            .job_manager
+            .list_for_user(&user.id, limit)
+            .map_err(map_job_err)?
+    };
     Ok(Json(jobs.into_iter().map(job_json).collect()))
 }
 
 async fn get_one(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let job = state
@@ -94,13 +104,31 @@ async fn get_one(
         .get(&id)
         .map_err(map_job_err)?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."))?;
+    if !state.job_manager.owns_or_admin(&job, &user) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna doesn't know this job.",
+        ));
+    }
     Ok(Json(job_json(job)))
 }
 
 async fn cancel(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let job = state
+        .job_manager
+        .get(&id)
+        .map_err(map_job_err)?
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."))?;
+    if !state.job_manager.owns_or_admin(&job, &user) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna doesn't know this job.",
+        ));
+    }
     state.job_manager.cancel(&id).map_err(map_job_err)?;
     Ok(Json(json!({ "ok": true })))
 }

@@ -1,349 +1,120 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Cloud, Download, Keyboard, Smartphone, LogOut, Palette, FolderOpen } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { ArrowLeft } from "lucide-react";
 import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
-import Pill from "../components/common/Pill";
-import PageNotice from "../components/common/PageNotice";
-import WifiCard from "../components/settings/WifiCard";
-import { InfoHint } from "../components/ui/Tooltip";
-import { getJson, postJson, apiErrorMessage } from "../lib/api";
+import SettingsSidebar from "../components/settings/SettingsSidebar";
+import SettingsContent from "../components/settings/SettingsContent";
+import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
-import { useHapticsEnabled, setHapticsEnabled } from "../utils/haptics";
 
-/* eslint-disable react-refresh/only-export-components -- recovery copy is shared with tests */
+export { RECOVERY_CARD } from "../components/settings/categories/PasswordCategory.jsx";
 
-/** Keep in lockstep with lunad `recovery::CARD_*` — printed-card copy. */
-export const RECOVERY_CARD = {
-  title: "If you forget your password",
-  steps: [
-    "Plug a USB keyboard into Luna.",
-    "Press Esc, then type luna, then press Enter.",
-    "On the screen plugged into Luna, type a new password twice.",
-  ],
-};
+function useIsDesktop() {
+  // jsdom has no layout CSS, so we pick one chrome with matchMedia. If
+  // matchMedia is missing (tests), treat the window as desktop.
+  const read = () => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+    return window.matchMedia("(min-width: 768px)").matches;
+  };
+  const [desktop, setDesktop] = useState(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => setDesktop(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return desktop;
+}
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const { theme, setTheme } = useTheme();
-  const hapticsOn = useHapticsEnabled();
-  const queryClient = useQueryClient();
-  const [error, setError] = useState(null);
-  const [tokenName, setTokenName] = useState("");
-  const [newToken, setNewToken] = useState(null);
-  const [copiedToken, setCopiedToken] = useState(false);
-  const updates = useQuery({
-    queryKey: ["system-updates"],
-    queryFn: () => getJson("/api/v1/system/updates"),
-    enabled: user?.role === "admin",
-  });
+  const isDesktop = useIsDesktop();
+  const isAdmin = user?.role === "admin";
+  const allowedCategoryIds = useMemo(
+    () => visibleCategories(isAdmin).map((c) => c.id),
+    [isAdmin],
+  );
 
-  const check = useMutation({
-    mutationFn: () => getJson("/api/v1/system/updates?force=true"),
-    onSuccess: (data) => {
-      queryClient.setQueryData(["system-updates"], data);
-      setError(null);
-    },
-    onError: (err) => setError(apiErrorMessage(err)),
+  const [selectedCategory, setSelectedCategory] = useState(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+    if (hash) return hash;
+    return "appearance";
   });
-  const apply = useMutation({
-    mutationFn: () => postJson("/api/v1/system/updates/apply", {}),
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
+  const activeCategory = allowedCategoryIds.includes(selectedCategory)
+    ? selectedCategory
+    : "appearance";
+  const [showMobileContent, setShowMobileContent] = useState(false);
 
-  const tokens = useQuery({
-    queryKey: ["device-tokens"],
-    queryFn: () => getJson("/api/v1/device-tokens"),
-  });
-  const createToken = useMutation({
-    mutationFn: () => postJson("/api/v1/device-tokens", { name: tokenName.trim() }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
-      setNewToken(data);
-      setTokenName("");
-      setError(null);
-    },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-  const signOutBrowsers = useMutation({
-    mutationFn: () => postJson("/api/v1/auth/revoke-sessions", {}),
-    onSuccess: () => { window.location.href = "/login"; },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-  const stopBackups = useMutation({
-    mutationFn: () => postJson("/api/v1/auth/revoke-devices", {}),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["device-tokens"] }); setError(null); setNewToken(null); },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-  const revokeOne = useMutation({
-    mutationFn: async (id) => {
-      const res = await fetch(`/api/v1/device-tokens/${id}`, { method: "DELETE", credentials: "include" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Couldn't stop this app");
+  useEffect(() => {
+    window.history.replaceState(null, "", `#${activeCategory}`);
+  }, [activeCategory]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (allowedCategoryIds.includes(hash)) {
+        setSelectedCategory(hash);
+        setShowMobileContent(true);
       }
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["device-tokens"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [allowedCategoryIds]);
 
-  const connect = useQuery({
-    queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
-    enabled: user?.role === "admin",
-  });
-  const drives = useQuery({
-    queryKey: ["drives"],
-    queryFn: () => getJson("/api/v1/drives"),
-    enabled: user?.role === "admin",
-  });
-  const saveSources = useMutation({
-    mutationFn: (sources) => postJson("/api/v1/connect/backup-sources", { sources }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-
-  const info = updates.data || {};
+  const handleCategoryChange = (category) => {
+    setSelectedCategory(category);
+    setShowMobileContent(true);
+  };
 
   return (
     <Page
-      title="Settings"
-      titleId="settings-title"
-      bottomContent={<p className="text-sm">Keep this password card somewhere safe. Updates only install when you tap the button.</p>}
+      padded={false}
+      className="h-[100dvh] flex flex-col overflow-hidden pt-0 pb-0"
     >
-      {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
-      <div className="grid gap-5 md:grid-cols-2">
-        <Card icon={Palette} title="Look and feel">
-          <p className="text-primary text-sm">
-            Light, dark, or match this device. Vibration on taps is optional.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {[
-              { value: "system", label: "Match device" },
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-            ].map((opt) => (
-              <Button
-                key={opt.value}
-                size="sm"
-                variant={theme === opt.value ? "primary" : "outline"}
-                onClick={() => setTheme(opt.value)}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-          <div className="mt-4">
-            {/* Both states reserve the outline variant's 2px border so the
-                toggle never changes height (the card animates around it). */}
-            <Button
-              size="sm"
-              variant={hapticsOn ? "primary" : "outline"}
-              className={hapticsOn ? "border-2 border-transparent" : "border-2"}
-              onClick={() => setHapticsEnabled(!hapticsOn)}
-            >
-              {hapticsOn ? "Vibration on" : "Vibration off"}
-            </Button>
-          </div>
-        </Card>
-
-        {user?.role === "admin" && <WifiCard />}
-
-        {user?.role === "admin" && (
-          <Card
-            icon={Cloud}
-            title="Cloud backup"
-            headerActions={
-              <InfoHint
-                label="What cloud backup means"
-                content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions."
-              />
-            }
-          >
-            {connect.data?.backup_unlocked ? (
-              <div className="space-y-3">
-                <p className="text-primary text-sm">
-                  Luna copies the latest files when this Luna is idle — not a history of old versions.
-                  Cloud backup costs $7 per terabyte each month.
-                </p>
-                {(drives.data || []).map((d) => {
-                  const on = (connect.data.backup_sources || []).some((s) => s.drive_id === d.id);
-                  return (
-                    <Button
-                      key={d.id}
-                      size="sm"
-                      variant={on ? "primary" : "outline"}
-                      onClick={() => {
-                        const current = connect.data.backup_sources || [];
-                        const next = on
-                          ? current.filter((s) => s.drive_id !== d.id)
-                          : [...current, { kind: "drive", drive_id: d.id }];
-                        saveSources.mutate(next);
-                      }}
-                    >
-                      {on ? `Stop copying ${d.label}` : `Copy whole drive: ${d.label}`}
-                    </Button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-primary text-sm">
-                Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
-              </p>
-            )}
-          </Card>
-        )}
-
-        <Card icon={FolderOpen} title="Phones and computers">
-          <p className="text-primary text-sm">
-            Phone photos: install the Luna app from the same place you downloaded
-            Luna, sign in with your household username, and turn photo backup on.
-            Photos save on Wi-Fi while the phone charges, into a folder named Phone Backup.
-          </p>
-          <p className="text-primary text-sm mt-3">
-            Computers: use the Luna Desktop app, or open a drive as a folder with
-            the steps on the Files page. Create an access token below first — that
-            is the password Finder or Explorer will ask for.
-          </p>
-        </Card>
-        <Card icon={Keyboard} title={RECOVERY_CARD.title}>
-          <ol className="space-y-2 text-sm text-primary list-decimal list-inside">
-            {RECOVERY_CARD.steps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-          <p className="mt-4 text-sm text-primary">
-            This only works with a keyboard plugged into Luna. Nobody can reset the password over the internet.
-          </p>
-        </Card>
-
-        <Card icon={LogOut} title="Who is signed in">
-          <p className="text-primary text-sm">
-            Signing out on this screen only leaves this browser. Use the
-            buttons below if a phone, computer, or app should no longer reach your files.
-          </p>
-          <div className="mt-4 flex flex-col gap-3">
-            <div>
-              <Button variant="accent" loading={signOutBrowsers.isPending} onClick={() => signOutBrowsers.mutate()}>
-                Sign out every browser
-              </Button>
-              <p className="text-primary text-xs mt-2">
-                Use this if you signed in on a computer you don&apos;t trust anymore. Every
-                browser must type the password again. Phone apps and access tokens keep working.
-              </p>
-            </div>
-            <div>
-              <Button variant="accent" loading={stopBackups.isPending} onClick={() => stopBackups.mutate()}>
-                Revoke app access
-              </Button>
-              <p className="text-primary text-xs mt-2">
-                Use this if a phone or laptop was lost, or an app should no longer reach Luna.
-                Those apps must sign in again. Browsers stay signed in.
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card icon={Smartphone} title="Apps and access tokens">
-          <p className="text-primary text-sm">
-            A phone app, desktop app, or script can keep working without typing
-            your password each time. Folder mounts (Finder, Explorer) use this access
-            token as the password — never your Luna password. Only an admin can mount the
-            whole drive as a folder.
-          </p>
-          <ul className="mt-3 space-y-2">
-            {(tokens.data || []).map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-2">
-                <span className="text-primary text-sm font-mono truncate">{t.name}</span>
-                <Button size="sm" variant="outline" loading={revokeOne.isPending} onClick={() => revokeOne.mutate(t.id)}>
-                  Stop this app
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {(tokens.data || []).length === 0 && (
-            <p className="text-primary text-sm mt-2">No apps or access tokens are set up yet.</p>
-          )}
-          <div className="mt-4 flex flex-col gap-2">
-            <label className="text-primary text-sm" htmlFor="token-name">
-              Name this app so you can recognize it later
-            </label>
-            <input
-              id="token-name"
-              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-              placeholder="Kitchen Mac, photo backup, script"
-              value={tokenName}
-              onChange={(e) => setTokenName(e.target.value)}
+      {isDesktop ? (
+        <div className="flex flex-1 gap-6 px-8 pt-5 overflow-hidden min-h-0">
+          <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0 overflow-y-auto pb-24">
+            <SettingsSidebar
+              user={user}
+              activeCategory={activeCategory}
+              onCategoryChange={setSelectedCategory}
             />
-            <Button
-              variant="primary"
-              loading={createToken.isPending}
-              disabled={!tokenName.trim()}
-              onClick={() => createToken.mutate()}
-            >
-              Create access token
-            </Button>
           </div>
-          {newToken?.token && (
-            <div className="mt-4 rounded-large-element bg-primary text-secondary p-4">
-              <p className="text-sm">
-                Copy this now. Luna will not show it again. Use it as the password when a computer
-                asks to open your files as a folder.
-              </p>
-              <p className="mt-2 text-sm font-mono break-all">{newToken.token}</p>
+          <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
+            <SettingsContent category={activeCategory} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {!showMobileContent ? (
+            <div className="p-4 pt-6 pb-24">
+              <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">
+                Settings
+              </h1>
+              <SettingsSidebar
+                user={user}
+                activeCategory={activeCategory}
+                onCategoryChange={handleCategoryChange}
+              />
+            </div>
+          ) : (
+            <div className="p-4 pt-6 pb-24 animate-in fade-in slide-in-from-right-2 duration-150">
               <Button
+                variant="ghost"
+                surface="primary"
                 size="sm"
-                variant="primary"
-                className="mt-3"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(newToken.token);
-                    setCopiedToken(true);
-                  } catch {
-                    setCopiedToken(false);
-                  }
-                }}
+                onClick={() => setShowMobileContent(false)}
+                className="mb-4 -ml-3"
               >
-                {copiedToken ? "Copied" : "Copy token"}
+                <ArrowLeft size={18} />
+                <span>Back</span>
               </Button>
+              <SettingsContent category={activeCategory} />
             </div>
           )}
-        </Card>
-
-        {user?.role === "admin" && (
-          <Card
-            icon={Download}
-            title="Software updates"
-            headerActions={
-              info.update_available ? <Pill variant="warning">New</Pill> : <Pill variant="success">Current</Pill>
-            }
-          >
-            <p className="text-primary text-sm">
-              This Luna is on {info.current_version || "unknown"}.
-              {info.update_available
-                ? ` A newer version (${info.latest_version}) is ready.`
-                : " You're on the latest Luna software."}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" loading={check.isPending} onClick={() => check.mutate()}>
-                Check for updates
-              </Button>
-              {info.update_available && (
-                <Button variant="primary" loading={apply.isPending} onClick={() => apply.mutate()}>
-                  Install update
-                </Button>
-              )}
-            </div>
-            {apply.isSuccess && (
-              <p className="text-primary text-sm mt-3">
-                The new software is installed. Luna will restart in a moment — sign in again after it comes back.
-              </p>
-            )}
-          </Card>
-        )}
-      </div>
+        </div>
+      )}
     </Page>
   );
 }

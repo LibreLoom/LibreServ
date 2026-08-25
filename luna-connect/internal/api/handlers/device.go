@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 type DeviceHandler struct {
@@ -52,9 +54,14 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 		return
 	}
-	var tunnelID, token string
+	var tunnelID, sealed string
 	var port int
-	_ = h.DB.QueryRow(`SELECT tunnel_id, tunnel_token, local_port FROM devices WHERE id = ?`, dev.ID).Scan(&tunnelID, &token, &port)
+	_ = h.DB.QueryRow(`SELECT tunnel_id, tunnel_token, local_port FROM devices WHERE id = ?`, dev.ID).Scan(&tunnelID, &sealed, &port)
+	token, err := security.OpenString(sealed)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not read the protected connection. Ask the person who looks after this Luna Connect site.")
+		return
+	}
 	oldHost := domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone)
 	newHost := domainname.Hostname(sub, config.C.Server.PublicZone)
 	_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, oldHost)
@@ -81,7 +88,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		var hasCard int
 		var status string
 		_ = h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, dev.AccountID.String).Scan(&hasCard, &status)
-		unlocked = hasCard == 1 && (status == "active" || status == "dev")
+		unlocked = billing.BackupsUnlocked(hasCard == 1, status)
 	}
 	JSON(w, http.StatusOK, map[string]any{
 		"device_id":       dev.ID,

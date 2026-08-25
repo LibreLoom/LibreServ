@@ -1,8 +1,9 @@
 //! WebDAV for native desktop mounts (Finder, Explorer, davfs2).
 //!
-//! One endpoint per adopted drive: `/dav/{drive_id}/...`. The handler uses
-//! dav-server's LocalFs rooted at the drive's mount point, so a client can
-//! never address anything outside that drive.
+//! One endpoint per adopted drive: `/dav/{drive_id}/...`. The handler uses a
+//! jailed filesystem (no symlink following, `O_NOFOLLOW` opens) rooted at the
+//! drive's mount point, so a client can never address anything outside that
+//! drive.
 //!
 //! DAV hands out the whole drive with read/write access, so unlike the
 //! grant-scoped file API it is limited to authenticated admins. Clients
@@ -16,9 +17,9 @@ use axum::extract::{Path, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::any;
-use base64::Engine;
 use dav_server::fakels::FakeLs;
-use dav_server::localfs::LocalFs;
+
+use crate::dav_fs::JailedFs;
 
 use crate::AppState;
 use crate::api::response::json_error;
@@ -110,6 +111,7 @@ fn basic_credentials_present(headers: &HeaderMap) -> bool {
 /// Decode `Authorization: Basic base64(username:password)` (tests / diagnostics).
 #[cfg(test)]
 fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
+    use base64::Engine;
     let encoded = headers
         .get(axum::http::header::AUTHORIZATION)?
         .to_str()
@@ -158,7 +160,7 @@ fn dav_handler_for(
     }
 
     let handler = crate::DavHandler::builder()
-        .filesystem(LocalFs::new(&drive.mount_point, false, false, false))
+        .filesystem(Box::new(JailedFs::new(&drive.mount_point)))
         .locksystem(FakeLs::new())
         .strip_prefix(format!("/dav/{}", drive.id))
         .build_handler();
@@ -182,6 +184,7 @@ mod tests {
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Method, Request as HttpReq};
+    use base64::Engine;
     use tower::ServiceExt;
 
     const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
@@ -388,5 +391,36 @@ mod tests {
         let (u, p) = basic_credentials(&h).unwrap();
         assert_eq!(u, "Max");
         assert_eq!(p, "AbC");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dav_does_not_follow_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let mount = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), b"secret-bytes").unwrap();
+        symlink(outside.path(), mount.path().join("escape")).unwrap();
+        std::fs::write(mount.path().join("ok.txt"), b"ok").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/escape/secret.txt",
+                Some(&basic("max", &token)),
+            ),
+        )
+        .await;
+        assert_ne!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            !text.contains("secret-bytes"),
+            "symlink escape must not leak outside the drive: {text}"
+        );
     }
 }

@@ -2,7 +2,8 @@
 
 use std::io::Write;
 
-pub const BANNER_TITLE: &str = "Luna is running. Open it from a phone or computer on your home Wi-Fi.";
+pub const BANNER_TITLE: &str =
+    "Luna is running. Open it from a phone or computer on your home Wi-Fi.";
 
 #[derive(Debug, Clone, Default)]
 pub struct ConsoleSnapshot {

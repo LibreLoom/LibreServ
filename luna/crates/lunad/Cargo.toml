@@ -25,6 +25,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+minisign-verify.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tokio-util.workspace = true
@@ -32,11 +33,15 @@ tower.workspace = true
 ureq.workspace = true
 tungstenite = { version = "0.26.2", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 dav-server.workspace = true
+bytes = "1"
+libc = "0.2"
 futures-util = "0.3"
 getrandom.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+minisign = "0.7"

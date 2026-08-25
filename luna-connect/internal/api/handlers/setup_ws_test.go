@@ -31,7 +31,7 @@ func TestSetupWSUnknownStillDropped(t *testing.T) {
 	}
 }
 
-func TestSetupWSClaimedHelloStaysLive(t *testing.T) {
+func TestSetupWSClaimedHelloRejected(t *testing.T) {
 	onb, _, _ := testOnboarding(t)
 	token := mintOfficial(t, onb)
 	norm := security.NormalizeToken(token)
@@ -39,8 +39,10 @@ func TestSetupWSClaimedHelloStaysLive(t *testing.T) {
 	srv := setupWSServer(t, onb)
 	c := helloWS(t, srv, token)
 	defer c.Close()
-	readType(t, c, "accepted")
-	readType(t, c, "waiting_for_website")
+	msg := readType(t, c, "error")
+	if msg["message"] != "unknown" {
+		t.Fatalf("claimed hello must be consumed, got %v", msg)
+	}
 }
 
 func TestSetupWSGuessLimiter(t *testing.T) {

@@ -73,6 +73,7 @@ impl JobManager {
         from_path: &str,
         to_drive: &str,
         to_path: &str,
+        user_id: &str,
     ) -> Result<JobRow, JobError> {
         if kind != "copy" && kind != "move" {
             return Err(JobError::UnknownKind);
@@ -83,12 +84,21 @@ impl JobManager {
         let from_path = from_path.to_string();
         let to_drive = to_drive.to_string();
         let to_path = to_path.to_string();
+        let user_id = user_id.to_string();
 
         let prepared = tokio::task::spawn_blocking(move || {
             let conn = db
                 .lock()
                 .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
-            prepare(&conn, &kind, &from_drive, &from_path, &to_drive, &to_path)
+            prepare(
+                &conn,
+                &kind,
+                &from_drive,
+                &from_path,
+                &to_drive,
+                &to_path,
+                &user_id,
+            )
         })
         .await
         .map_err(|e| JobError::Db(anyhow::anyhow!("job task crashed: {e}")))??;
@@ -123,9 +133,18 @@ impl JobManager {
         db::list_jobs(&conn, limit).map_err(JobError::Db)
     }
 
+    pub fn list_for_user(&self, user_id: &str, limit: i64) -> Result<Vec<JobRow>, JobError> {
+        let conn = self.db.lock().map_err(|_| JobError::NotFound)?;
+        db::list_jobs_for_user(&conn, user_id, limit).map_err(JobError::Db)
+    }
+
     pub fn get(&self, id: &str) -> Result<Option<JobRow>, JobError> {
         let conn = self.db.lock().map_err(|_| JobError::NotFound)?;
         db::get_job(&conn, id).map_err(JobError::Db)
+    }
+
+    pub fn owns_or_admin(&self, job: &JobRow, user: &crate::auth::CurrentUser) -> bool {
+        user.role == "admin" || job.user_id == user.id
     }
 }
 
@@ -136,6 +155,7 @@ fn prepare(
     from_path: &str,
     to_drive: &str,
     to_path: &str,
+    user_id: &str,
 ) -> Result<PreparedJob, JobError> {
     let (src, meta) = files::resolve_any(conn, from_drive, from_path)?;
     if meta.is_dir() && from_path.is_empty() {
@@ -165,7 +185,7 @@ fn prepare(
 
     let id = Uuid::new_v4().to_string();
     db::insert_job(
-        conn, &id, kind, from_drive, from_path, to_drive, to_path, total,
+        conn, &id, kind, from_drive, from_path, to_drive, to_path, total, user_id,
     )
     .map_err(JobError::Db)?;
     let row = db::get_job(conn, &id)
@@ -388,7 +408,7 @@ mod tests {
         }
         let manager = JobManager::new(db.clone());
         let job = manager
-            .enqueue("copy", "a", "note.txt", "b", "")
+            .enqueue("copy", "a", "note.txt", "b", "", "user-1")
             .await
             .unwrap();
         assert_eq!(job.state, "running");
@@ -421,8 +441,31 @@ mod tests {
         }
         let manager = JobManager::new(db);
         assert!(matches!(
-            manager.enqueue("copy", "a", "x.txt", "b", "").await,
+            manager
+                .enqueue("copy", "a", "x.txt", "b", "", "user-1")
+                .await,
             Err(JobError::Conflict)
         ));
+    }
+
+    #[tokio::test]
+    async fn jobs_are_scoped_to_the_owner() {
+        let (_dir, db, _a) = setup();
+        {
+            let conn = db.lock().unwrap();
+            let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+            std::fs::write(format!("{root}/note.txt"), b"hello").unwrap();
+        }
+        let manager = JobManager::new(db);
+        let job = manager
+            .enqueue("copy", "a", "note.txt", "b", "", "sam")
+            .await
+            .unwrap();
+        let sam = manager.list_for_user("sam", 50).unwrap();
+        assert_eq!(sam.len(), 1);
+        assert_eq!(sam[0].id, job.id);
+        assert!(manager.list_for_user("max", 50).unwrap().is_empty());
+        let admin_all = manager.list(50).unwrap();
+        assert_eq!(admin_all.len(), 1);
     }
 }

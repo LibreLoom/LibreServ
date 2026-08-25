@@ -84,4 +84,36 @@ describe("DrivesPage", () => {
     expect(screen.getByText(/31°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
   });
+
+  it("offers to erase an installer USB instead of writing a marker", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "Lexar USB Flash Drive", size_bytes: 8000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "iso9660",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdb/inspect")) {
+          return new Response(JSON.stringify({
+            device: "sdb", model: "Lexar USB Flash Drive", fs_type: "iso9660",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
+            folders: 12, files: 7, unreadable: 0, needs_erase: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    const lookButtons = await screen.findAllByRole("button", { name: /Look inside/i });
+    await user.click(lookButtons[lookButtons.length - 1]);
+    expect(await screen.findByText(/12 folders and 7 files/i)).toBeInTheDocument();
+    expect(screen.getByText(/still has the Luna installer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Erase and add this drive/i }));
+    expect(screen.getByRole("button", { name: /Yes, erase it/i })).toBeInTheDocument();
+  });
 });

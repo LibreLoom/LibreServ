@@ -21,7 +21,7 @@ function appearanceFromTheme() {
   };
 }
 
-function VerifyHumanCardForm({ onConfirm, loading }) {
+function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
   const stripe = useStripe();
   const elements = useElements();
   const [localError, setLocalError] = useState("");
@@ -57,14 +57,14 @@ function VerifyHumanCardForm({ onConfirm, loading }) {
   return (
     <form className="space-y-3" onSubmit={handleSubmit} data-testid="verify-human-card">
       <p className="text-sm text-card-foreground">
-        A dollar to confirm this is a real person; it counts toward cloud copies if you turn those on.
+        {description || "A dollar to confirm this is a real person; it counts toward cloud copies if you turn those on."}
       </p>
       <div className="rounded-large-element border border-border bg-secondary text-secondary-foreground p-4">
         <PaymentElement />
       </div>
       {localError && <p className="text-sm text-error">{localError}</p>}
       <Button type="submit" className="w-full" loading={loading || busy} disabled={!stripe}>
-        Confirm with a dollar
+        {buttonLabel || "Confirm with a dollar"}
       </Button>
     </form>
   );
@@ -75,9 +75,11 @@ function VerifyHumanCardForm({ onConfirm, loading }) {
  *   account?: { stripe_publishable_key?: string } | null,
  *   onConfirm: (paymentMethodId: string) => Promise<void> | void,
  *   loading?: boolean,
+ *   description?: string,
+ *   buttonLabel?: string,
  * }} props
  */
-export function VerifyHumanCard({ account, onConfirm, loading = false }) {
+export function VerifyHumanCard({ account, onConfirm, loading = false, description, buttonLabel }) {
   const stripe = getStripePromise(account);
   if (!stripe) {
     return (
@@ -96,7 +98,7 @@ export function VerifyHumanCard({ account, onConfirm, loading = false }) {
         appearance: appearanceFromTheme(),
       }}
     >
-      <VerifyHumanCardForm onConfirm={onConfirm} loading={loading} />
+      <VerifyHumanCardForm onConfirm={onConfirm} loading={loading} description={description} buttonLabel={buttonLabel} />
     </Elements>
   );
 }

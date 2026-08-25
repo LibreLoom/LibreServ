@@ -79,9 +79,10 @@ fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Jso
 fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
     match err {
         UpdateError::NoneAvailable => json_error(StatusCode::BAD_REQUEST, err.to_string()),
-        UpdateError::Checksum | UpdateError::MissingChecksum => {
-            json_error(StatusCode::BAD_REQUEST, err.to_string())
-        }
+        UpdateError::Checksum
+        | UpdateError::MissingChecksum
+        | UpdateError::MissingSignature
+        | UpdateError::BadSignature => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Unreachable => json_error(StatusCode::BAD_GATEWAY, err.to_string()),
         UpdateError::Other(_) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

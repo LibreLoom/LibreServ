@@ -161,6 +161,12 @@ async fn content(
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| String::from("download"));
+    if files::is_internal_temp(&name) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that file or folder.",
+        ));
+    }
     let mime = mime_guess::from_path(&name).first_or_octet_stream();
     let disposition =
         if query.download.as_deref() == Some("1") || !files::inline_safe(mime.as_ref()) {
@@ -176,9 +182,13 @@ async fn content(
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::ETAG, etag)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(header::CACHE_CONTROL, "private, no-store")
         .header(
             header::CONTENT_DISPOSITION,
-            format!("{disposition}; filename=\"{}\"", name.replace('"', "")),
+            format!(
+                "{disposition}; filename=\"{}\"",
+                files::content_disposition_filename(&name)
+            ),
         );
     if let Some(range) = content_range {
         builder = builder.header(header::CONTENT_RANGE, range);
@@ -292,7 +302,8 @@ async fn upload(
     Query(query): Query<UploadQuery>,
     mut multipart: Multipart,
 ) -> Result<Json<FileEntry>, (StatusCode, Json<Value>)> {
-    let mut dest_rel = query.path.unwrap_or_default();
+    let query_path = query.path.unwrap_or_default();
+    let mut dest_rel = query_path.clone();
     check_access(&state, &user, &id, &dest_rel, true)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
 
@@ -309,8 +320,16 @@ async fn upload(
                         "Luna couldn't read the upload destination.",
                     )
                 })?;
+                if !query_path.is_empty() && dest_rel != query_path {
+                    return Err(json_error(
+                        StatusCode::FORBIDDEN,
+                        "You don't have permission to change this folder.",
+                    ));
+                }
+                check_access(&state, &user, &id, &dest_rel, true)?;
             }
             Some("file") => {
+                check_access(&state, &user, &id, &dest_rel, true)?;
                 let original = field.file_name().unwrap_or("file").to_string();
                 let name = files::safe_name(&original).map_err(|_| {
                     json_error(
@@ -347,7 +366,10 @@ async fn upload(
                     }
                     return Err(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Luna couldn't finish saving this file. {e}"),
+                        format!(
+                            "Luna couldn't finish saving this file. {}",
+                            plain_upload_error(&anyhow::Error::from(e))
+                        ),
                     ));
                 }
                 let meta = std::fs::symlink_metadata(&dest).map_err(|_| {
@@ -464,6 +486,11 @@ fn plain_upload_error(err: &anyhow::Error) -> String {
         "This drive is full. Free up space or choose another drive.".into()
     } else if text.contains("Read-only") || text.contains("read-only") {
         "This drive is read-only, so Luna can't save to it.".into()
+    } else if text.contains("Operation not permitted")
+        || text.contains("os error 1")
+        || text.contains("not supported")
+    {
+        "This drive wouldn't accept the file. If it's a USB stick, try ejecting it and plugging it back in, then save again.".into()
     } else {
         "Check that the drive is connected and try again.".into()
     }
@@ -514,5 +541,197 @@ mod tests {
         assert_eq!(parse_range("bytes=999-1000", 1000), Some((999, 999)));
         assert_eq!(parse_range("bytes=5-2", 1000), None);
         assert_eq!(parse_range("bytes=1000-", 1000), None);
+    }
+
+    #[test]
+    fn disposition_header_cannot_split() {
+        let name = files::content_disposition_filename("a\r\nContent-Type: text/html");
+        assert!(!name.contains('\r'));
+        assert!(!name.contains('\n'));
+        assert!(!name.contains(':'));
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+    use crate::api;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq};
+    use tower::ServiceExt;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 11)),
+        54321,
+    );
+
+    fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "photos",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager);
+        let app = api::router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        (dir, app)
+    }
+
+    fn json_req(method: Method, uri: &str, body: &str, cookie: Option<&str>) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            builder = builder.header("cookie", c);
+        }
+        let mut http = builder.body(Body::from(body.to_string())).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(r).await.unwrap()
+    }
+
+    fn session_cookie(res: &axum::response::Response) -> String {
+        res.headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    async fn admin_and_sam(app: &axum::Router) -> (String, String) {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        let admin = session_cookie(&res);
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter"}"#,
+                Some(&admin),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let sam_id = v["id"].as_str().unwrap().to_string();
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"sam","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        (session_cookie(&res), sam_id)
+    }
+
+    #[tokio::test]
+    async fn multipart_path_mismatch_is_forbidden() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+        }
+
+        let boundary = "----luna";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\nsecret\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nhi\r\n--{boundary}--\r\n"
+        );
+        let mut http = HttpReq::builder()
+            .method(Method::POST)
+            .uri("/api/v1/drives/photos/files/upload?path=family")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("cookie", &sam_cookie)
+            .body(Body::from(body))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert!(!mount.path().join("secret/x.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn grant_symlink_list_is_forbidden() {
+        use std::os::unix::fs::symlink;
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        std::fs::write(mount.path().join("secret/note.txt"), b"nope").unwrap();
+        symlink(
+            mount.path().join("secret"),
+            mount.path().join("family/escape"),
+        )
+        .unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "read").unwrap();
+        }
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri("/api/v1/drives/photos/files?path=family/escape")
+            .header("cookie", &sam_cookie)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
     }
 }

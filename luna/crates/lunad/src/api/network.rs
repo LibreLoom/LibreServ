@@ -27,12 +27,25 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/network/hotspot/stop", post(hotspot_stop))
 }
 
-async fn status() -> Json<crate::net::NetworkStatus> {
-    let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
-    Json(crate::net::read_status(
+async fn status(
+    State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let full = crate::net::read_status(
         std::path::Path::new("/sys/class/net"),
-        &proc_route,
-    ))
+        &std::fs::read_to_string("/proc/net/route").unwrap_or_default(),
+    );
+    let setup = state.auth.count_users().unwrap_or(1) == 0;
+    let admin = current.as_ref().is_some_and(|u| u.role == "admin");
+    if setup || admin {
+        return Ok(Json(serde_json::to_value(&full).unwrap_or(json!({}))));
+    }
+    // Household members only need "are we online?", not interface names or IPs.
+    Ok(Json(json!({
+        "ethernet_connected": full.ethernet_connected,
+        "wifi_connected": full.wifi_connected,
+        "has_default_route": full.has_default_route,
+    })))
 }
 
 async fn wifi_status(
@@ -232,6 +245,10 @@ fn map_wifi_err(err: WifiError) -> (StatusCode, Json<Value>) {
         WifiError::Auth => json_error(
             StatusCode::UNAUTHORIZED,
             "That password didn't work. Check the sticker on your router or modem and try again.",
+        ),
+        WifiError::InvalidInput => json_error(
+            StatusCode::BAD_REQUEST,
+            "That network name or password has characters Luna can't use. Try another.",
         ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

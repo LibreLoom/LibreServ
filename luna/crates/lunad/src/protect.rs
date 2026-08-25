@@ -45,7 +45,12 @@ pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
     if !src_meta.is_dir() {
         anyhow::bail!("The protected folder is missing.");
     }
-    let target_root = files::dest_dir(conn, &row.target_drive, "")?.join(&row.target_path);
+    let target_root = {
+        let drive = files::drive_root(conn, &row.target_drive)?;
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
+            .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?
+    };
 
     let mut copied = 0u64;
     let mut stack = vec![(src_root.clone(), target_root.clone())];
@@ -185,5 +190,26 @@ mod tests {
             "append-only protection never deletes"
         );
         assert!(Path::new(&format!("{dst}/{}/photo.txt", row.target_path)).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dest_symlink_is_refused() {
+        use std::os::unix::fs::symlink;
+        let (dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        std::fs::write(format!("{src}/family/photo.txt"), b"x").unwrap();
+        let row = create(&conn, "a", "family", "b").unwrap();
+        let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let dest = std::path::Path::new(&dst).join(&row.target_path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dest);
+        symlink(&outside, &dest).unwrap();
+        assert!(sync(&conn, &row).is_err());
     }
 }

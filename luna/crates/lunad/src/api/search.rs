@@ -13,6 +13,12 @@ struct SearchQuery {
     q: String,
 }
 
+#[derive(Deserialize, Default)]
+struct FactoryResetBody {
+    #[serde(default)]
+    confirm: bool,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/search", get(search))
@@ -147,10 +153,12 @@ async fn start_scrub(
 }
 
 /// Wipe all accounts, shares, and settings and return the box to first-run,
-/// leaving the actual files on the drives untouched.
+/// leaving the actual files on the drives untouched. Also turns off Luna
+/// Connect and stops cloud backup so a reset box is not still paired.
 async fn factory_reset(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<FactoryResetBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if user.role != "admin" {
         return Err(json_error(
@@ -158,6 +166,14 @@ async fn factory_reset(
             "Only an admin can do that.",
         ));
     }
+    if !body.confirm {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Confirm that you want to reset this Luna. Everyone will need to sign in again, and remote access will turn off. Files on your drives stay where they are.",
+        ));
+    }
+    let connect = state.connect.clone();
+    let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -168,6 +184,7 @@ async fn factory_reset(
     // mounts) so the data is left intact but no longer owned by Luna.
     let drives = crate::db::list_drives(&conn).unwrap_or_default();
     for drive in drives {
+        crate::dav::drop_cached_handler(&state, &drive.id);
         if !drive.mount_point.is_empty() {
             let _ = std::fs::remove_file(std::path::Path::new(&drive.mount_point).join(".luna"));
             let _ = state.drive_manager.eject(&conn, &drive.id);
@@ -184,4 +201,133 @@ async fn factory_reset(
     Ok(Json(
         json!({ "ok": true, "message": "Luna has been reset. Set it up again from the start." }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq};
+    use tower::ServiceExt;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 9)),
+        54321,
+    );
+
+    fn test_app(dir: &std::path::Path) -> axum::Router {
+        let conn = crate::db::open(&dir.join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir));
+        let connect = std::sync::Arc::new(crate::connect::ConnectService::new(
+            dir,
+            Some("http://127.0.0.1:1".into()),
+        ));
+        let state = crate::AppState::new(conn, drive_manager).with_connect(connect);
+        api::router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state)
+    }
+
+    fn req(method: Method, uri: &str, body: &str, cookie: Option<&str>) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            builder = builder.header("cookie", c);
+        }
+        let mut http = builder.body(Body::from(body.to_string())).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(r).await.unwrap()
+    }
+
+    fn session_cookie(res: &axum::response::Response) -> String {
+        res.headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn factory_reset_requires_confirm_and_tears_down_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let connect =
+            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        connect
+            .apply_claimed(&serde_json::json!({
+                "device_token": "tok",
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock"
+            }))
+            .unwrap();
+        assert!(dir.path().join("connect.json").exists());
+        let app = test_app(dir.path());
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        let cookie = session_cookie(&res);
+
+        let denied = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":false}"#,
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(denied.status(), 400);
+        assert!(dir.path().join("connect.json").exists());
+
+        let ok = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true}"#,
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(ok.status(), 200, "reset failed");
+        assert!(
+            !dir.path().join("connect.json").exists(),
+            "Connect state must be removed on factory reset"
+        );
+    }
 }

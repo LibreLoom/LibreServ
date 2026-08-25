@@ -34,8 +34,7 @@ fn session_login_cookie(base_url: &str, username: &str, password: &str) -> anyho
 
 fn luna_session_cookie(set_cookie: Option<&str>) -> Option<String> {
     let pair = set_cookie?.split(';').next()?.trim();
-    pair.starts_with("luna_session=")
-        .then(|| pair.to_string())
+    pair.starts_with("luna_session=").then(|| pair.to_string())
 }
 
 pub fn create_device_token(base_url: &str, cookie: &str, name: &str) -> anyhow::Result<String> {
@@ -113,13 +112,13 @@ fn dav_mount_url(base_url: &str, drive_id: &str) -> Result<String, String> {
 
 pub fn mount_instructions(
     base_url: &str,
-    token: &str,
+    _token: &str,
     username: &str,
     drive_id: &str,
 ) -> Result<String, String> {
     let url = dav_mount_url(base_url, drive_id)?;
     let creds = format!(
-        "Address: {url}. Username: {username}. Password: use this access token (not your household password): {token}"
+        "Address: {url}. Username: {username}. For the password, use Copy access token — not your household password."
     );
     #[cfg(target_os = "linux")]
     {

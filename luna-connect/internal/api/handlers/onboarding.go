@@ -213,7 +213,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, tokOK := lookupIssuedByHash(h.DB, sess.tokenHash)
-	if !tokOK || (tok.Status != "issued" && tok.Status != "claimed") {
+	if !tokOK || tok.Status != "issued" {
 		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
 		return
 	}
@@ -225,10 +225,6 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "Luna is not online yet. Plug Luna into your router or modem with the included RJ45 (ethernet) cable, then wait until this page says it is connected.")
 		return
 	}
-	if tok.Status == "claimed" {
-		h.retryClaimedName(w, acct, sess, tok)
-		return
-	}
 	var n int
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, acct.ID).Scan(&n)
 	if n >= setuphub.MaxDevicesPerAccount {
@@ -237,7 +233,6 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Subdomain string `json:"subdomain"`
-		LocalPort int    `json:"local_port"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	sub := domainname.Normalize(req.Subdomain)
@@ -252,12 +247,9 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sock := h.Hub.Live(sess.tokenHash)
-	port := req.LocalPort
-	if port <= 0 && sock != nil {
+	port := 8090
+	if sock != nil && sock.LocalPort > 0 {
 		port = sock.LocalPort
-	}
-	if port <= 0 {
-		port = 8090
 	}
 
 	hostname := domainname.Hostname(sub, config.C.Server.PublicZone)
@@ -282,7 +274,13 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	deviceToken := security.RandomHex(24)
 	setupSecret := security.RandomHex(16)
 	id := security.NewID("dev")
-	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, creds.Token, setupSecret, port); err != nil {
+	sealedTunnel, err := security.SealString(creds.Token)
+	if err != nil {
+		h.rollbackCloud(creds.TunnelID, hostname)
+		JSONError(w, http.StatusInternalServerError, "Could not finish setup. Ask the person who looks after this Luna Connect site.")
+		return
+	}
+	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, sealedTunnel, port); err != nil {
 		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 		return
@@ -294,36 +292,15 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, nameResult(id, hostname, sub, setupSecret))
 }
 
-func (h OnboardingHandler) retryClaimedName(w http.ResponseWriter, acct Account, sess *sessionRow, tok issuedToken) {
-	if !tok.ClaimedDeviceID.Valid || tok.ClaimedDeviceID.String == "" {
-		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
-		return
-	}
-	var id, sub, tunTok, setupSecret, deviceToken string
-	err := h.DB.QueryRow(`SELECT id, subdomain, COALESCE(tunnel_token,''), COALESCE(setup_secret,''), COALESCE(device_token,'')
-FROM devices WHERE id = ? AND account_id = ?`, tok.ClaimedDeviceID.String, acct.ID).
-		Scan(&id, &sub, &tunTok, &setupSecret, &deviceToken)
-	if err != nil || deviceToken == "" {
-		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
-		return
-	}
-	hostname := domainname.Hostname(sub, config.C.Server.PublicZone)
-	if !h.pushClaimed(sess.tokenHash, deviceToken, hostname, tunTok, setupSecret, sub) {
-		JSONError(w, http.StatusConflict, "Luna dropped off the line before we could finish. Keep this page open, plug the cable in, and try again.")
-		return
-	}
-	JSON(w, http.StatusCreated, nameResult(id, hostname, sub, setupSecret))
-}
-
-func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, tunnelToken, setupSecret string, port int) error {
+func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, sealedTunnelToken string, port int) error {
 	tx, err := h.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, device_token, setup_secret, local_port, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, tunnelToken, deviceToken, setupSecret, port, time.Now().Unix())
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, sealedTunnelToken, port, time.Now().Unix())
 	if err != nil {
 		return err
 	}
@@ -371,20 +348,22 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Enable bool `json:"enable"`
+		Enable          bool   `json:"enable"`
+		PaymentMethod   string `json:"payment_method"`
+		PaymentMethodID string `json:"payment_method_id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if !req.Enable {
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 		return
 	}
-	sub, err := billing.Subscribe(acct.StripeCustomer)
+	pm := strings.TrimSpace(req.PaymentMethod)
+	if pm == "" {
+		pm = strings.TrimSpace(req.PaymentMethodID)
+	}
+	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
 	if err != nil {
-		if errors.Is(err, billing.ErrNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
-			return
-		}
-		JSONError(w, http.StatusBadGateway, "Could not start spare copies. Check the card and try again.")
+		writeBillingErr(w, err, "Could not start spare copies. Check the card and try again.")
 		return
 	}
 	status := "active"
@@ -393,7 +372,8 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		status = "dev"
 		price = "Spare copies cost $7 per terabyte each month. Luna will turn cloud copies on when it is next quiet."
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`, status, sub, acct.ID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
+		status, sub, item, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"ok": true, "enabled": true,
 		"price_copy": price,
@@ -459,10 +439,11 @@ func (h OnboardingHandler) MintOSS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := security.OSSHexToken()
+	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
 	exp := time.Now().Add(15 * time.Minute).Unix()
 	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at)
-VALUES (?, ?, 'oss', 'issued', ?, ?, ?)`, id, security.HashToken(code), acct.ID, exp, time.Now().Unix())
+VALUES (?, ?, 'oss', 'issued', ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix())
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not make a setup code. Try again.")
 		return
@@ -484,8 +465,12 @@ func (h OnboardingHandler) rollbackCloud(tunnelID, hostname string) {
 }
 
 func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
-	if config.C.Server.AdminToken == "" || r.Header.Get("Authorization") != "Bearer "+config.C.Server.AdminToken {
+	if !security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
 		JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
+		return
+	}
+	if !allowGuess(h.DB, "admin-mint:"+ClientIP(r), 10, 3600) {
+		JSONError(w, http.StatusTooManyRequests, "Too many admin codes from this network. Wait an hour, then try again.")
 		return
 	}
 	// Replacement official tokens: there is no public remint. Support mints here

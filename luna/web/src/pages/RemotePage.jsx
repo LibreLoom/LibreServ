@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, KeyRound, ShieldOff, Unplug } from "lucide-react";
 import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import PageNotice from "../components/common/PageNotice";
+import SettingsCard from "../components/settings/SettingsCard";
+import SettingsRow from "../components/settings/SettingsRow";
 import { getJson, postJson, apiErrorMessage } from "../lib/api";
 
 export default function RemotePage() {
@@ -47,7 +48,7 @@ export default function RemotePage() {
     >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-5 md:grid-cols-2">
-        <Card icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
+        <SettingsCard icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
           {s.enabled ? (
             <div className="space-y-3">
               <p className="text-primary text-sm">
@@ -71,44 +72,55 @@ export default function RemotePage() {
                   {copied ? "Copied" : "Copy address"}
                 </Button>
               )}
-              <label className="block text-primary text-sm">
-                Change address
+              <SettingsRow
+                label="Change address"
+                description="Pick a short name. Phones will open it as that-name.luna.servers.libreloom.org."
+                stack
+              >
                 <input
-                  className="mt-1 w-full rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
+                  className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
                   placeholder="kitchen"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                 />
-              </label>
-              <p className="text-primary text-sm font-mono">{newName ? `${newName.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
-              <Button variant="primary" loading={change.isPending} disabled={newName.trim().length < 3} onClick={() => change.mutate()}>Save new address</Button>
-              <Button variant="danger" loading={off.isPending} onClick={() => off.mutate()}>Turn Luna Connect off</Button>
+              </SettingsRow>
+              <p className="text-primary text-sm font-mono px-4">{newName ? `${newName.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
+              <div className="px-4 pb-4 flex flex-col gap-2">
+                <Button variant="primary" loading={change.isPending} disabled={newName.trim().length < 3} onClick={() => change.mutate()}>Save new address</Button>
+                <Button variant="danger" loading={off.isPending} onClick={() => off.mutate()}>Turn Luna Connect off</Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-primary text-sm">
                 Code from the Luna Connect site. If you bought Luna, the booklet code is already on this disk — tap Use booklet code. If you set this computer up yourself, paste the short code from the website.
               </p>
-              <label className="block text-primary text-sm">
-                Code from the Luna Connect site
+              <SettingsRow
+                label="Code from the Luna Connect site"
+                description="Six letters from the website. If you bought Luna, the booklet code is already on this disk."
+                stack
+                hideDivider
+              >
                 <input
-                  className="mt-1 w-full rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
+                  className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   placeholder="Six letters from the site"
                 />
-              </label>
-              <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.trim().length < 6} onClick={() => saveCode.mutate()}>
-                Save code
-              </Button>
-              <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
-                Use booklet code
-              </Button>
+              </SettingsRow>
+              <div className="px-4 pb-4 flex flex-col gap-2">
+                <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.trim().length < 6} onClick={() => saveCode.mutate()}>
+                  Save code
+                </Button>
+                <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
+                  Use booklet code
+                </Button>
+              </div>
             </div>
           )}
-        </Card>
+        </SettingsCard>
 
-        <Card icon={ShieldOff} title="Your own way">
+        <SettingsCard icon={ShieldOff} title="Your own way">
           <p className="text-primary text-sm">
             Skip the free Luna address if you already run a private network. These steps are for someone who already knows the tool.
           </p>
@@ -126,7 +138,7 @@ export default function RemotePage() {
               </span>
             </li>
           </ul>
-        </Card>
+        </SettingsCard>
       </div>
     </Page>
   );

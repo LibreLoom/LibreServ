@@ -41,9 +41,10 @@ func GroupCrockford(raw string) string {
 	return strings.Join(parts, "-")
 }
 
-// OSSHexToken is a one-use 6-hex code for self-built boxes.
+// OSSHexToken is a one-use setup code for self-built boxes.
+// Same strength as official booklet codes (not a short guessable hex).
 func OSSHexToken() string {
-	return strings.ToUpper(RandomHex(3))
+	return OfficialBookletToken()
 }
 
 // NormalizeToken strips grouping and maps lookalike Crockford letters.

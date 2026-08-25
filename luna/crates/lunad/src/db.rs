@@ -155,6 +155,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "token_version",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
     Ok(conn)
 }
 
@@ -313,6 +314,7 @@ pub struct JobRow {
     pub progress: u64,
     pub total: u64,
     pub error: String,
+    pub user_id: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -325,57 +327,61 @@ pub fn insert_job(
     to_drive: &str,
     to_path: &str,
     total: u64,
+    user_id: &str,
 ) -> anyhow::Result<()> {
     let now = now_unix();
     conn.execute(
-        "INSERT INTO jobs (id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, created_at, updated_at)
-         VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6, 0, ?7, ?8, ?8)",
-        params![id, kind, from_drive, from_path, to_drive, to_path, total as i64, now],
+        "INSERT INTO jobs (id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, created_at, updated_at, user_id)
+         VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6, 0, ?7, ?8, ?8, ?9)",
+        params![id, kind, from_drive, from_path, to_drive, to_path, total as i64, now, user_id],
     )?;
     Ok(())
 }
 
+fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
+    Ok(JobRow {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        state: row.get(2)?,
+        from_drive: row.get(3)?,
+        from_path: row.get(4)?,
+        to_drive: row.get(5)?,
+        to_path: row.get(6)?,
+        progress: row.get::<_, i64>(7)? as u64,
+        total: row.get::<_, i64>(8)? as u64,
+        error: row.get(9)?,
+        user_id: row.get::<_, String>(10).unwrap_or_default(),
+    })
+}
+
 pub fn get_job(conn: &Connection, id: &str) -> anyhow::Result<Option<JobRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id
          FROM jobs WHERE id = ?1",
     )?;
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(JobRow {
-            id: row.get(0)?,
-            kind: row.get(1)?,
-            state: row.get(2)?,
-            from_drive: row.get(3)?,
-            from_path: row.get(4)?,
-            to_drive: row.get(5)?,
-            to_path: row.get(6)?,
-            progress: row.get::<_, i64>(7)? as u64,
-            total: row.get::<_, i64>(8)? as u64,
-            error: row.get(9)?,
-        })
-    })?;
+    let mut rows = stmt.query_map(params![id], job_from_row)?;
     Ok(rows.next().transpose()?)
 }
 
 pub fn list_jobs(conn: &Connection, limit: i64) -> anyhow::Result<Vec<JobRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id
          FROM jobs ORDER BY created_at DESC LIMIT ?1",
     )?;
-    let rows = stmt.query_map(params![limit], |row| {
-        Ok(JobRow {
-            id: row.get(0)?,
-            kind: row.get(1)?,
-            state: row.get(2)?,
-            from_drive: row.get(3)?,
-            from_path: row.get(4)?,
-            to_drive: row.get(5)?,
-            to_path: row.get(6)?,
-            progress: row.get::<_, i64>(7)? as u64,
-            total: row.get::<_, i64>(8)? as u64,
-            error: row.get(9)?,
-        })
-    })?;
+    let rows = stmt.query_map(params![limit], job_from_row)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn list_jobs_for_user(
+    conn: &Connection,
+    user_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<JobRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error, user_id
+         FROM jobs WHERE user_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![user_id, limit], job_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 

@@ -42,11 +42,14 @@ struct InspectionJson {
     folders: u64,
     files: u64,
     unreadable: u64,
+    needs_erase: bool,
 }
 
 #[derive(Deserialize)]
 struct AdoptBody {
     label: String,
+    #[serde(default)]
+    erase: bool,
 }
 
 pub fn router() -> Router<AppState> {
@@ -71,14 +74,21 @@ async fn list(
         )
     })?;
     let admin = user.role == "admin";
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
     Ok(Json(
         rows.into_iter()
+            .filter(|d| admin || crate::auth::has_drive_access(&user, &conn, &d.id))
             .map(|d| {
                 let mut json: DriveJson = d.into();
-                // The OS mount path is server plumbing; regular users don't
-                // need it and it reveals the device's filesystem layout.
+                // Device node and OS mount path are server plumbing.
                 if !admin {
                     json.mount_point = String::new();
+                    json.device = String::new();
                 }
                 json
             })
@@ -144,6 +154,7 @@ async fn inspect(
         folders: inspection.summary.folders,
         files: inspection.summary.files,
         unreadable: inspection.summary.unreadable,
+        needs_erase: inspection.needs_erase,
     }))
 }
 
@@ -168,7 +179,7 @@ async fn adopt(
         )
     })?;
     let row = with_db(&state.db, |conn| {
-        state.drive_manager.adopt(conn, &device, &label)
+        state.drive_manager.adopt(conn, &device, &label, body.erase)
     })
     .map_err(|e| {
         json_error(
@@ -206,6 +217,7 @@ async fn eject(
             format!("Luna couldn't eject this drive safely. {e}"),
         )
     })?;
+    crate::dav::drop_cached_handler(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -259,9 +271,26 @@ fn require_admin(
 
 fn plain_adopt_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
-    if text.contains("Could not mark this drive as its own") {
-        "The drive is read-only or full, so Luna can't put its marker file on it.".into()
-    } else if text.contains("mount") {
+    let lower = text.to_ascii_lowercase();
+    // The installer pitch is the only path that says the disk cannot be changed.
+    // Do not key off the word "installer" — the lock-switch copy mentions it too.
+    if lower.contains("cannot be changed") {
+        crate::drives::INSTALLER_USB_MESSAGE.into()
+    } else if lower.contains("no space")
+        || lower.contains("disk full")
+        || lower.contains("file too large")
+        || lower.contains("os error 28")
+    {
+        "This drive is full, so Luna couldn't put its sticker file on it. Free some space and try again.".into()
+    } else if lower.contains("read-only")
+        || lower.contains("os error 30")
+        || lower.contains("will not accept new files")
+        || lower.contains("lock switch")
+    {
+        crate::drives::WRITE_REJECTED_MESSAGE.into()
+    } else if lower.contains("could not mark") {
+        "Luna couldn't put its sticker file on this drive. Unplug it, plug it back in, and try again.".into()
+    } else if lower.contains("mount") {
         "Make sure the drive is plugged in and your computer isn't using it.".into()
     } else {
         text
@@ -298,5 +327,39 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         assert!(db::list_drives(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn installer_error_is_plain_language() {
+        let err = anyhow::anyhow!("{}", crate::drives::INSTALLER_USB_MESSAGE);
+        let installer = super::plain_adopt_error(&err);
+        assert!(installer.contains("Erase it to use it"));
+        assert!(installer.contains("cannot be changed"));
+
+        let raw = anyhow::anyhow!(
+            "Luna could not mark this drive as its own. could not write the marker: Read-only file system (os error 30)"
+        );
+        let plain = super::plain_adopt_error(&raw);
+        assert_eq!(plain, crate::drives::WRITE_REJECTED_MESSAGE);
+        assert!(!plain.contains("os error"));
+        assert!(!plain.contains("cannot be changed"));
+    }
+
+    #[test]
+    fn marker_full_and_generic_are_not_installer() {
+        let full = anyhow::anyhow!(
+            "Luna could not mark this drive as its own. could not write the marker: No space left on device (os error 28)"
+        );
+        let full_plain = super::plain_adopt_error(&full);
+        assert!(full_plain.contains("full"));
+        assert!(!full_plain.to_ascii_lowercase().contains("installer"));
+
+        let other = anyhow::anyhow!(
+            "Luna could not mark this drive as its own. could not write the marker: Permission denied (os error 13)"
+        );
+        let other_plain = super::plain_adopt_error(&other);
+        assert!(other_plain.contains("Unplug"));
+        assert!(!other_plain.to_ascii_lowercase().contains("installer"));
+        assert!(!other_plain.contains("os error"));
     }
 }
