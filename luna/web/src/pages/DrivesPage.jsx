@@ -50,8 +50,8 @@ function sizeLabel(bytes) {
 function DetectedCard({ drive, onOpen, onIgnore }) {
   return (
     <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`} headerActions={
-      <Button size="sm" variant="ghost" onClick={() => onIgnore(drive)}>
-        Ignore for now
+      <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>
+        Look inside
       </Button>
     }>
       <p className="text-primary text-sm">
@@ -61,7 +61,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
         Look inside first. Luna will not change anything until you add it.
       </p>
       <div className="mt-3">
-        <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Look inside</Button>
+        <Button size="sm" variant="ghost" onClick={() => onIgnore(drive)}>Ignore for now</Button>
       </div>
     </Card>
   );
