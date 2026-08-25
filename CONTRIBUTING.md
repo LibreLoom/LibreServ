@@ -31,6 +31,7 @@ npm test
 ```
 
 See [`AGENTS.md`](AGENTS.md) for architecture, conventions, and how to run the stack.
+Forgejo bot: [`ATLAS-BOT.md`](ATLAS-BOT.md) (`@atlas-bot` / assign on gt.plainskill.net).
 
 ---
 

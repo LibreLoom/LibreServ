@@ -128,3 +128,5 @@ Optional: `LAST_RUN_SHA` (else read from the state volume), `REPO_URL`,
   15 2 * * * cd /path/to/LibreServ/agents/nightly && \
     FORGEJO_TOKEN=... AI_PROXY_API_KEY=... ./run-nightly.sh >> /var/log/libreserv-nightly.log 2>&1
   ```
+
+This privileged host-socket launcher is not atlas-bot. Atlas-bot is agents/atlas-runner and ATLAS-BOT.md.

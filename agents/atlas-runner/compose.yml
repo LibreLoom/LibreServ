@@ -1,0 +1,27 @@
+name: atlas-bot
+services:
+  atlas-bot:
+    build:
+      context: ../..
+      dockerfile: agents/atlas-runner/Dockerfile
+    image: localhost/atlas-bot:latest
+    container_name: atlas-bot
+    restart: unless-stopped
+    user: "10000:10000"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ATLAS_MODE: both
+      ATLAS_BOT_TOKEN: ${ATLAS_BOT_TOKEN}
+      AI_PROXY_API_KEY: ${AI_PROXY_API_KEY}
+      ATLAS_WEBHOOK_SECRET: ${ATLAS_WEBHOOK_SECRET}
+      FORGEJO_URL: https://gt.plainskill.net
+      ATLAS_ORG: LibreLoom
+      ATLAS_OWNERS_TEAM: Owners
+      ATLAS_INTAKE_PORT: "8787"
+    volumes:
+      - atlas-bot-data:/data
+    expose:
+      - "8787"
+volumes:
+  atlas-bot-data:

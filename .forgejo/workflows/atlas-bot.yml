@@ -1,0 +1,42 @@
+name: atlas-bot
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request:
+    types: [opened, assigned]
+  workflow_dispatch:
+    inputs:
+      payload_json:
+        description: Optional raw Forgejo event JSON from org intake
+        required: false
+        type: string
+
+concurrency:
+  group: atlas-${{ forgejo.repository }}-${{ forgejo.event.issue.number || forgejo.event.pull_request.number || forgejo.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  cook:
+    runs-on: atlas
+    if: |
+      forgejo.event.sender.login != 'atlas-bot' && (
+        contains(forgejo.event.comment.body, '@atlas-bot') ||
+        (forgejo.event_name == 'issues' && forgejo.event.action == 'assigned') ||
+        (forgejo.event_name == 'pull_request' && forgejo.event.action == 'assigned') ||
+        (forgejo.event_name == 'issues' && forgejo.event.action == 'opened' && contains(forgejo.event.issue.body, '@atlas-bot')) ||
+        (forgejo.event_name == 'pull_request' && forgejo.event.action == 'opened' && contains(forgejo.event.pull_request.body, '@atlas-bot')) ||
+        forgejo.event_name == 'workflow_dispatch'
+      )
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+      - name: Run atlas-bot
+        env:
+          ATLAS_BOT_TOKEN: ${{ secrets.ATLAS_BOT_TOKEN }}
+          AI_PROXY_API_KEY: ${{ secrets.AI_PROXY_API_KEY }}
+          FORGEJO_URL: https://gt.plainskill.net
+          ATLAS_ORG: LibreLoom
+          ATLAS_OWNERS_TEAM: Owners
+          ATLAS_EVENT_PATH: ${{ forgejo.event_path }}
+        run: bash agents/atlas-bot/cook.sh

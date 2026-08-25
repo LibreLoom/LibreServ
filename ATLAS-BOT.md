@@ -86,3 +86,5 @@ sudo ./deploy.sh
 ```
 
 `deploy.sh` is idempotent: creates `atlas-bot` if missing, keeps it off Owners, ensures the Bots team membership, enables `[actions]` in Forgejo `app.ini`, registers the runner, writes secrets, creates the org webhook, installs podman if needed, and starts dispatcher + runner + dsh image. It never prints token or password values.
+
+Also in this PR: `agents/atlas-runner` (podman compose, host executor inside the container, no host runtime socket) and `.forgejo/workflows/` for LibreServ Actions plus the docs-updater.

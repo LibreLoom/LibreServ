@@ -1,0 +1,20 @@
+name: atlas-docs-updater
+on:
+  schedule:
+    - cron: "15 9 * * *"
+      timezone: America/Los_Angeles
+  workflow_dispatch:
+
+jobs:
+  docs:
+    runs-on: atlas
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+      - name: Truthful docs or delete
+        env:
+          ATLAS_BOT_TOKEN: ${{ secrets.ATLAS_BOT_TOKEN }}
+          AI_PROXY_API_KEY: ${{ secrets.AI_PROXY_API_KEY }}
+          FORGEJO_URL: https://gt.plainskill.net
+          ATLAS_ORG: LibreLoom
+          ATLAS_DOCS_REPO: LibreServ
+        run: bash agents/atlas-bot/docs-update.sh
