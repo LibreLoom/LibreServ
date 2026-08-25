@@ -225,20 +225,24 @@ pub fn safe_name(name: &str) -> Result<String, FilesError> {
 /// Atomically install `temp` as `dest`.
 ///
 /// When `overwrite` is false, the install fails with `AlreadyExists` if
-/// `dest` already exists. It does this with `hard_link` (which fails
-/// atomically if the destination appears) followed by removing `temp`, rather
-/// than `exists()`-then-`rename` — `rename(2)` silently overwrites, so the
-/// check-then-rename pattern has a TOCTOU window where a concurrently-created
-/// destination is clobbered even when overwrite was refused.
+/// `dest` already exists. On filesystems that support hard links this uses
+/// `hard_link` (which fails atomically if the destination appears) followed
+/// by removing `temp`. USB drives are often FAT / exFAT / NTFS, where
+/// `link(2)` returns EPERM — those fall back to a same-folder rename.
 pub fn install_temp(temp: &Path, dest: &Path, overwrite: bool) -> Result<(), FilesError> {
     if overwrite {
         std::fs::rename(temp, dest).map_err(FilesError::Io)?;
     } else {
-        std::fs::hard_link(temp, dest).map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => FilesError::Io(e),
-            _ => FilesError::Io(e),
-        })?;
-        std::fs::remove_file(temp).map_err(FilesError::Io)?;
+        match std::fs::hard_link(temp, dest) {
+            Ok(()) => std::fs::remove_file(temp).map_err(FilesError::Io)?,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(FilesError::Io(e));
+            }
+            Err(e) if hard_link_unsupported(&e) => {
+                install_by_exclusive_rename(temp, dest)?;
+            }
+            Err(e) => return Err(FilesError::Io(e)),
+        }
     }
     // Persist the directory entry so the rename/link survives power loss.
     if let Some(parent) = dest.parent()
@@ -247,6 +251,33 @@ pub fn install_temp(temp: &Path, dest: &Path, overwrite: bool) -> Result<(), Fil
         let _ = dir.sync_all();
     }
     Ok(())
+}
+
+/// `link(2)` is not supported on FAT, exFAT, NTFS-3G, and some FUSE mounts.
+/// Linux reports EPERM (os error 1) or EOPNOTSUPP; others use ENOSYS / EXDEV.
+fn hard_link_unsupported(err: &std::io::Error) -> bool {
+    if matches!(
+        err.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::Unsupported
+    ) {
+        return true;
+    }
+    matches!(err.raw_os_error(), Some(1 | 18 | 38 | 45 | 95))
+}
+
+/// Same-directory rename when hard links are unavailable. `rename(2)` replaces
+/// an existing dest, so refuse if the name is already there.
+fn install_by_exclusive_rename(temp: &Path, dest: &Path) -> Result<(), FilesError> {
+    match dest.symlink_metadata() {
+        Ok(_) => Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "destination exists",
+        ))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::rename(temp, dest).map_err(FilesError::Io)
+        }
+        Err(e) => Err(FilesError::Io(e)),
+    }
 }
 
 /// Move a file or folder to `.luna-trash` on the same drive (atomic rename,
@@ -628,5 +659,28 @@ mod tests {
         // Overwrite install replaces it.
         install_temp(&temp, &dest, true).unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), b"new");
+    }
+
+    #[test]
+    fn exclusive_rename_installs_when_hard_links_are_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".luna-upload.1");
+        let dest = dir.path().join("clip.webm");
+        std::fs::write(&temp, b"webm-bytes").unwrap();
+        install_by_exclusive_rename(&temp, &dest).unwrap();
+        assert!(!temp.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"webm-bytes");
+    }
+
+    #[test]
+    fn exclusive_rename_refuses_to_clobber() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".luna-upload.1");
+        let dest = dir.path().join("clip.webm");
+        std::fs::write(&temp, b"new").unwrap();
+        std::fs::write(&dest, b"original").unwrap();
+        assert!(install_by_exclusive_rename(&temp, &dest).is_err());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"original");
+        assert!(temp.exists());
     }
 }

@@ -347,7 +347,10 @@ async fn upload(
                     }
                     return Err(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Luna couldn't finish saving this file. {e}"),
+                        format!(
+                            "Luna couldn't finish saving this file. {}",
+                            plain_upload_error(&anyhow::Error::from(e))
+                        ),
                     ));
                 }
                 let meta = std::fs::symlink_metadata(&dest).map_err(|_| {
@@ -464,6 +467,11 @@ fn plain_upload_error(err: &anyhow::Error) -> String {
         "This drive is full. Free up space or choose another drive.".into()
     } else if text.contains("Read-only") || text.contains("read-only") {
         "This drive is read-only, so Luna can't save to it.".into()
+    } else if text.contains("Operation not permitted")
+        || text.contains("os error 1")
+        || text.contains("not supported")
+    {
+        "This drive wouldn't accept the file. If it's a USB stick, try ejecting it and plugging it back in, then save again.".into()
     } else {
         "Check that the drive is connected and try again.".into()
     }
