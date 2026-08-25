@@ -56,7 +56,7 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !backupUnlocked(h.Deps, dev.AccountID.String) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store a spare copy. It costs $7 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store a cloud backup. It costs $7 per terabyte each month.")
 		return
 	}
 	rel := objectPath(r)
@@ -73,7 +73,7 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, dev.AccountID.String).Scan(&used)
 	remain := capBytes - used
 	if remain <= 0 {
-		JSONError(w, http.StatusRequestEntityTooLarge, "Cloud copies for this account are full. Remove some files, then try again.")
+		JSONError(w, http.StatusRequestEntityTooLarge, "Cloud backup for this account is full. Remove some files, then try again.")
 		return
 	}
 	if remain < maxObj {
@@ -86,7 +86,7 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 		_ = h.Store.Delete(dev.AccountID.String, dev.ID, rel)
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			JSONError(w, http.StatusRequestEntityTooLarge, "That file is too large to store as a spare copy.")
+			JSONError(w, http.StatusRequestEntityTooLarge, "That file is too large to store in cloud backup.")
 			return
 		}
 		JSONError(w, http.StatusBadRequest, "Could not save that file.")
@@ -139,7 +139,7 @@ func (h BackupHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.DB.Query(`SELECT device_id, relative_path, size, content_hash, updated_at FROM backup_objects WHERE account_id = ? ORDER BY relative_path`, acct.ID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not list spare copies.")
+		JSONError(w, http.StatusInternalServerError, "Could not list cloud backups.")
 		return
 	}
 	defer rows.Close()
@@ -171,12 +171,12 @@ func (h BackupHandler) Download(w http.ResponseWriter, r *http.Request) {
 	deviceID, rel := backupObjectRef(r)
 	owned, ok := ownedDeviceID(h.Deps, acct.ID, deviceID)
 	if !ok {
-		JSONError(w, http.StatusNotFound, "That file is not in the spare copy.")
+		JSONError(w, http.StatusNotFound, "That file is not in cloud backup.")
 		return
 	}
 	rc, err := h.Store.Get(acct.ID, owned, rel)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "That file is not in the spare copy.")
+		JSONError(w, http.StatusNotFound, "That file is not in cloud backup.")
 		return
 	}
 	defer rc.Close()
@@ -201,7 +201,7 @@ func (h BackupHandler) DeleteAccountObject(w http.ResponseWriter, r *http.Reques
 	deviceID, rel := backupObjectRef(r)
 	owned, ok := ownedDeviceID(h.Deps, acct.ID, deviceID)
 	if !ok {
-		JSONError(w, http.StatusNotFound, "That file is not in the spare copy.")
+		JSONError(w, http.StatusNotFound, "That file is not in cloud backup.")
 		return
 	}
 	_ = h.Store.Delete(acct.ID, owned, rel)
