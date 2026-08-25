@@ -374,6 +374,23 @@ body {
     animation: pop-in 300ms var(--motion-easing-emphasized-decelerate) backwards;
 }
 
+/* Hint popups (InfoHint / TermHint) — snappy 50ms pop, not a fade that
+   never started because the node mounted at full opacity. */
+@keyframes tooltip-pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.tooltip-pop-in {
+    animation: tooltip-pop-in var(--motion-duration-short1) var(--motion-easing-emphasized-decelerate) backwards;
+}
+
 /* Staggered card grid entrance — rise up + subtle scale, cascading wave */
 @keyframes card-stagger {
     from {
@@ -696,7 +713,8 @@ body {
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
     .pop-in,
-    .pop-out {
+    .pop-out,
+    .tooltip-pop-in {
         animation: none !important;
     }
     .animate-md-bar-1,

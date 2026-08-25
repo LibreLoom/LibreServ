@@ -20,6 +20,7 @@ describe("InfoHint", () => {
     expect(tip.className).toMatch(/bg-secondary/);
     expect(tip.className).toMatch(/text-primary/);
     expect(tip.className).toMatch(/rounded-large-element/);
+    expect(tip.className).toMatch(/tooltip-pop-in/);
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
@@ -43,5 +44,6 @@ describe("TermHint", () => {
     expect(tip.className).toMatch(/rounded-pill/);
     expect(tip.className).toMatch(/bg-secondary/);
     expect(tip.className).toMatch(/text-primary/);
+    expect(tip.className).toMatch(/tooltip-pop-in/);
   });
 });

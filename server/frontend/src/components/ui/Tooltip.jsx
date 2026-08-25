@@ -17,13 +17,14 @@
  *    "primary"   page background → trigger uses text-secondary
  *    "secondary" card/modal      → trigger uses text-primary (default)
  *
- * Open on hover (short delay), keyboard focus, and click/tap (phones).
- * Escape, outside tap, and leaving both trigger and popup close it.
+ * Open on hover (50ms), keyboard focus, and click/tap (phones).
+ * The popup pops in over 50ms (`tooltip-pop-in`). Escape, outside tap,
+ * and leaving both trigger and popup close it.
  *
  * @typedef {object} HintSharedProps
  * @property {import("react").ReactNode} content Popup body.
  * @property {"primary"|"secondary"} [surface]
- * @property {number} [delayMs] Hover open delay. Default 180. Use 0 in tests.
+ * @property {number} [delayMs] Hover open delay. Default 50. Use 0 in tests.
  * @property {string} [className]
  */
 
@@ -76,7 +77,7 @@ function placePopup(trigger, popup) {
 function HintShell({
   content,
   surface = "secondary",
-  delayMs = 180,
+  delayMs = 50,
   className = "",
   popupClassName,
   dataSlot,
@@ -89,7 +90,7 @@ function HintShell({
   const closeTimer = useRef(null);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [coords, setCoords] = useState(/** @type {{ top: number, left: number } | null} */ (null));
   const textClass = surface === "primary" ? "text-secondary" : "text-primary";
 
   const clearTimers = useCallback(() => {
@@ -129,12 +130,15 @@ function HintShell({
 
   const updatePosition = useCallback(() => {
     if (triggerRef.current && popupRef.current) {
-      setPosition(placePopup(triggerRef.current, popupRef.current));
+      setCoords(placePopup(triggerRef.current, popupRef.current));
     }
   }, []);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setCoords(null);
+      return;
+    }
     updatePosition();
   }, [open, updatePosition, content]);
 
@@ -183,7 +187,7 @@ function HintShell({
   };
 
   return (
-    <span className={cn("relative inline-flex items-baseline", className)} data-slot={dataSlot}>
+    <span className={cn("relative inline-flex items-center", className)} data-slot={dataSlot}>
       {renderTrigger({
         triggerRef,
         open,
@@ -204,10 +208,15 @@ function HintShell({
             data-slot="tooltip-popup"
             onPointerEnter={show}
             onPointerLeave={pinned ? undefined : scheduleHide}
-            style={{ position: "fixed", top: position.top, left: position.left }}
+            style={{
+              position: "fixed",
+              top: coords?.top ?? 0,
+              left: coords?.left ?? 0,
+              visibility: coords ? "visible" : "hidden",
+            }}
             className={cn(
               "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
-              "motion-safe:transition-opacity motion-safe:duration-150",
+              coords && "tooltip-pop-in",
               popupClassName,
             )}
           >
