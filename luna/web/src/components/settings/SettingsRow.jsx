@@ -27,7 +27,7 @@ export default function SettingsRow({
       <div className={stack ? "md:flex-1 md:min-w-0 md:pr-4" : "flex-1 min-w-0 pr-4"}>
         <div className={cn("text-primary", mono && "font-mono")}>{label}</div>
         {description && (
-          <div className="text-sm text-primary mt-0.5">{description}</div>
+          <div className="text-sm text-accent mt-0.5">{description}</div>
         )}
       </div>
       <div className={stack ? "flex justify-center md:flex-none" : "flex-shrink-0"}>{children}</div>

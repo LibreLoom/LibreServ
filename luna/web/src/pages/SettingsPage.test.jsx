@@ -99,7 +99,9 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("navigation", { name: /Settings categories/i })).toBeTruthy();
     expect(await screen.findByText("max")).toBeTruthy();
     expect(await screen.findByRole("heading", { level: 1, name: "Look and feel" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Match device/i })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /System/i })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /^Light$/i })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /^Dark$/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /If you forget your password/i })).toBeNull();
     expect(screen.queryByText(/Plug a USB keyboard into Luna/i)).toBeNull();
     expect(screen.queryByText(/Keep this card somewhere safe/i)).toBeNull();

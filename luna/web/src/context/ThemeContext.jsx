@@ -1,15 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import { createContext, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
 export const ThemeContext = createContext(undefined);
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) {
-    throw new Error("useTheme must be used inside ThemeProvider");
-  }
-  return ctx;
-}
 
 function getSystemTheme() {
   if (typeof window !== "undefined" && window.matchMedia) {
