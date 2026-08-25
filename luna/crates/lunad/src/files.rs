@@ -297,9 +297,13 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path"))?;
         let to_c = std::ffi::CString::new(to.as_os_str().as_bytes())
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path"))?;
+        // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper, so the
+        // ISO's musl lunad must call the syscall. glibc has both; syscall
+        // works on either.
         // SAFETY: both paths are NUL-terminated CStrings; AT_FDCWD is a valid dirfd.
         let rc = unsafe {
-            libc::renameat2(
+            libc::syscall(
+                libc::SYS_renameat2,
                 libc::AT_FDCWD,
                 from_c.as_ptr(),
                 libc::AT_FDCWD,
