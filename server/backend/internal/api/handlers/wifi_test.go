@@ -97,7 +97,7 @@ func TestWifiConnectSurfacesPlainLanguageError(t *testing.T) {
 }
 
 func TestWifiConnectErrorIs400WithMessage(t *testing.T) {
-	f := &fakeWifi{connectErr: &providerErr{msg: "That password didn't work. Check the sticker on your internet box and try again."}}
+	f := &fakeWifi{connectErr: &providerErr{msg: "That password didn't work. Check the sticker on your router or modem and try again."}}
 	h := NewWifiHandler(f)
 	body, _ := json.Marshal(map[string]string{"ssid": "X", "passphrase": "nope"})
 	req := httptest.NewRequest(http.MethodPost, "/network/wifi/connect", bytes.NewReader(body))
@@ -109,7 +109,7 @@ func TestWifiConnectErrorIs400WithMessage(t *testing.T) {
 	}
 	var e map[string]string
 	_ = json.NewDecoder(w.Body).Decode(&e)
-	if e["error"] != "That password didn't work. Check the sticker on your internet box and try again." {
+	if e["error"] != "That password didn't work. Check the sticker on your router or modem and try again." {
 		t.Fatalf("unexpected error: %q", e["error"])
 	}
 }

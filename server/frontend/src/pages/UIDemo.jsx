@@ -29,6 +29,7 @@ import Toggle from "../components/common/Toggle.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
 import Table from "../components/common/Table.jsx";
 import ModalCard from "../components/cards/ModalCard.jsx";
+import { InfoHint, TermHint } from "../components/ui/Tooltip.jsx";
 
 function Section({ title, children, className = "" }) {
   return (
@@ -543,6 +544,36 @@ export default function UIDemo() {
                     { value: "option-2", label: "Option two" },
                   ]}
                 />
+              </div>
+            </div>
+          </Card>
+        </Section>
+
+        {/* Tooltips + wall of shame */}
+        <Section title="Tooltips">
+          <Card noHeightAnim noPopIn>
+            <div className="p-4 space-y-4">
+              <p className="text-primary text-sm">
+                Plug Luna into your{" "}
+                <TermHint content="The box that brings internet into the house. Often labeled WAN, Internet, or LAN on the back.">
+                  router
+                </TermHint>
+                {" "}or modem with the included{" "}
+                <TermHint content="The clip-in network cable in the box. Same shape as a phone jack, but wider.">
+                  RJ45
+                </TermHint>
+                {" "}(ethernet) cable.
+                {" "}
+                <InfoHint
+                  label="Why we say the real words"
+                  content="Simple language still uses ordinary words. Gloss router and RJ45 instead of inventing internet box."
+                />
+              </p>
+              <div className="rounded-large-element bg-primary text-secondary p-4 space-y-2 text-sm">
+                <p className="font-mono">Wall of shame</p>
+                <p>Never: Takes care of Luna. Use Admin and an ⓘ.</p>
+                <p>Never: internet box. Use router or modem.</p>
+                <p>Never: Can look. Use Read.</p>
               </div>
             </div>
           </Card>

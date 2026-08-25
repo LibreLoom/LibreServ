@@ -5,6 +5,7 @@ import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import Pill from "../common/Pill";
+import { TermHint } from "../ui/Tooltip";
 import { getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 export default function WifiCard() {
@@ -63,7 +64,7 @@ export default function WifiCard() {
       queryClient.invalidateQueries({ queryKey: ["network-status"] });
       close();
     } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't join that network. Check the password on your internet box."));
+      setError(apiErrorMessage(err, "Couldn't join that network. Check the password on your router or modem."));
     } finally {
       setConnecting(false);
     }
@@ -81,10 +82,14 @@ export default function WifiCard() {
 
   return (
     <>
-      <Card icon={Wifi} title="This house's network">
+      <Card icon={Wifi} title="Home network">
         <p className="text-primary text-sm">
           Phones and computers reach Luna on this network. A cable is the most
-          reliable. Wi-Fi is fine if Luna sits away from the internet box.
+          reliable. Wi-Fi is fine if Luna sits away from your{" "}
+          <TermHint content="The box that brings internet into the house. Often labeled WAN, Internet, or LAN on the back.">
+            router
+          </TermHint>
+          {" "}or modem.
         </p>
         <ul className="mt-4 space-y-2 text-sm text-primary">
           <li className="flex items-center justify-between gap-3">
@@ -122,7 +127,7 @@ export default function WifiCard() {
       {open && (
         <ModalCard title="Connect to Wi-Fi" onClose={close}>
           <p className="text-primary text-sm mb-3">
-            Pick your home network. The password is usually on a sticker on your internet box.
+            Pick your home network. The password is usually on a sticker on your router or modem.
           </p>
           <div className="space-y-2 max-h-56 overflow-y-auto">
             {networks.map((net) => (
@@ -144,7 +149,7 @@ export default function WifiCard() {
             )}
             {!scan.isFetching && networks.length === 0 && (
               <p className="text-primary text-sm">
-                No networks yet. Move Luna closer to the internet box and try again.
+                No networks yet. Move Luna closer to the router or modem and try again.
               </p>
             )}
           </div>

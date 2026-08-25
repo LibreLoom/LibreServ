@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud } from "lucide-react";
 import Button from "../../ui/Button";
 import SettingsCard from "../SettingsCard";
+import { InfoHint } from "../../ui/Tooltip";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
 import { useState } from "react";
 import PageNotice from "../../common/PageNotice";
@@ -28,13 +29,22 @@ export default function CloudBackupCategory() {
   });
 
   return (
-    <SettingsCard icon={Cloud} title="Spare copy in the cloud">
+    <SettingsCard
+      icon={Cloud}
+      title="Cloud backup"
+      headerActions={
+        <InfoHint
+          label="What cloud backup means"
+          content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions."
+        />
+      }
+    >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       {connect.data?.backup_unlocked ? (
         <div className="space-y-3">
           <p className="text-primary text-sm">
-            Luna copies the latest files when this box is idle — not a history of old versions.
-            Spare copies cost $7 per terabyte each month.
+            Luna copies the latest files when this Luna is idle — not a history of old versions.
+            Cloud backup costs $7 per terabyte each month.
           </p>
           {(drives.data || []).map((d) => {
             const on = (connect.data.backup_sources || []).some((s) => s.drive_id === d.id);

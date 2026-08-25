@@ -416,7 +416,7 @@ export default function Navbar() {
                         onClick={() => setIsUserMenuOpen(false)}
                       >
                         <Users size={16} aria-hidden="true" />
-                        <span className="text-sm font-semibold">People</span>
+                        <span className="text-sm font-semibold">Users</span>
                       </NavLink>
                       <NavLink
                         to="/settings/remote"
@@ -525,7 +525,7 @@ export default function Navbar() {
                 <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
                 <NavLink to="/settings/users" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
                   <Users size={18} aria-hidden="true" />
-                  <span>People</span>
+                  <span>Users</span>
                 </NavLink>
                 <NavLink to="/settings/remote" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
                   <Wifi size={18} aria-hidden="true" />

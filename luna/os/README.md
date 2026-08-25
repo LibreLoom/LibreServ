@@ -45,7 +45,7 @@ This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system. T
 rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
 support, then flashes the Alpine rootfs above.
 
-Quick-start: Ethernet cable to a LAN socket on the internet box. Phone stays
+Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem. Phone stays
 on home Wi-Fi. Open the address shown on Luna's screen, or try `luna.local`.
 
 ## Photo previews (HEIC)

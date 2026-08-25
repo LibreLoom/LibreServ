@@ -108,23 +108,23 @@ describe("SettingsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /Who is signed in/i }));
     expect(await screen.findByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Stop apps and helper tools/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Revoke app access/i })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Apps and helper tools" }));
+    await user.click(screen.getByRole("button", { name: "Apps and access tokens" }));
     expect(await screen.findByRole("button", { name: /Create access token/i })).toBeTruthy();
-    expect(screen.getByText(/computer or phone app, or a tool a helper set up/i)).toBeTruthy();
+    expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Software updates/i }));
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
   });
 
-  it("hides admin-only categories from a household member", async () => {
+  it("hides admin-only categories from a member", async () => {
     stubFetch("user");
     renderPage();
     await screen.findByText("max");
-    expect(screen.getByText(/Some settings are only for the person who takes care of this Luna/i)).toBeTruthy();
+    expect(screen.getByText(/Some settings are only for admins/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Software updates/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /This house's network/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Spare copy in the cloud/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Home network/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Cloud backup/i })).toBeNull();
   });
 });

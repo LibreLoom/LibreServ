@@ -95,7 +95,7 @@ function driveNextStep(drive) {
     return "This drive ran into a problem. Copy important files off it if you can, then try another drive.";
   }
   if (drive.state === "readonly") {
-    return "Luna can look at files but cannot save new ones here. The drive may be full or write-protected.";
+    return "Luna can read files but cannot save new ones here. The drive may be full or write-protected.";
   }
   return `Connected as ${drive.device} · ${drive.fs_type || "drive"}`;
 }

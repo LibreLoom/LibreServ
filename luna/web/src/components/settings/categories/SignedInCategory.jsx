@@ -30,11 +30,11 @@ export default function SignedInCategory() {
       {error && <PageNotice variant="error" className="mx-4 mt-4 mb-2">{error}</PageNotice>}
       <p className="text-primary text-sm px-4 pb-2 pt-4">
         Signing out on this screen only leaves this browser. Use the
-        buttons below if a phone, computer, or helper&apos;s tool should no longer reach your files.
+        buttons below if a phone, computer, or app should no longer reach your files.
       </p>
       <SettingsRow
         label="Sign out every browser"
-        description="Use this if you signed in on a computer you don't trust anymore. Every browser must type the password again. Phone apps and helper tools keep working."
+        description="Use this if you signed in on a computer you don't trust anymore. Every browser must type the password again. Phone apps and access tokens keep working."
         stack
       >
         <Button variant="accent" loading={signOutBrowsers.isPending} onClick={() => signOutBrowsers.mutate()}>
@@ -42,13 +42,13 @@ export default function SignedInCategory() {
         </Button>
       </SettingsRow>
       <SettingsRow
-        label="Stop apps and helper tools"
-        description="Use this if a phone or laptop was lost, or a helper should no longer reach Luna. Those apps must sign in again. Browsers stay signed in."
+        label="Revoke app access"
+        description="Use this if a phone or laptop was lost, or an app should no longer reach Luna. Those apps must sign in again. Browsers stay signed in."
         hideDivider
         stack
       >
         <Button variant="accent" loading={stopBackups.isPending} onClick={() => stopBackups.mutate()}>
-          Stop apps and helper tools
+          Revoke app access
         </Button>
       </SettingsRow>
     </SettingsCard>

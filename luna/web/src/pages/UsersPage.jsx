@@ -8,6 +8,7 @@ import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import PageNotice from "../components/common/PageNotice";
 import Dropdown from "../components/common/Dropdown";
+import { InfoHint, TermHint } from "../components/ui/Tooltip";
 import { getDrives, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -15,7 +16,7 @@ async function del(path) {
   const res = await fetch(path, { method: "DELETE", credentials: "include" });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Couldn't remove it");
+    throw new Error(data.error || "Couldn't remove this user. Try again.");
   }
   return res.json();
 }
@@ -62,11 +63,10 @@ export default function UsersPage() {
 
   if (user?.role !== "admin") {
     return (
-      <Page title="People">
+      <Page title="Users">
         <Card padding>
           <p className="text-primary text-sm">
-            This screen is for the person who takes care of this Luna. Ask them
-            if you need someone added or removed.
+            This page is for admins. Ask an admin if you need someone added or removed.
           </p>
         </Card>
       </Page>
@@ -74,18 +74,30 @@ export default function UsersPage() {
   }
 
   return (
-    <Page title="People" titleId="people-title"
-      rightContent={<Button size="sm" variant="primary" onClick={() => { setError(null); setCreating(true); }}><UserPlus size={14} /> Add person</Button>}
+    <Page title="Users" titleId="users-title"
+      rightContent={<Button size="sm" variant="primary" onClick={() => { setError(null); setCreating(true); }}><UserPlus size={14} /> Add user</Button>}
     >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-4 md:grid-cols-2">
         {(users.data || []).map((u) => (
-          <Card key={u.id} title={u.display_name} headerActions={<Pill variant={u.role === "admin" ? "info" : "success"}>{u.role === "admin" ? "Takes care of Luna" : "Household"}</Pill>}>
+          <Card key={u.id} title={u.display_name} headerActions={
+            u.role === "admin" ? (
+              <span className="inline-flex items-center gap-1">
+                <Pill variant="info">Admin</Pill>
+                <InfoHint
+                  label="What Admin means"
+                  content="An admin can add users, change settings, and manage this Luna."
+                />
+              </span>
+            ) : (
+              <Pill variant="success">Member</Pill>
+            )
+          }>
             <p className="text-primary text-sm font-mono">{u.username}</p>
             <p className="text-primary text-xs mt-1">
               {u.role === "admin"
-                ? "Takes care of this Luna"
-                : "Household member — they need folder access before they can see files."}
+                ? "This account can change settings and manage users on this Luna."
+                : "Member — grant folder access before they can see files."}
             </p>
             <div className="mt-3 flex gap-2">
               <Button size="sm" variant="outline" onClick={() => { setSelected(u); setError(null); }}>Access</Button>
@@ -113,7 +125,7 @@ export default function UsersPage() {
               return (
               <div key={g.id} className="flex items-center justify-between rounded-large-element border border-primary/20 p-3">
                 <span className="text-primary text-xs font-mono">
-                  {driveName}{g.path ? `/${g.path}` : " (whole drive)"} · {g.permission === "write" ? "can add and change" : "can look"}
+                  {driveName}{g.path ? `/${g.path}` : " (whole drive)"} · {g.permission === "write" ? "Write" : "Read"}
                 </span>
                 <Button size="iconSm" variant="danger" onClick={() => revokeMutation.mutate(g.id)}><Trash2 size={12} /></Button>
               </div>
@@ -142,7 +154,7 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   return (
-    <ModalCard title="Add a person" onClose={onClose}>
+    <ModalCard title="Add a user" onClose={onClose}>
       <p className="text-primary text-sm mb-3">
         They sign in with the username you chose. Next, give them access to a drive or folder.
       </p>
@@ -151,7 +163,7 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
         <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
         <input type="password" className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Password (8+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} />
         <div className="flex gap-3">
-          <Button variant="primary" loading={busy} onClick={() => onSubmit({ username, display_name: displayName, password, role: "user" })}>Add person</Button>
+          <Button variant="primary" loading={busy} onClick={() => onSubmit({ username, display_name: displayName, password, role: "user" })}>Add user</Button>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
         </div>
       </div>
@@ -176,7 +188,18 @@ function GrantForm({ drives, onGrant, busy }) {
         fullWidth
       />
       <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Folder (leave empty for the whole drive)" value={path} onChange={(e) => setPath(e.target.value)} />
-      <Dropdown options={[{ value: "read", label: "Can look" }, { value: "write", label: "Can add and change" }]} value={permission} onChange={setPermission} fullWidth />
+      <Dropdown
+        options={[{ value: "read", label: "Read" }, { value: "write", label: "Write" }]}
+        value={permission}
+        onChange={setPermission}
+        fullWidth
+      />
+      <p className="text-primary text-xs">
+        <TermHint content="They can open and download files, but cannot add, edit, or delete them.">Read</TermHint>
+        {" "}lets them open files.{" "}
+        <TermHint content="They can open, add, edit, and delete files in this folder.">Write</TermHint>
+        {" "}lets them add and change files.
+      </p>
       <Button variant="primary" fullWidth loading={busy} disabled={!driveId} onClick={() => onGrant({ drive_id: driveId, path, permission })}>
         <Plus size={14} /> Grant access
       </Button>

@@ -10,10 +10,10 @@ import UpdatesCategory from "./categories/UpdatesCategory.jsx";
 
 const CATEGORY_TITLES = {
   appearance: "Look and feel",
-  network: "This house's network",
-  cloud: "Spare copy in the cloud",
+  network: "Home network",
+  cloud: "Cloud backup",
   devices: "Phones and computers",
-  apps: "Apps and helper tools",
+  apps: "Apps and access tokens",
   password: "If you forget your password",
   signed_in: "Who is signed in",
   updates: "Software updates",

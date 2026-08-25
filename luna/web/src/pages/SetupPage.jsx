@@ -370,7 +370,7 @@ function AccountStep({ hasAdmin, onContinue }) {
             Create your account
           </h2>
           <p className="text-primary text-sm mt-2">
-            This account protects every file on Luna. You can add people for the rest of your household later.
+            This account protects every file on Luna. You can add users later.
           </p>
         </div>
 

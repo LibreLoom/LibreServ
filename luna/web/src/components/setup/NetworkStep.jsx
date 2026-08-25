@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { getJson, postJson } from "../../lib/api";
 import Button from "../ui/Button";
 import Pill from "../common/Pill";
+import { TermHint } from "../ui/Tooltip";
 import { useState } from "react";
 
 function BoardRow({ ok, okText, offText }) {
@@ -54,7 +55,7 @@ export default function NetworkStep({ name, onContinue }) {
     setCodeMsg("");
     try {
       await postJson("/api/v1/connect/setup-code", { code: code.trim() });
-      setCodeMsg("Saved. Luna will use this code to meet Luna Connect.");
+      setCodeMsg("Saved. Luna will use this code to connect to Luna Connect.");
     } catch (err) {
       setCodeMsg(err?.message || "That code did not work. Check it and try again.");
     }
@@ -68,10 +69,22 @@ export default function NetworkStep({ name, onContinue }) {
       </h1>
       <p className="text-primary text-sm leading-relaxed max-w-md mb-8">
         {waitingLease
-          ? "The cable is in. Waiting for an address from your internet box."
+          ? "The cable is in. Waiting for an address from your router or modem."
           : online
             ? `${name} is on your home network. Stay on home Wi-Fi on your phone.`
-            : `Connect ${name} to power and to the internet box with the included cable. Use a LAN socket — the same kind of socket your home internet uses.`}
+            : (
+              <>
+                Plug {name} into power and into your{" "}
+                <TermHint content="The box that brings internet into the house. Often labeled WAN, Internet, or LAN on the back.">
+                  router
+                </TermHint>
+                {" "}or modem with the included{" "}
+                <TermHint content="The clip-in network cable in the box. Same shape as a phone jack, but wider.">
+                  RJ45
+                </TermHint>
+                {" "}(ethernet) cable.
+              </>
+            )}
       </p>
 
       <div className="w-full max-w-sm space-y-2 mb-8" data-slot="network-board">

@@ -1,5 +1,5 @@
 /**
- * Turn SMART-ish API fields into calm household language.
+ * Turn SMART-ish API fields into plain drive-health copy.
  * Never expose smartctl jargon.
  *
  * @param {null | { available?: boolean, overall?: string, temperature_c?: number | null, reallocated_sectors?: number | null }} health
@@ -9,7 +9,7 @@ export function describeDriveHealth(health) {
     return {
       pill: "muted",
       title: "Checking…",
-      detail: "Luna is asking this drive how it feels.",
+      detail: "Checking this drive's health report.",
     };
   }
   if (!health.available) {
@@ -31,8 +31,8 @@ export function describeDriveHealth(health) {
   if (passed && !worn) {
     return {
       pill: "success",
-      title: "Looking healthy",
-      detail: `This drive says it's doing fine.${temp}`,
+      title: "Healthy",
+      detail: `This drive reported no problems.${temp}`,
     };
   }
   if (passed && worn) {

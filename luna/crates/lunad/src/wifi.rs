@@ -27,7 +27,7 @@ pub struct WifiStatus {
 pub enum WifiError {
     #[error("Wi-Fi isn't available on this device.")]
     Unavailable,
-    #[error("That password didn't work. Check the sticker on your internet box and try again.")]
+    #[error("That password didn't work. Check the sticker on your router or modem and try again.")]
     Auth,
     #[error("That network name or password has characters Luna can't use. Try another.")]
     InvalidInput,

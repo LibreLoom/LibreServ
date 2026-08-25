@@ -63,7 +63,7 @@ export default function SettingsSidebar({
         {!isAdmin && (
           <p className="px-3 mt-3 flex items-center gap-1.5 text-xs text-primary">
             <Lock size={12} aria-hidden="true" className="shrink-0" />
-            Some settings are only for the person who takes care of this Luna.
+            Some settings are only for admins.
           </p>
         )}
       </div>

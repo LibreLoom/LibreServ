@@ -5,7 +5,7 @@ import Button from "../ui/Button";
 
 /**
  * Exact steps to open a Luna drive as a folder on a household computer.
- * Finder/Explorer must use an access token from Settings — never the household password.
+ * Finder/Explorer must use an access token from Settings — never the Luna password.
  */
 export default function ComputerMountHelp({ driveId, driveLabel }) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -25,11 +25,11 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
       <p className="text-primary text-sm">
         This puts {label} next to the other folders on a Mac, Windows PC, or Linux
         computer. Sign in with your Luna username. For the password, use an access
-        token from Settings — never your household password.
+        token from Settings — never your Luna password.
       </p>
       <ol className="mt-4 space-y-2 text-sm text-primary list-decimal list-inside">
         <li>
-          Open Settings → Apps and helper tools → create an access token and copy it.
+          Open Settings → Apps and access tokens → create an access token and copy it.
         </li>
         <li>
           On a Mac: Finder → Go → Connect to Server. On Windows: File Explorer →
@@ -50,7 +50,7 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
         </Button>
       </div>
       <p className="mt-3 text-sm text-primary">
-        Only someone who takes care of this Luna can open a whole drive as a folder.
+        Only an admin can open a whole drive as a folder.
         {" "}
         <TextLink surface="secondary" to="/settings#apps">Open Settings</TextLink>
       </p>

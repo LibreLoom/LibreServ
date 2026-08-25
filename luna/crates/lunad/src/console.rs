@@ -27,12 +27,11 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         String::new(),
     ];
     if snap.cable_in && snap.ipv4.is_empty() {
-        lines.push("  Cable is in. Waiting for an address from your internet box.".into());
-        lines.push("  Keep the included cable plugged into a LAN socket.".into());
+        lines.push("  Cable is in. Waiting for an address from your router or modem.".into());
+        lines.push("  Keep the included RJ45 (ethernet) cable plugged into a LAN port.".into());
     } else if !snap.cable_in {
-        lines.push("  Plug the included cable from Luna into a LAN socket".into());
-        lines.push("  on your internet box (the same kind of socket your".into());
-        lines.push("  home internet uses).".into());
+        lines.push("  Plug the included RJ45 (ethernet) cable from Luna".into());
+        lines.push("  into a LAN port on your router or modem.".into());
     }
     if !snap.ipv4.is_empty() {
         lines.push("  On your phone or laptop (stay on home Wi-Fi):".into());
