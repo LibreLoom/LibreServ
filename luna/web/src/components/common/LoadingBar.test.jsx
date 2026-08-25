@@ -32,7 +32,7 @@ describe("LoadingBar", () => {
       </MemoryRouter>,
     );
 
-    const bar = container.querySelector(".loading-bar");
+    const bar = /** @type {HTMLElement | null} */ (container.querySelector(".loading-bar"));
     expect(bar).toBeTruthy();
     expect(bar.style.display).toBe("none");
 
