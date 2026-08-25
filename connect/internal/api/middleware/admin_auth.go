@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
-	"strings"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
@@ -16,10 +15,18 @@ type adminContext struct{}
 // AdminAuth authenticates admin requests. Supports both session tokens (from /admin/login)
 // and static admin token (backward compat via config).
 func AdminAuth(db *sql.DB) func(http.Handler) http.Handler {
+	fails := newFailLimiter(10, time.Minute)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := ClientIP(r)
+			if fails.blocked(ip) {
+				writeAuthRateLimited(w)
+				return
+			}
+
 			token := extractBearer(r)
 			if token == "" {
+				fails.fail(ip)
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
@@ -33,6 +40,7 @@ func AdminAuth(db *sql.DB) func(http.Handler) http.Handler {
 				Scan(&adminID, &expiresAt)
 			if err == nil {
 				if time.Now().After(expiresAt) {
+					fails.fail(ip)
 					http.Error(w, `{"error":"session expired"}`, http.StatusUnauthorized)
 					return
 				}
@@ -41,18 +49,21 @@ func AdminAuth(db *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Fall back to static token
+			// Fall back to static token. Compare in constant time so a
+			// mis-cased or mistyped secret does not leak through EqualFold
+			// or short-circuit byte compares.
 			expected := config.C.Auth.AdminTokenSecret
 			if expected == "" {
 				http.Error(w, `{"error":"admin auth not configured"}`, http.StatusServiceUnavailable)
 				return
 			}
-			if strings.EqualFold(token, expected) {
+			if security.ConstantTimeEqual(token, expected) {
 				ctx := context.WithValue(r.Context(), adminContext{}, "static-admin")
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
+			fails.fail(ip)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		})
 	}
