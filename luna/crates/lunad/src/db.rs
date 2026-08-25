@@ -265,6 +265,39 @@ pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Forget a drive and every row that points at it (grants, shares, index, …).
+/// Does not touch files on the drive itself. All deletes run in one transaction
+/// so a mid-cascade failure cannot leave related rows gone while the drive remains.
+pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    let statements = [
+        "DELETE FROM grants WHERE drive_id = ?1",
+        "DELETE FROM shares WHERE drive_id = ?1",
+        "DELETE FROM uploads WHERE drive_id = ?1",
+        "DELETE FROM jobs WHERE from_drive = ?1 OR to_drive = ?1",
+        "DELETE FROM index_entries WHERE drive_id = ?1",
+        "DELETE FROM indexed_dirs WHERE drive_id = ?1",
+        "DELETE FROM file_hashes WHERE drive_id = ?1",
+        "DELETE FROM protections WHERE source_drive = ?1 OR target_drive = ?1",
+        "DELETE FROM photos WHERE drive_id = ?1",
+    ];
+    for sql in statements {
+        match tx.execute(sql, params![id]) {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("no such") => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    // Orphaned upload chunk rows for uploads we just deleted.
+    let _ = tx.execute(
+        "DELETE FROM upload_chunks WHERE upload_id NOT IN (SELECT id FROM uploads)",
+        [],
+    );
+    tx.execute("DELETE FROM drives WHERE id = ?1", params![id])?;
+    tx.commit()?;
+    Ok(())
+}
+
 /// Wipe all user data and return the box to first-run state, keeping the
 /// schema. Clears users/grants/shares/device-tokens, uploads/jobs, the file
 /// index/hashes/protections/photos, drives, and resets setup + the JWT and BLE
@@ -961,5 +994,46 @@ mod tests {
             Some("test-id")
         );
         assert!(list_drives(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_drive_cascade_removes_related_rows_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let now = now_unix();
+        conn.execute(
+            "INSERT INTO drives (id, label, state, fs_type, device, mount_point, created_at, updated_at)
+             VALUES ('d1', 'Photos', 'as_is', 'ext4', 'sdz', '/mnt', ?1, ?1)",
+            params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO grants (id, user_id, drive_id, path, permission, created_at)
+             VALUES ('g1', 'u1', 'd1', '', 'write', ?1)",
+            params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO shares (id, token_hash, drive_id, path, password_hash, expires_at, created_by, created_at)
+             VALUES ('s1', 'tok', 'd1', '', '', NULL, 'u1', ?1)",
+            params![now],
+        )
+        .unwrap();
+
+        delete_drive_cascade(&conn, "d1").unwrap();
+
+        assert!(get_drive(&conn, "d1").unwrap().is_none());
+        let grants: i64 = conn
+            .query_row("SELECT COUNT(*) FROM grants WHERE drive_id = 'd1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let shares: i64 = conn
+            .query_row("SELECT COUNT(*) FROM shares WHERE drive_id = 'd1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(grants, 0);
+        assert_eq!(shares, 0);
     }
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { HardDrive, PlugZap, TriangleAlert, ListChecks } from "lucide-react";
+import { ChevronRight, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
@@ -114,6 +114,66 @@ function connectionDetail(net) {
   return "Plug in a cable or join Wi-Fi so phones and computers can reach Luna.";
 }
 
+function connectionDotClass(net) {
+  if (!net) return "bg-accent";
+  if (net.ethernet_connected || net.wifi_connected) return "bg-primary";
+  return "bg-warning";
+}
+
+/**
+ * ConnectionCard — same metric language as UptimeCard: quiet eyebrow, live
+ * dot, large mono status. Remote access is one full-width pill (status +
+ * link), not a badge stacked on a separate button.
+ *
+ * @param {{
+ *   net: any,
+ *   isAdmin: boolean,
+ *   remoteOn: boolean,
+ *   remoteDomain?: string,
+ * }} props
+ */
+function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain }) {
+  return (
+    <Card data-slot="connection-card">
+      <div className="flex items-center gap-2 mb-1">
+        <span
+          className={cn("inline-block h-2 w-2 rounded-full shrink-0", connectionDotClass(net))}
+          aria-hidden="true"
+        />
+        <span className="text-xs font-mono uppercase tracking-widest text-accent">
+          Connection
+        </span>
+      </div>
+      <div className="text-3xl font-mono font-normal leading-tight text-primary">
+        {connectionHeadline(net)}
+      </div>
+      <p className="text-primary text-sm mt-2">{connectionDetail(net)}</p>
+      {isAdmin && (
+        <Button
+          size="md"
+          variant="primary"
+          asChild
+          fullWidth
+          className="mt-4 justify-between"
+        >
+          <Link
+            to="/settings#remote"
+            aria-label={remoteOn ? "Remote access on" : "Remote access off"}
+          >
+            <span>{remoteOn ? "Remote access on" : "Remote access off"}</span>
+            <span className="flex items-center gap-2">
+              {remoteOn && remoteDomain ? (
+                <span className="font-mono">{remoteDomain}</span>
+              ) : null}
+              <ChevronRight size={16} aria-hidden="true" />
+            </span>
+          </Link>
+        </Button>
+      )}
+    </Card>
+  );
+}
+
 function jobLabel(job) {
   const kind = String(job.kind || "").toLowerCase();
   if (kind.includes("move")) return "Moving files";
@@ -224,27 +284,12 @@ export default function DashboardPage() {
       >
         <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
           <UptimeCard value={displayUptime} />
-          <Card title="Connection">
-            <p className="font-mono text-xl text-primary">{connectionHeadline(network.data)}</p>
-            <p className="text-primary text-sm mt-2">{connectionDetail(network.data)}</p>
-            {isAdmin && connect.data && (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Pill variant={remoteOn ? "success" : "warning"}>
-                  {remoteOn ? "Remote access on" : "Remote access off"}
-                </Pill>
-                {remoteOn && remoteDomain && (
-                  <span className="font-mono text-sm text-primary">{remoteDomain}</span>
-                )}
-              </div>
-            )}
-            {isAdmin && (
-              <div className="mt-4">
-                <Button size="sm" variant="outline" asChild>
-                  <Link to="/settings/remote">Remote access</Link>
-                </Button>
-              </div>
-            )}
-          </Card>
+          <ConnectionCard
+            net={network.data}
+            isAdmin={isAdmin}
+            remoteOn={remoteOn}
+            remoteDomain={remoteDomain}
+          />
           {recentJobs.length > 0 && (
             <Card title="Recent copies">
               <ul className="space-y-3">
@@ -332,34 +377,6 @@ export default function DashboardPage() {
                 </Button>
               }
             />
-          )}
-
-          {isAdmin && (
-            <Card icon={ListChecks} title="What to do next">
-              <ol className="space-y-3 text-sm text-primary list-decimal list-inside">
-                <li>
-                  Plug in a USB drive, then open Drives and tap Look inside.
-                  {" "}
-                  <TextLink surface="secondary" to="/drives">Open Drives</TextLink>
-                </li>
-                <li>
-                  Add users so each person has their own sign-in.
-                  {" "}
-                  <TextLink surface="secondary" to="/settings/users">Users</TextLink>
-                </li>
-                <li>
-                  On a phone: install the Luna app and turn on photo backup. On a computer:
-                  Settings has the steps to open a drive as a folder.
-                  {" "}
-                  <TextLink surface="secondary" to="/settings">Settings</TextLink>
-                </li>
-                <li>
-                  If you want Luna from away from home, turn on remote access. It is free.
-                  {" "}
-                  <TextLink surface="secondary" to="/settings/remote">Remote access</TextLink>
-                </li>
-              </ol>
-            </Card>
           )}
 
           {!isAdmin && grants.length > 0 && (

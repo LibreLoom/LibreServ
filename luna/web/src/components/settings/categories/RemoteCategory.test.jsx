@@ -2,21 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import RemotePage from "./RemotePage";
+import RemoteCategory from "./RemoteCategory";
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <RemotePage />
+        <RemoteCategory />
       </QueryClientProvider>
     </MemoryRouter>,
   );
 }
 
-describe("RemotePage", () => {
-  it("asks for a name when Connect is off", async () => {
+describe("RemoteCategory", () => {
+  it("asks for a code when Connect is off", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ));
@@ -25,7 +25,6 @@ describe("RemotePage", () => {
     expect(screen.getByRole("button", { name: /Use booklet code/i })).toBeTruthy();
     expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
     expect(screen.getByText(/free forever/i)).toBeTruthy();
-    expect(document.querySelector('[data-slot="page-lead"]')).toBeNull();
   });
 
   it("shows hostname and change field when on", async () => {
@@ -42,6 +41,5 @@ describe("RemotePage", () => {
     expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Save new address/i })).toBeTruthy();
     expect(screen.getByText(/free forever/i)).toBeTruthy();
-    expect(document.querySelector('[data-slot="page-lead"]')).toBeNull();
   });
 });

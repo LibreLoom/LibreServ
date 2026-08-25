@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, KeyRound, ShieldOff, Unplug } from "lucide-react";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
-import Pill from "../components/common/Pill";
-import PageNotice from "../components/common/PageNotice";
-import SettingsCard from "../components/settings/SettingsCard";
-import SettingsRow from "../components/settings/SettingsRow";
-import { getJson, postJson, apiErrorMessage } from "../lib/api";
+import Button from "../../ui/Button";
+import Pill from "../../common/Pill";
+import PageNotice from "../../common/PageNotice";
+import SettingsCard from "../SettingsCard";
+import SettingsRow from "../SettingsRow";
+import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
 
-export default function RemotePage() {
+export default function RemoteCategory() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -43,18 +42,14 @@ export default function RemotePage() {
   const address = host ? (host.includes("://") ? host : `https://${host}`) : "";
 
   return (
-    <Page title="Remote access" titleId="remote-title">
+    <>
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-5 md:grid-cols-2">
         <SettingsCard icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
           {s.enabled ? (
             <div className="space-y-3">
-              <p className="text-primary text-sm">
-                Your Luna is reachable anywhere at{" "}
-                <span className="font-mono">{host || "your Luna address"}</span>.
-                That address is free forever.
-                Open it on a phone or computer the same way you open Luna at home, then sign in. That sign-in is a Luna account, not your Luna Connect account.
-              </p>
+              <p className="text-primary text-sm font-mono">{host || "your Luna address"}</p>
+              <p className="text-primary text-sm">That address is free forever.</p>
               {address && (
                 <Button
                   size="sm"
@@ -71,11 +66,7 @@ export default function RemotePage() {
                   {copied ? "Copied" : "Copy address"}
                 </Button>
               )}
-              <SettingsRow
-                label="Change address"
-                description="Pick a short name. Phones will open it as that-name.luna.servers.libreloom.org."
-                stack
-              >
+              <SettingsRow label="Change address" stack>
                 <input
                   className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
                   placeholder="kitchen"
@@ -94,12 +85,7 @@ export default function RemotePage() {
               <p className="text-primary text-sm">
                 Pick a name at connect.luna.libreloom.org. That address is free forever.
               </p>
-              <SettingsRow
-                label="Code from the Luna Connect site"
-                description="Six letters from the website. If you bought Luna, the booklet code is already on this disk."
-                stack
-                hideDivider
-              >
+              <SettingsRow label="Code from the Luna Connect site" stack hideDivider>
                 <input
                   className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
                   value={code}
@@ -120,25 +106,18 @@ export default function RemotePage() {
         </SettingsCard>
 
         <SettingsCard icon={ShieldOff} title="Your own way">
-          <p className="text-primary text-sm">
-            Skip the free Luna address if you already run a private network. These steps are for someone who already knows the tool.
-          </p>
-          <ul className="mt-3 space-y-3 text-sm text-primary">
+          <ul className="space-y-3 text-sm text-primary">
             <li className="flex items-start gap-2">
               <Unplug size={14} className="text-accent mt-1 shrink-0" />
-              <span>
-                Tailscale or WireGuard: install the app on Luna&apos;s computer, then on your phone. Open Luna at its private address from that app — often luna.local still works once both devices are on the same private network.
-              </span>
+              <span>Tailscale or WireGuard: install on Luna and your phone, then open Luna at the private address.</span>
             </li>
             <li className="flex items-start gap-2">
               <KeyRound size={14} className="text-accent mt-1 shrink-0" />
-              <span>
-                Port forwarding: on your router or modem, send web traffic (ports 80 and 443) to Luna. Then open Luna at your home&apos;s public internet address.
-              </span>
+              <span>Port forwarding: send ports 80 and 443 to Luna, then open it at your public address.</span>
             </li>
           </ul>
         </SettingsCard>
       </div>
-    </Page>
+    </>
   );
 }

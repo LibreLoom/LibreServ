@@ -64,6 +64,8 @@ describe("FilesPage", () => {
     expect(screen.getAllByText(/Drop files here/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Choose files/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Share this folder/i })).not.toBeInTheDocument();
   });
 
   it("opens a folder from the address bar and keeps the address in sync", async () => {

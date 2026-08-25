@@ -9,13 +9,9 @@ import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
-import RemotePage from "./pages/RemotePage";
-import SharedPage from "./pages/SharedPage";
-import SharesPage from "./pages/SharesPage";
 import UsersPage from "./pages/UsersPage";
 import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import ProtectionPage from "./pages/ProtectionPage";
 import SettingsPage from "./pages/SettingsPage";
 import PublicSharePage from "./pages/PublicSharePage";
 import RequireAdmin from "./components/auth/RequireAdmin";
@@ -65,11 +61,11 @@ export default function App() {
                 <Route path="/drives/:id" element={<FilesPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
-                <Route path="/settings/shares" element={<SharesPage />} />
-                <Route path="/shared" element={<SharedPage />} />
-                <Route path="/settings/protect" element={<RequireAdmin><ProtectionPage /></RequireAdmin>} />
-                <Route path="/settings/remote" element={<RequireAdmin><RemotePage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/shared" element={<Navigate to="/drives" replace />} />
+                <Route path="/settings/shares" element={<Navigate to="/drives" replace />} />
+                <Route path="/settings/protect" element={<Navigate to="/drives" replace />} />
+                <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "remote" }} replace />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

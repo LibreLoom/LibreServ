@@ -6,15 +6,12 @@ import Dropdown from "../common/Dropdown";
 import { postJson, apiErrorMessage } from "../../lib/api";
 
 export default function CreateShareModal({
-  drives,
+  driveId,
+  path = "",
   onClose,
   onError,
   onDone,
-  initialDriveId = "",
-  initialPath = "",
 }) {
-  const [driveId, setDriveId] = useState(initialDriveId);
-  const [path, setPath] = useState(initialPath);
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
   const [result, setResult] = useState(null);
@@ -46,11 +43,7 @@ export default function CreateShareModal({
   if (result) {
     return (
       <ModalCard title="Link ready" onClose={onDone}>
-        <p className="text-primary text-sm">
-          Send this address. Anyone with it can see the file or folder
-          {password ? " after they type the password you set" : ""}.
-        </p>
-        <div className="mt-3 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <input
             readOnly
             className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
@@ -61,9 +54,6 @@ export default function CreateShareModal({
             {copied ? "Copied" : "Copy"}
           </Button>
         </div>
-        <p className="mt-3 text-sm text-primary">
-          Luna shows this address once. If you lose it, make a new link.
-        </p>
         <div className="mt-4 flex gap-3">
           <Button variant="outline" onClick={onDone}>Done</Button>
         </div>
@@ -72,29 +62,12 @@ export default function CreateShareModal({
   }
 
   return (
-    <ModalCard title="Share something" onClose={onClose}>
-      <p className="text-primary text-sm mb-3">
-        This makes an address you can send. People do not need a Luna account.
-        Type the folder the way it looks when you open files — for example photos/summer.
-      </p>
+    <ModalCard title="New link" onClose={onClose}>
       <div className="space-y-3">
-        <Dropdown
-          options={(drives || []).map((d) => ({ value: d.id, label: d.label }))}
-          value={driveId}
-          onChange={setDriveId}
-          placeholder="Choose a drive"
-          fullWidth
-        />
-        <input
-          className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-          placeholder="Folder (leave empty for the whole drive)"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-        />
         <input
           type="password"
           className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-          placeholder="Optional password for this link"
+          placeholder="Optional password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -116,7 +89,7 @@ export default function CreateShareModal({
           disabled={!driveId}
           onClick={() => mutation.mutate({
             drive_id: driveId,
-            path: path.trim(),
+            path: (path || "").trim(),
             password: password || undefined,
             expires_in_days: days ? Number(days) : undefined,
           })}
