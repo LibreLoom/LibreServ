@@ -520,7 +520,6 @@ Type=simple
 User=${USER}
 Group=${USER}
 WorkingDirectory=${INSTALL_DIR}
-Environment="LIBRESERV_INSECURE_DEV=true"
 ExecStart=${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml
 Restart=always
 RestartSec=10
@@ -656,8 +655,8 @@ print_post_install() {
         echo -e "${YELLOW}│                                               │${NC}"
         printf "${YELLOW}│${NC}  Setup code:  ${BLUE}%-6s${NC}                        ${YELLOW}│${NC}\n" "$setup_code"
         echo -e "${YELLOW}│                                               │${NC}"
-        echo -e "${YELLOW}│  Write this down. You will need it to         │${NC}"
-        echo -e "${YELLOW}│  complete the web setup.                      │${NC}"
+        echo -e "${YELLOW}│  Write this down. You will need it to         ${NC}"
+        echo -e "${YELLOW}│  complete the web setup.                      ${NC}"
         echo -e "${YELLOW}│                                               │${NC}"
         echo -e "${YELLOW}└─────────────────────────────────────────────┘${NC}"
         echo ""
@@ -742,8 +741,8 @@ do_upgrade() {
 
     rm -f "${BACKUP_BINARY}"
 
-    log_info "Reloading systemd..."
-    run_systemctl daemon-reload
+    log_info "Updating systemd unit..."
+    create_systemd_service
 
     log_info "Starting service..."
     if verify_service; then
