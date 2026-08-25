@@ -14,7 +14,8 @@ MVP is a non-technical user walking setup → install an app → backup → rest
 
 - **Backend** (`server/backend`) — API, app lifecycle, monitoring, backups
 - **Frontend** (`server/frontend`) — Vite/React; production build goes in `server/backend/OS/dist/` (gitignored)
-- **App catalog** — templates from `apps/` on disk; curated apps will live in a separate repo ([GOALS.md](GOALS.md))
+- **App catalog** — templates from `server/backend/apps/` on disk (empty here); curated apps will live in a separate repo ([GOALS.md](GOALS.md))
+- **Luna** (`luna/`) — Ethernet-only file box (`lunad` + web). No setup Wi-Fi access point.
 - **CI** — `./ci` (backend tests + frontend lint/build)
 
 ## Install (from a release)
@@ -39,7 +40,7 @@ First-time admin (dev, no UI): `cd server/backend && ./setup-admin.sh` (`admin` 
 
 Embedded release binary: `cd server/backend && make frontend-build && BUILD_TAGS=embedfront make build`.
 
-Needs: Podman + `podman-compose`. Copy `configs/libreserv.yaml.example` → `configs/libreserv.yaml`. Empty JWT/CSRF secrets are generated and written to the config file; if the file is read-only, set `LIBRESERV_AUTH_JWT_SECRET` and `LIBRESERV_AUTH_CSRF_SECRET`. Caddy/HTTPS details: [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md).
+Needs: Podman + `podman-compose`. Copy `server/backend/configs/libreserv.yaml.example` → `server/backend/configs/libreserv.yaml`. Empty JWT/CSRF secrets are generated and written to the config file; if the file is read-only, set `LIBRESERV_AUTH_JWT_SECRET` and `LIBRESERV_AUTH_CSRF_SECRET`. Caddy/HTTPS: [AGENTS.md](AGENTS.md).
 
 ## Contributing
 
