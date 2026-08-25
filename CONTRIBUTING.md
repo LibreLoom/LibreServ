@@ -30,7 +30,7 @@ npm test
 ./ci
 ```
 
-See [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) for full dev setup and testing details.
+See [`AGENTS.md`](AGENTS.md) for architecture, conventions, and how to run the stack.
 
 ---
 
@@ -104,6 +104,6 @@ applies to API errors shown to users, not just the frontend.
 
 - [GOALS.md](GOALS.md) — what we're building and what's left (the checklist).
 - [AGENTS.md](AGENTS.md) — codebase guide, conventions, architecture.
-- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — dev setup and testing.
+- [docs/RELEASE.md](docs/RELEASE.md) — how we cut signed `v*` / `luna-v*` releases.
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities, security model.
 - [Issues](https://gt.plainskill.net/LibreLoom/LibreServ/issues) on Forgejo — bugs, feature requests, questions.
