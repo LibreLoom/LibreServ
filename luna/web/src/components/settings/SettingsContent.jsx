@@ -5,7 +5,6 @@ import RemoteCategory from "./categories/RemoteCategory.jsx";
 import CloudBackupCategory from "./categories/CloudBackupCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";
 import AppsCategory from "./categories/AppsCategory.jsx";
-import PasswordCategory from "./categories/PasswordCategory.jsx";
 import SignedInCategory from "./categories/SignedInCategory.jsx";
 import UpdatesCategory from "./categories/UpdatesCategory.jsx";
 
@@ -16,7 +15,6 @@ const CATEGORY_TITLES = {
   cloud: "Cloud backup",
   devices: "Phones and computers",
   apps: "Apps and access tokens",
-  password: "If you forget your password",
   signed_in: "Who is signed in",
   updates: "Software updates",
 };
@@ -28,7 +26,6 @@ const CATEGORY_COMPONENTS = {
   cloud: CloudBackupCategory,
   devices: DevicesCategory,
   apps: AppsCategory,
-  password: PasswordCategory,
   signed_in: SignedInCategory,
   updates: UpdatesCategory,
 };

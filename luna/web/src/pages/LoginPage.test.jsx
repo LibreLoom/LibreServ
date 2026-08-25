@@ -72,7 +72,7 @@ describe("LoginPage", () => {
     expect(await screen.findByText(/username or password might be incorrect/i)).toBeInTheDocument();
   });
 
-  it("explains a lockout with keyboard recovery, not support", async () => {
+  it("asks the user to wait after too many tries, without a reset ritual", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
       const u = String(url);
       if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
@@ -92,7 +92,8 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
-    expect(await screen.findByText(/plug a USB keyboard into Luna/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Too many tries from this device/i)).toBeInTheDocument();
+    expect(screen.queryByText(/USB keyboard/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/contact support/i)).not.toBeInTheDocument();
   });
 });

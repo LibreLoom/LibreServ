@@ -49,6 +49,7 @@ export default function RemoteCategory() {
           {s.enabled ? (
             <div className="space-y-3">
               <p className="text-primary text-sm font-mono">{host || "your Luna address"}</p>
+              <p className="text-primary text-sm">That address is free forever.</p>
               {address && (
                 <Button
                   size="sm"
@@ -81,6 +82,9 @@ export default function RemoteCategory() {
             </div>
           ) : (
             <div className="space-y-3">
+              <p className="text-primary text-sm">
+                Pick a name at connect.luna.libreloom.org. That address is free forever.
+              </p>
               <SettingsRow label="Code from the Luna Connect site" stack hideDivider>
                 <input
                   className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"

@@ -40,9 +40,7 @@ export default function LoginPage() {
     } else if (errorStatus === 429) {
       return (
         <p>
-          Too many tries from this device. Wait a few minutes. If you forgot
-          the password, plug a USB keyboard into Luna, press Esc, type luna,
-          press Enter, and set a new password on the screen plugged into Luna.
+          Too many tries from this device. Wait a few minutes, then try again.
         </p>
       );
     } else if (errorStatus === 500) {

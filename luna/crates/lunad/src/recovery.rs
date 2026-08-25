@@ -5,7 +5,7 @@
 //! the sequence matches, Luna asks for a new password on the screen plugged
 //! into the box (TTY / console).
 //!
-//! Printed card (keep this copy in the setup "done" step and Settings):
+//! Printed card (booklet and docs — not shown in the Luna UI):
 //!
 //!   If you forget your password
 //!   1. Plug a USB keyboard into Luna.
