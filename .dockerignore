@@ -7,3 +7,5 @@
 !companion
 !.lore
 !entrypoint.sh
+!agents
+!agents/**
