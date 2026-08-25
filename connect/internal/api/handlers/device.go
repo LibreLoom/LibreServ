@@ -74,7 +74,11 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 			// Update last seen
 			_, _ = h.db.ExecContext(r.Context(),
 				"UPDATE devices SET last_seen_at = $1, is_active = TRUE WHERE id = $2", time.Now(), deviceID)
-			status := h.buildStatus(r.Context(), deviceID, planID, req.ConnectKey[:8]+"...")
+			keyHint := req.ConnectKey
+			if len(keyHint) > 8 {
+				keyHint = keyHint[:8] + "..."
+			}
+			status := h.buildStatus(r.Context(), deviceID, planID, keyHint)
 			JSON(w, http.StatusOK, status)
 			return
 		}
