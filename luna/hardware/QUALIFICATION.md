@@ -4,7 +4,7 @@ Batch 1 ships with a patch cable. There is no USB Wi-Fi dongle and no
 "Luna Setup" access point. The phone stays on home Wi-Fi.
 
 ## Requirements
-- Wired Ethernet to a LAN socket on the home internet box.
+- Wired Ethernet to a LAN port on the home router or modem.
 - HDMI (or the screen on the box) shows the current address and, while
   unclaimed, the booklet code.
 - No monitor and skipping Luna Connect means the box cannot be found

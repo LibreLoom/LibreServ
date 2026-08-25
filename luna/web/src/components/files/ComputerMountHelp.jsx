@@ -29,7 +29,7 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
       </p>
       <ol className="mt-4 space-y-2 text-sm text-primary list-decimal list-inside">
         <li>
-          Open Settings → Apps and helper tools → create an access token and copy it.
+          Open Settings → Apps and access tokens → create an access token and copy it.
         </li>
         <li>
           On a Mac: Finder → Go → Connect to Server. On Windows: File Explorer →
@@ -50,7 +50,7 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
         </Button>
       </div>
       <p className="mt-3 text-sm text-primary">
-        Only someone who takes care of this Luna can open a whole drive as a folder.
+        Only an admin can open a whole drive as a folder.
         {" "}
         <TextLink surface="secondary" to="/settings">Open Settings</TextLink>
       </p>

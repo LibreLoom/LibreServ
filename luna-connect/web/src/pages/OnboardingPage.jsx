@@ -84,7 +84,7 @@ export default function OnboardingPage() {
             <>
               <Button className="w-full" onClick={() => { setPath("official"); setStep("code"); }}>I have a booklet</Button>
               <Button variant="outline" className="w-full" onClick={() => { setPath("oss"); setStep("account"); }}>I set this computer up myself</Button>
-              <p className="text-sm text-muted-foreground">Stay on your home Wi-Fi. Plug Luna into power and into a LAN socket on your internet box with the included cable.</p>
+              <p className="text-sm text-muted-foreground">Stay on your home Wi-Fi. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.</p>
             </>
           )}
           {step === "code" && (

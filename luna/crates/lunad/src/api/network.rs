@@ -231,7 +231,7 @@ fn map_wifi_err(err: WifiError) -> (StatusCode, Json<Value>) {
         ),
         WifiError::Auth => json_error(
             StatusCode::UNAUTHORIZED,
-            "That password didn't work. Check the sticker on your internet box and try again.",
+            "That password didn't work. Check the sticker on your router or modem and try again.",
         ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -122,7 +122,7 @@ func (w *WpaCli) Connect(ssid, passphrase string) error {
 		return err
 	}
 	if !status.Connected {
-		return fmt.Errorf("That password didn't work. Check the sticker on your internet box and try again.")
+		return fmt.Errorf("That password didn't work. Check the sticker on your router or modem and try again.")
 	}
 	return nil
 }

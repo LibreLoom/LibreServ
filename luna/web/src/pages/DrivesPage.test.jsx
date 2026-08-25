@@ -80,7 +80,7 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByText(/Looking healthy/i)).toBeInTheDocument();
+    expect(await screen.findByText(/^Healthy$/i)).toBeInTheDocument();
     expect(screen.getByText(/31°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
   });

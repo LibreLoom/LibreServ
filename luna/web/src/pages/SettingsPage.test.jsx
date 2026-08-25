@@ -40,8 +40,8 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/Press Esc, then type luna, then press Enter/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Stop apps and helper tools/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Revoke app access/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
-    expect(screen.getByText(/computer or phone app, or a tool a helper set up/i)).toBeTruthy();
+    expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
   });
 });

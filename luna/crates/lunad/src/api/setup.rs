@@ -69,7 +69,7 @@ async fn save_setup(
         if user.role != "admin" {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Only the person who takes care of this Luna can change setup.",
+                "Only an admin can change setup.",
             ));
         }
     }

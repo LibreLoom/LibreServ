@@ -6,6 +6,7 @@ import api from "../../lib/api";
 import Button from "../ui/Button";
 import Pill from "../common/Pill";
 import ModalCard from "../cards/ModalCard";
+import { TermHint } from "../ui/Tooltip";
 
 // A visible network in the wizard's scan list.
 const shapeNetwork = (net) => ({
@@ -178,7 +179,7 @@ export default function NetworkStep({ name, onContinue }) {
         allowNonOk: true,
       });
       if (!res.ok) {
-        let message = "That password didn't work. Check the sticker on your internet box and try again.";
+        let message = "That password didn't work. Check the sticker on your router or modem and try again.";
         try {
           const body = await res.json();
           if (typeof body?.error === "string" && body.error) message = body.error;
@@ -210,11 +211,23 @@ export default function NetworkStep({ name, onContinue }) {
         Get online
       </h1>
 
-      <p className="text-primary/68 text-sm leading-relaxed max-w-md mb-8">
+      <p className="text-primary text-sm leading-relaxed max-w-md mb-8">
         {online
           ? `You're connected — ${name} can reach your internet now.`
           : wifiAvailable
-            ? `${name} needs a way to reach your internet. Plug a cable into the back, or connect to your home Wi-Fi — either one works.`
+            ? (
+              <>
+                {name} needs a way to reach your internet. Plug the included{" "}
+                <TermHint content="The clip-in network cable in the box. Same shape as a phone jack, but wider.">
+                  RJ45
+                </TermHint>
+                {" "}(ethernet) cable into your{" "}
+                <TermHint content="The box that brings internet into the house. Often labeled WAN, Internet, or LAN on the back.">
+                  router
+                </TermHint>
+                {" "}or modem, or join home Wi-Fi — either one works.
+              </>
+            )
             : `This device can't use Wi-Fi, so a cable is the only way to get ${name} online.`}
       </p>
 
@@ -254,8 +267,8 @@ export default function NetworkStep({ name, onContinue }) {
           data-slot="network-cable-only"
         >
           <Cable size={18} className="text-accent shrink-0 mt-0.5" />
-          <p className="text-sm text-primary/80 leading-relaxed">
-            Plug a cable into the back of {name}. This screen updates the moment it&rsquo;s connected, and you can continue right there.
+          <p className="text-sm text-primary leading-relaxed">
+            Plug the included RJ45 (ethernet) cable into the back of {name}. This screen updates the moment it&rsquo;s connected, and you can continue right there.
           </p>
         </div>
       )}
@@ -311,7 +324,7 @@ export default function NetworkStep({ name, onContinue }) {
         >
           <div className="space-y-2 text-left" data-slot="network-wifi-picker">
             <p className="text-sm text-primary mb-3">
-              Pick your home network. The password is usually on a sticker on your internet box.
+              Pick your home network. The password is usually on a sticker on your router or modem.
             </p>
 
             {scanning && !hasScannedOnce && (
@@ -328,7 +341,7 @@ export default function NetworkStep({ name, onContinue }) {
 
             {!scanning && !scanError && networks.length === 0 && (
               <p className="text-sm text-primary text-center py-4">
-                No networks nearby. Move {name} closer to your internet box.
+                No networks nearby. Move {name} closer to your router or modem.
               </p>
             )}
 
@@ -362,7 +375,7 @@ export default function NetworkStep({ name, onContinue }) {
               <div className="flex items-start gap-2.5 p-3.5 rounded-large-element border border-accent/25 bg-accent/10">
                 <AlertCircle size={15} className="text-accent shrink-0 mt-0.5" />
                 <p className="text-xs text-primary leading-relaxed">
-                  We couldn&rsquo;t see any networks. Move {name} closer to your internet box, or try again.
+                  We couldn&rsquo;t see any networks. Move {name} closer to your router or modem, or try again.
                 </p>
               </div>
             )}
@@ -403,7 +416,7 @@ export default function NetworkStep({ name, onContinue }) {
                   </button>
                 </div>
                 <p className="text-xs text-accent">
-                  That password is the one on the sticker of your internet box. We never show or store it in plain sight.
+                  That password is the one on the sticker of your router or modem. We never show or store it in plain sight.
                 </p>
               </div>
             )}

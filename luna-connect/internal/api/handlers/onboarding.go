@@ -116,7 +116,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := "waiting_device"
-	plugCopy := "Plug the included cable from Luna into a LAN socket on your internet box — the same kind of socket your home internet uses. Keep this page open. We will continue when Luna comes online."
+	plugCopy := "Plug Luna into your router or modem with the included RJ45 (ethernet) cable. Keep this page open. We will continue when Luna comes online."
 	if h.Hub != nil && h.Hub.HasLive(tok.Hash) {
 		status = "attached"
 		_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'attached' WHERE id = ?`, id)
@@ -148,10 +148,10 @@ func (h OnboardingHandler) Session(w http.ResponseWriter, r *http.Request) {
 	msg := ""
 	if status == "waiting_device" {
 		if time.Now().Unix() > sess.expires {
-			JSONError(w, http.StatusGone, "We never saw Luna come online. Check that the included cable is plugged from Luna into a LAN socket on your internet box, then type the code again.")
+			JSONError(w, http.StatusGone, "We never saw Luna come online. Check that the included RJ45 (ethernet) cable is plugged from Luna into your router or modem, then type the code again.")
 			return
 		}
-		msg = "Plug the included cable from Luna into a LAN socket on your internet box. Keep this page open."
+		msg = "Plug Luna into your router or modem with the included RJ45 (ethernet) cable. Keep this page open."
 	}
 	JSON(w, http.StatusOK, map[string]any{
 		"session_id": sess.id,
@@ -222,7 +222,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Hub == nil || !h.Hub.HasLive(sess.tokenHash) {
-		JSONError(w, http.StatusConflict, "Luna is not online yet. Plug the included cable from Luna into a LAN socket on your internet box, then wait until this page says it is connected.")
+		JSONError(w, http.StatusConflict, "Luna is not online yet. Plug Luna into your router or modem with the included RJ45 (ethernet) cable, then wait until this page says it is connected.")
 		return
 	}
 	if tok.Status == "claimed" {

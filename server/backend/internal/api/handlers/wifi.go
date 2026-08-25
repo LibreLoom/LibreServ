@@ -87,7 +87,7 @@ func wifiConnectMessage(err error) string {
 	lower := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(lower, "password"):
-		return "That password didn't work. Check the sticker on your internet box and try again."
+		return "That password didn't work. Check the sticker on your router or modem and try again."
 	case strings.Contains(lower, "available") || strings.Contains(lower, "not available"):
 		return "Wi-Fi isn't available on this device. Plug in an adapter or use the cable."
 	default:

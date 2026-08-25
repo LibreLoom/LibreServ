@@ -187,7 +187,7 @@ describe("NetworkStep", () => {
         }));
       }
       if (path === "/setup/wifi/connect") {
-        return Promise.resolve(json({ error: "That password didn't work. Check the sticker on your internet box and try again." }, false, 400));
+        return Promise.resolve(json({ error: "That password didn't work. Check the sticker on your router or modem and try again." }, false, 400));
       }
       return Promise.reject(new Error("unexpected path"));
     });

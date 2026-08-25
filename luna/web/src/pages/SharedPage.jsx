@@ -20,7 +20,7 @@ export default function SharedPage() {
             </p>
             <div className="mt-3 flex items-center justify-between gap-3">
               <Pill variant={grant.permission === "write" ? "success" : "info"}>
-                {grant.permission === "write" ? "Can add and change" : "Can look"}
+                {grant.permission === "write" ? "Write" : "Read"}
               </Pill>
               <TextLink surface="secondary" to={`/drives/${grant.drive_id}?path=${encodeURIComponent(grant.path)}`}>Open</TextLink>
             </div>
@@ -31,7 +31,7 @@ export default function SharedPage() {
         <EmptyState
           icon={FolderOpen}
           title="Nothing shared yet"
-        description="When the person who takes care of this Luna shares a folder with you in People, it will show up here. Ask them if you expected to see something."
+        description="When an admin shares a folder with you in People, it will show up here. Ask them if you expected to see something."
         />
       )}
     </Page>

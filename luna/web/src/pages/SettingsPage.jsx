@@ -7,6 +7,7 @@ import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import PageNotice from "../components/common/PageNotice";
 import WifiCard from "../components/settings/WifiCard";
+import { InfoHint } from "../components/ui/Tooltip";
 import { getJson, postJson, apiErrorMessage } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -151,12 +152,21 @@ export default function SettingsPage() {
         {user?.role === "admin" && <WifiCard />}
 
         {user?.role === "admin" && (
-          <Card icon={Cloud} title="Spare copy in the cloud">
+          <Card
+            icon={Cloud}
+            title="Cloud backup"
+            headerActions={
+              <InfoHint
+                label="What cloud backup means"
+                content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions."
+              />
+            }
+          >
             {connect.data?.backup_unlocked ? (
               <div className="space-y-3">
                 <p className="text-primary text-sm">
-                  Luna copies the latest files when this box is idle — not a history of old versions.
-                  Spare copies cost $7 per terabyte each month.
+                  Luna copies the latest files when this Luna is idle — not a history of old versions.
+                  Cloud backup costs $7 per terabyte each month.
                 </p>
                 {(drives.data || []).map((d) => {
                   const on = (connect.data.backup_sources || []).some((s) => s.drive_id === d.id);
@@ -212,7 +222,7 @@ export default function SettingsPage() {
         <Card icon={LogOut} title="Who is signed in">
           <p className="text-primary text-sm">
             Signing out on this screen only leaves this browser. Use the
-            buttons below if a phone, computer, or helper&apos;s tool should no longer reach your files.
+            buttons below if a phone, computer, or app should no longer reach your files.
           </p>
           <div className="mt-4 flex flex-col gap-3">
             <div>
@@ -221,26 +231,26 @@ export default function SettingsPage() {
               </Button>
               <p className="text-primary text-xs mt-2">
                 Use this if you signed in on a computer you don&apos;t trust anymore. Every
-                browser must type the password again. Phone apps and helper tools keep working.
+                browser must type the password again. Phone apps and access tokens keep working.
               </p>
             </div>
             <div>
               <Button variant="accent" loading={stopBackups.isPending} onClick={() => stopBackups.mutate()}>
-                Stop apps and helper tools
+                Revoke app access
               </Button>
               <p className="text-primary text-xs mt-2">
-                Use this if a phone or laptop was lost, or a helper should no longer reach Luna.
+                Use this if a phone or laptop was lost, or an app should no longer reach Luna.
                 Those apps must sign in again. Browsers stay signed in.
               </p>
             </div>
           </div>
         </Card>
 
-        <Card icon={Smartphone} title="Apps and helper tools">
+        <Card icon={Smartphone} title="Apps and access tokens">
           <p className="text-primary text-sm">
-            A computer or phone app, or a tool a helper set up, can keep working without typing
-            your household password each time. Folder mounts (Finder, Explorer) use this access
-            token as the password — never the household password. Only an admin can mount the
+            A phone app, desktop app, or script can keep working without typing
+            your password each time. Folder mounts (Finder, Explorer) use this access
+            token as the password — never your Luna password. Only an admin can mount the
             whole drive as a folder.
           </p>
           <ul className="mt-3 space-y-2">
@@ -254,7 +264,7 @@ export default function SettingsPage() {
             ))}
           </ul>
           {(tokens.data || []).length === 0 && (
-            <p className="text-primary text-sm mt-2">No apps or helper tools are set up yet.</p>
+            <p className="text-primary text-sm mt-2">No apps or access tokens are set up yet.</p>
           )}
           <div className="mt-4 flex flex-col gap-2">
             <label className="text-primary text-sm" htmlFor="token-name">
@@ -263,7 +273,7 @@ export default function SettingsPage() {
             <input
               id="token-name"
               className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-              placeholder="Kitchen Mac, photo backup, helper script"
+              placeholder="Kitchen Mac, photo backup, script"
               value={tokenName}
               onChange={(e) => setTokenName(e.target.value)}
             />
