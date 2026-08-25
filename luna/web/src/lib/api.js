@@ -19,7 +19,7 @@ export async function deleteJson(path, options = {}) {
 }
 
 /** Plain-language message from a failed request (never "Error: ..."). */
-export function apiErrorMessage(err, fallback = "Luna couldn't finish that. Try again.") {
+export function apiErrorMessage(err, fallback = "Luna couldn't complete that request. Try again.") {
   if (!err) return fallback;
   if (err instanceof ApiError && err.message) return err.message;
   const raw = String(err.message || err);

@@ -4,7 +4,7 @@ Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 
 The main feature is remote access: sign in to pair your Luna and open it away from home at `https://{name}.luna.servers.libreloom.org`. That address is free.
 
-Cloud backups are a spare copy of chosen folders or whole drives — not version history. They cost **$7 per terabyte each month**, billed through Stripe after the household adds a payment card here. Luna uploads during idle time.
+Cloud backups are an off-site copy of chosen folders or whole drives — not version history. They cost **$7 per terabyte each month**, billed through Stripe after you add a payment card here. Luna uploads during idle time.
 
 Backup to the cloud is planned as the only paid product. The address never requires a card.
 
@@ -18,7 +18,7 @@ make run
 
 Env prefix: `LUNACONNECT_` (viper), e.g. `LUNACONNECT_SERVER_PORT`.
 
-Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1` and `stripe.enabled: false`. Production must enable Stripe and fill `secret_key`, `publishable_key`, `webhook_secret`, and `price_id`. Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud copies.
+Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1` and `stripe.enabled: false`. Production must enable Stripe and fill `secret_key`, `publishable_key`, `webhook_secret`, and `price_id`. Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud backup.
 
 ## Official booklet codes
 

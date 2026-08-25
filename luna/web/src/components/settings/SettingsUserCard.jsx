@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { User, Shield, ChevronRight } from "lucide-react";
+import { InfoHint } from "../ui/Tooltip";
 
 export default function SettingsUserCard({ user }) {
   if (!user) return null;
@@ -15,7 +16,17 @@ export default function SettingsUserCard({ user }) {
         <div className="font-semibold text-primary truncate">{user.username}</div>
         <div className="text-sm text-primary flex items-center gap-1">
           <Shield size={12} />
-          <span>{isAdmin ? "Takes care of this Luna" : "Household member"}</span>
+          {isAdmin ? (
+            <span className="inline-flex items-center gap-1">
+              <span>Admin</span>
+              <InfoHint
+                label="What Admin means"
+                content="An admin can add users, change settings, and manage this Luna."
+              />
+            </span>
+          ) : (
+            <span>Member</span>
+          )}
         </div>
       </div>
       {isAdmin && (

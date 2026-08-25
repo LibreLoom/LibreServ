@@ -7,7 +7,23 @@ import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
 import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
+import { TermHint } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
+
+function PermissionLabel({ permission }) {
+  if (permission === "write") {
+    return (
+      <TermHint content="Can open files and save changes in this folder.">
+        Write
+      </TermHint>
+    );
+  }
+  return (
+    <TermHint content="Can open files in this folder, but cannot save changes.">
+      Read
+    </TermHint>
+  );
+}
 
 function rememberedUrl(shareId) {
   try {
@@ -93,7 +109,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   );
   const driveList = drives.data || [];
   const tooFewDrives = driveList.length < 2;
-  const household = (users.data || []).filter((u) => u.role !== "admin");
+  const members = (users.data || []).filter((u) => u.role !== "admin");
 
   const grantMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/grants", body),
@@ -172,7 +188,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
           {matchingGrants.map((g) => (
             <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
               <span className="text-primary text-xs">
-                {personName(g.user_id)} · {g.permission === "write" ? "Write" : "Read"}
+                {personName(g.user_id)} · <PermissionLabel permission={g.permission} />
                 {pathKey(g.path) !== objectPath ? " (includes this folder)" : ""}
               </span>
               <Button size="iconSm" variant="danger" aria-label={`Remove access for ${personName(g.user_id)}`} onClick={() => revokeGrant.mutate(g.id)}>
@@ -181,7 +197,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
             </div>
           ))}
           <Dropdown
-            options={household.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+            options={members.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
             value={personId}
             onChange={setPersonId}
             placeholder="Add a person"
@@ -196,6 +212,16 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
             onChange={setPermission}
             fullWidth
           />
+          <p className="text-primary text-xs">
+            <TermHint content="Can open files in this folder, but cannot save changes.">
+              Read
+            </TermHint>
+            {" "}opens files.{" "}
+            <TermHint content="Can open files and save changes in this folder.">
+              Write
+            </TermHint>
+            {" "}can also save changes.
+          </p>
           <Button
             variant="primary"
             size="sm"

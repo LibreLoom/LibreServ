@@ -18,10 +18,10 @@ function resultHref(item) {
 }
 
 /**
- * Household-wide file search. Results are already filtered to folders
- * this person is allowed to see.
+ * File search across drives this person can open. Results are already
+ * filtered to folders they are allowed to see.
  */
-export default function HouseholdSearch({ compact = false }) {
+export default function FileSearch({ compact = false }) {
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
 

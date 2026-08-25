@@ -25,7 +25,7 @@ const PINNED_PUB: &str = include_str!("../../../../keys/releases.minisign.pub");
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum UpdateError {
-    #[error("Luna couldn't reach the update server. Check that this box is online and try again.")]
+    #[error("Luna couldn't reach the update server. Check that this Luna is online and try again.")]
     Unreachable,
     #[error("No Luna software update is waiting.")]
     NoneAvailable,

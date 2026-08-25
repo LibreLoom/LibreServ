@@ -45,12 +45,12 @@ function App() {
   return (
     <main className="page">
       <h1>Luna Desktop</h1>
-      <p className="hint">Folder backup and one-click mounts. Sign in once; Luna keeps an access token so you never put your household password in Finder or Explorer.</p>
+      <p className="hint">Folder backup and one-click mounts. Sign in once; Luna keeps an access token so you never put your Luna password in Finder or Explorer.</p>
       <div className="card">
         <div className="row">
           <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Luna address" />
           <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Household password (sign-in only)" />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Luna password (sign-in only)" />
           <button type="button" onClick={login}>Sign in</button>
         </div>
         {canCopyToken && (

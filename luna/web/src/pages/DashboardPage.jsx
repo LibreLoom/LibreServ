@@ -9,6 +9,7 @@ import Button from "../components/ui/Button.jsx";
 import Pill from "../components/common/Pill.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
 import TextLink from "../components/ui/TextLink.jsx";
+import { TermHint } from "../components/ui/Tooltip.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
@@ -23,11 +24,23 @@ const STATE_PILLS = {
 
 const STATE_LABELS = {
   as_is: "Ready",
-  readonly: "Look only",
+  readonly: "Read only",
   missing: "Unplugged",
   ejected: "Safely removed",
   failed: "Needs help",
 };
+
+function DriveStateLabel({ state }) {
+  const label = STATE_LABELS[state] || state;
+  if (state === "readonly") {
+    return (
+      <TermHint content="Luna can open files on this drive but cannot save changes here.">
+        {label}
+      </TermHint>
+    );
+  }
+  return label;
+}
 
 function getGreeting() {
   const today = new Date();
@@ -105,7 +118,7 @@ function connectionHeadline(net) {
 }
 
 function connectionDetail(net) {
-  if (!net) return "Luna is checking how this house is connected.";
+  if (!net) return "Luna is checking the network connection.";
   if (net.ethernet_connected && net.wifi_connected) {
     return "Plugged in with a cable, and Wi-Fi is on too.";
   }
@@ -319,7 +332,9 @@ export default function DashboardPage() {
                 icon={HardDrive}
                 title={drive.label || "Drive"}
                 headerActions={
-                  <Pill variant={variant}>{STATE_LABELS[drive.state] || drive.state}</Pill>
+                  <Pill variant={variant}>
+                    <DriveStateLabel state={drive.state} />
+                  </Pill>
                 }
               >
                 <p className="text-primary text-sm">Open this drive to see your files.</p>

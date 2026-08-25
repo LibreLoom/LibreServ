@@ -20,7 +20,7 @@ fn login(
     let token = luna::login(&base_url, &username, &password).map_err(|e| e.to_string())?;
     *state.token.lock().unwrap() = Some(token.clone());
     *state.username.lock().unwrap() = Some(username);
-    Ok("Signed in. Folder mounts use Copy access token as the password — not your household password.".into())
+    Ok("Signed in. Folder mounts use Copy access token as the password — not your Luna password.".into())
 }
 
 #[tauri::command]

@@ -118,7 +118,7 @@ pub fn mount_instructions(
 ) -> Result<String, String> {
     let url = dav_mount_url(base_url, drive_id)?;
     let creds = format!(
-        "Address: {url}. Username: {username}. For the password, use Copy access token — not your household password."
+        "Address: {url}. Username: {username}. For the password, use Copy access token — not your Luna password."
     );
     #[cfg(target_os = "linux")]
     {

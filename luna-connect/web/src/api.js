@@ -47,7 +47,7 @@ export async function downloadBackup(deviceId, relativePath) {
     body: JSON.stringify({ device_id: deviceId, path: relativePath }),
   });
   if (!res.ok) {
-    let message = "Could not download that spare copy.";
+    let message = "Could not download that cloud backup.";
     try {
       const data = await res.json();
       message = data.message || data.error || message;

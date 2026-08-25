@@ -10,6 +10,7 @@ import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
+import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { describeDriveHealth } from "../lib/driveHealth";
@@ -21,6 +22,23 @@ const STATE_PILLS = {
   ejected: "info",
   failed: "error",
 };
+
+function PermissionPill({ permission }) {
+  const write = permission === "write";
+  return (
+    <Pill variant={write ? "success" : "info"}>
+      {write ? (
+        <TermHint content="Can open files and save changes in this folder.">
+          Write
+        </TermHint>
+      ) : (
+        <TermHint content="Can open files in this folder, but cannot save changes.">
+          Read
+        </TermHint>
+      )}
+    </Pill>
+  );
+}
 
 function sizeLabel(bytes) {
   if (!bytes) return "";
@@ -105,7 +123,13 @@ function driveNextStep(drive) {
 
 function plainDriveState(state) {
   if (state === "as_is") return "Ready";
-  if (state === "readonly") return "Read only";
+  if (state === "readonly") {
+    return (
+      <TermHint content="Luna can open files on this drive but cannot save changes here.">
+        Read only
+      </TermHint>
+    );
+  }
   if (state === "missing") return "Unplugged";
   if (state === "ejected") return "Ejected";
   if (state === "failed") return "Problem";
@@ -190,9 +214,7 @@ export default function DrivesPage() {
                 {grant.path || "Whole drive"}
               </p>
               <div className="mt-3 flex items-center justify-between gap-3">
-                <Pill variant={grant.permission === "write" ? "success" : "info"}>
-                  {grant.permission === "write" ? "Write" : "Read"}
-                </Pill>
+                <PermissionPill permission={grant.permission} />
                 <div className="flex items-center gap-1">
                   <AccessButton
                     label={grant.path || grant.drive_label}

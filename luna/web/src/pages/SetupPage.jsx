@@ -258,11 +258,11 @@ ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isR
 function FormField({ id, label, hint, children }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-primary/80 font-sans text-sm text-left translate-x-5 mb-1">
+      <label htmlFor={id} className="block text-primary font-sans text-sm text-left translate-x-5 mb-1">
         {label}
       </label>
       {children}
-      {hint && <p className="text-xs text-primary/70 mt-1.5 translate-x-5">{hint}</p>}
+      {hint && <p className="text-xs text-primary mt-1.5 translate-x-5">{hint}</p>}
     </div>
   );
 }

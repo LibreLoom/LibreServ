@@ -363,14 +363,14 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	}
 	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
 	if err != nil {
-		writeBillingErr(w, err, "Could not start spare copies. Check the card and try again.")
+		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
 		return
 	}
 	status := "active"
-	price := "Spare copies cost $7 per terabyte each month."
+	price := "Cloud backup costs $7 per terabyte each month."
 	if billing.DevBypass() {
 		status = "dev"
-		price = "Spare copies cost $7 per terabyte each month. Luna will turn cloud copies on when it is next quiet."
+		price = "Cloud backup costs $7 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
 		status, sub, item, acct.ID)
@@ -386,7 +386,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Create a Luna Connect account first.")
 		return
 	}
-	okMsg := "A dollar to confirm this is a real person. It counts toward cloud copies if you turn those on."
+	okMsg := "A dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."
 	var existing string
 	err := h.DB.QueryRow(`SELECT payment_intent_id FROM oss_payments WHERE account_id = ? AND status = 'succeeded'`, acct.ID).Scan(&existing)
 	if err == nil && existing != "" {
@@ -435,7 +435,7 @@ func (h OnboardingHandler) MintOSS(w http.ResponseWriter, r *http.Request) {
 	var status string
 	err := h.DB.QueryRow(`SELECT status FROM oss_payments WHERE account_id = ?`, acct.ID).Scan(&status)
 	if err != nil || status != "succeeded" {
-		JSONError(w, http.StatusPaymentRequired, "Pay one dollar first so we know this is a real person. It counts toward cloud copies if you turn those on.")
+		JSONError(w, http.StatusPaymentRequired, "Pay one dollar first so we know this is a real person. It counts toward cloud backup if you turn it on.")
 		return
 	}
 	code := security.OSSHexToken()

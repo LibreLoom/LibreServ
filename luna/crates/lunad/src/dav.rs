@@ -85,7 +85,7 @@ fn require_dav_admin(
     }
     Err(json_error(
         StatusCode::UNAUTHORIZED,
-        "Use your Luna username and an access token as the password. Your household password will not work here.",
+        "Use your Luna username and an access token as the password. Your Luna password will not work here.",
     ))
 }
 

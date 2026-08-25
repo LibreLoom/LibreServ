@@ -24,7 +24,7 @@ export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
         <CardHeader>
           <CardTitle>Add a payment card</CardTitle>
           <CardDescription>
-            Add a payment card so we can store a spare copy of your files off-site. It costs $7 per terabyte each month.
+            Add a payment card so we can store a cloud backup of your files off-site. It costs $7 per terabyte each month.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -32,7 +32,7 @@ export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
             <VerifyHumanCard
               account={me}
               loading={busy}
-              description="Add a payment card so we can store a spare copy. It costs $7 per terabyte each month."
+              description="Add a payment card so we can store a cloud backup. It costs $7 per terabyte each month."
               buttonLabel="Add a payment card"
               onConfirm={async (paymentMethodId) => {
                 setError("");
@@ -69,9 +69,9 @@ export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
   return (
     <Card className="animate-fade-in-up" data-testid="backups-open">
       <CardHeader>
-        <CardTitle>Spare copies</CardTitle>
+        <CardTitle>Cloud backup</CardTitle>
         <CardDescription>
-          Spare copies cost $7 per terabyte each month, based on how much is stored right now.
+          Cloud backup costs $7 per terabyte each month, based on how much is stored right now.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

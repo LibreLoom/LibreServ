@@ -32,7 +32,7 @@ export default function AppsCategory() {
       const res = await fetch(`/api/v1/device-tokens/${id}`, { method: "DELETE", credentials: "include" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Couldn't stop this app");
+        throw new Error(data.error || "Couldn't revoke this access token. Try again.");
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["device-tokens"] }),

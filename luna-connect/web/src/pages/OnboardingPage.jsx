@@ -73,9 +73,9 @@ export default function OnboardingPage() {
             {step === "path" && "How did this Luna arrive?"}
             {step === "code" && "Type the device code."}
             {step === "account" && "Create your Luna Connect account."}
-            {step === "card" && "A dollar to confirm this is a real person; it counts toward cloud copies if you turn those on."}
+            {step === "card" && "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
             {step === "name" && "Pick a name people will type in a browser."}
-            {step === "copies" && "Optional spare copies in the cloud."}
+            {step === "copies" && "Optional cloud backup."}
             {step === "done" && "You can open Luna from away."}
           </CardDescription>
         </CardHeader>
@@ -201,13 +201,13 @@ export default function OnboardingPage() {
           )}
           {step === "copies" && (
             <div className="space-y-3">
-              <p className="text-sm text-foreground">Spare copies cost $7 per terabyte each month, based on how much is stored. Not a flat $7 a month.</p>
+              <p className="text-sm text-foreground">Cloud backup costs $7 per terabyte each month, based on how much is stored. Not a flat $7 a month.</p>
               {stripeLooksConfigured(me) ? (
                 <VerifyHumanCard
                   account={me}
                   loading={loading}
-                  description="Add a payment card to turn on spare copies. It costs $7 per terabyte each month."
-                  buttonLabel="Turn on cloud copies"
+                  description="Add a payment card to turn on cloud backup. It costs $7 per terabyte each month."
+                  buttonLabel="Turn on cloud backup"
                   onConfirm={async (paymentMethodId) => {
                     setError("");
                     setLoading(true);
@@ -232,7 +232,7 @@ export default function OnboardingPage() {
                   } catch (err) {
                     setError(err.message);
                   }
-                }}>Turn on cloud copies</Button>
+                }}>Turn on cloud backup</Button>
               )}
               <Button variant="outline" className="w-full" onClick={() => setStep("done")}>Skip for now</Button>
             </div>
