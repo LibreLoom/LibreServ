@@ -265,6 +265,36 @@ pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Forget a drive and every row that points at it (grants, shares, index, …).
+/// Does not touch files on the drive itself.
+pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    let statements = [
+        "DELETE FROM grants WHERE drive_id = ?1",
+        "DELETE FROM shares WHERE drive_id = ?1",
+        "DELETE FROM uploads WHERE drive_id = ?1",
+        "DELETE FROM jobs WHERE from_drive = ?1 OR to_drive = ?1",
+        "DELETE FROM index_entries WHERE drive_id = ?1",
+        "DELETE FROM indexed_dirs WHERE drive_id = ?1",
+        "DELETE FROM file_hashes WHERE drive_id = ?1",
+        "DELETE FROM protections WHERE source_drive = ?1 OR target_drive = ?1",
+        "DELETE FROM photos WHERE drive_id = ?1",
+    ];
+    for sql in statements {
+        match conn.execute(sql, params![id]) {
+            Ok(_) => {}
+            Err(e) if e.to_string().contains("no such") => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    // Orphaned upload chunk rows for uploads we just deleted.
+    let _ = conn.execute(
+        "DELETE FROM upload_chunks WHERE upload_id NOT IN (SELECT id FROM uploads)",
+        [],
+    );
+    delete_drive(conn, id)?;
+    Ok(())
+}
+
 /// Wipe all user data and return the box to first-run state, keeping the
 /// schema. Clears users/grants/shares/device-tokens, uploads/jobs, the file
 /// index/hashes/protections/photos, drives, and resets setup + the JWT and BLE

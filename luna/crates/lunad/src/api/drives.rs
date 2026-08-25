@@ -43,6 +43,8 @@ struct InspectionJson {
     files: u64,
     unreadable: u64,
     needs_erase: bool,
+    readable: bool,
+    writable: bool,
 }
 
 #[derive(Deserialize)]
@@ -60,6 +62,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{name}/adopt", post(adopt))
         .route("/api/v1/drives/{name}/dismiss", post(dismiss))
         .route("/api/v1/drives/{id}/eject", post(eject))
+        .route("/api/v1/drives/{id}/remove", post(remove))
         .route("/api/v1/drives/{id}/health", get(drive_health))
 }
 
@@ -104,14 +107,23 @@ async fn detected(
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     let drives = crate::detect::scan(std::path::Path::new("/sys/block"), &mounts);
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is.
-    let _ = with_db(&state.db, |conn| {
-        state.drive_manager.reconcile(conn, &drives)
-    });
+    let known_devices = with_db(&state.db, |conn| {
+        state.drive_manager.reconcile(conn, &drives)?;
+        let rows = crate::db::list_drives(conn)?;
+        Ok(rows
+            .into_iter()
+            .filter(|d| d.state == "as_is" || d.state == "readonly")
+            .map(|d| d.device)
+            .collect::<std::collections::HashSet<_>>())
+    })
+    .unwrap_or_default();
     Ok(Json(
         drives
             .into_iter()
             .filter(|d| {
-                d.is_storage_candidate() && (d.removable || d.usb || d.mount_point.is_some())
+                d.is_storage_candidate()
+                    && (d.removable || d.usb || d.mount_point.is_some())
+                    && !known_devices.contains(&d.name)
             })
             .map(|d| DetectedDriveJson {
                 name: d.name,
@@ -155,6 +167,8 @@ async fn inspect(
         files: inspection.summary.files,
         unreadable: inspection.summary.unreadable,
         needs_erase: inspection.needs_erase,
+        readable: inspection.readable,
+        writable: inspection.writable,
     }))
 }
 
@@ -215,6 +229,22 @@ async fn eject(
         json_error(
             StatusCode::BAD_REQUEST,
             format!("Luna couldn't eject this drive safely. {e}"),
+        )
+    })?;
+    crate::dav::drop_cached_handler(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn remove(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
+    with_db(&state.db, |conn| state.drive_manager.remove(conn, &id)).map_err(|e| {
+        json_error(
+            StatusCode::BAD_REQUEST,
+            format!("Luna couldn't remove this drive. {e}"),
         )
     })?;
     crate::dav::drop_cached_handler(&state, &id);

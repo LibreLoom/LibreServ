@@ -55,10 +55,10 @@ describe("DrivesPage", () => {
     expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
-  it("uses a page heading for plugged-in drives, not a stacked title card", async () => {
+  it("uses a page heading for unknown drives, not a stacked title card", async () => {
     stubDrivesApi();
     renderPage();
-    const heading = await screen.findByRole("heading", { name: /Drives plugged in now/i, level: 2 });
+    const heading = await screen.findByRole("heading", { name: /Unknown Drives/i, level: 2 });
     expect(heading.tagName).toBe("H2");
     expect(heading.closest("[data-slot=card]")).toBeNull();
     expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Drives plugged in now/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unknown Drives/i)).not.toBeInTheDocument();
   });
 
   it("shows plain-language drive health for an admin", async () => {
@@ -124,6 +124,7 @@ describe("DrivesPage", () => {
             device: "sdb", model: "Lexar USB Flash Drive", fs_type: "iso9660",
             mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
             folders: 12, files: 7, unreadable: 0, needs_erase: true,
+            readable: true, writable: false,
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return null;
@@ -139,5 +140,59 @@ describe("DrivesPage", () => {
     expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Erase and add this drive/i }));
     expect(screen.getByRole("button", { name: /Yes, erase it/i })).toBeInTheDocument();
+  });
+
+  it("refuses Add when the drive is not writable", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdc", model: "Locked Stick", size_bytes: 4000000000,
+            removable: true, usb: true, mount_point: "/mnt", fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdc/inspect")) {
+          return new Response(JSON.stringify({
+            device: "sdc", model: "Locked Stick", fs_type: "vfat",
+            mount_point: "/mnt", mounted_by_luna: false, has_marker: false,
+            folders: 1, files: 2, unreadable: 0, needs_erase: false,
+            readable: true, writable: false,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    const lookButtons = await screen.findAllByRole("button", { name: /Look inside/i });
+    await user.click(lookButtons[lookButtons.length - 1]);
+    expect(await screen.findByText(/will not accept new files/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a confirm dialog before removing a drive", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
+    expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
   });
 });

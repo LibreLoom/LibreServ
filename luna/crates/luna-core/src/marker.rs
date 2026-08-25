@@ -61,6 +61,23 @@ pub fn read_marker(root: &Path) -> Result<Option<Marker>, MarkerError> {
     Ok(Some(marker))
 }
 
+/// Remove the `.luna` adoption marker if present.
+///
+/// Returns `Ok(true)` when a marker file was deleted, `Ok(false)` when there
+/// was no marker. Does not touch any other files on the drive.
+pub fn remove_marker(root: &Path) -> Result<bool, MarkerError> {
+    let meta = fs::metadata(root).map_err(|_| MarkerError::NotADirectory)?;
+    if !meta.is_dir() {
+        return Err(MarkerError::NotADirectory);
+    }
+    let marker_path = root.join(MARKER_FILE_NAME);
+    match fs::remove_file(&marker_path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(MarkerError::Write(e)),
+    }
+}
+
 /// Adopt a drive: atomically write one `.luna` marker file at its root.
 ///
 /// Safety properties:
@@ -163,6 +180,18 @@ mod tests {
     fn no_marker_is_none() {
         let root = temp_dir();
         assert!(read_marker(&root).unwrap().is_none());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn remove_marker_deletes_only_the_sticker() {
+        let root = temp_dir();
+        fs::write(root.join("keep-me.txt"), b"hello").unwrap();
+        write_marker(&root, &Marker::new("id", "Photos")).unwrap();
+        assert!(remove_marker(&root).unwrap());
+        assert!(read_marker(&root).unwrap().is_none());
+        assert_eq!(fs::read(root.join("keep-me.txt")).unwrap(), b"hello");
+        assert!(!remove_marker(&root).unwrap());
         fs::remove_dir_all(&root).unwrap();
     }
 }

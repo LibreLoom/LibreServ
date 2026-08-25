@@ -10,7 +10,7 @@ pub mod path;
 pub mod scan;
 
 pub use drive::{DRIVE_STATES, DriveState};
-pub use marker::{Marker, MarkerError, read_marker, write_marker};
+pub use marker::{Marker, MarkerError, read_marker, remove_marker, write_marker};
 #[cfg(target_os = "linux")]
 pub use path::open_verified;
 pub use path::{

@@ -8,9 +8,10 @@ import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
+import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import { useAuth } from "../context/AuthContext";
-import { getDrives, getJson, postJson } from "../lib/api";
+import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { describeDriveHealth } from "../lib/driveHealth";
 
 const STATE_PILLS = {
@@ -48,7 +49,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onEject, ejecting, onShare }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -79,6 +80,11 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onShare }) {
         {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
           <Button size="sm" variant="outline" loading={ejecting} onClick={() => onEject(drive)}>
             Eject safely
+          </Button>
+        )}
+        {showHealth && (
+          <Button size="sm" variant="accent" onClick={() => onRemove(drive)}>
+            Remove
           </Button>
         )}
         {onShare && (drive.state === "as_is" || drive.state === "readonly") && (
@@ -118,7 +124,8 @@ export default function DrivesPage() {
     enabled: isAdmin,
   });
   const [inspectFor, setInspectFor] = useState(null);
-  const [ejectError, setEjectError] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const access = useQuery({
     queryKey: ["my-access"],
@@ -135,6 +142,8 @@ export default function DrivesPage() {
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
       setInspectFor(null);
+      setActionError(null);
+      adopt.reset();
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
@@ -148,14 +157,27 @@ export default function DrivesPage() {
   const eject = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
     onSuccess: () => {
-      setEjectError(null);
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
-    onError: (err) => setEjectError(String(err.message || err)),
+    onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't eject this drive safely.")),
   });
 
-  const adoptError = adopt.isError ? String(adopt.error?.message || adopt.error) : null;
+  const remove = useMutation({
+    mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/remove`, {}),
+    onSuccess: () => {
+      setRemoveTarget(null);
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["drives"] });
+      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
+    },
+    onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't remove this drive.")),
+  });
+
+  const adoptError = adopt.isError
+    ? apiErrorMessage(adopt.error, "Luna couldn't add this drive. Try again.")
+    : null;
 
   if (user?.role === "user") {
     const grants = access.data || [];
@@ -201,7 +223,7 @@ export default function DrivesPage() {
 
   return (
     <Page title="Files" titleId="drives-title">
-      {ejectError && <p className="text-error text-sm mb-4">{ejectError}</p>}
+      {actionError && <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
@@ -219,6 +241,7 @@ export default function DrivesPage() {
               showHealth
               onEject={(d) => eject.mutate(d)}
               ejecting={eject.isPending}
+              onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
             />
           ))}
@@ -228,14 +251,14 @@ export default function DrivesPage() {
       {isAdmin && (
         <>
           <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
-            Drives plugged in now
+            Unknown Drives
           </h2>
           <div className="grid gap-5 md:grid-cols-2">
             {(detected.data || []).map((drive) => (
               <DetectedCard
                 key={drive.name}
                 drive={drive}
-                onOpen={(d) => { inspect.reset(); setInspectFor(d); }}
+                onOpen={(d) => { inspect.reset(); adopt.reset(); setInspectFor(d); }}
                 onIgnore={(d) => dismiss.mutate(d)}
               />
             ))}
@@ -255,14 +278,34 @@ export default function DrivesPage() {
         />
       )}
 
+      {removeTarget && (
+        <ModalCard title="Remove this drive?" onClose={() => setRemoveTarget(null)}>
+          <p className="text-primary text-sm">
+            Luna will stop managing <span className="font-mono">{removeTarget.label}</span>.
+            Your files stay on the drive. Luna only removes its tiny{" "}
+            <span className="font-mono">.luna</span> sticker file.
+          </p>
+          <div className="mt-4 flex gap-3">
+            <Button
+              variant="accent"
+              loading={remove.isPending}
+              onClick={() => remove.mutate(removeTarget)}
+            >
+              Remove
+            </Button>
+            <Button variant="outline" onClick={() => setRemoveTarget(null)}>Keep it</Button>
+          </div>
+        </ModalCard>
+      )}
+
       {inspectFor && (
         <InspectModal
           drive={inspectFor}
           result={inspect.data}
           loading={inspect.isPending}
           error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
-          onClose={() => { setInspectFor(null); inspect.reset(); }}
-          onInspect={() => inspect.mutate(inspectFor)}
+          onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
+          onInspect={() => { adopt.reset(); inspect.mutate(inspectFor); }}
           onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
           adoptError={adoptError}
           adopting={adopt.isPending}
@@ -276,8 +319,13 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
   const [label, setLabel] = useState(drive.model || "My Drive");
   const [confirmErase, setConfirmErase] = useState(false);
   const needsInspect = !result && !loading && !error;
-  const canAdopt = Boolean(result);
   const needsErase = Boolean(result?.needs_erase);
+  const canUse = Boolean(result) && result.readable && (result.writable || needsErase);
+  const blockedReason = result && !canUse
+    ? (!result.readable
+      ? "Luna could not read this drive. Make sure it is plugged in firmly and try again."
+      : "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, look inside and choose Erase and add.")
+    : null;
 
   return (
     <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
@@ -318,6 +366,11 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
                 including the installer.
               </p>
             </div>
+          ) : blockedReason ? (
+            <div className="mt-4 flex items-center gap-3">
+              <TriangleAlert size={18} className="text-warning shrink-0" />
+              <p className="text-primary text-xs">{blockedReason}</p>
+            </div>
           ) : result.has_marker ? (
             <p className="text-primary text-sm mt-2">
               This drive was used with a Luna before. Add it here to keep using the
@@ -332,7 +385,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
               </p>
             </div>
           )}
-          {canAdopt && (
+          {canUse && (
             <>
               <label className="block mt-4">
                 <span className="text-primary text-xs">What should Luna call this drive?</span>
@@ -343,7 +396,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
                   onChange={(e) => setLabel(e.target.value)}
                 />
               </label>
-              {adoptError && <p className="text-error text-xs mt-2">{adoptError}</p>}
+              {adoptError && <PageNotice variant="error" className="mt-2">{adoptError}</PageNotice>}
               <div className="mt-4 flex gap-3">
                 {needsErase && !confirmErase ? (
                   <Button variant="danger" onClick={() => setConfirmErase(true)}>
@@ -361,6 +414,11 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
                 <Button variant="outline" onClick={onClose}>Not now</Button>
               </div>
             </>
+          )}
+          {!canUse && (
+            <div className="mt-4">
+              <Button variant="outline" onClick={onClose}>Close</Button>
+            </div>
           )}
         </>
       )}
