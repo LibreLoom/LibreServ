@@ -52,7 +52,7 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
       <p className="mt-3 text-sm text-primary">
         Only someone who takes care of this Luna can open a whole drive as a folder.
         {" "}
-        <TextLink surface="secondary" to="/settings">Open Settings</TextLink>
+        <TextLink surface="secondary" to="/settings#apps">Open Settings</TextLink>
       </p>
     </Card>
   );

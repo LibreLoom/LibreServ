@@ -1080,6 +1080,7 @@ dependencies = [
  "include_dir",
  "jsonwebtoken",
  "kamadak-exif",
+ "libc",
  "luna-core",
  "mime_guess",
  "rand_core 0.6.4",

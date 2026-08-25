@@ -224,21 +224,15 @@ pub fn safe_name(name: &str) -> Result<String, FilesError> {
 
 /// Atomically install `temp` as `dest`.
 ///
-/// When `overwrite` is false, the install fails with `AlreadyExists` if
-/// `dest` already exists. It does this with `hard_link` (which fails
-/// atomically if the destination appears) followed by removing `temp`, rather
-/// than `exists()`-then-`rename` — `rename(2)` silently overwrites, so the
-/// check-then-rename pattern has a TOCTOU window where a concurrently-created
-/// destination is clobbered even when overwrite was refused.
+/// When `overwrite` is false, the install must fail if `dest` already exists.
+/// Prefer `renameat2(RENAME_NOREPLACE)` (atomic, works on ext4 and on
+/// FAT/exFAT same-folder). Fall back to hard link, then to a checked rename,
+/// because some USB/FUSE mounts reject `link(2)` with EPERM.
 pub fn install_temp(temp: &Path, dest: &Path, overwrite: bool) -> Result<(), FilesError> {
     if overwrite {
         std::fs::rename(temp, dest).map_err(FilesError::Io)?;
     } else {
-        std::fs::hard_link(temp, dest).map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => FilesError::Io(e),
-            _ => FilesError::Io(e),
-        })?;
-        std::fs::remove_file(temp).map_err(FilesError::Io)?;
+        install_no_overwrite(temp, dest)?;
     }
     // Persist the directory entry so the rename/link survives power loss.
     if let Some(parent) = dest.parent()
@@ -247,6 +241,83 @@ pub fn install_temp(temp: &Path, dest: &Path, overwrite: bool) -> Result<(), Fil
         let _ = dir.sync_all();
     }
     Ok(())
+}
+
+fn install_no_overwrite(temp: &Path, dest: &Path) -> Result<(), FilesError> {
+    match rename_noreplace(temp, dest) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
+        Err(e) if noreplace_unavailable(&e) => match std::fs::hard_link(temp, dest) {
+            Ok(()) => std::fs::remove_file(temp).map_err(FilesError::Io),
+            Err(e2) if e2.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e2)),
+            Err(e2) if hard_link_unsupported(&e2) => install_by_exclusive_rename(temp, dest),
+            Err(e2) => Err(FilesError::Io(e2)),
+        },
+        Err(e) => Err(FilesError::Io(e)),
+    }
+}
+
+fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let from_c = std::ffi::CString::new(from.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path"))?;
+        let to_c = std::ffi::CString::new(to.as_os_str().as_bytes())
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path"))?;
+        // SAFETY: both paths are NUL-terminated CStrings; AT_FDCWD is a valid dirfd.
+        let rc = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from_c.as_ptr(),
+                libc::AT_FDCWD,
+                to_c.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (from, to);
+        Err(std::io::Error::from_raw_os_error(38))
+    }
+}
+
+fn noreplace_unavailable(err: &std::io::Error) -> bool {
+    matches!(err.kind(), std::io::ErrorKind::Unsupported)
+        || matches!(err.raw_os_error(), Some(22 | 38 | 45 | 95))
+}
+
+/// `link(2)` is not supported on FAT, exFAT, NTFS-3G, and some FUSE mounts.
+/// Linux reports EPERM (os error 1) or EOPNOTSUPP; others use ENOSYS / EXDEV.
+fn hard_link_unsupported(err: &std::io::Error) -> bool {
+    if matches!(
+        err.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::Unsupported
+    ) {
+        return true;
+    }
+    matches!(err.raw_os_error(), Some(1 | 18 | 38 | 45 | 95))
+}
+
+/// Same-directory rename when hard links are unavailable. `rename(2)` replaces
+/// an existing dest, so refuse if the name is already there.
+fn install_by_exclusive_rename(temp: &Path, dest: &Path) -> Result<(), FilesError> {
+    match dest.symlink_metadata() {
+        Ok(_) => Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "destination exists",
+        ))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::rename(temp, dest).map_err(FilesError::Io)
+        }
+        Err(e) => Err(FilesError::Io(e)),
+    }
 }
 
 /// Move a file or folder to `.luna-trash` on the same drive (atomic rename,
@@ -628,5 +699,39 @@ mod tests {
         // Overwrite install replaces it.
         install_temp(&temp, &dest, true).unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), b"new");
+    }
+
+    #[test]
+    fn exclusive_rename_installs_when_hard_links_are_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".luna-upload.1");
+        let dest = dir.path().join("clip.webm");
+        std::fs::write(&temp, b"webm-bytes").unwrap();
+        install_by_exclusive_rename(&temp, &dest).unwrap();
+        assert!(!temp.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"webm-bytes");
+    }
+
+    #[test]
+    fn exclusive_rename_refuses_to_clobber() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".luna-upload.1");
+        let dest = dir.path().join("clip.webm");
+        std::fs::write(&temp, b"new").unwrap();
+        std::fs::write(&dest, b"original").unwrap();
+        assert!(install_by_exclusive_rename(&temp, &dest).is_err());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"original");
+        assert!(temp.exists());
+    }
+
+    #[test]
+    fn install_temp_puts_a_webm_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".luna-upload.1");
+        std::fs::write(&temp, b"webm-bytes").unwrap();
+        let dest = dir.path().join("clip.webm");
+        install_temp(&temp, &dest, false).unwrap();
+        assert!(!temp.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"webm-bytes");
     }
 }

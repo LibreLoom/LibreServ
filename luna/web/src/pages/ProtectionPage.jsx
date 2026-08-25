@@ -3,11 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import Dropdown from "../components/common/Dropdown";
+import SettingsCard from "../components/settings/SettingsCard";
+import Card from "../components/cards/Card";
 import { getDrives, getJson, postJson, deleteJson, apiErrorMessage } from "../lib/api";
 
 function driveName(drives, id) {
@@ -47,7 +48,7 @@ export default function ProtectionPage() {
       titleId="protect-title"
       bottomContent={<p className="text-sm">This keeps a second copy on another drive. If you delete a file by accident, the copy stays.</p>}
     >
-      <Card icon={ShieldCheck} title="A free second copy">
+      <SettingsCard icon={ShieldCheck} title="A free second copy">
         {tooFewDrives ? (
           <>
             <p className="text-primary text-sm">
@@ -77,7 +78,7 @@ export default function ProtectionPage() {
             </div>
           </>
         )}
-      </Card>
+      </SettingsCard>
 
       <div className="grid gap-4 mt-6">
         {(protections.data || []).map((p) => (

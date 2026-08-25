@@ -171,7 +171,8 @@ export default function FilesPage() {
       }
       invalidate();
     } catch (err) {
-      setUploadError(String(err));
+      const raw = err instanceof Error ? err.message : String(err);
+      setUploadError(raw.replace(/^Error:\s*/i, ""));
     } finally {
       setUploading(null);
     }
@@ -387,12 +388,6 @@ export default function FilesPage() {
         </Card>
       )}
 
-      {!inTrash && user?.role === "admin" && drive && (
-        <div className="mb-6">
-          <ComputerMountHelp driveId={id} driveLabel={drive.label} />
-        </div>
-      )}
-
       {inTrash && uploadError && <PageNotice variant="error" className="mb-4">{uploadError}</PageNotice>}
 
       {!inTrash && (
@@ -543,6 +538,12 @@ export default function FilesPage() {
           title="Trash is empty"
           description="When you remove a file, Luna keeps it here so you can put it back."
         />
+      )}
+
+      {!inTrash && user?.role === "admin" && drive && (
+        <div className="mt-6">
+          <ComputerMountHelp driveId={id} driveLabel={drive.label} />
+        </div>
       )}
 
       {deleteTarget && (

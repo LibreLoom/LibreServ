@@ -21,8 +21,9 @@ describe("RemotePage", () => {
       new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ));
     renderPage();
-    expect(await screen.findByRole("button", { name: /Turn Luna Connect on/i })).toBeTruthy();
-    expect(screen.getByText(/photos.luna.servers.libreloom.org/i)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Save code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use booklet code/i })).toBeTruthy();
+    expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
   });
 
   it("shows hostname and change field when on", async () => {
