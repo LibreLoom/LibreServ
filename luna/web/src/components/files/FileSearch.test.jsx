@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import HouseholdSearch from "./HouseholdSearch";
+import FileSearch from "./FileSearch";
 
 function renderSearch(hits) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -25,13 +25,13 @@ function renderSearch(hits) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <HouseholdSearch />
+        <FileSearch />
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe("HouseholdSearch", () => {
+describe("FileSearch", () => {
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
     fireEvent.change(screen.getByLabelText("Find a file by name"), { target: { value: "zz" } });

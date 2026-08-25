@@ -26,7 +26,7 @@ export default function FieldLabel({
   required = false,
   className = "",
 }) {
-  const text = surface === "secondary" ? "text-primary/70" : "text-secondary/70";
+  const text = surface === "secondary" ? "text-primary" : "text-secondary";
   return (
     <label
       data-slot="label"

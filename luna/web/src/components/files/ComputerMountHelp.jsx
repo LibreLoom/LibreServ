@@ -4,7 +4,7 @@ import TextLink from "../ui/TextLink";
 import Button from "../ui/Button";
 
 /**
- * Exact steps to open a Luna drive as a folder on a household computer.
+ * Exact steps to open a Luna drive as a folder on a computer.
  * Finder/Explorer must use an access token from Settings — never the Luna password.
  */
 export default function ComputerMountHelp({ driveId, driveLabel }) {
