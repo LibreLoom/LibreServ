@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"net"
 	"net/http"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
@@ -61,17 +63,40 @@ type Deps struct {
 }
 
 func ClientIP(r *http.Request) string {
-	if host, _, ok := splitHost(r.RemoteAddr); ok {
-		return host
+	remote := remoteHost(r.RemoteAddr)
+	if trustedProxy(remote) {
+		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+			parts := strings.Split(xff, ",")
+			if ip := strings.TrimSpace(parts[0]); ip != "" {
+				return stripPort(ip)
+			}
+		}
+		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+			return stripPort(xri)
+		}
+	}
+	if remote != "" {
+		return remote
 	}
 	return r.RemoteAddr
 }
 
-func splitHost(addr string) (string, string, bool) {
-	for i := len(addr) - 1; i >= 0; i-- {
-		if addr[i] == ':' {
-			return addr[:i], addr[i+1:], true
-		}
+func remoteHost(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return stripPort(addr)
 	}
-	return addr, "", false
+	return host
+}
+
+func stripPort(addr string) string {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return strings.Trim(addr, "[]")
+}
+
+func trustedProxy(ip string) bool {
+	parsed := net.ParseIP(strings.Trim(ip, "[]"))
+	return parsed != nil && parsed.IsLoopback()
 }

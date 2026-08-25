@@ -18,6 +18,9 @@ type AccountHandler struct {
 	Deps
 }
 
+const authAttemptMax = 10
+const authAttemptWindow = 15 * 60
+
 func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -25,6 +28,10 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !allowAuthAttempt(h.DB, ClientIP(r), email, authAttemptMax, authAttemptWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
+		return
+	}
 	if !strings.Contains(email, "@") || len(req.Password) < 8 {
 		JSONError(w, http.StatusBadRequest, "Enter an email and a password of at least 8 characters.")
 		return
@@ -47,7 +54,7 @@ VALUES (?, ?, ?, ?, 0, 'none', ?)`, id, email, string(hash), cust, time.Now().Un
 		return
 	}
 	h.setSession(w, id)
-	JSON(w, http.StatusCreated, map[string]any{"id": id, "email": email, "has_card": false})
+	JSON(w, http.StatusCreated, map[string]any{"id": id, "email": email, "has_card": false, "stripe_publishable_key": stripePublishableKey()})
 }
 
 func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +64,10 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !allowAuthAttempt(h.DB, ClientIP(r), email, authAttemptMax, authAttemptWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
+		return
+	}
 	var id, hash string
 	err := h.DB.QueryRow(`SELECT id, password_hash FROM accounts WHERE email = ?`, email).Scan(&id, &hash)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
@@ -76,14 +87,43 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	var bytes int64
 	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&bytes)
 	JSON(w, http.StatusOK, map[string]any{
-		"id":              acct.ID,
-		"email":           acct.Email,
-		"has_card":        acct.HasCard,
-		"billing_status":  acct.BillingStatus,
-		"stored_bytes":    bytes,
-		"estimated_month": billing.EstimateUSD(bytes),
-		"price_copy":      "Spare copies cost $7 per terabyte each month, based on how much is stored right now.",
+		"id":                     acct.ID,
+		"email":                  acct.Email,
+		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
+		"billing_status":         acct.BillingStatus,
+		"stored_bytes":           bytes,
+		"estimated_month":        billing.EstimateUSD(bytes),
+		"price_copy":             "Spare copies cost $7 per terabyte each month, based on how much is stored right now.",
+		"stripe_publishable_key": stripePublishableKey(),
+		"stripe_enabled":         config.C.Stripe.Enabled,
 	})
+}
+
+func stripePublishableKey() string {
+	if !config.C.Stripe.Enabled {
+		return ""
+	}
+	return strings.TrimSpace(config.C.Stripe.PublishableKey)
+}
+
+func (h AccountHandler) PublicConfig(w http.ResponseWriter, r *http.Request) {
+	JSON(w, http.StatusOK, map[string]any{
+		"stripe_publishable_key": stripePublishableKey(),
+		"stripe_enabled":         config.C.Stripe.Enabled,
+	})
+}
+
+func paymentMethodFromJSON(body []byte) string {
+	var req struct {
+		PaymentMethod   string `json:"payment_method"`
+		PaymentMethodID string `json:"payment_method_id"`
+	}
+	_ = json.Unmarshal(body, &req)
+	pm := strings.TrimSpace(req.PaymentMethod)
+	if pm == "" {
+		pm = strings.TrimSpace(req.PaymentMethodID)
+	}
+	return pm
 }
 
 func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
@@ -92,13 +132,12 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	sub, err := billing.Subscribe(acct.StripeCustomer)
+	var raw json.RawMessage
+	_ = json.NewDecoder(r.Body).Decode(&raw)
+	pm := paymentMethodFromJSON(raw)
+	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
 	if err != nil {
-		if errors.Is(err, billing.ErrNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
-			return
-		}
-		JSONError(w, http.StatusBadGateway, "Could not start the monthly bill. Check the card and try again.")
+		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
 		return
 	}
 	status := "active"
@@ -107,8 +146,25 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		status = "dev"
 		out["dev"] = true
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`, status, sub, acct.ID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
+		status, sub, item, acct.ID)
 	JSON(w, http.StatusOK, out)
+}
+
+func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
+	if errors.Is(err, billing.ErrNotConfigured) {
+		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
+		return
+	}
+	if errors.Is(err, billing.ErrPaymentMethodRequired) {
+		JSONError(w, http.StatusBadRequest, "Add a card on this page first, then try again.")
+		return
+	}
+	if errors.Is(err, billing.ErrSubscriptionInactive) {
+		JSONError(w, http.StatusPaymentRequired, "The card was saved but the monthly bill is not active yet. Check the card and try again.")
+		return
+	}
+	JSONError(w, http.StatusBadGateway, fallback)
 }
 
 func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +190,8 @@ func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		_, _ = h.DB.Exec(`DELETE FROM sessions WHERE token_hash = ?`, security.HashToken(c.Value))
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: "luna_connect_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Name: "luna_connect_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
+		Secure: config.CookieSecure(), SameSite: http.SameSiteLaxMode,
 	})
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -171,6 +228,7 @@ func (h AccountHandler) setSession(w http.ResponseWriter, accountID string) {
 		Value:    tok,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   config.CookieSecure(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 3600,
 	})
@@ -226,12 +284,11 @@ WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.
 
 func (h DeviceHandler) DeviceAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
+		tok := security.BearerToken(r.Header.Get("Authorization"))
+		if tok == "" {
 			JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
 			return
 		}
-		tok := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 		var d Device
 		var account sql.NullString
 		err := h.DB.QueryRow(`SELECT id, account_id, subdomain, COALESCE(tunnel_id,''), COALESCE(name,'') FROM devices WHERE token_hash = ?`,

@@ -19,19 +19,49 @@ type Local struct {
 }
 
 func NewLocal(root string) (*Local, error) {
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	abs, err := filepath.Abs(root)
+	if err != nil {
 		return nil, err
 	}
-	return &Local{Root: root}, nil
+	if err := os.MkdirAll(abs, 0o700); err != nil {
+		return nil, err
+	}
+	_ = os.Chmod(abs, 0o700)
+	return &Local{Root: abs}, nil
+}
+
+func opaqueIDOK(id string) bool {
+	if id == "" || strings.ContainsRune(id, 0) {
+		return false
+	}
+	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return false
+	}
+	return true
 }
 
 func (s *Local) path(accountID, deviceID, relPath string) (string, error) {
+	if !opaqueIDOK(accountID) || !opaqueIDOK(deviceID) {
+		return "", fmt.Errorf("that file path is not allowed")
+	}
+	if strings.ContainsRune(relPath, 0) || strings.Contains(relPath, "..") || strings.ContainsAny(relPath, `\\`) {
+		return "", fmt.Errorf("that file path is not allowed")
+	}
 	clean := filepath.Clean("/" + strings.ReplaceAll(relPath, "\\", "/"))
 	clean = strings.TrimPrefix(clean, "/")
 	if clean == "" || strings.Contains(clean, "..") {
 		return "", fmt.Errorf("that file path is not allowed")
 	}
-	return filepath.Join(s.Root, accountID, deviceID, clean), nil
+	joined := filepath.Join(s.Root, accountID, deviceID, clean)
+	absJoined, err := filepath.Abs(joined)
+	if err != nil {
+		return "", fmt.Errorf("that file path is not allowed")
+	}
+	rel, err := filepath.Rel(s.Root, absJoined)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("that file path is not allowed")
+	}
+	return absJoined, nil
 }
 
 func (s *Local) Put(accountID, deviceID, relPath string, r io.Reader) (int64, error) {
@@ -39,14 +69,15 @@ func (s *Local) Put(accountID, deviceID, relPath string, r io.Reader) (int64, er
 	if err != nil {
 		return 0, err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return 0, err
 	}
-	f, err := os.Create(p)
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
+	_ = os.Chmod(p, 0o600)
 	return io.Copy(f, r)
 }
 

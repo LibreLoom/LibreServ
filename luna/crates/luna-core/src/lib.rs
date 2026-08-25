@@ -11,5 +11,10 @@ pub mod scan;
 
 pub use drive::{DRIVE_STATES, DriveState};
 pub use marker::{Marker, MarkerError, read_marker, write_marker};
-pub use path::{PathError, resolve_child};
+#[cfg(target_os = "linux")]
+pub use path::open_verified;
+pub use path::{
+    PathError, is_under_prefix, open_nofollow, resolve_child, resolve_child_nofollow,
+    resolve_for_create_nofollow,
+};
 pub use scan::{TopLevelSummary, scan_top_level};

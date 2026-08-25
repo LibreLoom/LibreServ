@@ -237,8 +237,8 @@ func TestOSSMintThenHello(t *testing.T) {
 	var minted map[string]any
 	_ = json.Unmarshal(mrec2.Body.Bytes(), &minted)
 	code := minted["code"].(string)
-	if len(code) != 6 {
-		t.Fatalf("oss code %q", code)
+	if len(security.NormalizeToken(code)) < 16 {
+		t.Fatalf("oss code too short %q", code)
 	}
 
 	bind := httptest.NewRequest(http.MethodPost, "/onboarding/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
@@ -257,6 +257,22 @@ func TestOSSMintThenHello(t *testing.T) {
 	defer c.Close()
 	readType(t, c, "accepted")
 	readType(t, c, "attached")
+}
+
+func TestRegisterLoginRateLimit(t *testing.T) {
+	_, acct, _ := testOnboarding(t)
+	for i := 0; i < 11; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/account/login", bytes.NewBufferString(`{"email":"nobody@b.co","password":"wrongpass"}`))
+		req.RemoteAddr = "198.51.100.77:9"
+		rec := httptest.NewRecorder()
+		acct.Login(rec, req)
+		if i < 10 && rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("limited too early at %d", i)
+		}
+		if i == 10 && rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected limiter, got %d %s", rec.Code, rec.Body.String())
+		}
+	}
 }
 
 func TestGuessLimiter(t *testing.T) {
@@ -477,36 +493,15 @@ func TestNameInsertOkPushFailKeepsDeviceThenRetry(t *testing.T) {
 	}
 
 	registerHubSocket(t, onb, token, false)
-	hash := security.HashToken(security.NormalizeToken(token))
-	live := onb.Hub.Live(hash)
-	if live == nil {
-		t.Fatal("expected live socket for retry")
-	}
 	retry := httptest.NewRequest(http.MethodPost, "/onboarding/name", bytes.NewBufferString(`{"subdomain":"retryme"}`))
 	retry.AddCookie(cookie)
 	retry.AddCookie(brec.Result().Cookies()[0])
 	rrec := withAccount(acct, onb.Name, retry)
-	if rrec.Code != 201 {
-		t.Fatalf("retry name %d %s", rrec.Code, rrec.Body.String())
+	if rrec.Code != http.StatusConflict {
+		t.Fatalf("retry after claim must not re-send tokens, got %d %s", rrec.Code, rrec.Body.String())
 	}
 	if len(cloud.creates) != 1 {
 		t.Fatalf("retry must not create a second tunnel: %v", cloud.creates)
-	}
-	select {
-	case msg := <-live.Recv():
-		if msg.Type != "claimed" || msg.SetupSecret == "" || msg.TunnelToken == "" {
-			t.Fatalf("retry claimed %v", msg)
-		}
-	default:
-		t.Fatal("retry must re-push claimed without a second tunnel")
-	}
-	if onb.Hub.Live(hash) != nil {
-		t.Fatal("ClaimAndDrop should drop the live socket after a successful retry push")
-	}
-	var body map[string]any
-	_ = json.Unmarshal(rrec.Body.Bytes(), &body)
-	if body["setup_secret"] == "" || body["hostname"] != "retryme.luna.servers.libreloom.org" {
-		t.Fatalf("retry body %v", body)
 	}
 }
 
@@ -757,6 +752,7 @@ func TestStripeNotReadyFailsClosed(t *testing.T) {
 }
 
 func TestAttachCardDevBypass(t *testing.T) {
+	t.Setenv("LUNACONNECT_DEV", "1")
 	_, acct, _ := testOnboarding(t)
 	cookie := registerAccount(t, acct, "devcard@b.co")
 	prev := config.C.Stripe
@@ -771,9 +767,32 @@ func TestAttachCardDevBypass(t *testing.T) {
 		t.Fatalf("dev attach-card %d %s", crec.Code, crec.Body.String())
 	}
 	var has int
+	var status, item string
+	_ = acct.DB.QueryRow(`SELECT has_card, billing_status, COALESCE(stripe_subscription_item_id,'') FROM accounts WHERE email = 'devcard@b.co'`).Scan(&has, &status, &item)
+	if has != 1 || status != "dev" || item != "si_dev" {
+		t.Fatalf("dev attach-card has=%d status=%s item=%s", has, status, item)
+	}
+}
+
+func TestAttachCardWithoutDevFailsClosed(t *testing.T) {
+	_, acct, _ := testOnboarding(t)
+	cookie := registerAccount(t, acct, "prodcard@b.co")
+	t.Setenv("LUNACONNECT_DEV", "")
+	prev := config.C.Stripe
+	config.C.Stripe.Enabled = false
+	config.C.Stripe.SecretKey = ""
+	t.Cleanup(func() { config.C.Stripe = prev })
+
+	card := httptest.NewRequest(http.MethodPost, "/billing/attach-card", bytes.NewBufferString(`{}`))
+	card.AddCookie(cookie)
+	crec := withAccount(acct, acct.AttachCard, card)
+	if crec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("prod attach-card without stripe %d %s", crec.Code, crec.Body.String())
+	}
+	var has int
 	var status string
-	_ = acct.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE email = 'devcard@b.co'`).Scan(&has, &status)
-	if has != 1 || status != "dev" {
-		t.Fatalf("dev attach-card has=%d status=%s", has, status)
+	_ = acct.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE email = 'prodcard@b.co'`).Scan(&has, &status)
+	if has != 0 || status != "none" {
+		t.Fatalf("must not unlock, has=%d status=%s", has, status)
 	}
 }

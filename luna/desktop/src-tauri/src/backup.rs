@@ -206,6 +206,28 @@ fn upload_tree(
     ledger: &Arc<Mutex<Ledger>>,
     ledger_path: &Path,
 ) {
+    for_each_regular_file(dir, stop, &mut |path| {
+        if let Ok(rel) = path.strip_prefix(root) {
+            let _ = upload_file(
+                base_url,
+                token,
+                drive_id,
+                remote_path,
+                rel,
+                path,
+                state,
+                ledger,
+                ledger_path,
+            );
+        }
+    });
+}
+
+/// Walk a tree without following directory or file symlinks.
+fn for_each_regular_file(dir: &Path, stop: &AtomicBool, visit: &mut dyn FnMut(&Path)) {
+    if stop.load(Ordering::Relaxed) {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -214,31 +236,17 @@ fn upload_tree(
             return;
         }
         let path = entry.path();
-        if path.is_dir() {
-            upload_tree(
-                base_url,
-                token,
-                drive_id,
-                remote_path,
-                root,
-                &path,
-                stop,
-                state,
-                ledger,
-                ledger_path,
-            );
-        } else if let Ok(rel) = path.strip_prefix(root) {
-            let _ = upload_file(
-                base_url,
-                token,
-                drive_id,
-                remote_path,
-                rel,
-                &path,
-                state,
-                ledger,
-                ledger_path,
-            );
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        if meta.is_dir() {
+            for_each_regular_file(&path, stop, visit);
+        } else if meta.is_file() {
+            visit(&path);
         }
     }
 }
@@ -263,7 +271,10 @@ fn upload_file(
     ledger_path: &Path,
 ) -> anyhow::Result<()> {
     let rel_str = rel.to_string_lossy().into_owned();
-    let meta = std::fs::metadata(path)?;
+    let meta = std::fs::symlink_metadata(path)?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Ok(());
+    }
     let size = meta.len();
     let mtime = mtime_secs(&meta);
 
@@ -372,6 +383,7 @@ fn upload_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn remote_dest_paths_are_relative() {
@@ -393,5 +405,24 @@ mod tests {
         assert!(l2.is_current("a/b.txt", 10, 1234));
         assert!(!l2.is_current("a/b.txt", 11, 1234));
         assert!(!l2.is_current("other", 10, 1234));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_walk_skips_dir_symlinks() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("keep.txt"), b"k").unwrap();
+        std::fs::write(outside.join("secret.txt"), b"s").unwrap();
+        symlink(&outside, root.join("link")).unwrap();
+        let mut files = Vec::new();
+        let stop = AtomicBool::new(false);
+        for_each_regular_file(&root, &stop, &mut |p| files.push(p.to_path_buf()));
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("keep.txt"));
     }
 }

@@ -34,10 +34,15 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/connect/backup-sources", post(set_sources))
 }
 
-async fn status(State(state): State<AppState>) -> Json<crate::connect::ConnectStatus> {
+async fn status(
+    State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
+) -> Json<crate::connect::ConnectStatus> {
     let connect = state.connect.clone();
     let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
-    Json(state.connect.status())
+    let setup = state.auth.count_users().unwrap_or(1) == 0;
+    let admin = current.as_ref().is_some_and(|u| u.role == "admin");
+    Json(state.connect.status_for(setup || admin))
 }
 
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
@@ -135,8 +140,24 @@ async fn set_sources(
     Json(body): Json<SourcesBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(user)?;
+    let sources = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let drives = crate::db::list_drives(&conn).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read your drives.",
+            )
+        })?;
+        crate::cloud_backup::validate_backup_sources(body.sources, &drives)
+            .map_err(map_connect_err)?
+    };
     let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.set_backup_sources(body.sources))
+    tokio::task::spawn_blocking(move || service.set_backup_sources(sources))
         .await
         .map_err(|_| {
             json_error(

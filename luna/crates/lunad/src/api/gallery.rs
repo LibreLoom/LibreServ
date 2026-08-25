@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::api::response::json_error;
 
+const THUMB_CACHE_CONTROL: &str = "private, no-store";
+
 #[derive(Deserialize)]
 struct GalleryQuery {
     #[serde(default)]
@@ -193,11 +195,18 @@ async fn serve_thumb(path: std::path::PathBuf) -> Result<Response, (StatusCode, 
         .header(axum::http::header::CONTENT_TYPE, "image/jpeg")
         .header(axum::http::header::CONTENT_LENGTH, meta.len().to_string())
         .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(
-            axum::http::header::CACHE_CONTROL,
-            "public, max-age=31536000, immutable",
-        )
+        .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
         .body(axum::body::Body::from_stream(stream))
         .unwrap()
         .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::THUMB_CACHE_CONTROL;
+    #[test]
+    fn thumbs_are_private() {
+        assert_eq!(THUMB_CACHE_CONTROL, "private, no-store");
+        assert!(!THUMB_CACHE_CONTROL.contains("public"));
+    }
 }

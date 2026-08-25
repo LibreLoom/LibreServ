@@ -5,6 +5,7 @@ pub mod config;
 pub mod connect;
 pub mod console;
 pub mod dav;
+mod dav_fs;
 pub mod db;
 pub mod detect;
 pub mod dhcp;

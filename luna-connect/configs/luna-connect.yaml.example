@@ -4,6 +4,8 @@ server:
   base_url: "https://connect.luna.libreloom.org"
   public_zone: "luna.servers.libreloom.org"
   admin_token: ""
+  # Shared between blue/green instances. openssl rand -hex 32
+  at_rest_key: ""
   web_dir: "web/dist"
 
 database:
@@ -17,14 +19,16 @@ cloudflare:
   zone_id: ""
 
 stripe:
+  # Production paid routes require Stripe. Empty keys refuse card and backup unlock.
+  # Local/dev unlock only with LUNACONNECT_DEV=1 and enabled: false.
+  enabled: false
   secret_key: ""
+  publishable_key: ""
   webhook_secret: ""
   price_id: ""
-  enabled: false
 
 backup:
-  # Local disk when empty. Set B2 keys for production object storage.
+  # Objects are stored on this machine's disk under data_dir (not off-box object storage).
   driver: "local"
-  b2_account_id: ""
-  b2_application_key: ""
-  bucket: "luna-connect-backups"
+  max_object_bytes: 1073741824
+  max_account_bytes: 2000000000000

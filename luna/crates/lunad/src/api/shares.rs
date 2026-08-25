@@ -165,7 +165,8 @@ async fn remove(
 /// Public share access. Browsers opening `/s/{token}` get the Luna page so a
 /// household member sees files and a password box — not a raw data dump.
 /// Apps and the page itself send `Accept: application/json` (or `download=1`)
-/// to list a folder or stream a file. Optional password via `?password=...`.
+/// to list a folder or stream a file. Password via `X-Share-Password` (preferred)
+/// or `?password=` (kept for existing download links). Never log the raw query.
 /// Optional `path=` walks inside a shared folder.
 async fn public(
     State(state): State<AppState>,
@@ -178,7 +179,7 @@ async fn public(
         return crate::staticweb::handle("");
     }
     let result: Result<axum::response::Response, (StatusCode, Json<Value>)> =
-        public_inner(state, addr.ip().to_string(), token, query).await;
+        public_inner(state, addr.ip().to_string(), token, query, headers).await;
     match result {
         Ok(response) => response,
         Err(err) => err.into_response(),
@@ -190,6 +191,7 @@ async fn public_inner(
     ip: String,
     token: String,
     query: PublicQuery,
+    headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
     // Keep the SQLite lock scoped to this block: the file-streaming await
     // below must not hold a MutexGuard across an await point.
@@ -210,7 +212,7 @@ async fn public_inner(
             return Err(json_error(StatusCode::GONE, "This link has expired."));
         }
         if !share.password_hash.is_empty() {
-            let provided = query.password.unwrap_or_default();
+            let provided = share_password(&headers, &query);
             // Rate-limit password attempts: `/s/` is a public, WAN-exposed
             // endpoint, so an unthrottled share password would be brute-forceable.
             if !state.share_limiter.allow(&ip) {
@@ -332,7 +334,10 @@ async fn serve_file(
         .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(
             axum::http::header::CONTENT_DISPOSITION,
-            format!("{disposition}; filename=\"{}\"", name.replace('"', "")),
+            format!(
+                "{disposition}; filename=\"{}\"",
+                crate::files::content_disposition_filename(&name)
+            ),
         );
     let response = builder
         .body(axum::body::Body::from_stream(stream))
@@ -343,6 +348,18 @@ async fn serve_file(
             )
         })?;
     Ok(response)
+}
+
+/// Share password: prefer `X-Share-Password` so it does not appear in logs or
+/// Referer. `?password=` remains for existing download links and bookmarks.
+fn share_password(headers: &HeaderMap, query: &PublicQuery) -> String {
+    headers
+        .get("x-share-password")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
+        .or_else(|| query.password.clone())
+        .unwrap_or_default()
 }
 
 /// Join a path under the shared root. Rejects `..` and absolute paths so a
@@ -434,5 +451,18 @@ mod tests {
         assert!(prefers_html(&headers));
         headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
         assert!(!prefers_html(&headers));
+    }
+
+    #[test]
+    fn share_password_prefers_header_over_query() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-share-password", HeaderValue::from_static("from-header"));
+        let query = PublicQuery {
+            password: Some("from-query".into()),
+            path: None,
+            download: None,
+        };
+        assert_eq!(share_password(&headers, &query), "from-header");
+        assert_eq!(share_password(&HeaderMap::new(), &query), "from-query");
     }
 }

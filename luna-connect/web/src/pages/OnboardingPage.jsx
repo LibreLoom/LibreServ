@@ -202,14 +202,38 @@ export default function OnboardingPage() {
           {step === "copies" && (
             <div className="space-y-3">
               <p className="text-sm text-foreground">Spare copies cost $7 per terabyte each month, based on how much is stored. Not a flat $7 a month.</p>
-              <Button className="w-full" onClick={async () => {
-                try {
-                  await api("/api/v1/onboarding/backups", { method: "POST", body: JSON.stringify({ enable: true }) });
-                  setStep("done");
-                } catch (err) {
-                  setError(err.message);
-                }
-              }}>Turn on cloud copies</Button>
+              {stripeLooksConfigured(me) ? (
+                <VerifyHumanCard
+                  account={me}
+                  loading={loading}
+                  description="Add a payment card to turn on spare copies. It costs $7 per terabyte each month."
+                  buttonLabel="Turn on cloud copies"
+                  onConfirm={async (paymentMethodId) => {
+                    setError("");
+                    setLoading(true);
+                    try {
+                      await api("/api/v1/onboarding/backups", {
+                        method: "POST",
+                        body: JSON.stringify({ enable: true, payment_method_id: paymentMethodId }),
+                      });
+                      setStep("done");
+                    } catch (err) {
+                      setError(err.message);
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                />
+              ) : (
+                <Button className="w-full" onClick={async () => {
+                  try {
+                    await api("/api/v1/onboarding/backups", { method: "POST", body: JSON.stringify({ enable: true }) });
+                    setStep("done");
+                  } catch (err) {
+                    setError(err.message);
+                  }
+                }}>Turn on cloud copies</Button>
+              )}
               <Button variant="outline" className="w-full" onClick={() => setStep("done")}>Skip for now</Button>
             </div>
           )}

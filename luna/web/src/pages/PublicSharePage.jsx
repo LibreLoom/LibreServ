@@ -46,11 +46,10 @@ export default function PublicSharePage() {
       try {
         const params = new URLSearchParams();
         if (rel) params.set("path", rel);
-        if (submittedPassword) params.set("password", submittedPassword);
         const q = params.toString();
-        const res = await fetch(`/s/${token}${q ? `?${q}` : ""}`, {
-          headers: { Accept: "application/json" },
-        });
+        const headers = { Accept: "application/json" };
+        if (submittedPassword) headers["X-Share-Password"] = submittedPassword;
+        const res = await fetch(`/s/${token}${q ? `?${q}` : ""}`, { headers });
         const type = res.headers.get("content-type") || "";
         if (res.status === 401) {
           if (alive) {

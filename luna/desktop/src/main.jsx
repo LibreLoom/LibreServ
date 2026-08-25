@@ -11,15 +11,22 @@ function App() {
   const [driveId, setDriveId] = useState("");
   const [drives, setDrives] = useState([]);
   const [status, setStatus] = useState("");
-  const [accessToken, setAccessToken] = useState("");
+  const [canCopyToken, setCanCopyToken] = useState(false);
 
   async function login() {
     try {
       const message = await invoke("login", { baseUrl, username, password });
       setStatus(message);
-      const tokenLine = String(message).split("\n")[1] || "";
-      setAccessToken(tokenLine.trim());
+      setCanCopyToken(true);
       setDrives(await invoke("list_drives", { baseUrl }));
+    } catch (e) { setStatus(String(e)); }
+  }
+  async function copyToken() {
+    try {
+      const token = await invoke("copy_access_token");
+      await navigator.clipboard.writeText(token);
+      setCanCopyToken(false);
+      setStatus("Access token copied. Paste it as the folder-mount password. It will not stay on this screen.");
     } catch (e) { setStatus(String(e)); }
   }
   async function pickFolder() {
@@ -46,8 +53,8 @@ function App() {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Household password (sign-in only)" />
           <button type="button" onClick={login}>Sign in</button>
         </div>
-        {accessToken && (
-          <p className="token">Access token (use this as the folder-mount password): {accessToken}</p>
+        {canCopyToken && (
+          <button type="button" onClick={copyToken}>Copy access token</button>
         )}
       </div>
       <div className="card">

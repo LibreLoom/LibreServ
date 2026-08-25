@@ -29,6 +29,8 @@ pub enum WifiError {
     Unavailable,
     #[error("That password didn't work. Check the sticker on your internet box and try again.")]
     Auth,
+    #[error("That network name or password has characters Luna can't use. Try another.")]
+    InvalidInput,
     #[error("Could not reach the Wi-Fi tool: {0}")]
     Io(#[source] std::io::Error),
     #[error("The Wi-Fi tool said: {0}")]
@@ -80,12 +82,14 @@ impl WifiProvider for WpaCliProvider {
     }
 
     fn connect(&self, ssid: &str, passphrase: &str) -> Result<(), WifiError> {
+        let ssid_q = wpa_cli_quoted(ssid)?;
         let id = self.run(&["add_network"])?.trim().to_string();
-        self.run(&["set_network", &id, "ssid", &format!("\"{ssid}\"")])?;
+        self.run(&["set_network", &id, "ssid", &ssid_q])?;
         if passphrase.is_empty() {
             self.run(&["set_network", &id, "key_mgmt", "NONE"])?;
         } else {
-            self.run(&["set_network", &id, "psk", &format!("\"{passphrase}\"")])?;
+            let psk_q = wpa_cli_quoted(passphrase)?;
+            self.run(&["set_network", &id, "psk", &psk_q])?;
         }
         self.run(&["enable_network", &id])?;
         self.run(&["select_network", &id])?;
@@ -206,6 +210,18 @@ impl WifiProvider for MockProvider {
     }
 }
 
+/// Quote a value for `wpa_cli set_network`. Reject quotes, backslashes, and
+/// newlines so they cannot break out of the quoted argument.
+pub(crate) fn wpa_cli_quoted(value: &str) -> Result<String, WifiError> {
+    if value
+        .chars()
+        .any(|c| c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\0')
+    {
+        return Err(WifiError::InvalidInput);
+    }
+    Ok(format!("\"{value}\""))
+}
+
 fn parse_scan_results(output: &str) -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
     for line in output.lines().skip(1) {
@@ -260,5 +276,13 @@ mod tests {
         assert!(mock.status().unwrap().connected);
         mock.forget().unwrap();
         assert!(!mock.status().unwrap().connected);
+    }
+
+    #[test]
+    fn wpa_cli_quoted_rejects_breakouts() {
+        assert_eq!(wpa_cli_quoted("Home WiFi").unwrap(), "\"Home WiFi\"");
+        assert!(wpa_cli_quoted("x\"\nset_network").is_err());
+        assert!(wpa_cli_quoted("a\\b").is_err());
+        assert!(wpa_cli_quoted("line\n2").is_err());
     }
 }

@@ -39,6 +39,26 @@ mkdir -p "$INSTALL_DIR/web" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
 chown -R "$USER:$USER" "$INSTALL_DIR" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
 
 log_step "Creating instance configs"
+admin_token=""
+at_rest_key=""
+for inst in "${INSTANCES[@]}"; do
+    name="${inst%%:*}"
+    existing="$CONFIG_DIR/luna-connect-${name}.yaml"
+    if [ -f "$existing" ]; then
+        if [ -z "$admin_token" ]; then
+            admin_token=$(sed -n 's/^  admin_token: "\(.*\)"/\1/p' "$existing" | head -1)
+        fi
+        if [ -z "$at_rest_key" ]; then
+            at_rest_key=$(sed -n 's/^  at_rest_key: "\(.*\)"/\1/p' "$existing" | head -1)
+        fi
+    fi
+done
+if [ -z "$admin_token" ]; then
+    admin_token=$(openssl rand -hex 32)
+fi
+if [ -z "$at_rest_key" ]; then
+    at_rest_key=$(openssl rand -hex 32)
+fi
 for inst in "${INSTANCES[@]}"; do
     name="${inst%%:*}"
     port="${inst##*:}"
@@ -47,7 +67,6 @@ for inst in "${INSTANCES[@]}"; do
         log_info "  Config for ${name} already exists"
         continue
     fi
-    admin_token=$(openssl rand -hex 32)
     cat > "$config_file" <<EOF
 server:
   address: "127.0.0.1"
@@ -55,6 +74,7 @@ server:
   base_url: "${BASE_URL}"
   public_zone: "luna.servers.libreloom.org"
   admin_token: "${admin_token}"
+  at_rest_key: "${at_rest_key}"
   web_dir: "${INSTALL_DIR}/web"
 
 database:
@@ -68,13 +88,17 @@ cloudflare:
   zone_id: ""
 
 stripe:
-  enabled: false
+  # Production requires Stripe. Paid routes refuse until secret_key, webhook_secret, and price_id are set.
+  enabled: true
   secret_key: ""
+  publishable_key: ""
   webhook_secret: ""
   price_id: ""
 
 backup:
   driver: "local"
+  max_object_bytes: 1073741824
+  max_account_bytes: 2000000000000
 EOF
     chown "$USER:$USER" "$config_file"
     chmod 640 "$config_file"

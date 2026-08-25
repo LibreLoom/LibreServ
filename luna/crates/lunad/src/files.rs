@@ -95,6 +95,9 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             continue;
         };
         let meta = std::fs::symlink_metadata(entry.path()).map_err(FilesError::Io)?;
+        if is_internal_temp(name) {
+            continue;
+        }
         let kind = if meta.file_type().is_dir() {
             "dir"
         } else if meta.file_type().is_symlink() {
@@ -151,6 +154,12 @@ pub fn resolve_any(
 ) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
+    if is_internal_temp(rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
     let path = resolve_child(&root, rel)?;
     let meta = std::fs::metadata(&path).map_err(FilesError::Io)?;
     Ok((path, meta))
@@ -202,6 +211,29 @@ pub fn inline_safe(mime: &str) -> bool {
         || t.starts_with("font/")
         || t == "text/plain"
         || t == "text/csv"
+}
+
+/// Temporary upload/protect files Luna writes while saving. Never list or
+/// download them — they are incomplete bytes, not user files.
+pub fn is_internal_temp(name: &str) -> bool {
+    let base = name.rsplit('/').next().unwrap_or(name);
+    base.starts_with(".luna-upload.") || (base.starts_with('.') && base.ends_with(".part"))
+}
+
+/// Conservative Content-Disposition filename: no quotes, slashes, or control
+/// characters, so a crafted name cannot split the header.
+pub fn content_disposition_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"' && *c != '\\' && *c != '/' && *c != ':')
+        .take(180)
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        "download".into()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Sanitize a client-provided file name to a bare, non-empty basename.
@@ -574,10 +606,41 @@ mod tests {
     }
 
     #[test]
+    fn list_hides_upload_temps() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::write(root.join("keep.txt"), b"k").unwrap();
+        std::fs::write(root.join(".luna-upload.1.2"), b"tmp").unwrap();
+        let entries = list_dir(&conn, &id, "").unwrap();
+        assert!(entries.iter().all(|e| e.name != ".luna-upload.1.2"));
+        assert!(file_path(&conn, &id, ".luna-upload.1.2").is_err());
+    }
+
+    #[test]
     fn safe_name_rejects_traversal() {
         assert!(safe_name("../x").is_err());
         assert!(safe_name("a/b").is_err());
         assert_eq!(safe_name("photo.jpg").unwrap(), "photo.jpg");
+    }
+
+    #[test]
+    fn internal_temps_are_hidden() {
+        assert!(is_internal_temp(".luna-upload.12.99"));
+        assert!(is_internal_temp("folder/.luna-upload.1.2"));
+        assert!(is_internal_temp(".luna-upload.1.2.part"));
+        assert!(!is_internal_temp("photo.jpg"));
+        assert!(!is_internal_temp("notes.part"));
+    }
+
+    #[test]
+    fn content_disposition_strips_control_and_quotes() {
+        assert_eq!(
+            content_disposition_filename("hi\"\r\nX: inject.jpg"),
+            "hiX inject.jpg"
+        );
+        assert_eq!(content_disposition_filename("\n\r"), "download");
+        assert_eq!(content_disposition_filename("photo.jpg"), "photo.jpg");
     }
 
     #[test]

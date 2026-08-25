@@ -445,7 +445,10 @@ pub fn current_user(req: &axum::extract::Request) -> Option<&CurrentUser> {
 /// Does `user` have `read` or `write` access to `drive_id`/`path`?
 ///
 /// Admins see everything. Scoped grants match the exact path or anything
-/// beneath it (`grant = "family"` allows `family/photos`).
+/// beneath it (`grant = "family"` allows `family/photos`). After the lexical
+/// check, the canonical path must still sit under the (canonical) grant
+/// prefix so a symlink inside the granted folder cannot walk the rest of
+/// the drive.
 pub fn can_access(
     user: &CurrentUser,
     conn: &Connection,
@@ -459,6 +462,11 @@ pub fn can_access(
     let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
         return false;
     };
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point);
     grants.into_iter().any(|g| {
         if g.drive_id != drive_id {
             return false;
@@ -466,8 +474,50 @@ pub fn can_access(
         if write && g.permission != "write" {
             return false;
         }
-        g.path.is_empty() || path == g.path || path.starts_with(&format!("{}/", g.path))
+        if !(g.path.is_empty() || path == g.path || path.starts_with(&format!("{}/", g.path))) {
+            return false;
+        }
+        match mount.as_deref() {
+            Some(root) => grant_covers_canonical(root, &g.path, path),
+            None => true,
+        }
     })
+}
+
+fn grant_covers_canonical(root: &str, grant_rel: &str, request_rel: &str) -> bool {
+    use luna_core::path::{is_under_prefix, resolve_child};
+    let root = std::path::Path::new(root);
+    let grant_canon = match resolve_child(root, grant_rel) {
+        Ok(p) => p,
+        Err(_) => {
+            // Grant folder missing: fall back to a lexical join under the
+            // canonical root so a dangling grant does not open the drive.
+            let Ok(canon_root) = root.canonicalize() else {
+                return false;
+            };
+            if grant_rel.is_empty() {
+                canon_root
+            } else {
+                canon_root.join(grant_rel)
+            }
+        }
+    };
+    let request_canon = match resolve_child(root, request_rel) {
+        Ok(p) => p,
+        Err(luna_core::path::PathError::NotFound(_)) => {
+            // Upload/create: jail the parent that must already exist.
+            let parent = std::path::Path::new(request_rel)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("");
+            match resolve_child(root, parent) {
+                Ok(p) => p,
+                Err(_) => return false,
+            }
+        }
+        Err(_) => return false,
+    };
+    is_under_prefix(&grant_canon, &request_canon)
 }
 
 /// True if the user may see anything on this drive (whole drive or a folder).
@@ -604,6 +654,61 @@ mod tests {
             "drive-a",
             "anything",
             true
+        ));
+        drop(conn);
+        drop((dir, auth));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grant_symlink_leaving_folder_is_denied() {
+        use std::os::unix::fs::symlink;
+        let (dir, auth) = service();
+        let sam = {
+            auth.register("Max", "Max", "hunter22hunter", "user")
+                .unwrap();
+            auth.register("sam", "Sam", "hunter22hunter", "user")
+                .unwrap()
+        };
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(mount.join("family")).unwrap();
+        std::fs::create_dir_all(mount.join("secret")).unwrap();
+        std::fs::write(mount.join("secret/note.txt"), b"nope").unwrap();
+        symlink(mount.join("secret"), mount.join("family/escape")).unwrap();
+        let conn = auth.db.lock().unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "drive-a",
+            "A",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        crate::db::insert_grant(&conn, "g1", &sam.id, "drive-a", "family", "read").unwrap();
+        let sam_user = CurrentUser {
+            id: sam.id.clone(),
+            username: sam.username.clone(),
+            role: "user".into(),
+        };
+        assert!(can_access(
+            &sam_user,
+            &conn,
+            "drive-a",
+            "family/photos",
+            false
+        ));
+        assert!(
+            !can_access(&sam_user, &conn, "drive-a", "family/escape", false),
+            "symlink out of the granted folder must 403"
+        );
+        assert!(!can_access(
+            &sam_user,
+            &conn,
+            "drive-a",
+            "family/escape/note.txt",
+            false
         ));
         drop(conn);
         drop((dir, auth));
@@ -962,7 +1067,7 @@ mod guard_tests {
         assert_eq!(res.status(), 401);
 
         let get = call(&app, req(Method::GET, "/api/v1/setup", None, None)).await;
-        assert_eq!(get.status(), 200);
+        assert_eq!(get.status(), 401);
     }
 
     #[tokio::test]

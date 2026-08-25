@@ -21,3 +21,6 @@ tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-dialog = "2"
 ureq = { version = "3", features = ["json"] }
 url = "2"
+
+[dev-dependencies]
+tempfile = "3"

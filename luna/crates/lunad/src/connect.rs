@@ -65,6 +65,20 @@ impl ConnectService {
     }
 
     pub fn status(&self) -> ConnectStatus {
+        self.status_for(true)
+    }
+
+    /// Pairing codes and backup folder lists are admin-only after setup.
+    pub fn status_for(&self, reveal_secrets: bool) -> ConnectStatus {
+        let mut status = self.status_inner();
+        if !reveal_secrets {
+            status.setup_code = None;
+            status.backup_sources = Vec::new();
+        }
+        status
+    }
+
+    fn status_inner(&self) -> ConnectStatus {
         let state = self.load();
         let enabled = state
             .get("device_token")
@@ -552,6 +566,10 @@ mod tests {
         service.set_oss_code("a1b2c3").unwrap();
         assert!(!dir.path().join("setup-token").exists());
         assert_eq!(service.status().setup_code.as_deref(), Some("A1B2C3"));
+        assert!(
+            service.status_for(false).setup_code.is_none(),
+            "non-admin must never see a live pairing code"
+        );
     }
 
     #[test]

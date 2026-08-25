@@ -2,13 +2,20 @@ package handlers
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -23,7 +30,23 @@ func backupUnlocked(h Deps, accountID string) bool {
 	var has int
 	var status string
 	err := h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, accountID).Scan(&has, &status)
-	return err == nil && has == 1 && (status == "active" || status == "dev")
+	return err == nil && billing.BackupsUnlocked(has == 1, status)
+}
+
+func ownedDeviceID(h Deps, accountID, deviceID string) (string, bool) {
+	if accountID == "" || !opaquePathID(deviceID) {
+		return "", false
+	}
+	var id string
+	err := h.DB.QueryRow(`SELECT id FROM devices WHERE id = ? AND account_id = ?`, deviceID, accountID).Scan(&id)
+	return id, err == nil && id != ""
+}
+
+func opaquePathID(id string) bool {
+	if id == "" || strings.ContainsRune(id, 0) {
+		return false
+	}
+	return !strings.ContainsAny(id, `/\`) && !strings.Contains(id, "..")
 }
 
 func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
@@ -41,21 +64,58 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Missing file path.")
 		return
 	}
-	hashHdr := r.Header.Get("X-Content-Hash")
-	n, err := h.Store.Put(dev.AccountID.String, dev.ID, rel, r.Body)
+	maxObj := config.C.Backup.MaxObjectBytes
+	if maxObj <= 0 {
+		maxObj = 1 << 30
+	}
+	capBytes := accountBackupCap(h.Deps, dev.AccountID.String)
+	var used int64
+	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, dev.AccountID.String).Scan(&used)
+	remain := capBytes - used
+	if remain <= 0 {
+		JSONError(w, http.StatusRequestEntityTooLarge, "Cloud copies for this account are full. Remove some files, then try again.")
+		return
+	}
+	if remain < maxObj {
+		maxObj = remain
+	}
+	limited := http.MaxBytesReader(w, r.Body, maxObj)
+	hasher := sha256.New()
+	n, err := h.Store.Put(dev.AccountID.String, dev.ID, rel, io.TeeReader(limited, hasher))
 	if err != nil {
+		_ = h.Store.Delete(dev.AccountID.String, dev.ID, rel)
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			JSONError(w, http.StatusRequestEntityTooLarge, "That file is too large to store as a spare copy.")
+			return
+		}
 		JSONError(w, http.StatusBadRequest, "Could not save that file.")
 		return
 	}
-	if hashHdr == "" {
-		hashHdr = "size:" + itoa(int(n))
+	sum := hex.EncodeToString(hasher.Sum(nil))
+	if hdr := strings.TrimSpace(r.Header.Get("X-Content-Hash")); hdr != "" && !strings.EqualFold(hdr, sum) {
+		_ = h.Store.Delete(dev.AccountID.String, dev.ID, rel)
+		JSONError(w, http.StatusBadRequest, "The file did not match what Luna said it sent. Try the copy again.")
+		return
 	}
 	id := security.NewID("obj")
 	_, _ = h.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(account_id, device_id, relative_path) DO UPDATE SET size=excluded.size, content_hash=excluded.content_hash, updated_at=excluded.updated_at`,
-		id, dev.AccountID.String, dev.ID, rel, n, hashHdr, time.Now().Unix())
-	JSON(w, http.StatusOK, map[string]any{"ok": true, "size": n})
+		id, dev.AccountID.String, dev.ID, rel, n, sum, time.Now().Unix())
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "size": n, "content_hash": sum})
+}
+
+func accountBackupCap(h Deps, accountID string) int64 {
+	var quota sql.NullInt64
+	_ = h.DB.QueryRow(`SELECT backup_quota_bytes FROM accounts WHERE id = ?`, accountID).Scan(&quota)
+	if quota.Valid && quota.Int64 > 0 {
+		return quota.Int64
+	}
+	if config.C.Backup.MaxAccountBytes > 0 {
+		return config.C.Backup.MaxAccountBytes
+	}
+	return 2_000_000_000_000
 }
 
 func (h BackupHandler) DeleteObject(w http.ResponseWriter, r *http.Request) {
@@ -108,16 +168,27 @@ func (h BackupHandler) Download(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	deviceID := r.URL.Query().Get("device_id")
-	rel := r.URL.Query().Get("path")
-	rc, err := h.Store.Get(acct.ID, deviceID, rel)
+	deviceID, rel := backupObjectRef(r)
+	owned, ok := ownedDeviceID(h.Deps, acct.ID, deviceID)
+	if !ok {
+		JSONError(w, http.StatusNotFound, "That file is not in the spare copy.")
+		return
+	}
+	rc, err := h.Store.Get(acct.ID, owned, rel)
 	if err != nil {
 		JSONError(w, http.StatusNotFound, "That file is not in the spare copy.")
 		return
 	}
 	defer rc.Close()
+	name := filepath.Base(rel)
+	if name == "" || name == "." || name == "/" {
+		name = "download"
+	}
+	cd := mime.FormatMediaType("attachment", map[string]string{"filename": name})
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+rel+"\"")
+	if cd != "" {
+		w.Header().Set("Content-Disposition", cd)
+	}
 	_, _ = io.Copy(w, rc)
 }
 
@@ -127,12 +198,35 @@ func (h BackupHandler) DeleteAccountObject(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	deviceID := r.URL.Query().Get("device_id")
-	rel := r.URL.Query().Get("path")
-	_ = h.Store.Delete(acct.ID, deviceID, rel)
+	deviceID, rel := backupObjectRef(r)
+	owned, ok := ownedDeviceID(h.Deps, acct.ID, deviceID)
+	if !ok {
+		JSONError(w, http.StatusNotFound, "That file is not in the spare copy.")
+		return
+	}
+	_ = h.Store.Delete(acct.ID, owned, rel)
 	_, _ = h.DB.Exec(`DELETE FROM backup_objects WHERE account_id = ? AND device_id = ? AND relative_path = ?`,
-		acct.ID, deviceID, rel)
+		acct.ID, owned, rel)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func backupObjectRef(r *http.Request) (deviceID, rel string) {
+	deviceID = strings.TrimSpace(r.URL.Query().Get("device_id"))
+	rel = strings.TrimSpace(r.URL.Query().Get("path"))
+	if r.Method == http.MethodPost || r.Method == http.MethodDelete {
+		var req struct {
+			DeviceID string `json:"device_id"`
+			Path     string `json:"path"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if strings.TrimSpace(req.DeviceID) != "" {
+			deviceID = strings.TrimSpace(req.DeviceID)
+		}
+		if strings.TrimSpace(req.Path) != "" {
+			rel = strings.TrimSpace(req.Path)
+		}
+	}
+	return deviceID, rel
 }
 
 func objectPath(r *http.Request) string {

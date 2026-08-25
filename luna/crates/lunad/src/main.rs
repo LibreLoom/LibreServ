@@ -85,16 +85,18 @@ async fn main() -> anyhow::Result<()> {
         let db = state.db.clone();
         std::thread::Builder::new()
             .name("luna-connect-hello".into())
-            .spawn(move || loop {
-                let setup_done = db
-                    .lock()
-                    .ok()
-                    .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
-                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                    .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
-                    .unwrap_or(false);
-                connect.hello_once(setup_done);
-                std::thread::sleep(std::time::Duration::from_secs(3));
+            .spawn(move || {
+                loop {
+                    let setup_done = db
+                        .lock()
+                        .ok()
+                        .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+                        .unwrap_or(false);
+                    connect.hello_once(setup_done);
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                }
             })
             .ok();
     }

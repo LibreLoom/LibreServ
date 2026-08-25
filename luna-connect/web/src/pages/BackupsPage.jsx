@@ -2,10 +2,22 @@ import { useEffect, useState } from "react";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
+import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { api } from "../api.js";
+import { api, downloadBackup } from "../api.js";
+import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 
 export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
+  const [busy, setBusy] = useState(false);
+
+  async function attach(paymentMethodId) {
+    const body = paymentMethodId
+      ? JSON.stringify({ payment_method_id: paymentMethodId })
+      : "{}";
+    await api("/api/v1/billing/attach-card", { method: "POST", body });
+    await onRefresh();
+  }
+
   if (!me.has_card) {
     return (
       <Card className="animate-fade-in-up" data-testid="backups-gated">
@@ -16,19 +28,38 @@ export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button
-            type="button"
-            onClick={async () => {
-              try {
-                await api("/api/v1/billing/attach-card", { method: "POST", body: "{}" });
-                await onRefresh();
-              } catch (err) {
-                setError(err.message);
-              }
-            }}
-          >
-            Add a payment card
-          </Button>
+          {stripeLooksConfigured(me) ? (
+            <VerifyHumanCard
+              account={me}
+              loading={busy}
+              description="Add a payment card so we can store a spare copy. It costs $7 per terabyte each month."
+              buttonLabel="Add a payment card"
+              onConfirm={async (paymentMethodId) => {
+                setError("");
+                setBusy(true);
+                try {
+                  await attach(paymentMethodId);
+                } catch (err) {
+                  setError(err.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+          ) : (
+            <Button
+              type="button"
+              onClick={async () => {
+                try {
+                  await attach("");
+                } catch (err) {
+                  setError(err.message);
+                }
+              }}
+            >
+              Add a payment card
+            </Button>
+          )}
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
@@ -53,9 +84,19 @@ export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
             {objects.map((o) => (
               <li key={`${o.device_id}-${o.relative_path}`} className="flex justify-between gap-3 rounded-large-element border border-border px-4 py-3">
                 <span className="font-mono break-all text-sm">{o.relative_path}</span>
-                <a className="font-mono text-sm underline-offset-4 hover:underline" href={`/api/v1/backups/download?device_id=${encodeURIComponent(o.device_id)}&path=${encodeURIComponent(o.relative_path)}`}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await downloadBackup(o.device_id, o.relative_path);
+                    } catch (err) {
+                      setError(err.message);
+                    }
+                  }}
+                >
                   Download
-                </a>
+                </Button>
               </li>
             ))}
           </ul>

@@ -1,37 +1,136 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"strings"
 	"time"
+
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
 func allowGuess(db *sql.DB, key string, max int, windowSec int64) bool {
+	if db == nil || key == "" || max <= 0 {
+		return false
+	}
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return false
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
 	now := time.Now().Unix()
 	var count, start, last int64
-	err := db.QueryRow(`SELECT count, start, last FROM guess_attempts WHERE key = ?`, key).Scan(&count, &start, &last)
+	err = conn.QueryRowContext(ctx, `SELECT count, start, last FROM guess_attempts WHERE key = ?`, key).Scan(&count, &start, &last)
 	if err != nil {
-		_, _ = db.Exec(`INSERT INTO guess_attempts (key, count, start, last) VALUES (?, 1, ?, ?)`, key, now, now)
+		if _, err := conn.ExecContext(ctx, `INSERT INTO guess_attempts (key, count, start, last) VALUES (?, 1, ?, ?)`, key, now, now); err != nil {
+			return false
+		}
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false
+		}
+		committed = true
 		return true
 	}
 	if now-start >= windowSec {
-		_, _ = db.Exec(`UPDATE guess_attempts SET count = 1, start = ?, last = ? WHERE key = ?`, now, now, key)
+		if _, err := conn.ExecContext(ctx, `UPDATE guess_attempts SET count = 1, start = ?, last = ? WHERE key = ?`, now, now, key); err != nil {
+			return false
+		}
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false
+		}
+		committed = true
 		return true
 	}
 	if count >= int64(max) {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false
+		}
+		committed = true
 		return false
 	}
-	delay := time.Duration(0)
-	if count >= 3 {
-		delay = 40 * time.Millisecond * time.Duration(count)
-		time.Sleep(delay)
+	res, err := conn.ExecContext(ctx, `UPDATE guess_attempts SET count = count + 1, last = ? WHERE key = ? AND count < ?`, now, key, max)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return false
+	}
+	committed = true
+	return n == 1
+}
+
+func allowAuthAttempt(db *sql.DB, ip, email string, max int, windowSec int64) bool {
+	if db == nil || max <= 0 {
+		return false
+	}
+	key := strings.ToLower(strings.TrimSpace(ip)) + "\x1e" + strings.ToLower(strings.TrimSpace(email))
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return false
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+	now := time.Now().Unix()
+	var count, start int64
+	err = conn.QueryRowContext(ctx, `SELECT count, start FROM register_attempts WHERE ip = ?`, key).Scan(&count, &start)
+	if err != nil {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO register_attempts (ip, count, start) VALUES (?, 1, ?)`, key, now); err != nil {
+			return false
+		}
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false
+		}
+		committed = true
+		return true
+	}
+	if now-start >= windowSec {
+		if _, err := conn.ExecContext(ctx, `UPDATE register_attempts SET count = 1, start = ? WHERE ip = ?`, now, key); err != nil {
+			return false
+		}
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false
+		}
+		committed = true
+		return true
 	}
 	if count >= int64(max) {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false
+		}
+		committed = true
 		return false
 	}
-	_, _ = db.Exec(`UPDATE guess_attempts SET count = count + 1, last = ? WHERE key = ?`, now, key)
-	return true
+	res, err := conn.ExecContext(ctx, `UPDATE register_attempts SET count = count + 1 WHERE ip = ? AND count < ? AND start = ?`, key, max, start)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return false
+	}
+	committed = true
+	return n == 1
 }
 
 func cookieSessionID(r *http.Request) string {
@@ -42,8 +141,6 @@ func cookieSessionID(r *http.Request) string {
 	return c.Value
 }
 
-// setupSessionID prefers the HttpOnly cookie. Query ?session= is only used when
-// the cookie is missing so a query string cannot override a live setup cookie.
 func setupSessionID(r *http.Request) string {
 	if id := cookieSessionID(r); id != "" {
 		return id
@@ -57,7 +154,8 @@ func setSetupSessionCookie(w http.ResponseWriter, id string) {
 		Value:    id,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   config.CookieSecure(),
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(15 * 60),
 	})
 }

@@ -74,14 +74,21 @@ async fn list(
         )
     })?;
     let admin = user.role == "admin";
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
     Ok(Json(
         rows.into_iter()
+            .filter(|d| admin || crate::auth::has_drive_access(&user, &conn, &d.id))
             .map(|d| {
                 let mut json: DriveJson = d.into();
-                // The OS mount path is server plumbing; regular users don't
-                // need it and it reveals the device's filesystem layout.
+                // Device node and OS mount path are server plumbing.
                 if !admin {
                     json.mount_point = String::new();
+                    json.device = String::new();
                 }
                 json
             })
@@ -210,6 +217,7 @@ async fn eject(
             format!("Luna couldn't eject this drive safely. {e}"),
         )
     })?;
+    crate::dav::drop_cached_handler(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

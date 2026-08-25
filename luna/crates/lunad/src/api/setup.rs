@@ -39,7 +39,15 @@ pub fn router() -> Router<AppState> {
 
 async fn get_setup(
     State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
+    let has_users = state.auth.count_users().unwrap_or(0) > 0;
+    if has_users && current.is_none() {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to Luna first.",
+        ));
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
