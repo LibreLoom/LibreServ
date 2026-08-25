@@ -157,3 +157,39 @@ func TestDeviceUsage(t *testing.T) {
 		t.Fatal("missing total_cost_usd")
 	}
 }
+
+func TestDeviceActivateReactivateShortKey(t *testing.T) {
+	db := database.OpenTestDB(t)
+	h := NewDeviceHandler(db)
+
+	accountID := "acc-short-" + security.RandomString(8)
+	_, err := db.Exec(`INSERT INTO customer_accounts (id, email, password_hash, plan_id) VALUES ($1, $2, 'hash', 'free')`,
+		accountID, accountID+"@test.com")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
+	key := "abc"
+	connectKeyID := security.GenerateID("lic")
+	deviceID := security.GenerateID("dev")
+	_, err = db.Exec(
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status, device_id) VALUES ($1, $2, $3, $4, 'free', 'active', $5)`,
+		connectKeyID, hashToken(key), key, accountID, deviceID)
+	if err != nil {
+		t.Fatalf("create Connect key: %v", err)
+	}
+	_, err = db.Exec(
+		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, activated_at, last_seen_at, is_active) VALUES ($1, $2, $3, 'free', NOW(), NOW(), TRUE)`,
+		deviceID, accountID, connectKeyID)
+	if err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"connect_key": key})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.Activate(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200 for a short already-active Connect key: %s", w.Code, w.Body.String())
+	}
+}
