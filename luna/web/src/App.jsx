@@ -62,9 +62,6 @@ export default function App() {
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/shared" element={<Navigate to="/drives" replace />} />
-                <Route path="/settings/shares" element={<Navigate to="/drives" replace />} />
-                <Route path="/settings/protect" element={<Navigate to="/drives" replace />} />
                 <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "remote" }} replace />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

@@ -22,7 +22,7 @@ type Limits struct {
 	TunnelGBPerMo    int    `json:"tunnel_gb_per_mo"`
 }
 
-// ServiceCost holds verified upstream costs (from PLAN.md §2).
+// ServiceCost holds verified upstream provider costs.
 type ServiceCost struct {
 	BackupStoragePerTBMonth float64 // Backblaze B2: $6.95
 	BackupEgressPerGB       float64 // B2: free up to 3x storage, then $0.01/GB

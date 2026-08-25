@@ -24,16 +24,6 @@ const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const LorePage = lazy(() => import("./pages/LorePage"));
 const PigeonPage = lazy(() => import("./pages/PigeonPage"));
-// Demo pages are gated at the IMPORT level so production builds tree-shake them
-// out entirely — a top-level lazy() keeps the chunk reachable regardless of any
-// runtime check on the <Route>.
-const AccessControlDemo = import.meta.env.DEV
-  ? lazy(() => import("./pages/AccessControlDemo"))
-  : null;
-const UIDemo = import.meta.env.DEV
-  ? lazy(() => import("./pages/UIDemo"))
-  : null;
-
 
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
@@ -140,8 +130,6 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           {/* Invitation onboarding — public, reached via an invite link. */}
           <Route path="/invite/:token" element={<InviteeOnboardingPage />} />
-          {AccessControlDemo && <Route path="/access-control-demo" element={<AccessControlDemo />} />}
-          {UIDemo && <Route path="/ui-demo" element={<UIDemo />} />}
           {/* Fallback for unknown routes. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
