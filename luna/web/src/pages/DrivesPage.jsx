@@ -12,6 +12,11 @@ import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
+import {
+  isMockUnknownDrive,
+  mockInspectResult,
+  withDevMockDetected,
+} from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 
 const STATE_PILLS = {
@@ -127,6 +132,11 @@ export default function DrivesPage() {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
+  /** Dev mock can be dismissed without calling lunad. */
+  const [dismissedMock, setDismissedMock] = useState(false);
+  const unknownDrives = withDevMockDetected(detected.data).filter(
+    (d) => !(dismissedMock && isMockUnknownDrive(d.name)),
+  );
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
@@ -134,24 +144,45 @@ export default function DrivesPage() {
   });
 
   const inspect = useMutation({
-    mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
+    mutationFn: (/** @type {any} */ drive) => {
+      if (isMockUnknownDrive(drive.name)) return Promise.resolve(mockInspectResult());
+      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
+    },
   });
 
   const adopt = useMutation({
-    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
-      postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
-    onSuccess: () => {
+    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) => {
+      if (isMockUnknownDrive(drive.name)) {
+        // Dev fixture only — close the flow so Max can review the UI without hardware.
+        return Promise.resolve({ mock: true, label });
+      }
+      return postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) });
+    },
+    onSuccess: (_data, vars) => {
       setInspectFor(null);
       setActionError(null);
       adopt.reset();
+      if (vars?.drive && isMockUnknownDrive(vars.drive.name)) {
+        setDismissedMock(true);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
   });
 
   const dismiss = useMutation({
-    mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.name}/dismiss`, {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["drives-detected"] }),
+    mutationFn: (/** @type {any} */ drive) => {
+      if (isMockUnknownDrive(drive.name)) return Promise.resolve({ mock: true });
+      return postJson(`/api/v1/drives/${drive.name}/dismiss`, {});
+    },
+    onSuccess: (_data, drive) => {
+      if (drive && isMockUnknownDrive(drive.name)) {
+        setDismissedMock(true);
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
+    },
   });
 
   const eject = useMutation({
@@ -254,7 +285,7 @@ export default function DrivesPage() {
             Unknown Drives
           </h2>
           <div className="grid gap-5 md:grid-cols-2">
-            {(detected.data || []).map((drive) => (
+            {unknownDrives.map((drive) => (
               <DetectedCard
                 key={drive.name}
                 drive={drive}
@@ -263,7 +294,7 @@ export default function DrivesPage() {
               />
             ))}
           </div>
-          {!detected.isLoading && (detected.data || []).length === 0 && (
+          {!detected.isLoading && unknownDrives.length === 0 && (
             <EmptyState description="Nothing new plugged in." />
           )}
         </>

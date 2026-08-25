@@ -1,9 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import DrivesPage from "./DrivesPage";
+
+afterEach(() => {
+  window.history.replaceState({}, "", "/");
+  window.localStorage.removeItem("luna.mockUnknownDrive");
+  vi.unstubAllGlobals();
+});
 
 function stubDrivesApi(extra = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -53,6 +59,16 @@ describe("DrivesPage", () => {
     renderPage();
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+  });
+
+  it("shows a mock 64GB PSSD when opted in for review", async () => {
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi();
+    renderPage();
+    expect(await screen.findByText("64GB PSSD")).toBeInTheDocument();
+    expect(screen.getByText(/64 GB · found on sdmock/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Look inside/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing new plugged in/i)).not.toBeInTheDocument();
   });
 
   it("uses a page heading for unknown drives, not a stacked title card", async () => {
