@@ -43,12 +43,12 @@
  */
 // @ts-nocheck
 import { Children, useRef, cloneElement, isValidElement } from "react";
-import { Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
 import { haptic } from "../../utils/haptics";
+import Spinner from "./Spinner.jsx";
 
 // Minimal Slot implementation — merges props onto the single element child.
 // Replaces the radix-ui Slot dependency for the asChild pattern. Tolerates
@@ -191,6 +191,8 @@ export default function Button({
     );
   }
 
+  const spinnerSize = size === "sm" || size === "iconSm" ? "sm" : size === "lg" ? "lg" : "md";
+
   return (
     <button
       ref={ref}
@@ -198,12 +200,14 @@ export default function Button({
       data-slot="button"
       data-surface={surface}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       aria-pressed={active || undefined}
       className={buttonClass}
       onClick={handleClick}
       {...props}
     >
-      {loading && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+      {loading && <Spinner decorative size={spinnerSize} className="pointer-events-none" />}
+      {loading && <span className="sr-only">Loading</span>}
       {children}
     </button>
   );
