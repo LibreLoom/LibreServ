@@ -12,24 +12,6 @@
 
 ---
 
-## Memory (Engraphis)
-
-Recall durable project context before asking or guessing. Execute the recall using this exact format:
-
-```js
-return await tools.engraphis["engraphis_recall_context"]({
-  query: "your question or topic here",
-  workspace: "default",
-  repo: "LibreServ",
-  k: 8,
-  token_budget: 1024
-})
-```
-
-Call it through the `execute` tool. Use `workspace: "default"` and `repo: "LibreServ"` so memories scope to this repo. Adjust `query` to the topic at hand; `k`/`token_budget` are sane defaults.
-
----
-
 ## Architecture
 
 ```
@@ -48,6 +30,7 @@ LibreServ/
 │   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
 │   │   ├── storage/          # Backup service (restic + tar fallback)
 │   │   ├── jobqueue/         # Background jobs
+│   │   ├── wifi/             # LibreServ setup hotspot (hostapd+dnsmasq)
 │   │   └── jobs/             # Simple time-based scheduler
 │   ├── configs/              # YAML config (must copy .example → .yaml before run)
 │   ├── apps/                # App catalog (repo apps loaded from disk; currently empty — curated catalog will be a separate repo)
@@ -62,6 +45,7 @@ LibreServ/
 │       ├── components/       # UI components
 │       └── index.css         # Theme variables + Tailwind config
 │
+├── luna/                     # Luna file box: lunad (Rust) + web. Setup is Ethernet-only; there is no setup AP.
 ├── luna-connect/             # Luna Connect cloud app (independent Go 1.26). Host: connect.luna.libreloom.org. Device names: *.luna.servers.libreloom.org. Stripe $7/TB/month backups.
 ├── connect/                  # Cloud SaaS companion (LibreServ Connect). Independent Go 1.26 module
 │                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
@@ -193,8 +177,7 @@ Also bad: `ssh into the box and journalctl -u caddy until the ACME DNS-01 challe
 
 Before ANY UI work:
 1. Read the branding repo: https://gt.plainskill.net/LibreLoom/design ("Simplex Mono" design language across all LibreLoom products)
-2. Recall the contrast-gotcha and pill-based-design memories from Engraphis
-3. Run `npm run scan:colors` after editing to catch hardcoded colors
+2. Run `npm run scan:colors` after editing to catch hardcoded colors
 
 #### 1. Standardized colors only
 - Use theme tokens, NEVER hardcoded hex values. Tokens: `bg-primary` (page bg), `bg-secondary` (surface), `text-secondary` (text on primary bg), `text-primary` (text on secondary bg), `bg-accent` (#767676 both modes), plus `text-success`/`text-error`/`text-warning` for status.
@@ -231,7 +214,7 @@ Before ANY UI work:
 ### Git
 - Two-way sync is enabled between Forgejo, GitHub, and GitLab; the same commits show up on all of them.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
-- Branch naming: `task/T{id}-{desc}`, `fix/{desc}`, `feat/{desc}`
+- Branch naming: `feat/{desc}`, `fix/{desc}`, `docs/{desc}`, `chore/{desc}`
 
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
@@ -297,7 +280,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 - **CI:** `./ci` is a custom Go binary that runs tests in containers via **Podman** (not Docker). The runner connects to Podman's Docker-compatible socket (rootless `$XDG_RUNTIME_DIR/podman/podman.sock`, then rootful, then Docker fallback) and starts `systemctl --user start podman.socket` if needed. Bind mounts use the `:z` SELinux relabel (required by Podman rootless on this SELinux-enforcing host). The `./ci` launcher builds `ci-source/bin/ci-<os>-<arch>` from source and **auto-rebuilds it when any `ci-source/*.go` is newer than the binary** — the binaries are gitignored, so edits to `ci-source/` are picked up automatically on the next `./ci` run. To prebuild all platforms locally, run `ci-source/build.sh` (Windows: `ci-source/build.ps1`). E2E (Playwright) tests are **removed** for now — they'll be re-added with broader coverage later. The `podman-build` test uses `Container: "host"` (runs `podman build` on the host, not in a container — SELinux blocks mounting the podman socket into a container). No GitHub Actions — all CI is local.
 - **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
 - **Connect module:** `gt.plainskill.net/LibreLoom/LibreServConnect` — independent Go module in `connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
-- **Setup hotspot:** If setup isn't finished and there's no cable or home Wi-Fi, LibreServ briefly broadcasts an open network named "LibreServ Setup" (`internal/wifi` hostapd+dnsmasq). A phone joins that network, opens the wizard, and the hotspot stops once the box is online.
+- **Setup hotspot (LibreServ only):** If setup isn't finished and there's no cable or home Wi-Fi, LibreServ briefly broadcasts an open network named "LibreServ Setup" (`internal/wifi` hostapd+dnsmasq). A phone joins that network, opens the wizard, and the hotspot stops once the box is online. **Luna has no setup AP** — Ethernet cable only (`luna/crates/lunad/src/hotspot.rs` is a stub that never starts).
 
 ## Frontend Components
 
@@ -312,52 +295,8 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 - **Model fetch endpoint** — `POST /settings/ai-support/models` (admin-only) accepts `{ base_url, api_key }` and returns `{ models: [] }` fetched live from the provider. Use this to populate model Dropdowns in AI config modals.
 - **ChatHeader crash guard** — `ChatHeader`'s `ModelPill` must guard against empty `modelOptions` (e.g. `resolvedModelOptions[0]?.value || ""`), because `chat.models` starts empty before `loadModels` resolves.
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
-
-This project is indexed by GitNexus as **LibreServ** (9375 symbols, 26190 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
-
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
-
-## Always Do
-
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-
-## Never Do
-
-- NEVER edit a function, class, or method without first running `impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit changes without running `detect_changes()` to check affected scope.
-
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/LibreServ/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/LibreServ/clusters` | All functional areas |
-| `gitnexus://repo/LibreServ/processes` | All execution flows |
-| `gitnexus://repo/LibreServ/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
-
 ## Notes for Agents
 
 - **Go versions are real.** The Go version declared in this repository (currently 1.26) exists in real life — not just in this project's environment. Do not question whether `golang:1.26-alpine`, `golang:1.26-bookworm`, or any other Go 1.26 image is available: it is. Treat Go toolchain versions mentioned in this repo as unconditionally available.
 - **This project is in early development. There are no existing users.** Do not worry about backwards compatibility, migration paths, or deprecating old fields smoothly unless explicitly asked. When the backend or design changes, obsolete frontend concepts can be torn down completely without guarding for legacy state. The only AI model fields that exist now are `main_model` (agent model) and `review_model` (safety review model). `default_model`, `agents[]`, `snapshot_before_writes`, `credit_cap`, and similar old concepts are fully dead.
-- **LibreServ is WAN-accessible by design** once a domain is configured — the auth endpoints (`/auth/login`, `/auth/register`, `/auth/password-reset/*`) are internet-exposed, not LAN-only. Center this in every auth/security decision: the primary defenses are strong passwords + rate limiting + 2FA, **not captchas** (captcha is decided against for v1; see SECURITY.md → Threat Model). Prefer admin-invited users over open public registration.
+- **LibreServ is WAN-accessible by design** once a domain is configured — the auth endpoints (`/auth/login`, `/auth/password-reset/*`, `/auth/invite/{token}`) are internet-exposed, not LAN-only. There is no public `/auth/register`. Center this in every auth/security decision: the primary defenses are strong passwords + rate limiting + 2FA, **not captchas** (captcha is decided against for v1). Prefer admin-invited users over open public registration.

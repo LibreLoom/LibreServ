@@ -2,6 +2,8 @@
 
 Luna is the $49 LibreServ file box. Local-first, no subscription, drives served as-is.
 
+Setup is Ethernet-only: plug the included RJ45 (ethernet) cable into a router or modem. There is no setup Wi-Fi access point.
+
 ## Layout
 - `crates/luna-core` — storage model: drive states, `.luna` marker, safe paths
 - `crates/lunad` — the daemon (axum + tokio + SQLite)

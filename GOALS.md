@@ -69,8 +69,8 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 - [x] User can add and manage multiple users
 - [x] User can update LibreServ from the web UI
 
-## Setup hotspot (no cable)
-*Reach the setup wizard from a phone by joining the box's own Wi-Fi network.*
+## Setup hotspot (no cable) — LibreServ only
+*Reach the LibreServ setup wizard from a phone by joining the box's own Wi-Fi network. Luna does not do this (Ethernet-only).*
 
 - [x] Open "LibreServ Setup" access point when setup is incomplete and the box is offline
 - [x] Stop the access point once a cable or home Wi-Fi is up (or setup finishes)
