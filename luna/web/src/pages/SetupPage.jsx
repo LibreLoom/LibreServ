@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
@@ -139,7 +140,14 @@ function LogoMark({ size = 64 }) {
 LogoMark.propTypes = { size: PropTypes.number };
 
 /** Where to find Luna after install. Phone stays on home Wi-Fi. */
-function DiscoveryPaths({ name = "Luna", ipv4 = [] }) {
+function DiscoveryPaths({ name = "Luna" }) {
+  const netStatus = useQuery({
+    queryKey: ["network-status"],
+    queryFn: () => getJson("/api/v1/network/status"),
+    refetchInterval: 3000,
+    retry: false,
+  });
+  const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
   const label = name || "Luna";
   return (
     <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left">
@@ -165,7 +173,6 @@ function DiscoveryPaths({ name = "Luna", ipv4 = [] }) {
 }
 DiscoveryPaths.propTypes = {
   name: PropTypes.string,
-  ipv4: PropTypes.arrayOf(PropTypes.string),
 };
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
