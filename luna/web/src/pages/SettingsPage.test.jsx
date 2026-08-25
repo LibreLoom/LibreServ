@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
-import SettingsPage, { RECOVERY_CARD } from "./SettingsPage";
+import SettingsPage from "./SettingsPage";
 
 function stubFetch(role = "admin") {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -92,22 +92,17 @@ describe("SettingsPage", () => {
     }
   });
 
-  it("uses a category sidebar and opens the keyboard recovery card from it", async () => {
+  it("uses a category sidebar and opens Look and feel by default", async () => {
     stubFetch("admin");
-    const user = userEvent.setup();
     renderPage();
 
     expect(await screen.findByRole("navigation", { name: /Settings categories/i })).toBeTruthy();
     expect(await screen.findByText("max")).toBeTruthy();
     expect(await screen.findByRole("heading", { level: 1, name: "Look and feel" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Match device/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /If you forget your password/i })).toBeNull();
     expect(screen.queryByText(/Plug a USB keyboard into Luna/i)).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: RECOVERY_CARD.title }));
-    expect(await screen.findByRole("heading", { level: 1, name: RECOVERY_CARD.title })).toBeTruthy();
-    expect(screen.getByText(/Plug a USB keyboard into Luna/i)).toBeTruthy();
-    expect(screen.getByText(/Press Esc, then type luna, then press Enter/i)).toBeTruthy();
-    expect(screen.getByText(/Keep this card somewhere safe/i)).toBeTruthy();
+    expect(screen.queryByText(/Keep this card somewhere safe/i)).toBeNull();
   });
 
   it("keeps sign-out, tokens, and updates behind their own categories", async () => {

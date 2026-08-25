@@ -7,8 +7,6 @@ import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
 
-export { RECOVERY_CARD } from "../components/settings/categories/PasswordCategory.jsx";
-
 function useIsDesktop() {
   // jsdom has no layout CSS, so we pick one chrome with matchMedia. If
   // matchMedia is missing (tests), treat the window as desktop.
