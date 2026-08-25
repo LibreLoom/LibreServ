@@ -28,7 +28,16 @@ dev: build-daemon
 	  (cd web && npm install --no-audit --no-fund >/dev/null && npm run dev) & \
 	  wait
 
-build-daemon:
+# Embed needs crates/lunad/web/dist. Cargo build.rs writes a stub HTML page when
+# dist is missing; refuse to leave that stub in place for run/dev builds.
+ensure-web-dist:
+	@idx="$(ROOT)/crates/lunad/web/dist/index.html"; \
+	if [ ! -f "$$idx" ] || grep -Fq 'build the web app first' "$$idx"; then \
+	  echo "==> Luna web dist missing or stub — building web UI"; \
+	  $(MAKE) web; \
+	fi
+
+build-daemon: ensure-web-dist
 	cargo build -p lunad
 
 dev-daemon: build-daemon
