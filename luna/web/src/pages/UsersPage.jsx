@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, UserPlus } from "lucide-react";
+import { Trash2, UserPlus } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import PageNotice from "../components/common/PageNotice";
-import Dropdown from "../components/common/Dropdown";
-import { InfoHint, TermHint } from "../components/ui/Tooltip";
-import { getDrives, getJson, postJson } from "../lib/api";
+import { InfoHint } from "../components/ui/Tooltip";
+import { getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
 async function del(path) {
@@ -25,39 +24,21 @@ export default function UsersPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [creating, setCreating] = useState(false);
-  const [selected, setSelected] = useState(null);
   const [error, setError] = useState(null);
 
   const users = useQuery({ queryKey: ["users"], queryFn: () => getJson("/api/v1/users"), enabled: user?.role === "admin" });
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
-  const grants = useQuery({
-    queryKey: ["grants"],
-    queryFn: () => getJson("/api/v1/grants"),
-    enabled: user?.role === "admin",
-  });
 
   const createMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/users", body),
-    onSuccess: (created) => {
+    onSuccess: () => {
       setCreating(false);
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      if (created?.id) setSelected(created);
     },
     onError: (err) => setError(String(err.message || err)),
   });
   const deleteMutation = useMutation({
     mutationFn: (id) => del(`/api/v1/users/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
-    onError: (err) => setError(String(err)),
-  });
-  const grantMutation = useMutation({
-    mutationFn: (body) => postJson("/api/v1/grants", body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["grants"] }),
-    onError: (err) => setError(String(err)),
-  });
-  const revokeMutation = useMutation({
-    mutationFn: (id) => del(`/api/v1/grants/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["grants"] }),
     onError: (err) => setError(String(err)),
   });
 
@@ -94,13 +75,7 @@ export default function UsersPage() {
             )
           }>
             <p className="text-primary text-sm font-mono">{u.username}</p>
-            <p className="text-primary text-xs mt-1">
-              {u.role === "admin"
-                ? "This account can change settings and manage users on this Luna."
-                : "Member — grant folder access before they can see files."}
-            </p>
             <div className="mt-3 flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => { setSelected(u); setError(null); }}>Access</Button>
               <Button size="sm" variant="danger" disabled={u.id === user.id} onClick={() => deleteMutation.mutate(u.id)}>
                 <Trash2 size={12} /> Remove
               </Button>
@@ -116,35 +91,6 @@ export default function UsersPage() {
           busy={createMutation.isPending}
         />
       )}
-
-      {selected && (
-        <ModalCard title={`Access for ${selected.display_name}`} onClose={() => setSelected(null)}>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {(grants.data || []).filter((g) => g.user_id === selected.id).map((g) => {
-              const driveName = (drives.data || []).find((d) => d.id === g.drive_id)?.label || g.drive_id;
-              return (
-              <div key={g.id} className="flex items-center justify-between rounded-large-element border border-primary/20 p-3">
-                <span className="text-primary text-xs font-mono">
-                  {driveName}{g.path ? `/${g.path}` : " (whole drive)"} · {g.permission === "write" ? "Write" : "Read"}
-                </span>
-                <Button size="iconSm" variant="danger" onClick={() => revokeMutation.mutate(g.id)}><Trash2 size={12} /></Button>
-              </div>
-              );
-            })}
-            {(grants.data || []).filter((g) => g.user_id === selected.id).length === 0 && (
-              <p className="text-primary text-sm">
-                They cannot see any files yet. Choose a drive below, then Grant access.
-              </p>
-            )}
-          </div>
-          <GrantForm
-            key={selected.id}
-            drives={drives.data || []}
-            onGrant={(grant) => grantMutation.mutate({ ...grant, user_id: selected.id })}
-            busy={grantMutation.isPending}
-          />
-        </ModalCard>
-      )}
     </Page>
   );
 }
@@ -155,9 +101,6 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
   const [password, setPassword] = useState("");
   return (
     <ModalCard title="Add a user" onClose={onClose}>
-      <p className="text-primary text-sm mb-3">
-        They sign in with the username you chose. Next, give them access to a drive or folder.
-      </p>
       <div className="space-y-3">
         <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Their name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -168,41 +111,5 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
         </div>
       </div>
     </ModalCard>
-  );
-}
-
-function GrantForm({ drives, onGrant, busy }) {
-  const [driveId, setDriveId] = useState("");
-  const [path, setPath] = useState("");
-  const [permission, setPermission] = useState("read");
-  return (
-    <div className="mt-4 border-t border-primary/10 pt-4 space-y-3">
-      <p className="text-primary text-sm">
-        Choose what they can open. Type the folder the way it looks on Files, or leave it empty for the whole drive.
-      </p>
-      <Dropdown
-        options={drives.map((d) => ({ value: d.id, label: d.label }))}
-        value={driveId}
-        onChange={setDriveId}
-        placeholder="Choose a drive"
-        fullWidth
-      />
-      <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Folder (leave empty for the whole drive)" value={path} onChange={(e) => setPath(e.target.value)} />
-      <Dropdown
-        options={[{ value: "read", label: "Read" }, { value: "write", label: "Write" }]}
-        value={permission}
-        onChange={setPermission}
-        fullWidth
-      />
-      <p className="text-primary text-xs">
-        <TermHint content="They can open and download files, but cannot add, edit, or delete them.">Read</TermHint>
-        {" "}lets them open files.{" "}
-        <TermHint content="They can open, add, edit, and delete files in this folder.">Write</TermHint>
-        {" "}lets them add and change files.
-      </p>
-      <Button variant="primary" fullWidth loading={busy} disabled={!driveId} onClick={() => onGrant({ drive_id: driveId, path, permission })}>
-        <Plus size={14} /> Grant access
-      </Button>
-    </div>
   );
 }

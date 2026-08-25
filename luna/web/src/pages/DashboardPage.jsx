@@ -157,7 +157,7 @@ function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain }) {
           className="mt-4 justify-between"
         >
           <Link
-            to="/settings/remote"
+            to="/settings#remote"
             aria-label={remoteOn ? "Remote access on" : "Remote access off"}
           >
             <span>{remoteOn ? "Remote access on" : "Remote access off"}</span>

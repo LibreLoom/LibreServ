@@ -3,13 +3,9 @@ import {
   HardDrive,
   Home,
   Image as ImageIcon,
-  Link2,
-  Share2,
-  ShieldCheck,
   SlidersHorizontal,
   Users,
   User,
-  Wifi,
   X,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -61,10 +57,10 @@ const mobileMenuItemClasses = cn(
 // centered mobile dialog. Only brand, routes, and auth hook differ.
 const navButtons = [
   { to: "/", icon: Home, label: "Home", end: true },
-  { to: "/drives", icon: HardDrive, label: "Drives" },
   { to: "/gallery", icon: ImageIcon, label: "Photos" },
-  { to: "/shared", icon: Share2, label: "Shared" },
-  { to: "/settings/shares", icon: Link2, label: "Links" },
+  { to: "/drives", icon: HardDrive, label: "Files" },
+  { to: "/settings/users", icon: Users, label: "Users", adminOnly: true },
+  { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
 
 const FAB_SIZE = 60;
@@ -351,9 +347,14 @@ export default function Navbar() {
     menuButtonRef.current?.focus();
   };
 
+  const visibleNav = useMemo(
+    () => navButtons.filter((item) => !item.adminOnly || isAdmin),
+    [isAdmin],
+  );
+
   const navButtonsElements = useMemo(
     () =>
-      navButtons.map((item) => (
+      visibleNav.map((item) => (
         <React.Fragment key={`desktopNav-${item.to}`}>
           <NavLink to={item.to} end={item.end} className={navButtonClasses}>
             <item.icon size={18} aria-hidden="true" />
@@ -361,7 +362,7 @@ export default function Navbar() {
           </NavLink>
         </React.Fragment>
       )),
-    [],
+    [visibleNav],
   );
 
   return (
@@ -407,46 +408,6 @@ export default function Navbar() {
                 <div
                   className={cn("bg-secondary", "text-primary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
                 >
-                  {isAdmin && (
-                    <>
-                      <NavLink
-                        to="/settings/users"
-                        role="menuitem"
-                        className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
-                        onClick={() => setIsUserMenuOpen(false)}
-                      >
-                        <Users size={16} aria-hidden="true" />
-                        <span className="text-sm font-semibold">Users</span>
-                      </NavLink>
-                      <NavLink
-                        to="/settings/remote"
-                        role="menuitem"
-                        className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
-                        onClick={() => setIsUserMenuOpen(false)}
-                      >
-                        <Wifi size={16} aria-hidden="true" />
-                        <span className="text-sm font-semibold">Remote access</span>
-                      </NavLink>
-                      <NavLink
-                        to="/settings/protect"
-                        role="menuitem"
-                        className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
-                        onClick={() => setIsUserMenuOpen(false)}
-                      >
-                        <ShieldCheck size={16} aria-hidden="true" />
-                        <span className="text-sm font-semibold">Protect a folder</span>
-                      </NavLink>
-                    </>
-                  )}
-                  <NavLink
-                    to="/settings"
-                    role="menuitem"
-                    className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
-                    onClick={() => setIsUserMenuOpen(false)}
-                  >
-                    <SlidersHorizontal size={16} aria-hidden="true" />
-                    <span className="text-sm font-semibold">Settings</span>
-                  </NavLink>
                   <button
                     type="button"
                     role="menuitem"
@@ -506,7 +467,7 @@ export default function Navbar() {
           aria-label="Primary"
         >
           <div className="p-2.5 gap-1 flex flex-col">
-            {navButtons.map((item, index) => (
+            {visibleNav.map((item, index) => (
               <React.Fragment key={`mobileNav-${item.to}`}>
                 <NavLink
                   to={item.to}
@@ -520,28 +481,6 @@ export default function Navbar() {
                 </NavLink>
               </React.Fragment>
             ))}
-            {isAdmin && (
-              <>
-                <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
-                <NavLink to="/settings/users" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
-                  <Users size={18} aria-hidden="true" />
-                  <span>Users</span>
-                </NavLink>
-                <NavLink to="/settings/remote" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
-                  <Wifi size={18} aria-hidden="true" />
-                  <span>Remote access</span>
-                </NavLink>
-                <NavLink to="/settings/protect" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
-                  <ShieldCheck size={18} aria-hidden="true" />
-                  <span>Protect a folder</span>
-                </NavLink>
-              </>
-            )}
-            <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
-            <NavLink to="/settings" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
-              <SlidersHorizontal size={18} aria-hidden="true" />
-              <span>Settings</span>
-            </NavLink>
             <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
             <button
               type="button"

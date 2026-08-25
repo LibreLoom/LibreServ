@@ -98,7 +98,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/On this network/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Remote access on/i })).toHaveAttribute(
       "href",
-      "/settings/remote",
+      "/settings#remote",
     );
     expect(screen.getByText("luna.example")).toBeInTheDocument();
     expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("DashboardPage", () => {
     renderPage();
     expect(await screen.findByRole("link", { name: /Remote access off/i })).toHaveAttribute(
       "href",
-      "/settings/remote",
+      "/settings#remote",
     );
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
   });

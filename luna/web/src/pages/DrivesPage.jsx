@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
+import TextLink from "../components/ui/TextLink";
+import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import { useAuth } from "../context/AuthContext";
 import { getDrives, getJson, postJson } from "../lib/api";
 import { describeDriveHealth } from "../lib/driveHealth";
@@ -37,7 +39,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
         {sizeLabel(drive.size_bytes) || "A new drive"} · found on {drive.name}
       </p>
       <p className="text-primary text-sm mt-2">
-        Luna hasn&apos;t changed anything on this drive. Look inside first, then add it if you want Luna to use it.
+        Look inside first. Luna will not change anything until you add it.
       </p>
       <div className="mt-3">
         <Button size="sm" variant="ghost" onClick={() => onIgnore(drive)}>Ignore for now</Button>
@@ -46,7 +48,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onEject, ejecting }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting, onShare }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -68,7 +70,7 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting }) {
           <p className="text-primary text-xs mt-2">{copy.detail}</p>
         </div>
       )}
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         {(drive.state === "as_is" || drive.state === "readonly") && (
           <Button size="sm" variant="primary" asChild>
             <a href={`/drives/${drive.id}`}>Open files</a>
@@ -79,24 +81,19 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting }) {
             Eject safely
           </Button>
         )}
+        {onShare && (drive.state === "as_is" || drive.state === "readonly") && (
+          <AccessButton label={drive.label} onClick={() => onShare(drive)} />
+        )}
       </div>
     </Card>
   );
 }
 
 function driveNextStep(drive) {
-  if (drive.state === "missing") {
-    return "This drive is unplugged. Plug it back into a USB port on Luna. Nothing on it changes while it is away.";
-  }
-  if (drive.state === "ejected") {
-    return "You ejected this drive. Plug it back in when you want the files again. Luna will notice it on its own.";
-  }
-  if (drive.state === "failed") {
-    return "This drive ran into a problem. Copy important files off it if you can, then try another drive.";
-  }
-  if (drive.state === "readonly") {
-    return "Luna can read files but cannot save new ones here. The drive may be full or write-protected.";
-  }
+  if (drive.state === "missing") return "Unplugged. Plug it back in.";
+  if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
+  if (drive.state === "failed") return "This drive ran into a problem.";
+  if (drive.state === "readonly") return "Read only — Luna cannot save here.";
   return `Connected as ${drive.device} · ${drive.fs_type || "drive"}`;
 }
 
@@ -122,6 +119,12 @@ export default function DrivesPage() {
   });
   const [inspectFor, setInspectFor] = useState(null);
   const [ejectError, setEjectError] = useState(null);
+  const [sharingDrive, setSharingDrive] = useState(null);
+  const access = useQuery({
+    queryKey: ["my-access"],
+    queryFn: () => getJson("/api/v1/me/access"),
+    enabled: user?.role === "user",
+  });
 
   const inspect = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
@@ -154,14 +157,55 @@ export default function DrivesPage() {
 
   const adoptError = adopt.isError ? String(adopt.error?.message || adopt.error) : null;
 
+  if (user?.role === "user") {
+    const grants = access.data || [];
+    return (
+      <Page title="Files" titleId="drives-title">
+        <div className="grid gap-4 md:grid-cols-2">
+          {grants.map((grant) => (
+            <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
+              <p className="text-primary font-mono text-sm">
+                {grant.path || "Whole drive"}
+              </p>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <Pill variant={grant.permission === "write" ? "success" : "info"}>
+                  {grant.permission === "write" ? "Write" : "Read"}
+                </Pill>
+                <div className="flex items-center gap-1">
+                  <AccessButton
+                    label={grant.path || grant.drive_label}
+                    onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "", kind: "folder" })}
+                  />
+                  <TextLink surface="secondary" to={`/drives/${grant.drive_id}?path=${encodeURIComponent(grant.path || "")}`}>
+                    Open
+                  </TextLink>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+        {!access.isLoading && grants.length === 0 && (
+          <EmptyState icon={FolderOpen} title="Nothing shared with you yet" />
+        )}
+        {sharingDrive && (
+          <AccessSheet
+            driveId={sharingDrive.id}
+            path={sharingDrive.path}
+            kind={sharingDrive.kind}
+            onClose={() => setSharingDrive(null)}
+          />
+        )}
+      </Page>
+    );
+  }
+
   return (
-    <Page title="Drives" titleId="drives-title">
+    <Page title="Files" titleId="drives-title">
       {ejectError && <p className="text-error text-sm mb-4">{ejectError}</p>}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
-            Plug a USB drive into one of Luna&apos;s USB ports. Luna will
-            notice it in a few seconds — and won&apos;t touch anything.
+            Plug a USB drive into Luna. It will show up in a few seconds.
           </p>
         </Card>
       )}
@@ -172,9 +216,10 @@ export default function DrivesPage() {
             <AdoptedCard
               key={drive.id}
               drive={drive}
-              showHealth={isAdmin}
+              showHealth
               onEject={(d) => eject.mutate(d)}
               ejecting={eject.isPending}
+              onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
             />
           ))}
         </div>
@@ -196,9 +241,18 @@ export default function DrivesPage() {
             ))}
           </div>
           {!detected.isLoading && (detected.data || []).length === 0 && (
-            <EmptyState description="Nothing new plugged in. Plug a USB drive into Luna, then tap Look inside." />
+            <EmptyState description="Nothing new plugged in." />
           )}
         </>
+      )}
+
+      {sharingDrive && (
+        <AccessSheet
+          driveId={sharingDrive.id}
+          path={sharingDrive.path}
+          kind={sharingDrive.kind}
+          onClose={() => setSharingDrive(null)}
+        />
       )}
 
       {inspectFor && (
@@ -230,8 +284,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
       {needsInspect && (
         <>
           <p className="text-primary text-sm">
-            Luna will look at this drive in read-only mode. Nothing will be
-            written, moved, or changed.
+            Luna will look in read-only mode. Nothing is written until you add it.
           </p>
           <div className="mt-4 flex gap-3">
             <Button variant="primary" onClick={onInspect}>Look inside</Button>

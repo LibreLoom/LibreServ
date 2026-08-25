@@ -52,6 +52,7 @@ describe("DrivesPage", () => {
     stubDrivesApi();
     renderPage();
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
   it("uses a page heading for plugged-in drives, not a stacked title card", async () => {
@@ -61,6 +62,29 @@ describe("DrivesPage", () => {
     expect(heading.tagName).toBe("H2");
     expect(heading.closest("[data-slot=card]")).toBeNull();
     expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
+  });
+
+  it("shows granted folders for a household member", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Drives plugged in now/i)).not.toBeInTheDocument();
   });
 
   it("shows plain-language drive health for an admin", async () => {

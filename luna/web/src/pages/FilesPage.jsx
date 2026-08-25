@@ -23,7 +23,7 @@ import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import HouseholdSearch from "../components/files/HouseholdSearch";
 import ComputerMountHelp from "../components/files/ComputerMountHelp";
-import CreateShareModal from "../components/files/CreateShareModal";
+import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import { getDrives, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -84,7 +84,7 @@ export default function FilesPage() {
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(null);
-  const [sharing, setSharing] = useState(false);
+  const [accessTarget, setAccessTarget] = useState(null);
   const filePicker = useRef(null);
   const { user } = useAuth();
 
@@ -321,6 +321,12 @@ export default function FilesPage() {
               </span>
             ))
           )}
+          {!inTrash && (
+            <AccessButton
+              label={path || drive?.label || "this folder"}
+              onClick={() => setAccessTarget({ path, kind: path ? "folder" : "drive" })}
+            />
+          )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {!inTrash && up !== null && (
@@ -333,14 +339,9 @@ export default function FilesPage() {
               <Link to={`/drives/${id}`}>Back to files</Link>
             </Button>
           ) : (
-            <>
-              <Button variant="outline" surface="secondary" size="sm" asChild>
-                <Link to={`/drives/${id}?view=trash`}>Open trash</Link>
-              </Button>
-              <Button variant="outline" surface="secondary" size="sm" onClick={() => setSharing(true)}>
-                Share this folder
-              </Button>
-            </>
+            <Button variant="outline" surface="secondary" size="sm" asChild>
+              <Link to={`/drives/${id}?view=trash`}>Open trash</Link>
+            </Button>
           )}
         </div>
       </Card>
@@ -353,9 +354,9 @@ export default function FilesPage() {
           onDrop={onDrop}
         >
           <UploadCloud size={20} className="text-accent mx-auto mb-2" aria-hidden="true" />
-          <p className="text-primary text-sm">Drop files here to put them in this folder</p>
+          <p className="text-primary text-sm">Drop files here</p>
           <p className="text-accent text-xs mt-1">
-            Small files save instantly. Big files continue even if the connection blips.
+            Large files keep going if the connection blips.
           </p>
           <div className="mt-4">
             <input
@@ -411,6 +412,13 @@ export default function FilesPage() {
                 )}
                 <span className="text-primary text-xs w-20 text-right hidden sm:block">{fmtSize(entry.size)}</span>
                 <div className="flex items-center gap-1">
+                  <AccessButton
+                    label={entry.name}
+                    onClick={() => setAccessTarget({
+                      path: joinPath(path, entry.name),
+                      kind: entry.kind === "dir" ? "folder" : "file",
+                    })}
+                  />
                   <Button
                     variant="ghost"
                     surface="secondary"
@@ -526,8 +534,7 @@ export default function FilesPage() {
         <EmptyState
           className="mt-4"
           icon={FolderOpen}
-          title="This folder is empty"
-          description="Drop files in the upload area above."
+          title="Nothing here yet"
         />
       )}
 
@@ -536,7 +543,6 @@ export default function FilesPage() {
           className="mt-4"
           icon={Trash2}
           title="Trash is empty"
-          description="When you remove a file, Luna keeps it here so you can put it back."
         />
       )}
 
@@ -653,14 +659,12 @@ export default function FilesPage() {
           </div>
         </ModalCard>
       )}
-      {sharing && (
-        <CreateShareModal
-          drives={drives.data || []}
-          initialDriveId={id}
-          initialPath={path}
-          onClose={() => setSharing(false)}
-          onError={(msg) => setUploadError(msg)}
-          onDone={() => setSharing(false)}
+      {accessTarget && (
+        <AccessSheet
+          driveId={id}
+          path={accessTarget.path}
+          kind={accessTarget.kind}
+          onClose={() => setAccessTarget(null)}
         />
       )}
     </Page>

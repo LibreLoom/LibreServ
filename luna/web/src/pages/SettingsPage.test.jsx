@@ -81,6 +81,15 @@ describe("SettingsPage", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    if (typeof globalThis.localStorage === "undefined" || !globalThis.localStorage?.getItem) {
+      const store = new Map();
+      globalThis.localStorage = {
+        getItem: (key) => (store.has(key) ? store.get(key) : null),
+        setItem: (key, value) => { store.set(String(key), String(value)); },
+        removeItem: (key) => { store.delete(String(key)); },
+        clear: () => { store.clear(); },
+      };
+    }
   });
 
   it("uses a category sidebar and opens the keyboard recovery card from it", async () => {
@@ -126,5 +135,6 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("button", { name: /Software updates/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Home network/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Cloud backup/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remote access/i })).toBeNull();
   });
 });
