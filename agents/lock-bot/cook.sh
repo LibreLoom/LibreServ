@@ -15,6 +15,38 @@ if [ -n "${ATLAS_BOT_TOKEN:-}" ]; then
   echo "cook.sh: unsetting ATLAS_BOT_TOKEN (this is lock-bot)" >&2
   unset ATLAS_BOT_TOKEN
 fi
+
+BOT_REPO_DIR="${BOT_REPO_DIR:-/data/LibreServ}"
+if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
+  COMMON="${BOT_REPO_DIR}/agents/common/git-sync.sh"
+  if [ -f "${COMMON}" ]; then
+    # shellcheck disable=SC1091
+    . "${COMMON}"
+    sync_libreserv "${LOCK_BOT_TOKEN}"
+  else
+    host="${FORGEJO_URL:-https://gt.plainskill.net}"
+    host="${host#https://}"; host="${host#http://}"; host="${host%%/*}"
+    export GIT_TERMINAL_PROMPT=0
+    url="https://oauth2:${LOCK_BOT_TOKEN}@${host}/LibreLoom/LibreServ.git"
+    if [ ! -d "${BOT_REPO_DIR}/.git" ]; then
+      git clone --depth 50 "${url}" "${BOT_REPO_DIR}"
+    fi
+    git -C "${BOT_REPO_DIR}" remote set-url origin "${url}"
+    git -C "${BOT_REPO_DIR}" fetch --depth 50 origin main
+    git -C "${BOT_REPO_DIR}" checkout -B main origin/main
+    git -C "${BOT_REPO_DIR}" reset --hard origin/main
+    git -C "${BOT_REPO_DIR}" clean -fd
+  fi
+  export BOT_ALREADY_SYNCED=1
+  NEW="${BOT_REPO_DIR}/agents/lock-bot/cook.sh"
+  self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+  target="$(readlink -f "${NEW}" 2>/dev/null || echo "${NEW}")"
+  if [ -x "${NEW}" ] && [ "${self}" != "${target}" ]; then
+    echo "==> lock-bot exec ${NEW}"
+    exec /bin/bash "${NEW}" "$@"
+  fi
+fi
+HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ -n "${LOCK_GITHUB_TOKEN:-}" ]; then
   export GITHUB_TOKEN="${LOCK_GITHUB_TOKEN}"
 else
@@ -36,7 +68,7 @@ LOCK_RESULT="${LOCK_RESULT:-/tmp/lock-result-${JOBID}.md}"
 export LOCK_RESULT
 : > "${LOCK_RESULT}"
 INVENTORY="${INVENTORY:-/tmp/lock-inventory.json}"
-WORKDIR="$(mktemp -d /tmp/lock-work-XXXXXX)"
+WORKDIR="${BOT_REPO_DIR:-/data/LibreServ}"
 DSH_LOG="/tmp/lock-dsh-${JOBID}.log"
 SKIP_PATHS="/tmp/lock-skip-paths.txt"
 OUTDATED="/tmp/lock-outdated.txt"
@@ -76,37 +108,18 @@ cleanup() {
   if [ -n "${DSH_PID:-}" ]; then
     kill "${DSH_PID}" 2>/dev/null || true
   fi
-  rm -rf "${WORKDIR}"
   return 0
 }
 trap cleanup EXIT
 
 echo "==> lock-bot cook ${DAY} job=${JOBID} org=${ORG} repo=${REPO}"
-clone_dest="${WORKDIR}/repo"
-clone_ok=0
-try=1
-while [ "${try}" -le 3 ]; do
-  rm -rf "${clone_dest}"
-  set +e
-  GIT_TERMINAL_PROMPT=0 timeout "${CLONE_TIMEOUT}" git clone --depth 50 \
-    "https://oauth2:${LOCK_BOT_TOKEN}@${host}/${ORG}/${REPO}.git" "${clone_dest}" 2>"${WORKDIR}/clone.err"
-  crc=$?
-  set -e
-  if [ "${crc}" -eq 0 ]; then
-    clone_ok=1
-    break
-  fi
-  echo "==> clone try ${try} failed rc=${crc}" >&2
-  redact_log < "${WORKDIR}/clone.err" >&2 || true
-  try=$((try + 1))
-  sleep $((try * 2))
-done
-if [ "${clone_ok}" -ne 1 ]; then
-  echo "==> clone failed after retries" >&2
-  echo "clone failed" > "${LOCK_RESULT}"
+if [ ! -d "${WORKDIR}/.git" ]; then
+  echo "==> clone missing ${WORKDIR}" >&2
+  echo "clone missing" > "${LOCK_RESULT}"
   exit 2
 fi
-cd "${clone_dest}"
+cd "${WORKDIR}"
+git remote set-url origin "https://oauth2:${LOCK_BOT_TOKEN}@${host}/${ORG}/${REPO}.git"
 git_identity
 git config --global user.name "lock-bot" || true
 git config --global user.email "lock-bot@plainskill.net" || true
@@ -118,7 +131,7 @@ if [ -n "${LOCK_GITHUB_TOKEN:-}" ]; then
   echo "==> added github remote (optional)"
 fi
 echo "==> inventory"
-python3 "${HERE}/inventory.py" "${clone_dest}" --out "${INVENTORY}"
+python3 "${HERE}/inventory.py" "${WORKDIR}" --out "${INVENTORY}"
 echo "==> inventory written ${INVENTORY}"
 
 echo "==> open PR overlap (Forgejo)"
@@ -222,7 +235,7 @@ if [ -f "${UNLOCKED_TSV}" ]; then
   done < "${UNLOCKED_TSV}"
 fi
 echo "==> re-inventory after pin attempt"
-python3 "${HERE}/inventory.py" "${clone_dest}" --out "${INVENTORY}" || true
+python3 "${HERE}/inventory.py" "${WORKDIR}" --out "${INVENTORY}" || true
 echo "==> pin commands: dsh performs lock generation per prompt.md (wrapper listed unlocked in inventory)"
 export DSH_HOME="${HERE}/dsh-home"
 export DSH_PERMISSION_MODE=danger-full-access
@@ -276,6 +289,10 @@ You exited without writing a non-empty summary to ${LOCK_RESULT}. Write it now."
   dsh_rc=$?
   set -e
 done
+if [ "${dsh_rc}" -ne 0 ]; then
+  echo "==> dsh failed rc=${dsh_rc}; not treating as success" >&2
+  exit 2
+fi
 git add -A || true
 if git diff --cached --quiet && git diff --quiet; then
   echo "==> worktree clean after dsh"
@@ -294,11 +311,6 @@ if [ "${WORK_SHA}" != "${MAIN_SHA}" ]; then
   HAS_CHANGES=1
 fi
 if [ "${HAS_CHANGES}" -eq 0 ]; then
-  if ! grep -q . "${LOCK_RESULT}" 2>/dev/null; then
-    echo "nothing to do" > "${LOCK_RESULT}"
-  else
-    echo "nothing to do" >> "${LOCK_RESULT}"
-  fi
   echo "==> nothing to PR"
 fi
 if [ "${HAS_CHANGES}" -eq 1 ]; then
