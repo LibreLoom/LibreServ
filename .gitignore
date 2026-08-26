@@ -111,6 +111,10 @@ Running
 package-lock.json
 !server/frontend/package-lock.json
 !luna/web/package-lock.json
+!connect/web/admin/package-lock.json
+!connect/web/customer/package-lock.json
+!luna-connect/web/package-lock.json
+!luna/desktop/package-lock.json
 
 # Support module binaries
 support/support-relay/relay
