@@ -15,8 +15,6 @@ function stubFetch(network = {}) {
     if (u.includes("/auth/me")) return jsonResponse({}, 401);
     if (u.includes("/auth/status")) return jsonResponse({ has_admin: false });
     if (u.includes("/api/v1/setup")) return jsonResponse({ name: "Luna", setup_completed: false });
-    if (u.includes("/network/wifi/scan")) return jsonResponse([]);
-    if (u.includes("/network/wifi")) return jsonResponse({ available: true, connected: false, ssid: null, ip_address: null, state: "disconnected" });
     if (u.includes("/network/status")) {
       return jsonResponse({
         ethernet_connected: false,
