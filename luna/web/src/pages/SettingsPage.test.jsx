@@ -37,12 +37,12 @@ function stubFetch(role = "admin") {
       });
     }
     if (u.endsWith("/api/v1/drives")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-    if (u.includes("/network/")) {
+    if (u.includes("/network/status")) {
       return new Response(JSON.stringify({
-        connected: false,
-        available: true,
         ethernet_connected: true,
         wifi_connected: false,
+        has_default_route: true,
+        ipv4: ["192.168.1.20"],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response("{}", { status: 404 });

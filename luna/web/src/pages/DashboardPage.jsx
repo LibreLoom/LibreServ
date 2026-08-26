@@ -108,7 +108,7 @@ function UptimeCard({ value }) {
 
 function connectionHeadline(net) {
   if (!net) return "Checking this network…";
-  if (!net.ethernet_connected && !net.wifi_connected) {
+  if (!net.ethernet_connected) {
     return "Not on a network yet";
   }
   if (net.has_default_route === false) {
@@ -119,17 +119,13 @@ function connectionHeadline(net) {
 
 function connectionDetail(net) {
   if (!net) return "Luna is checking the network connection.";
-  if (net.ethernet_connected && net.wifi_connected) {
-    return "Plugged in with a cable, and Wi-Fi is on too.";
-  }
   if (net.ethernet_connected) return "Plugged in with a cable.";
-  if (net.wifi_connected) return "Using Wi-Fi.";
-  return "Plug in a cable or join Wi-Fi so phones and computers can reach Luna.";
+  return "Plug Luna into your router or modem with the included RJ45 (ethernet) cable.";
 }
 
 function connectionDotClass(net) {
   if (!net) return "bg-accent";
-  if (net.ethernet_connected || net.wifi_connected) return "bg-primary";
+  if (net.ethernet_connected) return "bg-primary";
   return "bg-warning";
 }
 

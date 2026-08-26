@@ -2,8 +2,6 @@
 
 use serde::Serialize;
 
-pub const SETUP_SSID: &str = "";
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HotspotStatus {
     pub available: bool,
@@ -18,10 +16,6 @@ pub fn should_start_setup_hotspot(
     _wifi_connected: bool,
 ) -> bool {
     false
-}
-
-pub fn wifi_uplink_connected(wifi: &dyn crate::wifi::WifiProvider) -> bool {
-    wifi.status().map(|st| st.connected).unwrap_or(false)
 }
 
 /// Kept so older call sites compile. Start always fails — there is no setup AP.
@@ -45,10 +39,6 @@ impl CommandHotspot {
             ssid: String::new(),
         }
     }
-    pub fn set_cache(&self, _networks: Vec<crate::wifi::WifiNetwork>) {}
-    pub fn cached_scan(&self) -> Vec<crate::wifi::WifiNetwork> {
-        Vec::new()
-    }
 }
 
 #[cfg(test)]
@@ -59,5 +49,14 @@ mod tests {
     fn never_starts_a_setup_access_point() {
         assert!(!should_start_setup_hotspot(false, false, false));
         assert!(!should_start_setup_hotspot(true, false, false));
+    }
+
+    #[test]
+    fn start_always_explains_cable_only() {
+        let hs = CommandHotspot::new("wlan0", std::path::Path::new("/tmp"));
+        let err = hs.start().unwrap_err();
+        assert!(err.contains("cable"));
+        assert!(!hs.status().available);
+        assert!(!hs.status().running);
     }
 }

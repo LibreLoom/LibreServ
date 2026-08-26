@@ -18,7 +18,11 @@ assert_file_has() {
 assert_file_has "$BUILD" 'luna-network-up' "rootfs must ship wired bring-up script"
 assert_file_has "$BUILD" 'etc/init.d/luna-network' "rootfs must ship luna-network OpenRC service"
 assert_file_has "$BUILD" '/etc/network/interfaces' "rootfs must ship a minimal interfaces file"
-assert_file_has "$BUILD" 'wpa_supplicant_dbus=no' "wpa_supplicant must not depend on dbus on Luna OS"
+# Ethernet-only: rootfs must not ship wpa_supplicant / setup-AP leftovers.
+if grep -E 'wpa_supplicant|dnsmasq' "$BUILD" >/dev/null 2>&1; then
+	echo "FAIL: Luna OS is Ethernet-only; do not package wpa_supplicant or dnsmasq" >&2
+	exit 1
+fi
 assert_file_has "$BUILD" 'for svc in hwclock modules sysctl hostname bootmisc syslog luna-input luna-network;' \
 	"boot runlevel must start luna-input before luna-network"
 assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers;' \

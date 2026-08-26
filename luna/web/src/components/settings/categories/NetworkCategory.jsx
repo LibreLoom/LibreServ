@@ -1,5 +1,5 @@
-import WifiCard from "../WifiCard";
+import NetworkCard from "../NetworkCard";
 
 export default function NetworkCategory() {
-  return <WifiCard />;
+  return <NetworkCard />;
 }
