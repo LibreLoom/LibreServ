@@ -175,8 +175,9 @@ impl DriveManager {
         }
 
         let foreign_target = self.foreign_mount_point(&device.name);
-        if self.is_ours(&foreign_target) {
-            self.mounter.unmount(&foreign_target)?;
+        if foreign_target.exists() {
+            let _ = self.mounter.unmount(&foreign_target);
+            let _ = std::fs::remove_dir(&foreign_target);
         }
 
         if erase {
@@ -827,7 +828,7 @@ mod tests {
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "ejected"
         );
-        assert_eq!(mounter.unmounts.lock().unwrap().len(), 2);
+        assert_eq!(mounter.unmounts.lock().unwrap().len(), 1);
     }
 
     #[test]
