@@ -111,7 +111,14 @@ impl JobManager {
 
         let db = self.db.clone();
         let job = prepared.clone();
-        tokio::task::spawn_blocking(move || run_job(db, job, cancel));
+        let job_id = prepared.row.id.clone();
+        let cancels = self.cancels.clone();
+        tokio::task::spawn_blocking(move || {
+            run_job(db, job, cancel);
+            // Drop the flag once the job reached a terminal state so the map
+            // cannot grow without bound over the daemon's lifetime.
+            cancels.lock().unwrap().remove(&job_id);
+        });
 
         Ok(prepared.row)
     }
@@ -226,7 +233,21 @@ fn walk_total(path: &Path, is_dir: bool) -> Result<u64, JobError> {
     Ok(total)
 }
 
+/// Mutable state threaded through a copy: bytes copied so far and whether
+/// this job created the destination root (only then may the failure cleanup
+/// below delete it — otherwise a concurrent writer that claimed the name
+/// between our conflict check and the copy could lose its tree to our
+/// rollback).
+struct CopyState {
+    done: u64,
+    owned_dest: bool,
+}
+
 fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<AtomicBool>) {
+    let mut st = CopyState {
+        done: 0,
+        owned_dest: false,
+    };
     let result = (|| -> Result<(), JobError> {
         copy_node(
             &db,
@@ -234,8 +255,8 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
             &prepared.dest,
             &prepared.row.id,
             prepared.total,
-            0,
             &cancel,
+            &mut st,
         )?;
 
         if prepared.row.kind == "move" {
@@ -261,7 +282,7 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
     // A cancelled or failed job may have a partial destination; remove it so a
     // retry isn't blocked by a torn tree (for a move, the source is only
     // trashed after a full copy, so nothing is lost by cleaning up).
-    if state == "cancelled" || state == "error" {
+    if (state == "cancelled" || state == "error") && st.owned_dest {
         let _ = std::fs::remove_file(&prepared.dest);
         let _ = std::fs::remove_dir_all(&prepared.dest);
     }
@@ -273,8 +294,8 @@ fn copy_node(
     dest: &Path,
     job_id: &str,
     total: u64,
-    mut done: u64,
     cancel: &AtomicBool,
+    st: &mut CopyState,
 ) -> Result<u64, JobError> {
     let meta = std::fs::symlink_metadata(src).map_err(JobError::Io)?;
     if meta.file_type().is_symlink() {
@@ -288,7 +309,21 @@ fn copy_node(
     }
 
     if meta.is_dir() {
-        std::fs::create_dir_all(dest).map_err(JobError::Io)?;
+        // No-replace claim on the destination root: create_dir_all would
+        // silently merge into a concurrently-created tree. Child levels are
+        // reached only through this root, so plain create_dir is enough.
+        if !st.owned_dest {
+            std::fs::create_dir(dest).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    JobError::Conflict
+                } else {
+                    JobError::Io(e)
+                }
+            })?;
+            st.owned_dest = true;
+        } else {
+            std::fs::create_dir(dest).map_err(JobError::Io)?;
+        }
         let mut entries: Vec<_> = std::fs::read_dir(src)
             .map_err(JobError::Io)?
             .collect::<Result<Vec<_>, _>>()
@@ -297,9 +332,9 @@ fn copy_node(
         for entry in entries {
             let child_src = entry.path();
             let child_dest = dest.join(entry.file_name());
-            done = copy_node(db, &child_src, &child_dest, job_id, total, done, cancel)?;
+            copy_node(db, &child_src, &child_dest, job_id, total, cancel, st)?;
         }
-        return Ok(done);
+        return Ok(st.done);
     }
 
     let mut input = std::fs::File::open(src).map_err(JobError::Io)?;
@@ -330,18 +365,20 @@ fn copy_node(
             break;
         }
         output.write_all(&buf[..n]).map_err(JobError::Io)?;
-        done += n as u64;
-        if (done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || done == total)
+        st.done += n as u64;
+        if (st.done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || st.done == total)
             && let Ok(conn) = db.lock()
         {
-            let _ = db::update_job_progress(&conn, job_id, done, total);
+            let _ = db::update_job_progress(&conn, job_id, st.done, total);
         }
     }
     output.flush().map_err(JobError::Io)?;
     output.sync_all().map_err(JobError::Io)?;
     drop(output);
     files::install_temp(&tmp, dest, false)?;
-    Ok(done)
+    // We own this leaf now; only our cleanup may ever remove it.
+    st.owned_dest = true;
+    Ok(st.done)
 }
 
 fn plain_job_error(err: &JobError) -> String {
