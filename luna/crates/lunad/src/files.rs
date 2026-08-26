@@ -387,12 +387,19 @@ pub fn delete_to_trash(
         .unwrap_or(0);
     let mut dest = trash.join(format!("{nonce}-{name}"));
     let mut n = 1;
-    while dest.exists() {
-        dest = trash.join(format!("{nonce}-{n}-{name}"));
-        n += 1;
+    // No-replace moves into the trash: two concurrent deletes within the same
+    // second each land on their own nonce suffix instead of racing on an
+    // exists() check and having rename(2) clobber the first entry.
+    loop {
+        match rename_noreplace(&path, &dest) {
+            Ok(()) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                dest = trash.join(format!("{nonce}-{n}-{name}"));
+                n += 1;
+            }
+            Err(e) => return Err(FilesError::Io(e)),
+        }
     }
-
-    std::fs::rename(&path, &dest).map_err(FilesError::Io)?;
     if let Ok(dir) = std::fs::File::open(&trash) {
         let _ = dir.sync_all();
     }
@@ -488,13 +495,9 @@ pub fn restore_from_trash(
         resolve_child(&root, &parent_rel)?
     };
     let dest = parent.join(&dest_name);
-    if dest.exists() {
-        return Err(FilesError::Io(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "destination exists",
-        )));
-    }
-    std::fs::rename(&src, &dest).map_err(FilesError::Io)?;
+    // No-replace move: a concurrent restore to the same name gets
+    // AlreadyExists instead of silently clobbering the earlier winner.
+    rename_noreplace(&src, &dest).map_err(FilesError::Io)?;
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -545,13 +548,9 @@ pub fn rename(
         ))
     })?;
     let dest = parent.join(&new_name);
-    if dest.exists() {
-        return Err(FilesError::Io(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "destination exists",
-        )));
-    }
-    std::fs::rename(&path, &dest).map_err(FilesError::Io)?;
+    // No-replace move keeps the never-overwrites contract honest under
+    // concurrency; plain rename(2) would silently overwrite.
+    rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
     if let Ok(dir) = std::fs::File::open(parent) {
         let _ = dir.sync_all();
     }
