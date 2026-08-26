@@ -1,10 +1,25 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Card from "./Card";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 import { haptic } from "../../utils/haptics";
+
+/** @type {import('react').Context<(() => void) | null>} */
+const ModalCloseContext = createContext(null);
+
+/** Animated close — waits for exit transition before calling onClose. */
+export function useModalClose() {
+  const close = useContext(ModalCloseContext);
+  if (!close) {
+    throw new Error("useModalClose must be used within ModalCard");
+  }
+  return close;
+}
+
+/** Longest modal exit animation (overlay + card pop-out). */
+const EXIT_ANIMATION_MS = 300;
 
 /**
  * @typedef {object} ModalCardProps
@@ -56,7 +71,7 @@ export default function ModalCard({
     setIsClosing(true);
     setTimeout(() => {
       onCloseRef.current?.();
-    }, 300);
+    }, EXIT_ANIMATION_MS);
   }, []);
 
   const content = loading
@@ -154,6 +169,7 @@ export default function ModalCard({
         onClick={(event) => event.stopPropagation()}
       >
         <div ref={innerRef} className={cn(maxHeightClasses, "overflow-y-auto")}>
+        <ModalCloseContext.Provider value={handleClose}>
         <Card
           noHeightAnim
           noPopIn
@@ -204,6 +220,7 @@ export default function ModalCard({
             </div>
           )}
         </Card>
+        </ModalCloseContext.Provider>
         </div>
       </div>
     </div>,
