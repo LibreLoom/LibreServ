@@ -610,7 +610,7 @@ mod http_tests {
         )
         .unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let state = crate::AppState::new(conn, drive_manager);
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
         let app = api::router()
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
@@ -620,7 +620,13 @@ mod http_tests {
         (dir, app)
     }
 
-    fn json_req(method: Method, uri: &str, body: &str, cookie: Option<&str>) -> HttpReq<Body> {
+    fn json_req(
+        method: Method,
+        uri: &str,
+        body: &str,
+        cookie: Option<&str>,
+        csrf: Option<&str>,
+    ) -> HttpReq<Body> {
         let mut builder = HttpReq::builder()
             .method(method)
             .uri(uri)
@@ -628,34 +634,45 @@ mod http_tests {
         if let Some(c) = cookie {
             builder = builder.header("cookie", c);
         }
+        if let Some(t) = csrf {
+            builder = builder.header("x-csrf-token", t);
+        }
         let mut http = builder.body(Body::from(body.to_string())).unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         http
+    }
+
+    fn auth_cookies(res: &axum::response::Response) -> (String, String) {
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(axum::http::header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (session, csrf)
+    }
+
+    fn cookie_header(session: &str, csrf: &str) -> String {
+        format!("{session}; luna_csrf={csrf}")
     }
 
     async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
         app.clone().oneshot(r).await.unwrap()
     }
 
-    fn session_cookie(res: &axum::response::Response) -> String {
-        res.headers()
-            .get("set-cookie")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_string()
-    }
-
-    async fn admin_and_sam(app: &axum::Router) -> (String, String) {
+    async fn admin_and_sam(app: &axum::Router) -> (String, String, String) {
         let res = call(
             app,
             json_req(
                 Method::POST,
                 "/api/v1/auth/register",
-                r#"{"username":"max","display_name":"Max","password":"hunter22hunter"}"#,
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
@@ -666,19 +683,22 @@ mod http_tests {
             json_req(
                 Method::POST,
                 "/api/v1/auth/login",
-                r#"{"username":"max","password":"hunter22hunter"}"#,
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
         .await;
-        let admin = session_cookie(&res);
+        let (admin_session, admin_csrf) = auth_cookies(&res);
+        let admin_cookie = cookie_header(&admin_session, &admin_csrf);
         let res = call(
             app,
             json_req(
                 Method::POST,
                 "/api/v1/auth/register",
-                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter"}"#,
-                Some(&admin),
+                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter1"}"#,
+                Some(&admin_cookie),
+                Some(&admin_csrf),
             ),
         )
         .await;
@@ -693,12 +713,14 @@ mod http_tests {
             json_req(
                 Method::POST,
                 "/api/v1/auth/login",
-                r#"{"username":"sam","password":"hunter22hunter"}"#,
+                r#"{"username":"sam","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
         .await;
-        (session_cookie(&res), sam_id)
+        let (sam_session, sam_csrf) = auth_cookies(&res);
+        (cookie_header(&sam_session, &sam_csrf), sam_csrf, sam_id)
     }
 
     #[tokio::test]
@@ -707,7 +729,7 @@ mod http_tests {
         std::fs::create_dir_all(mount.path().join("family")).unwrap();
         std::fs::create_dir_all(mount.path().join("secret")).unwrap();
         let (dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_id) = admin_and_sam(&app).await;
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
             crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
@@ -725,6 +747,7 @@ mod http_tests {
                 format!("multipart/form-data; boundary={boundary}"),
             )
             .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
             .body(Body::from(body))
             .unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
@@ -738,7 +761,7 @@ mod http_tests {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family")).unwrap();
         let (dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_id) = admin_and_sam(&app).await;
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
             crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
@@ -757,6 +780,7 @@ mod http_tests {
                 format!("multipart/form-data; boundary={boundary}"),
             )
             .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
             .body(Body::from(body))
             .unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
@@ -779,7 +803,7 @@ mod http_tests {
         )
         .unwrap();
         let (dir, app) = test_app(mount.path());
-        let (sam_cookie, sam_id) = admin_and_sam(&app).await;
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
             crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "read").unwrap();
@@ -788,6 +812,7 @@ mod http_tests {
             .method(Method::GET)
             .uri("/api/v1/drives/photos/files?path=family/escape")
             .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
             .body(Body::empty())
             .unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));

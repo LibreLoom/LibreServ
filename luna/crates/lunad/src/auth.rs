@@ -22,7 +22,8 @@ use crate::api::response::json_error;
 use crate::db::{self, UserRow};
 
 pub const SESSION_COOKIE: &str = "luna_session";
-pub const SESSION_TTL_SECONDS: i64 = 60 * 60 * 24 * 30;
+pub const SESSION_TTL_SECONDS: i64 = 60 * 60 * 24 * 7;
+pub const CSRF_COOKIE: &str = "luna_csrf";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -54,8 +55,8 @@ pub enum AuthError {
     BadLogin,
     #[error("Usernames are 3-32 letters, numbers, dots, dashes, or underscores.")]
     BadUsername,
-    #[error("Passwords need at least 8 characters.")]
-    BadPassword,
+    #[error("{0}")]
+    PasswordPolicy(String),
     #[error("That username is already taken.")]
     Taken,
     #[error("Only an admin can do that.")]
@@ -71,27 +72,18 @@ pub enum AuthError {
 #[derive(Clone)]
 pub struct AuthService {
     db: Arc<Mutex<Connection>>,
-    secret: Vec<u8>,
+    secret: Arc<Mutex<Vec<u8>>>,
+    data_dir: std::path::PathBuf,
 }
 
 impl AuthService {
-    pub fn new(db: Arc<Mutex<Connection>>, secret: Vec<u8>) -> Self {
-        Self { db, secret }
+    pub fn new(db: Arc<Mutex<Connection>>, secret: Vec<u8>, data_dir: std::path::PathBuf) -> Self {
+        Self { db, secret: Arc::new(Mutex::new(secret)), data_dir }
     }
 
-    /// Generate (or load) the JWT signing secret, persisted in SQLite meta.
-    pub fn ensure_secret(conn: &Connection) -> anyhow::Result<String> {
-        if let Some(existing) = db::get_meta(conn, "jwt_secret")?
-            && !existing.is_empty()
-        {
-            return Ok(existing);
-        }
-        let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        db::set_meta(conn, "jwt_secret", &encoded)?;
-        Ok(encoded)
-    }
+    fn signing_key(&self) -> Vec<u8> { self.secret.lock().unwrap().clone() }
+    pub fn reload_secret(&self, secret: Vec<u8>) { *self.secret.lock().unwrap() = secret; }
+    pub fn data_dir(&self) -> &std::path::Path { &self.data_dir }
 
     /// Create a user. The first user is always an admin, regardless of caller.
     pub fn register(
@@ -106,8 +98,8 @@ impl AuthService {
         if display_name.is_empty() || display_name.len() > 80 {
             return Err(AuthError::BadUsername);
         }
-        if password.len() < 8 {
-            return Err(AuthError::BadPassword);
+        if let Err(err) = crate::password::validate_password(password) {
+            return Err(AuthError::PasswordPolicy(err.message().into()));
         }
 
         let conn = self
@@ -157,7 +149,7 @@ impl AuthService {
     pub fn verify(&self, token: &str) -> Result<CurrentUser, AuthError> {
         let data = jsonwebtoken::decode::<Claims>(
             token,
-            &jsonwebtoken::DecodingKey::from_secret(&self.secret),
+            &jsonwebtoken::DecodingKey::from_secret(&self.signing_key()),
             &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
         )
         .map_err(|e| AuthError::Token(e.to_string()))?;
@@ -214,13 +206,13 @@ impl AuthService {
         else {
             return Ok(None);
         };
-        if dt.revoked_at.is_some() {
-            return Ok(None);
-        }
+        if dt.revoked_at.is_some() { return Ok(None); }
+        if let Some(exp) = dt.expires_at && crate::db::now_unix() > exp { return Ok(None); }
         let Some(user) = db::get_user(&conn, &dt.user_id).map_err(AuthError::Db)? else {
             return Ok(None);
         };
         let _ = db::touch_device_token(&conn, &dt.id);
+        let _ = db::insert_device_token_usage(&conn, &dt.id, "auth", "api");
         Ok(Some((
             CurrentUser {
                 id: user.id.clone(),
@@ -246,7 +238,7 @@ impl AuthService {
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &claims,
-            &jsonwebtoken::EncodingKey::from_secret(&self.secret),
+            &jsonwebtoken::EncodingKey::from_secret(&self.signing_key()),
         )
         .map_err(|e| AuthError::Token(e.to_string()))
     }
@@ -303,11 +295,38 @@ impl AuthService {
         db::revoke_device_tokens_for_user(&conn, user_id).map_err(AuthError::Db)
     }
 
+
+    pub fn verify_password_for_user(&self, user_id: &str, password: &str) -> Result<(), AuthError> {
+        let conn = self.db.lock().map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let user = db::get_user(&conn, user_id).map_err(AuthError::Db)?.ok_or(AuthError::BadLogin)?;
+        verify_password_hash(password, &PasswordHash::new(&user.password_hash).map_err(|_| AuthError::BadLogin)?)
+    }
+    pub fn reset_user_password(&self, username: &str, password: &str) -> Result<UserRow, AuthError> {
+        if let Err(err) = crate::password::validate_password(password) {
+            return Err(AuthError::PasswordPolicy(err.message().into()));
+        }
+        let hash = hash_password(password)?;
+        let username = username.trim().to_lowercase();
+        let conn = self.db.lock().map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let user = db::get_user_by_username(&conn, &username).map_err(AuthError::Db)?.ok_or(AuthError::BadLogin)?;
+        if user.role != "admin" { return Err(AuthError::Forbidden); }
+        db::set_user_password_hash(&conn, &user.id, &hash).map_err(AuthError::Db)?;
+        db::bump_user_token_version(&conn, &user.id).map_err(AuthError::Db)?;
+        db::revoke_device_tokens_for_user(&conn, &user.id).map_err(AuthError::Db)?;
+        db::get_user(&conn, &user.id).map_err(AuthError::Db)?.ok_or(AuthError::Db(anyhow::anyhow!("user missing")))
+    }
+    pub fn rotate_session(&self, user: &UserRow) -> Result<String, AuthError> {
+        let conn = self.db.lock().map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::bump_user_token_version(&conn, &user.id).map_err(AuthError::Db)?;
+        let refreshed = db::get_user(&conn, &user.id).map_err(AuthError::Db)?.ok_or(AuthError::Unauthenticated)?;
+        self.issue(&refreshed)
+    }
+
     /// Local-console recovery only: set a new password for the first admin.
     /// Never exposed on the network.
     pub fn reset_admin_password(&self, password: &str) -> Result<UserRow, AuthError> {
-        if password.len() < 8 {
-            return Err(AuthError::BadPassword);
+        if let Err(err) = crate::password::validate_password(password) {
+            return Err(AuthError::PasswordPolicy(err.message().into()));
         }
         let hash = hash_password(password)?;
         let conn = self
@@ -354,6 +373,45 @@ pub fn session_cookie(token: &str, secure: bool) -> String {
     format!(
         "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}{secure_flag}"
     )
+}
+
+
+pub fn csrf_cookie(token: &str, secure: bool) -> String {
+    let secure_flag = if secure { "; Secure" } else { "" };
+    format!("{CSRF_COOKIE}={token}; Path=/; SameSite=Strict; Max-Age={SESSION_TTL_SECONDS}{secure_flag}")
+}
+fn csrf_from_cookie(headers: &HeaderMap) -> Option<String> {
+    let cookie = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
+    cookie.split(';').find_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        (name == CSRF_COOKIE).then(|| value.to_string())
+    })
+}
+fn csrf_from_request(headers: &HeaderMap) -> Option<String> {
+    headers.get("x-csrf-token").and_then(|v| v.to_str().ok()).map(str::to_string).filter(|s| !s.is_empty())
+}
+fn csrf_valid(headers: &HeaderMap) -> bool {
+    let Some(cookie) = csrf_from_cookie(headers) else { return false; };
+    let Some(got) = csrf_from_request(headers) else { return false; };
+    cookie.len() == got.len() && cookie.bytes().zip(got.bytes()).fold(0u8, |a, (x, y)| a | (x ^ y)) == 0
+}
+fn uses_session_cookie(headers: &HeaderMap) -> bool {
+    token_from_headers(headers).is_some()
+        && headers.get(axum::http::header::AUTHORIZATION).and_then(|v| v.to_str().ok())
+            .is_none_or(|v| !v.starts_with("Bearer "))
+}
+fn new_csrf_token() -> String {
+    let mut bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+pub fn fresh_csrf_cookie(secure: bool) -> String { csrf_cookie(&new_csrf_token(), secure) }
+fn maybe_attach_csrf(response: Response, issue: bool, secure: bool) -> Response {
+    if !issue { return response; }
+    let token = new_csrf_token();
+    let (mut parts, body) = response.into_parts();
+    parts.headers.append(axum::http::header::SET_COOKIE, csrf_cookie(&token, secure).parse().unwrap());
+    Response::from_parts(parts, body)
 }
 
 pub fn clear_session_cookie(secure: bool) -> String {
@@ -429,25 +487,34 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
 /// context (after finishing setup, and after every login).
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
+    let method = req.method().clone();
+    let headers = req.headers().clone();
+    let secure = request_is_https(&headers);
+    let issue_csrf = matches!(method, axum::http::Method::GET | axum::http::Method::HEAD) && csrf_from_cookie(&headers).is_none();
+    if matches!(method, axum::http::Method::POST | axum::http::Method::PUT | axum::http::Method::PATCH | axum::http::Method::DELETE)
+        && uses_session_cookie(&headers)
+        && !path.starts_with("/api/v1/auth/login")
+        && !path.starts_with("/api/v1/auth/register")
+        && !csrf_valid(&headers)
+    {
+        return json_error(StatusCode::FORBIDDEN, "This page expired. Refresh Luna and try again.").into_response();
+    }
     // CSRF: cookie-authenticated mutations must come from our own origin.
     // Browsers attach Origin to every unsafe request, so a mismatched Origin
     // marks a cross-site request even with SameSite=Lax. Non-browser clients
     // (device tokens, curl, WebDAV) send no Origin and pass through untouched.
     if matches!(
-        *req.method(),
+        method,
         axum::http::Method::POST
             | axum::http::Method::PUT
             | axum::http::Method::PATCH
             | axum::http::Method::DELETE
-    ) && let Some(origin) = req
-        .headers()
-        .get(axum::http::header::ORIGIN)
+    ) && let Some(origin) = headers.get(axum::http::header::ORIGIN)
         .and_then(|v| v.to_str().ok())
     {
         let host_matches = origin_matches_host(
             origin,
-            req.headers()
-                .get(axum::http::header::HOST)
+            headers.get(axum::http::header::HOST)
                 .and_then(|v| v.to_str().ok()),
         );
         if !host_matches {
@@ -477,10 +544,10 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     }
 
     if is_public {
-        return next.run(req).await;
+        return maybe_attach_csrf(next.run(req).await, issue_csrf, secure);
     }
     if req.extensions().get::<CurrentUser>().is_some() {
-        return next.run(req).await;
+        return maybe_attach_csrf(next.run(req).await, issue_csrf, secure);
     }
     json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
 }
@@ -619,11 +686,14 @@ pub(crate) fn hash_device_token(input: &str) -> String {
 }
 
 pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {
+    if let Err(err) = crate::password::validate_password(password) {
+        return Err(AuthError::PasswordPolicy(err.message().into()));
+    }
     let salt = SaltString::generate(&mut OsRng);
     argon2::Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
-        .map_err(|_| AuthError::BadPassword)
+        .map_err(|e| AuthError::PasswordPolicy(e.to_string()))
 }
 
 #[cfg(test)]
@@ -632,21 +702,22 @@ mod tests {
 
     fn service() -> (tempfile::TempDir, AuthService) {
         let dir = tempfile::tempdir().unwrap();
-        let conn = db::open(&dir.path().join("luna.db")).unwrap();
-        let secret = AuthService::ensure_secret(&conn).unwrap();
+        let data_dir = dir.path().to_path_buf();
+        let conn = db::open(&data_dir.join("luna.db")).unwrap();
+        let secret = crate::secrets::ensure_jwt_secret(&data_dir, &conn).unwrap();
         let db = Arc::new(Mutex::new(conn));
-        (dir, AuthService::new(db, secret.into_bytes()))
+        (dir, AuthService::new(db, secret, data_dir))
     }
 
     #[test]
     fn first_user_is_admin_and_login_round_trips() {
         let (_dir, auth) = service();
         let user = auth
-            .register("Max", "Max", "hunter22hunter", "user")
+            .register("Max", "Max", "hunter22hunter1", "user")
             .unwrap();
         assert_eq!(user.role, "admin");
 
-        let (_, token) = auth.login("max", "hunter22hunter").unwrap();
+        let (_, token) = auth.login("max", "hunter22hunter1").unwrap();
         let current = auth.verify(&token).unwrap();
         assert_eq!(current.username, "max");
         assert!(auth.login("max", "wrong-password").is_err());
@@ -666,10 +737,10 @@ mod tests {
     fn grants_scope_access_by_folder() {
         let (dir, auth) = service();
         let admin = auth
-            .register("Max", "Max", "hunter22hunter", "user")
+            .register("Max", "Max", "hunter22hunter1", "user")
             .unwrap();
         let sam = auth
-            .register("sam", "Sam", "hunter22hunter", "user")
+            .register("sam", "Sam", "hunter22hunter1", "user")
             .unwrap();
         let conn = auth.db.lock().unwrap();
         crate::db::insert_grant(&conn, "g1", &sam.id, "drive-a", "family", "read").unwrap();
@@ -713,9 +784,9 @@ mod tests {
         use std::os::unix::fs::symlink;
         let (dir, auth) = service();
         let sam = {
-            auth.register("Max", "Max", "hunter22hunter", "user")
+            auth.register("Max", "Max", "hunter22hunter1", "user")
                 .unwrap();
-            auth.register("sam", "Sam", "hunter22hunter", "user")
+            auth.register("sam", "Sam", "hunter22hunter1", "user")
                 .unwrap()
         };
         let mount = dir.path().join("drive-a");
@@ -766,7 +837,7 @@ mod tests {
     fn device_token_round_trips_and_revokes() {
         let (_dir, auth) = service();
         let max = auth
-            .register("Max", "Max", "hunter22hunter", "user")
+            .register("Max", "Max", "hunter22hunter1", "user")
             .unwrap();
 
         let token = {
@@ -778,6 +849,7 @@ mod tests {
                 &max.id,
                 "My phone",
                 &hash_device_token(raw_token),
+                None,
             )
             .unwrap();
             raw_token.to_string()
@@ -800,9 +872,9 @@ mod tests {
     fn bumping_token_version_invalidates_browser_sessions_only() {
         let (_dir, auth) = service();
         let max = auth
-            .register("Max", "Max", "hunter22hunter", "user")
+            .register("Max", "Max", "hunter22hunter1", "user")
             .unwrap();
-        let (_, session) = auth.login("max", "hunter22hunter").unwrap();
+        let (_, session) = auth.login("max", "hunter22hunter1").unwrap();
         assert!(auth.verify(&session).is_ok());
 
         let device_raw = "phone-token-keep";
@@ -814,6 +886,7 @@ mod tests {
                 &max.id,
                 "Phone",
                 &hash_device_token(device_raw),
+                None,
             )
             .unwrap();
             crate::db::bump_user_token_version(&conn, &max.id).unwrap();
@@ -821,7 +894,7 @@ mod tests {
         assert!(auth.verify(&session).is_err());
         assert!(auth.verify_device_token(device_raw).unwrap().is_some());
 
-        let (_, session2) = auth.login("max", "hunter22hunter").unwrap();
+        let (_, session2) = auth.login("max", "hunter22hunter1").unwrap();
         assert!(auth.verify(&session2).is_ok());
     }
 
@@ -891,13 +964,13 @@ mod tests {
     #[test]
     fn username_is_normalized_and_unique() {
         let (_dir, auth) = service();
-        auth.register("Max", "Max", "hunter22hunter", "user")
+        auth.register("Max", "Max", "hunter22hunter1", "user")
             .unwrap();
         assert!(matches!(
-            auth.register("MAX", "Other", "hunter22hunter", "user"),
+            auth.register("MAX", "Other", "hunter22hunter1", "user"),
             Err(AuthError::Taken)
         ));
-        assert!(auth.register("x", "Bad", "hunter22hunter", "user").is_err());
+        assert!(auth.register("x", "Bad", "hunter22hunter1", "user").is_err());
     }
 }
 
@@ -930,7 +1003,7 @@ mod guard_tests {
             dir.path(),
             Some("http://127.0.0.1:1".into()),
         ));
-        let state = crate::AppState::new(conn, drive_manager).with_connect(connect);
+        let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect);
         let app = api::router()
             .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
             .with_state(state);
@@ -938,6 +1011,16 @@ mod guard_tests {
     }
 
     fn req(method: Method, uri: &str, body: Option<&str>, cookie: Option<&str>) -> HttpReq<Body> {
+        req_with_csrf(method, uri, body, cookie, None)
+    }
+
+    fn req_with_csrf(
+        method: Method,
+        uri: &str,
+        body: Option<&str>,
+        cookie: Option<&str>,
+        csrf: Option<&str>,
+    ) -> HttpReq<Body> {
         let mut builder = HttpReq::builder()
             .method(method)
             .uri(uri)
@@ -945,11 +1028,43 @@ mod guard_tests {
         if let Some(c) = cookie {
             builder = builder.header("cookie", c);
         }
+        if let Some(t) = csrf {
+            builder = builder.header("x-csrf-token", t);
+        }
         let mut http = builder
             .body(Body::from(body.map(|b| b.to_string()).unwrap_or_default()))
             .unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         http
+    }
+
+    fn auth_cookies(res: &axum::response::Response) -> (String, String) {
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(axum::http::header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (session, csrf)
+    }
+
+    fn session_cookie(res: &axum::response::Response) -> String {
+        let (session, _) = auth_cookies(res);
+        assert!(session.starts_with("luna_session="), "missing session cookie");
+        session
+    }
+
+    fn cookie_header(session: &str, csrf: &str) -> String {
+        if csrf.is_empty() {
+            session.to_string()
+        } else {
+            format!("{session}; luna_csrf={csrf}")
+        }
     }
 
     async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
@@ -961,18 +1076,6 @@ mod guard_tests {
             .await
             .unwrap();
         String::from_utf8(bytes.to_vec()).unwrap()
-    }
-
-    fn session_cookie(res: &axum::response::Response) -> String {
-        res.headers()
-            .get("set-cookie")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_string()
     }
 
     #[tokio::test]
@@ -990,7 +1093,7 @@ mod guard_tests {
             req(
                 Method::POST,
                 "/api/v1/auth/register",
-                Some(r#"{"username":"max","display_name":"Max","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#),
                 None,
             ),
         )
@@ -1002,28 +1105,28 @@ mod guard_tests {
             req(
                 Method::POST,
                 "/api/v1/auth/login",
-                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
                 None,
             ),
         )
         .await;
         assert_eq!(res.status(), 200, "login failed: {}", text(res).await);
-        let cookie = session_cookie(&res);
-        let v: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
-        assert_eq!(v["ok"], true);
-        assert_eq!(v["username"], "max");
-        assert_eq!(v["role"], "admin");
-        assert!(v.get("id").and_then(|x| x.as_str()).is_some());
+        let (session, csrf) = auth_cookies(&res);
         assert!(
-            v.get("token").is_none(),
-            "login JSON must not include a session JWT; the session is the cookie"
+            session.starts_with("luna_session="),
+            "login must set session cookie, got {:?}",
+            res.headers().get_all(axum::http::header::SET_COOKIE)
+                .iter()
+                .map(|v| v.to_str().unwrap_or(""))
+                .collect::<Vec<_>>()
         );
+        let cookie = cookie_header(&session, &csrf);
 
         // The session must be visible to /auth/me — this is what keeps the
         // web UI signed in after setup and across page reloads.
         let res = call(
             &app,
-            req(Method::GET, "/api/v1/auth/me", None, Some(&cookie)),
+            req(Method::GET, "/api/v1/auth/me", None, Some(&session)),
         )
         .await;
         assert_eq!(res.status(), 200);
@@ -1042,7 +1145,7 @@ mod guard_tests {
             req(
                 Method::POST,
                 "/api/v1/auth/register",
-                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
                 None,
             ),
         )
@@ -1053,12 +1156,13 @@ mod guard_tests {
             req(
                 Method::POST,
                 "/api/v1/auth/login",
-                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
                 None,
             ),
         )
         .await;
-        let cookie = session_cookie(&res);
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = cookie_header(&session, &csrf);
 
         // Anonymous second account -> sign in first.
         let res = call(
@@ -1066,7 +1170,7 @@ mod guard_tests {
             req(
                 Method::POST,
                 "/api/v1/auth/register",
-                Some(r#"{"username":"sam","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"sam","password":"hunter22hunter1"}"#),
                 None,
             ),
         )
@@ -1076,11 +1180,12 @@ mod guard_tests {
         // A signed-in admin can add a household member.
         let res = call(
             &app,
-            req(
+            req_with_csrf(
                 Method::POST,
                 "/api/v1/auth/register",
-                Some(r#"{"username":"sam","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"sam","password":"hunter22hunter1"}"#),
                 Some(&cookie),
+                Some(&csrf),
             ),
         )
         .await;
@@ -1126,7 +1231,7 @@ mod guard_tests {
             req(
                 Method::POST,
                 "/api/v1/auth/register",
-                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
                 None,
             ),
         )
@@ -1165,7 +1270,7 @@ mod guard_tests {
         let connect = std::sync::Arc::new(connect);
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let state = crate::AppState::new(conn, drive_manager).with_connect(connect.clone());
+        let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect.clone());
         let app = api::router()
             .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
             .with_state(state);
@@ -1173,7 +1278,7 @@ mod guard_tests {
         let mut denied = req(
             Method::POST,
             "/api/v1/auth/register",
-            Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
             None,
         );
         denied
@@ -1185,7 +1290,7 @@ mod guard_tests {
         let mut via_query = req(
             Method::POST,
             "/api/v1/auth/register?setup=one-time-secret",
-            Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
             None,
         );
         via_query
@@ -1202,7 +1307,7 @@ mod guard_tests {
         let mut via_cookie = req(
             Method::POST,
             "/api/v1/auth/register",
-            Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
             None,
         );
         via_cookie
@@ -1223,7 +1328,7 @@ mod guard_tests {
             Method::POST,
             "/api/v1/auth/register",
             Some(
-                r#"{"username":"max","password":"hunter22hunter","setup_secret":"one-time-secret"}"#,
+                r#"{"username":"max","password":"hunter22hunter1","setup_secret":"one-time-secret"}"#,
             ),
             None,
         );

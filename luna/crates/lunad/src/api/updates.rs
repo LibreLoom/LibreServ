@@ -133,11 +133,11 @@ mod tests {
             "LibreLoom".into(),
             "LibreServ".into(),
         ));
-        let mut state = crate::AppState::new(conn, dm);
+        let mut state = crate::AppState::new(conn, dm, dir.path());
         state.updates = updates;
         let auth = state.auth.clone();
         let user = auth
-            .register("Max", "Max", "hunter22hunter", "user")
+            .register("Max", "Max", "hunter22hunter1", "user")
             .unwrap();
         let token = auth.issue(&user).unwrap();
         let router = axum::Router::new()

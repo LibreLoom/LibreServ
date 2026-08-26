@@ -36,7 +36,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let router = super::router().with_state(AppState::new(conn, drive_manager));
+        let router = super::router().with_state(AppState::new(conn, drive_manager, dir.path()));
         let response = tower::ServiceExt::oneshot(
             router,
             axum::http::Request::builder()

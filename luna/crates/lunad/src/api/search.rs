@@ -17,6 +17,8 @@ struct SearchQuery {
 struct FactoryResetBody {
     #[serde(default)]
     confirm: bool,
+    #[serde(default)]
+    password: String,
 }
 
 pub fn router() -> Router<AppState> {
@@ -102,7 +104,14 @@ async fn reindex(
 
 async fn scrub_status(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can do that.",
+        ));
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -172,6 +181,21 @@ async fn factory_reset(
             "Confirm that you want to reset this Luna. Everyone will need to sign in again, and remote access will turn off. Files on your drives stay where they are.",
         ));
     }
+    if body.password.trim().is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Type your current password to confirm this reset.",
+        ));
+    }
+    state
+        .auth
+        .verify_password_for_user(&user.id, &body.password)
+        .map_err(|_| {
+            json_error(
+                StatusCode::UNAUTHORIZED,
+                "That password is wrong. Reset was not started.",
+            )
+        })?;
     let connect = state.connect.clone();
     let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
     let conn = state.db.lock().map_err(|_| {
@@ -196,8 +220,15 @@ async fn factory_reset(
             "Luna couldn't finish the reset. Try again.",
         )
     })?;
-    // Regenerate the JWT signing secret for the new first-run.
-    let _ = crate::auth::AuthService::ensure_secret(&conn);
+    drop(conn);
+    let new_secret =
+        crate::secrets::rotate_jwt_secret(&state.data_dir).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't finish the reset. Try again.",
+            )
+        })?;
+    state.auth.reload_secret(new_secret);
     Ok(Json(
         json!({ "ok": true, "message": "Luna has been reset. Set it up again from the start." }),
     ))
@@ -225,7 +256,7 @@ mod tests {
             dir,
             Some("http://127.0.0.1:1".into()),
         ));
-        let state = crate::AppState::new(conn, drive_manager).with_connect(connect);
+        let state = crate::AppState::new(conn, drive_manager, dir).with_connect(connect);
         api::router()
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
@@ -234,7 +265,7 @@ mod tests {
             .with_state(state)
     }
 
-    fn req(method: Method, uri: &str, body: &str, cookie: Option<&str>) -> HttpReq<Body> {
+    fn req(method: Method, uri: &str, body: &str, cookie: Option<&str>, csrf: Option<&str>) -> HttpReq<Body> {
         let mut builder = HttpReq::builder()
             .method(method)
             .uri(uri)
@@ -242,25 +273,35 @@ mod tests {
         if let Some(c) = cookie {
             builder = builder.header("cookie", c);
         }
+        if let Some(t) = csrf {
+            builder = builder.header("x-csrf-token", t);
+        }
         let mut http = builder.body(Body::from(body.to_string())).unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         http
     }
 
-    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
-        app.clone().oneshot(r).await.unwrap()
+    fn auth_cookies(res: &axum::response::Response) -> (String, String) {
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(axum::http::header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (session, csrf)
     }
 
-    fn session_cookie(res: &axum::response::Response) -> String {
-        res.headers()
-            .get("set-cookie")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_string()
+    fn cookie_header(session: &str, csrf: &str) -> String {
+        format!("{session}; luna_csrf={csrf}")
+    }
+
+    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(r).await.unwrap()
     }
 
     #[tokio::test]
@@ -283,7 +324,8 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/auth/register",
-                r#"{"username":"max","password":"hunter22hunter"}"#,
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
@@ -294,12 +336,14 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/auth/login",
-                r#"{"username":"max","password":"hunter22hunter"}"#,
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
         .await;
-        let cookie = session_cookie(&res);
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = cookie_header(&session, &csrf);
 
         let denied = call(
             &app,
@@ -308,6 +352,7 @@ mod tests {
                 "/api/v1/system/factory-reset",
                 r#"{"confirm":false}"#,
                 Some(&cookie),
+                Some(&csrf),
             ),
         )
         .await;
@@ -319,8 +364,9 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":true}"#,
+                r#"{"confirm":true,"password":"hunter22hunter1"}"#,
                 Some(&cookie),
+                Some(&csrf),
             ),
         )
         .await;
