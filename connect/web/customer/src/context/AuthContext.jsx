@@ -49,6 +49,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(() => {
+    // Best-effort: clear HttpOnly session cookie on the server.
+    api.logout().catch(() => {});
     clearToken();
     setIsAuthenticated(false);
     setAccount(null);
