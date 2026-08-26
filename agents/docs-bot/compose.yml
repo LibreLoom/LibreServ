@@ -3,7 +3,7 @@
 #   docker inspect atlas-bot --format '{{.Config.Image}}'
 # First `docker compose up` is from a host checkout of this file.
 # After that the container force-pulls LibreServ into /data/LibreServ each run.
-# Shell vars in command must be $$ so compose does not interpolate them on the host.
+# command is a 1-element list so compose does not shell-split on `;`.
 name: docs-bot
 services:
   docs-bot:
@@ -14,20 +14,20 @@ services:
     security_opt:
       - no-new-privileges:true
     entrypoint: ["/bin/bash", "-lc"]
-    command: >-
-      set -euo pipefail;
-      : "$${DOCS_BOT_TOKEN:?}";
-      dest=/data/LibreServ;
-      host="$${FORGEJO_URL:-https://gt.plainskill.net}";
-      host="$${host#https://}"; host="$${host#http://}"; host="$${host%%/*}";
-      if [ ! -d "$${dest}/.git" ]; then
-        GIT_TERMINAL_PROMPT=0 git clone --depth 50
-        "https://oauth2:$${DOCS_BOT_TOKEN}@$${host}/LibreLoom/LibreServ.git" "$${dest}";
-      fi;
-      git -C "$${dest}" fetch --depth 50 origin main;
-      git -C "$${dest}" reset --hard origin/main;
-      git -C "$${dest}" clean -fd;
-      exec /bin/bash "$${dest}/agents/docs-bot/loop.sh"
+    command:
+      - |
+        set -euo pipefail
+        : "$${DOCS_BOT_TOKEN:?}"
+        dest=/data/LibreServ
+        host="$${FORGEJO_URL:-https://gt.plainskill.net}"
+        host="$${host#https://}"; host="$${host#http://}"; host="$${host%%/*}"
+        if [ ! -d "$${dest}/.git" ]; then
+          GIT_TERMINAL_PROMPT=0 git clone --depth 50 "https://oauth2:$${DOCS_BOT_TOKEN}@$${host}/LibreLoom/LibreServ.git" "$${dest}"
+        fi
+        git -C "$${dest}" fetch --depth 50 origin main
+        git -C "$${dest}" reset --hard origin/main
+        git -C "$${dest}" clean -fd
+        exec /bin/bash "$${dest}/agents/docs-bot/loop.sh"
     env_file:
       - /stack/compose/.secrets/docs-bot.env
     environment:
@@ -43,6 +43,8 @@ services:
       - proxy-net
 volumes:
   docs-bot-data:
+    external: true
+    name: docs-bot-data
 networks:
   proxy-net:
     external: true
