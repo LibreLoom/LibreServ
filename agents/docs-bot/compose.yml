@@ -1,0 +1,31 @@
+# Sibling of atlas-bot. Uses the already-built atlas toolchain image.
+# Look up the live image if this tag is missing:
+#   docker inspect atlas-bot --format '{{.Config.Image}}'
+name: docs-bot
+services:
+  docs-bot:
+    image: localhost/atlas-bot:latest
+    container_name: docs-bot
+    restart: unless-stopped
+    user: "10000:10000"
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/opt/docs-bot/loop.sh"]
+    env_file:
+      - /stack/compose/.secrets/docs-bot.env
+    environment:
+      FORGEJO_URL: https://gt.plainskill.net
+      DOCS_ORG: LibreLoom
+      DOCS_BOT_LOGIN: docs-bot
+      DSH_HOME: /opt/docs-bot/dsh-home
+      HOME: /home/atlas
+    volumes:
+      - docs-bot-data:/data
+      - /opt/docs-bot:/opt/docs-bot
+    networks:
+      - proxy-net
+volumes:
+  docs-bot-data:
+networks:
+  proxy-net:
+    external: true
