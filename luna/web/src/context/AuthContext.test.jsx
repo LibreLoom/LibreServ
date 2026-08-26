@@ -3,11 +3,17 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
 
-function renderAt(path, setupCompleted) {
+function renderAt(path, { setupCompleted = false, hasAdmin = false } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.endsWith("/api/v1/auth/me")) {
       return new Response("null", { status: 401 });
+    }
+    if (u.endsWith("/api/v1/auth/status")) {
+      return new Response(JSON.stringify({ has_admin: hasAdmin }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     if (u.endsWith("/api/v1/setup")) {
       return new Response(JSON.stringify({ name: "Luna", setup_completed: setupCompleted }), {
@@ -32,17 +38,22 @@ function renderAt(path, setupCompleted) {
 
 describe("AuthProvider setup gating", () => {
   it("sends a fresh Luna to the setup wizard", async () => {
-    renderAt("/", false);
+    renderAt("/", { setupCompleted: false, hasAdmin: false });
     expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
   });
 
-  it("keeps a fresh Luna on the login screen", async () => {
-    renderAt("/login", false);
+  it("sends a fresh Luna from login to the setup wizard", async () => {
+    renderAt("/login", { setupCompleted: false, hasAdmin: false });
+    expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+  });
+
+  it("keeps login when setup is incomplete but an account exists", async () => {
+    renderAt("/login", { setupCompleted: false, hasAdmin: true });
     expect(await screen.findByText("LOGIN SCREEN")).toBeInTheDocument();
   });
 
   it("leaves a set-up Luna on its page", async () => {
-    renderAt("/", true);
+    renderAt("/", { setupCompleted: true, hasAdmin: true });
     expect(await screen.findByText("LUNA HOME")).toBeInTheDocument();
   });
 });
@@ -59,6 +70,12 @@ describe("AuthProvider session survival", () => {
       if (u.endsWith("/api/v1/auth/me")) {
         meCalls.n += 1;
         return new Response("null", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.endsWith("/api/v1/auth/status")) {
+        return new Response(JSON.stringify({ has_admin: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.endsWith("/api/v1/setup")) {
         return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), {
