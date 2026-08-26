@@ -68,6 +68,15 @@ describe("SetupPage", () => {
     await waitFor(() => expect(screen.getByText("Cable")).toBeTruthy());
   });
 
+  it("shows Continue without Luna Connect code on the cable step when online", async () => {
+    vi.stubGlobal("fetch", stubFetch({ ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] }));
+    renderSetup();
+    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    expect(await screen.findByRole("button", { name: /Continue/i })).toBeTruthy();
+    expect(screen.queryByText(/Code from the Luna Connect site/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Save code/i })).toBeNull();
+  });
+
   it("asks for the Luna Connect setup code on a public hostname", async () => {
     vi.stubGlobal("fetch", stubFetch({ ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] }));
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
