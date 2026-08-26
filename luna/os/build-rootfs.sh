@@ -44,9 +44,9 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
         alpine-base openrc linux-lts kmod \
-        avahi wpa_supplicant \
+        avahi \
         e2fsprogs exfatprogs ntfs-3g-progs \
-        smartmontools syslinux util-linux dnsmasq \
+        smartmontools syslinux util-linux \
         dhcpcd ca-certificates ssl_client pciutils curl \
         libheif libheif-tools \
         hdparm \
@@ -183,8 +183,8 @@ cat > "$ROOTFS/usr/local/bin/luna-network-up" <<'INIT'
 set -eu
 
 # ProDesk / Wyse: drivers are modules, not always autoloaded before we run.
-for mod in e1000e igc igb ixgbe r8169 atl1c iwlwifi iwlmvm mt76x2u \
-    rt2800usb rt2800lib rt2x00usb rt2x00lib ath9k_htc mac80211 cfg80211; do
+# Wired NICs only — Luna is Ethernet-only (no USB Wi-Fi dongle in the box).
+for mod in e1000e igc igb ixgbe r8169 atl1c; do
     modprobe "$mod" 2>/dev/null || true
 done
 
@@ -209,7 +209,7 @@ command="/usr/local/bin/luna-network-up"
 depend() {
     need localmount
     after modules bootmisc
-    before dns avahi-daemon wpa_supplicant luna
+    before dns avahi-daemon luna
     provide net
 }
 INIT
@@ -220,10 +220,6 @@ mkdir -p "$ROOTFS/etc/network/interfaces.d"
 printf 'auto lo\niface lo inet loopback\n' > "$ROOTFS/etc/network/interfaces"
 printf 'source /etc/network/interfaces.d/*.conf\n' >> "$ROOTFS/etc/network/interfaces"
 
-# wpa_supplicant: nl80211 only, no dbus (Luna drives Wi-Fi through wpa_cli).
-printf 'wpa_supplicant_dbus=no\nwpa_supplicant_args="-Dnl80211"\n' \
-    > "$ROOTFS/etc/conf.d/wpa_supplicant"
-
 mkdir -p "$ROOTFS/etc/runlevels/default" "$ROOTFS/etc/runlevels/boot" "$ROOTFS/etc/runlevels/sysinit"
 # hwdrivers: Alpine's coldplug modalias pass. Without it, USB HID present at
 # power-on often never loads (hot-plug after boot still works via mdev).
@@ -233,7 +229,7 @@ done
 for svc in hwclock modules sysctl hostname bootmisc syslog luna-input luna-network; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/boot/$svc" 2>/dev/null || true
 done
-for svc in avahi-daemon wpa_supplicant luna crond chronyd; do
+for svc in avahi-daemon luna crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
 
@@ -249,10 +245,6 @@ cat > "$ROOTFS/etc/logrotate.d/luna" <<'LOGROT'
 }
 LOGROT
 chmod 644 "$ROOTFS/etc/logrotate.d/luna"
-
-# wpa_supplicant config: Luna's daemon drives it through wpa_cli at runtime.
-printf 'ctrl_interface=/run/wpa_supplicant\nupdate_config=1\n' > "$ROOTFS/etc/wpa_supplicant/wpa_supplicant.conf"
-chmod 600 "$ROOTFS/etc/wpa_supplicant/wpa_supplicant.conf"
 
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"
