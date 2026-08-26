@@ -1,0 +1,31 @@
+# Sibling of atlas-bot. Uses the already-built atlas toolchain image.
+# Look up the live image if this tag is missing:
+#   docker inspect atlas-bot --format '{{.Config.Image}}'
+name: lock-bot
+services:
+  lock-bot:
+    image: localhost/atlas-bot:latest
+    container_name: lock-bot
+    restart: unless-stopped
+    user: "10000:10000"
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/opt/lock-bot/loop.sh"]
+    env_file:
+      - /stack/compose/.secrets/lock-bot.env
+    environment:
+      FORGEJO_URL: https://gt.plainskill.net
+      LOCK_ORG: LibreLoom
+      LOCK_BOT_LOGIN: lock-bot
+      DSH_HOME: /opt/lock-bot/dsh-home
+      HOME: /home/atlas
+    volumes:
+      - lock-bot-data:/data
+      - /opt/lock-bot:/opt/lock-bot
+    networks:
+      - proxy-net
+volumes:
+  lock-bot-data:
+networks:
+  proxy-net:
+    external: true
