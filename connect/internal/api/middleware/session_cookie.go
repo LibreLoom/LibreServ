@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -104,4 +106,63 @@ func PortalOriginCheck(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+type bufWriter struct {
+	http.ResponseWriter
+	code int
+	buf  bytes.Buffer
+	hdr  http.Header
+}
+
+func (w *bufWriter) Header() http.Header {
+	if w.hdr == nil {
+		w.hdr = make(http.Header)
+	}
+	return w.hdr
+}
+
+func (w *bufWriter) WriteHeader(code int) { w.code = code }
+
+func (w *bufWriter) Write(p []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.buf.Write(p)
+}
+
+// AttachPortalSessionCookie copies a successful login/register JSON token into
+// the HttpOnly portal session cookie so the SPA can keep using bearer JSON
+// while browsers also get a cookie-backed session.
+func AttachPortalSessionCookie(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bw := &bufWriter{ResponseWriter: w}
+		next.ServeHTTP(bw, r)
+		code := bw.code
+		if code == 0 {
+			code = http.StatusOK
+		}
+		if code >= 200 && code < 300 {
+			var body struct {
+				Token string `json:"token"`
+			}
+			if json.Unmarshal(bw.buf.Bytes(), &body) == nil && body.Token != "" {
+				SetPortalSessionCookie(w, body.Token)
+			}
+		}
+		dst := w.Header()
+		for k, vs := range bw.hdr {
+			dst[k] = vs
+		}
+		w.WriteHeader(code)
+		_, _ = w.Write(bw.buf.Bytes())
+	})
+}
+
+// PortalLogout expires the portal session cookie.
+func PortalLogout(w http.ResponseWriter, r *http.Request) {
+	ClearPortalSessionCookie(w)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"ok":true}`))
 }
