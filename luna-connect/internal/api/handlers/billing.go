@@ -36,13 +36,24 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	switch event.Type {
 	case "customer.subscription.deleted":
-		h.lockFromSubscriptionJSON(event.Data.Raw, "canceled")
+		h.cancelSubscription(event.Data.Raw)
 	case "invoice.payment_failed":
 		h.lockFromInvoiceJSON(event.Data.Raw, "past_due")
 	case "invoice.paid", "customer.subscription.updated":
 		h.unlockFromEvent(string(event.Type), event.Data.Raw)
 	}
 	JSON(w, http.StatusOK, map[string]string{"message": "ok"})
+}
+
+// A canceled subscription no longer exists at Stripe. Clear the stored id so
+// AttachCard (which treats any stored id as already-subscribed) can open a
+// fresh subscription on the next card; billing_status stays for the record.
+func (h AccountHandler) cancelSubscription(raw json.RawMessage) {
+	var sub stripego.Subscription
+	if err := json.Unmarshal(raw, &sub); err != nil || sub.ID == "" {
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE stripe_subscription_id = ?`, sub.ID)
 }
 
 func (h AccountHandler) lockFromSubscriptionJSON(raw json.RawMessage, status string) {

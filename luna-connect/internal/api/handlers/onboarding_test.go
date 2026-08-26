@@ -796,3 +796,41 @@ func TestAttachCardWithoutDevFailsClosed(t *testing.T) {
 		t.Fatalf("must not unlock, has=%d status=%s", has, status)
 	}
 }
+
+// Any stored subscription id means one already exists at Stripe: a past_due
+// account must NOT trigger a second subscription that keeps billing after we
+// overwrite the stored id and lose track of it. A fake-but-live Stripe config
+// arms the real billing path, so a stacked Subscribe would actually be
+// attempted (and fail against the fake key) instead of being silently
+// skipped.
+func TestAttachCardDoesNotStackSubscriptions(t *testing.T) {
+	_, acct, _ := testOnboarding(t)
+	cookie := registerAccount(t, acct, "stacked@b.co")
+	prev := config.C.Stripe
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.SecretKey = "sk_test_gate"
+	config.C.Stripe.PriceID = "price_test"
+	t.Cleanup(func() { config.C.Stripe = prev })
+	var id string
+	_ = acct.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'stacked@b.co'`).Scan(&id)
+	_, _ = acct.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'past_due', stripe_subscription_id = 'sub_existing', stripe_subscription_item_id = 'si_existing' WHERE id = ?`, id)
+
+	card := httptest.NewRequest(http.MethodPost, "/billing/attach-card", bytes.NewBufferString(`{}`))
+	card.AddCookie(cookie)
+	crec := withAccount(acct, acct.AttachCard, card)
+	if crec.Code != http.StatusOK {
+		t.Fatalf("attach-card %d %s", crec.Code, crec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(crec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["already_active"] != false {
+		t.Fatalf("past_due account reported already_active=%v", out["already_active"])
+	}
+	var subID, itemID string
+	_ = acct.DB.QueryRow(`SELECT stripe_subscription_id, COALESCE(stripe_subscription_item_id,'') FROM accounts WHERE id = ?`, id).Scan(&subID, &itemID)
+	if subID != "sub_existing" || itemID != "si_existing" {
+		t.Fatalf("stored subscription changed: sub=%q item=%q", subID, itemID)
+	}
+}
