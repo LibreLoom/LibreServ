@@ -1,6 +1,16 @@
 // Minimal Luna API client. One function per endpoint keeps the bundle small
 // and makes the server contract explicit.
 
+function readCookie(name) {
+  if (typeof document === "undefined") return "";
+  const prefix = `${name}=`;
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+    ?.slice(prefix.length) || "";
+}
+
 export async function getJson(path, options = {}) {
   return request(path, options);
 }
@@ -27,9 +37,15 @@ export function apiErrorMessage(err, fallback = "Luna couldn't complete that req
 }
 
 async function request(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  if (method !== "GET" && method !== "HEAD") {
+    const csrf = readCookie("luna_csrf");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
   const res = await fetch(path, {
     credentials: "include",
-    headers: { Accept: "application/json", ...(options.headers || {}) },
+    headers,
     ...options,
   });
   if (!res.ok) {

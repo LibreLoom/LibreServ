@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -32,8 +33,19 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
 		return
 	}
-	if !strings.Contains(email, "@") || len(req.Password) < 8 {
-		JSONError(w, http.StatusBadRequest, "Enter an email and a password of at least 8 characters.")
+	if !auth.ValidEmail(email) {
+		JSONError(w, http.StatusBadRequest, "Enter a valid email address.")
+		return
+	}
+	if err := auth.ValidatePassword(req.Password); err != nil {
+		switch {
+		case errors.Is(err, auth.ErrPasswordTooShort):
+			JSONError(w, http.StatusBadRequest, "Passwords need at least 12 characters.")
+		case errors.Is(err, auth.ErrPasswordMissingComplexity):
+			JSONError(w, http.StatusBadRequest, "Passwords need at least one letter and one number.")
+		default:
+			JSONError(w, http.StatusBadRequest, "Choose a stronger password and try again.")
+		}
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)

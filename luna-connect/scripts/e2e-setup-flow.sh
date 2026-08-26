@@ -76,7 +76,7 @@ rm -f "$LUNA_DATA/connect.json"
 # --- Step 3: website — register + bind (device not online yet) ---
 EMAIL="e2e-live-$(date +%s)@test.luna"
 log "Registering Luna Connect account"
-REG=$(csrf_post "/api/v1/account/register" "{\"email\":\"$EMAIL\",\"password\":\"password1\"}")
+REG=$(csrf_post "/api/v1/account/register" "{\"email\":\"$EMAIL\",\"password\":\"password1234\"}")
 echo "$REG" | grep -q '"email"' || fail "register: $REG"
 
 log "Binding booklet code on website"

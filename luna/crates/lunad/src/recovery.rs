@@ -8,11 +8,12 @@
 //! Printed card (booklet and docs — not shown in the Luna UI):
 //!
 //!   If you forget your password
-//!   1. Plug a USB keyboard into Luna.
-//!   2. Press Esc, then type luna, then press Enter.
-//!   3. On the screen plugged into Luna, type a new password twice.
+//!   1. Turn Luna off (hold power), then on; wait about 2 minutes.
+//!   2. Plug a USB keyboard, type root, Enter.
+//!   3. Type pwreset, Enter, then follow the prompts.
+//!   4. Type logout, Enter, then sign in on the web.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,9 +33,12 @@ pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
+    "Turn Luna off: hold the power button until the light goes out, then press it once and wait about 2 minutes.",
     "Plug a USB keyboard into Luna.",
-    "Press Esc, then type luna, then press Enter.",
-    "On the screen plugged into Luna, type a new password twice.",
+    "Type root and press Enter.",
+    "Type pwreset and press Enter.",
+    "Type your username, then your new password, then logout.",
+    "Sign in again on the Luna web page.",
 ];
 
 const SEQUENCE_TIMEOUT: Duration = Duration::from_secs(8);
@@ -331,6 +335,71 @@ fn read_secret(tty: &mut std::fs::File) -> Result<String, String> {
     Ok(buf)
 }
 
+pub fn run_console_loop(auth: Arc<AuthService>) {
+    let Ok(mut console) = open_console() else {
+        tracing::warn!("no local console for password recovery");
+        return;
+    };
+    let reader = match console.try_clone() {
+        Ok(c) => std::io::BufReader::new(c),
+        Err(_) => return,
+    };
+    let mut logged_in = false;
+    for line in reader.lines().flatten() {
+        match line.trim().to_lowercase().as_str() {
+            "root" => {
+                logged_in = true;
+                let _ = writeln!(console, "\nLuna recovery\nType pwreset to choose a new admin password.");
+            }
+            "logout" if logged_in => {
+                logged_in = false;
+                let _ = writeln!(console, "Signed out of recovery.");
+            }
+            "pwreset" if logged_in => {
+                let _ = pwreset_flow(&auth, &mut console);
+            }
+            "pwreset" => {
+                let _ = writeln!(console, "Type root and press Enter first, then pwreset.");
+            }
+            "" => {}
+            _ if logged_in => {
+                let _ = writeln!(console, "Type pwreset or logout.");
+            }
+            _ => {}
+        }
+    }
+}
+
+fn pwreset_flow(auth: &AuthService, console: &mut std::fs::File) -> Result<(), String> {
+    write!(console, "Username: ").map_err(|e| e.to_string())?;
+    let username = read_line_console(console)?;
+    write!(console, "New password (at least 12 characters, letters and numbers): ")
+        .map_err(|e| e.to_string())?;
+    let password = read_line_console(console)?;
+    if let Err(err) = crate::password::validate_password(&password) {
+        let _ = writeln!(console, "{}", err.message());
+        return Err(err.message().into());
+    }
+    match auth.reset_user_password(&username, &password) {
+        Ok(user) => {
+            writeln!(console, "Password updated for {}. Type logout.", user.username)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = writeln!(console, "{e}");
+            Err(e.to_string())
+        }
+    }
+}
+
+fn read_line_console(console: &mut std::fs::File) -> Result<String, String> {
+    let mut reader = std::io::BufReader::new(console.try_clone().map_err(|e| e.to_string())?);
+    let mut line = String::new();
+    reader.read_line(&mut line).map_err(|e| e.to_string())?;
+    Ok(line.trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,18 +486,20 @@ mod tests {
     #[test]
     fn mocked_keys_reset_admin_password() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = db::open(&dir.path().join("luna.db")).unwrap();
-        let secret = AuthService::ensure_secret(&conn).unwrap();
+        let data_dir = dir.path().to_path_buf();
+        let conn = db::open(&data_dir.join("luna.db")).unwrap();
+        let secret = crate::secrets::ensure_jwt_secret(&data_dir, &conn).unwrap();
         let auth = Arc::new(AuthService::new(
             Arc::new(Mutex::new(conn)),
-            secret.into_bytes(),
+            secret,
+            data_dir,
         ));
-        auth.register("Max", "Max", "old-password-1", "user")
+        auth.register("Max", "Max", "old-password12", "user")
             .unwrap();
-        let old_session = auth.login("max", "old-password-1").unwrap().1;
+        let old_session = auth.login("max", "old-password12").unwrap().1;
 
         let prompt = ScriptedPrompt {
-            password: "brand-new-9".into(),
+            password: "brand-new-12".into(),
             calls: 0,
         };
         let t0 = Instant::now();
@@ -437,7 +508,7 @@ mod tests {
             auth.verify(&old_session).is_err(),
             "USB recovery must kill stolen browser sessions"
         );
-        auth.login("max", "brand-new-9").unwrap();
-        assert!(auth.login("max", "old-password-1").is_err());
+        auth.login("max", "brand-new-12").unwrap();
+        assert!(auth.login("max", "old-password12").is_err());
     }
 }

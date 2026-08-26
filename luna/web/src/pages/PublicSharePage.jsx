@@ -31,7 +31,6 @@ export default function PublicSharePage() {
   const downloadHref = (childRel, asDownload) => {
     const params = new URLSearchParams();
     if (childRel) params.set("path", childRel);
-    if (submittedPassword) params.set("password", submittedPassword);
     if (asDownload) params.set("download", "1");
     const q = params.toString();
     return `/s/${token}${q ? `?${q}` : ""}`;

@@ -83,14 +83,14 @@ func TestCSRFRejectsCookiePOSTWithoutToken(t *testing.T) {
 	if csrf == "" {
 		t.Fatal("expected csrf cookie on GET")
 	}
-	bad := httptest.NewRequest(http.MethodPost, "/api/v1/account/register", strings.NewReader(`{"email":"a@b.co","password":"password1"}`))
+	bad := httptest.NewRequest(http.MethodPost, "/api/v1/account/register", strings.NewReader(`{"email":"a@b.co","password":"password1234"}`))
 	bad.AddCookie(&http.Cookie{Name: "luna_connect_csrf", Value: csrf})
 	brec := httptest.NewRecorder()
 	h.ServeHTTP(brec, bad)
 	if brec.Code != http.StatusForbidden {
 		t.Fatalf("missing csrf header %d %s", brec.Code, brec.Body.String())
 	}
-	ok := httptest.NewRequest(http.MethodPost, "/api/v1/account/register", strings.NewReader(`{"email":"a@b.co","password":"password1"}`))
+	ok := httptest.NewRequest(http.MethodPost, "/api/v1/account/register", strings.NewReader(`{"email":"a@b.co","password":"password1234"}`))
 	ok.AddCookie(&http.Cookie{Name: "luna_connect_csrf", Value: csrf})
 	ok.Header.Set("X-CSRF-Token", csrf)
 	orec := httptest.NewRecorder()

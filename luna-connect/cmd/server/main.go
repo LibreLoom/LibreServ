@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/accounts"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -80,6 +81,8 @@ func main() {
 		slog.Error("store", "error", err)
 		os.Exit(1)
 	}
+
+	go accounts.RunCleanupLoop(context.Background(), db)
 
 	go func() {
 		t := time.NewTicker(24 * time.Hour)

@@ -142,10 +142,7 @@ func cookieSessionID(r *http.Request) string {
 }
 
 func setupSessionID(r *http.Request) string {
-	if id := cookieSessionID(r); id != "" {
-		return id
-	}
-	return strings.TrimSpace(r.URL.Query().Get("session"))
+	return cookieSessionID(r)
 }
 
 func setSetupSessionCookie(w http.ResponseWriter, id string) {

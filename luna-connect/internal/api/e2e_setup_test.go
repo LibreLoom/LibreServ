@@ -129,7 +129,7 @@ func TestE2EOfficialSetupFlow(t *testing.T) {
 	defer srv.Close()
 
 	regRec, acctCookies := csrfPOST(t, h, "/api/v1/account/register",
-		`{"email":"e2e-official@test.luna","password":"password1"}`)
+		`{"email":"e2e-official@test.luna","password":"password1234"}`)
 	if regRec.Code != http.StatusCreated {
 		t.Fatalf("register: %d %s", regRec.Code, regRec.Body.String())
 	}
@@ -200,7 +200,7 @@ func TestE2EOSSSetupFlow(t *testing.T) {
 	defer srv.Close()
 
 	regRec, acctCookies := csrfPOST(t, h, "/api/v1/account/register",
-		`{"email":"e2e-oss@test.luna","password":"password1"}`)
+		`{"email":"e2e-oss@test.luna","password":"password1234"}`)
 	if regRec.Code != http.StatusCreated {
 		t.Fatalf("register: %d %s", regRec.Code, regRec.Body.String())
 	}
