@@ -135,6 +135,19 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             last_used_at INTEGER NOT NULL DEFAULT 0,
             revoked_at INTEGER
         );
+        CREATE TABLE IF NOT EXISTS device_token_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            used_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+            key TEXT PRIMARY KEY,
+            count INTEGER NOT NULL,
+            window_start INTEGER NOT NULL,
+            locked_until INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS photos (
             drive_id TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -156,6 +169,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(
+        &conn,
+        "device_tokens",
+        "expires_at",
+        "INTEGER",
+    )?;
     Ok(conn)
 }
 
@@ -317,6 +336,8 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "protections",
         "photos",
         "drives",
+        "device_token_usage",
+        "rate_limit_buckets",
     ] {
         conn.execute(&format!("DELETE FROM {table}"), [])?;
     }
@@ -903,6 +924,7 @@ pub struct DeviceTokenRow {
     pub created_at: i64,
     pub last_used_at: i64,
     pub revoked_at: Option<i64>,
+    pub expires_at: Option<i64>,
 }
 
 pub fn insert_device_token(
@@ -911,11 +933,12 @@ pub fn insert_device_token(
     user_id: &str,
     name: &str,
     token_hash: &str,
+    expires_at: Option<i64>,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO device_tokens (id, user_id, name, token_hash, created_at, last_used_at, revoked_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL)",
-        params![id, user_id, name, token_hash, now_unix()],
+        "INSERT INTO device_tokens (id, user_id, name, token_hash, created_at, last_used_at, revoked_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, ?6)",
+        params![id, user_id, name, token_hash, now_unix(), expires_at],
     )?;
     Ok(())
 }
@@ -925,7 +948,7 @@ pub fn get_device_token_by_hash(
     token_hash: &str,
 ) -> anyhow::Result<Option<DeviceTokenRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at
+        "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at, expires_at
          FROM device_tokens WHERE token_hash = ?1",
     )?;
     let mut rows = stmt.query_map(params![token_hash], |row| {
@@ -937,6 +960,7 @@ pub fn get_device_token_by_hash(
             created_at: row.get(4)?,
             last_used_at: row.get(5)?,
             revoked_at: row.get::<_, Option<i64>>(6)?,
+            expires_at: row.get::<_, Option<i64>>(7)?,
         })
     })?;
     Ok(rows.next().transpose()?)
@@ -947,7 +971,7 @@ pub fn list_device_tokens_for_user(
     user_id: &str,
 ) -> anyhow::Result<Vec<DeviceTokenRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at
+        "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at, expires_at
          FROM device_tokens WHERE user_id = ?1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![user_id], |row| {
@@ -959,6 +983,7 @@ pub fn list_device_tokens_for_user(
             created_at: row.get(4)?,
             last_used_at: row.get(5)?,
             revoked_at: row.get::<_, Option<i64>>(6)?,
+            expires_at: row.get::<_, Option<i64>>(7)?,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -977,6 +1002,146 @@ pub fn revoke_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
         "UPDATE device_tokens SET revoked_at = ?2 WHERE id = ?1",
         params![id, now_unix()],
     )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceTokenUsageRow {
+    pub action: String,
+    pub detail: String,
+    pub used_at: i64,
+}
+
+pub fn insert_device_token_usage(
+    conn: &Connection,
+    token_id: &str,
+    action: &str,
+    detail: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO device_token_usage (token_id, action, detail, used_at) VALUES (?1, ?2, ?3, ?4)",
+        params![token_id, action, detail, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn list_device_token_usage(
+    conn: &Connection,
+    token_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<DeviceTokenUsageRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT action, detail, used_at FROM device_token_usage
+         WHERE token_id = ?1 ORDER BY used_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![token_id, limit], |row| {
+        Ok(DeviceTokenUsageRow {
+            action: row.get(0)?,
+            detail: row.get(1)?,
+            used_at: row.get(2)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn rate_limit_allow(
+    conn: &Connection,
+    key: &str,
+    window_secs: i64,
+    max: i64,
+) -> anyhow::Result<bool> {
+    let now = now_unix();
+    let tx = conn.unchecked_transaction()?;
+    let mut count: i64 = 0;
+    let mut window_start: i64 = now;
+    let locked_until: i64 = tx
+        .query_row(
+            "SELECT count, window_start, locked_until FROM rate_limit_buckets WHERE key = ?1",
+            params![key],
+            |row| {
+                count = row.get(0)?;
+                window_start = row.get(1)?;
+                Ok(row.get(2)?)
+            },
+        )
+        .unwrap_or(0);
+    if locked_until > now {
+        tx.commit()?;
+        return Ok(false);
+    }
+    if count == 0 || now - window_start >= window_secs {
+        tx.execute(
+            "INSERT INTO rate_limit_buckets (key, count, window_start, locked_until)
+             VALUES (?1, 1, ?2, 0)
+             ON CONFLICT(key) DO UPDATE SET count = 1, window_start = excluded.window_start, locked_until = 0",
+            params![key, now],
+        )?;
+        tx.commit()?;
+        return Ok(true);
+    }
+    if count >= max {
+        tx.commit()?;
+        return Ok(false);
+    }
+    tx.execute(
+        "UPDATE rate_limit_buckets SET count = count + 1 WHERE key = ?1",
+        params![key],
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
+pub fn share_auth_locked(conn: &Connection, key: &str) -> anyhow::Result<bool> {
+    let now = now_unix();
+    let locked: i64 = conn
+        .query_row(
+            "SELECT locked_until FROM rate_limit_buckets WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    Ok(locked > now)
+}
+
+pub fn share_auth_failure(conn: &Connection, key: &str, max_failures: u32) -> anyhow::Result<bool> {
+    let now = now_unix();
+    let tx = conn.unchecked_transaction()?;
+    let mut count: i64 = 0;
+    let existing: Option<(i64, i64)> = tx
+        .query_row(
+            "SELECT count, locked_until FROM rate_limit_buckets WHERE key = ?1",
+            params![key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    if let Some((_, locked_until)) = existing
+        && locked_until > now
+    {
+        tx.commit()?;
+        return Ok(true);
+    }
+    if let Some((c, _)) = existing {
+        count = c;
+    }
+    count += 1;
+    let locked_until = if count >= max_failures as i64 {
+        let exponent = (count - max_failures as i64).min(10);
+        now + 60 * (1_i64 << exponent)
+    } else {
+        0
+    };
+    tx.execute(
+        "INSERT INTO rate_limit_buckets (key, count, window_start, locked_until)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(key) DO UPDATE SET count = excluded.count, locked_until = excluded.locked_until",
+        params![key, count, now, locked_until],
+    )?;
+    tx.commit()?;
+    Ok(locked_until > now)
+}
+
+pub fn share_auth_clear(conn: &Connection, key: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM rate_limit_buckets WHERE key = ?1", params![key])?;
     Ok(())
 }
 
