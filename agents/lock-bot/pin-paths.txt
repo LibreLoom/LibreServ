@@ -1,0 +1,5 @@
+# JS trees that must have package-lock.json (from 2026-08-25 inventory)
+connect/web/admin
+connect/web/customer
+luna-connect/web
+luna/desktop
