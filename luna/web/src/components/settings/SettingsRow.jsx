@@ -17,20 +17,22 @@ export default function SettingsRow({
     <div
       data-slot="settings-row"
       className={cn(
-        stack ? "flex flex-col gap-3 md:flex-row md:items-center md:justify-between" : "flex items-center justify-between",
+        stack
+          ? "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
+          : "flex items-center justify-between",
         compact ? "py-1" : "py-3",
         "px-4",
         !hideDivider && "border-b border-primary/10",
         className,
       )}
     >
-      <div className={stack ? "md:flex-1 md:min-w-0 md:pr-4" : "flex-1 min-w-0 pr-4"}>
+      <div className={stack ? "w-full lg:flex-1 lg:min-w-0 lg:pr-4" : "flex-1 min-w-0 pr-4"}>
         <div className={cn("text-primary", mono && "font-mono")}>{label}</div>
         {description && (
           <div className="text-sm text-accent mt-0.5">{description}</div>
         )}
       </div>
-      <div className={stack ? "flex justify-center md:flex-none" : "flex-shrink-0"}>{children}</div>
+      <div className={stack ? "w-full min-w-0 lg:w-auto lg:flex-none" : "flex-shrink-0"}>{children}</div>
     </div>
   );
 }
