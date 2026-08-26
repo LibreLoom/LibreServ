@@ -4,8 +4,7 @@ import NetworkCategory from "./categories/NetworkCategory.jsx";
 import RemoteCategory from "./categories/RemoteCategory.jsx";
 import CloudBackupCategory from "./categories/CloudBackupCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";
-import AppsCategory from "./categories/AppsCategory.jsx";
-import SignedInCategory from "./categories/SignedInCategory.jsx";
+import AccessCategory from "./categories/AccessCategory.jsx";
 import UpdatesCategory from "./categories/UpdatesCategory.jsx";
 
 const CATEGORY_TITLES = {
@@ -14,8 +13,7 @@ const CATEGORY_TITLES = {
   remote: "Remote access",
   cloud: "Cloud backup",
   devices: "Phones and computers",
-  apps: "Apps and access tokens",
-  signed_in: "Who is signed in",
+  access: "Access",
   updates: "Software updates",
 };
 
@@ -25,8 +23,7 @@ const CATEGORY_COMPONENTS = {
   remote: RemoteCategory,
   cloud: CloudBackupCategory,
   devices: DevicesCategory,
-  apps: AppsCategory,
-  signed_in: SignedInCategory,
+  access: AccessCategory,
   updates: UpdatesCategory,
 };
 
