@@ -107,18 +107,16 @@ describe("SettingsPage", () => {
     expect(screen.queryByText(/Keep this card somewhere safe/i)).toBeNull();
   });
 
-  it("keeps sign-out, tokens, and updates behind their own categories", async () => {
+  it("keeps access and updates in their own categories", async () => {
     stubFetch("admin");
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("max");
 
-    await user.click(screen.getByRole("button", { name: /Who is signed in/i }));
+    await user.click(screen.getByRole("button", { name: /^Access$/i }));
     expect(await screen.findByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Revoke app access/i })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Apps and access tokens" }));
-    expect(await screen.findByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Software updates/i }));
