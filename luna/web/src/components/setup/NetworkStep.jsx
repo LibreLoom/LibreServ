@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import PropTypes from "prop-types";
-import { AlertCircle, ArrowRight, Cable, Check, X } from "lucide-react";
+import { ArrowRight, Cable, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getJson, postJson } from "../../lib/api";
+import { getJson } from "../../lib/api";
 import Button from "../ui/Button";
 import Pill from "../common/Pill";
 import { TermHint } from "../ui/Tooltip";
-import { useState } from "react";
 
 function BoardRow({ ok, okText, offText }) {
   return (
@@ -38,8 +37,6 @@ BoardRow.propTypes = {
 };
 
 export default function NetworkStep({ name, onContinue }) {
-  const [code, setCode] = useState("");
-  const [codeMsg, setCodeMsg] = useState("");
   const netStatus = useQuery({
     queryKey: ["network-status"],
     queryFn: () => getJson("/api/v1/network/status"),
@@ -51,21 +48,11 @@ export default function NetworkStep({ name, onContinue }) {
   const online = ethernet && (netStatus.data?.has_default_route || ipv4.length > 0);
   const waitingLease = ethernet && !online;
 
-  const submitCode = async () => {
-    setCodeMsg("");
-    try {
-      await postJson("/api/v1/connect/setup-code", { code: code.trim() });
-      setCodeMsg("Saved. Luna will use this code to connect to Luna Connect.");
-    } catch (err) {
-      setCodeMsg(err?.message || "That code did not work. Check it and try again.");
-    }
-  };
-
   return (
-    <div className="flex flex-col items-center text-center py-2" data-slot="setup-network-step">
+    <div className="flex flex-col items-center text-center pt-2" data-slot="setup-network-step">
       <Cable size={40} className="text-accent mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Plug in the cable
+        Connect Ethernet
       </h1>
       <p className="text-primary text-sm leading-relaxed max-w-md mb-8">
         {waitingLease
@@ -87,7 +74,7 @@ export default function NetworkStep({ name, onContinue }) {
             )}
       </p>
 
-      <div className="w-full max-w-sm space-y-2 mb-8" data-slot="network-board">
+      <div className="w-full max-w-sm space-y-2" data-slot="network-board">
         <BoardRow
           ok={ethernet}
           okText={ipv4[0] ? ipv4[0] : "Plugged in"}
@@ -96,32 +83,11 @@ export default function NetworkStep({ name, onContinue }) {
       </div>
 
       {online && (
-        <div className="w-full max-w-sm flex flex-col items-center space-y-5 text-left">
+        <div className="w-full max-w-sm flex flex-col items-center space-y-5 text-left mt-8" data-slot="network-online">
           <Button variant="primary" fullWidth onClick={onContinue} className="group py-4 font-mono">
             Continue
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
           </Button>
-          <label className="block w-full text-primary text-sm">
-            Code from the Luna Connect site
-            <input
-              className="mt-1 w-full px-5 py-3 rounded-pill border border-primary bg-transparent text-primary font-mono text-sm"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="Six letters, or skip"
-            />
-          </label>
-          <p className="text-primary text-sm">
-            If you set this computer up yourself, paste the short code from the Luna Connect site. Official boxes can skip this.
-          </p>
-          {code.trim() && (
-            <Button variant="outline" fullWidth onClick={submitCode}>Save code</Button>
-          )}
-          {codeMsg && (
-            <p className="flex items-center gap-1.5 text-sm text-primary" role="status">
-              <AlertCircle size={14} />
-              {codeMsg}
-            </p>
-          )}
         </div>
       )}
     </div>

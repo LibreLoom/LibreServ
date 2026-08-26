@@ -13,11 +13,7 @@ import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
-import {
-  isMockUnknownDrive,
-  mockInspectResult,
-  withDevMockDetected,
-} from "../lib/devMockDrives.js";
+import { withDevMockDetected } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 
 const STATE_PILLS = {
@@ -156,10 +152,10 @@ export default function DrivesPage() {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
-  /** Dev mock can be dismissed without calling lunad. */
+  /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
-    (d) => !(dismissedMock && isMockUnknownDrive(d.name)),
+    (d) => !(dismissedMock && d.name === "sdmock" && !detected.data?.some((real) => real.name === "sdmock")),
   );
   const access = useQuery({
     queryKey: ["my-access"],
@@ -168,40 +164,27 @@ export default function DrivesPage() {
   });
 
   const inspect = useMutation({
-    mutationFn: (/** @type {any} */ drive) => {
-      if (isMockUnknownDrive(drive.name)) return Promise.resolve(mockInspectResult());
-      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
-    },
+    mutationFn: (/** @type {any} */ drive) =>
+      postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
   });
 
   const adopt = useMutation({
-    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) => {
-      if (isMockUnknownDrive(drive.name)) {
-        // Dev fixture only — close the flow so Max can review the UI without hardware.
-        return Promise.resolve({ mock: true, label });
-      }
-      return postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) });
-    },
-    onSuccess: (_data, vars) => {
+    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
+      postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
+    onSuccess: () => {
       setInspectFor(null);
       setActionError(null);
       adopt.reset();
-      if (vars?.drive && isMockUnknownDrive(vars.drive.name)) {
-        setDismissedMock(true);
-        return;
-      }
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
   });
 
   const dismiss = useMutation({
-    mutationFn: (/** @type {any} */ drive) => {
-      if (isMockUnknownDrive(drive.name)) return Promise.resolve({ mock: true });
-      return postJson(`/api/v1/drives/${drive.name}/dismiss`, {});
-    },
+    mutationFn: (/** @type {any} */ drive) =>
+      postJson(`/api/v1/drives/${drive.name}/dismiss`, {}),
     onSuccess: (_data, drive) => {
-      if (drive && isMockUnknownDrive(drive.name)) {
+      if (drive && !detected.data?.some((real) => real.name === drive.name)) {
         setDismissedMock(true);
         return;
       }
@@ -311,7 +294,12 @@ export default function DrivesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
-                onOpen={(d) => { inspect.reset(); adopt.reset(); setInspectFor(d); }}
+                onOpen={(d) => {
+                  inspect.reset();
+                  adopt.reset();
+                  setInspectFor(d);
+                  inspect.mutate(d);
+                }}
                 onIgnore={(d) => dismiss.mutate(d)}
               />
             ))}
@@ -355,10 +343,8 @@ export default function DrivesPage() {
         <InspectModal
           drive={inspectFor}
           result={inspect.data}
-          loading={inspect.isPending}
           error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
           onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
-          onInspect={() => { adopt.reset(); inspect.mutate(inspectFor); }}
           onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
           adoptError={adoptError}
           adopting={adopt.isPending}
@@ -368,10 +354,9 @@ export default function DrivesPage() {
   );
 }
 
-function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdopt, adoptError, adopting }) {
+function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adopting }) {
   const [label, setLabel] = useState(drive.model || "My Drive");
   const [confirmErase, setConfirmErase] = useState(false);
-  const needsInspect = !result && !loading && !error;
   const needsErase = Boolean(result?.needs_erase);
   const canUse = Boolean(result) && result.readable && (result.writable || needsErase);
   const blockedReason = result && !canUse
@@ -382,19 +367,9 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
 
   return (
     <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
-      {needsInspect && (
-        <>
-          <p className="text-primary text-sm">
-            Luna will look in read-only mode. Nothing is written until you add it.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <Button variant="primary" onClick={onInspect}>Look inside</Button>
-            <Button variant="outline" onClick={onClose}>Not now</Button>
-          </div>
-        </>
+      {!result && !error && (
+        <p className="text-primary text-sm">Looking… Luna reads in read-only mode and changes nothing until you add it.</p>
       )}
-
-      {loading && <p className="text-primary text-sm">Looking…</p>}
 
       {error && (
         <>

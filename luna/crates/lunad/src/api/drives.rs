@@ -105,7 +105,7 @@ async fn detected(
 ) -> Result<Json<Vec<DetectedDriveJson>>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-    let drives = crate::detect::scan(std::path::Path::new("/sys/block"), &mounts);
+    let drives = crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is.
     let known_devices = with_db(&state.db, |conn| {
         state.drive_manager.reconcile(conn, &drives)?;
@@ -282,7 +282,7 @@ async fn drive_health(
 
 fn find_device(name: &str) -> Option<crate::detect::DetectedDrive> {
     let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
-    crate::detect::scan(std::path::Path::new("/sys/block"), &mounts)
+    crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts)
         .into_iter()
         .find(|d| d.name == name && d.is_storage_candidate())
 }
