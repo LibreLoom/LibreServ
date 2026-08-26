@@ -1,0 +1,17 @@
+# docs-bot overlay on the dsh-headless bundle.
+# Keep Exa for looking up advisories and upstream source.
+# This agent NEVER posts PR reviews. No review plugin. No nightly template.
+
+- insert:
+    - id: mcp-exa
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: exa
+        transport: streamable-http
+        url: https://mcp.exa.ai/mcp
+        toolCallTimeoutMs: 60000
+        reconnect:
+          enabled: true
+          initialDelayMs: 1000
+          maxDelayMs: 30000
+          maxAttempts: 10
