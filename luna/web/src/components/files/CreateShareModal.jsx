@@ -43,20 +43,24 @@ export default function CreateShareModal({
   if (result) {
     return (
       <ModalCard title="Link ready" onClose={onDone}>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            value={result.fullUrl}
-            onFocus={(e) => e.target.select()}
-          />
-          <Button size="sm" variant="primary" onClick={copyLink}>
-            {copied ? "Copied" : "Copy"}
-          </Button>
-        </div>
-        <div className="mt-4 flex gap-3">
-          <Button variant="outline" onClick={onDone}>Done</Button>
-        </div>
+        {({ close }) => (
+          <>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+                value={result.fullUrl}
+                onFocus={(e) => e.target.select()}
+              />
+              <Button size="sm" variant="primary" onClick={copyLink}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <Button variant="outline" onClick={close}>Done</Button>
+            </div>
+          </>
+        )}
       </ModalCard>
     );
   }

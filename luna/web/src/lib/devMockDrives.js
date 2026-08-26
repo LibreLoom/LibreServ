@@ -1,6 +1,7 @@
 /**
- * Dev-only fixture: a 64GB portable SSD in Unknown Drives so UI review
- * (Look inside / add) works without plugging in hardware.
+ * Dev-only fallback when lunad is not running the mock PSSD (UI-only review).
+ * When lunad reports `sdmock` from `/api/v1/drives/detected`, the real API
+ * handles inspect/adopt — this module only injects the card if the API is empty.
  *
  * Gating:
  * - Never in production builds (`import.meta.env.PROD`).

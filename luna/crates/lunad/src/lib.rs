@@ -9,6 +9,7 @@ pub mod dav;
 mod dav_fs;
 pub mod db;
 pub mod detect;
+pub mod dev_mock;
 pub mod dhcp;
 pub mod drives;
 pub mod exif;

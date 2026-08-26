@@ -554,38 +554,46 @@ export default function FilesPage() {
 
       {deleteTarget && (
         <ModalCard title="Move to trash?" onClose={() => setDeleteTarget(null)}>
-          <p className="text-primary text-sm">
-            <span className="font-mono">{deleteTarget.name}</span> will move to
-            Luna&apos;s trash on this drive. You can get it back later from Open trash.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <Button variant="danger" loading={removeMutation.isPending} onClick={() => removeMutation.mutate(deleteTarget)}>
-              Move to trash
-            </Button>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Keep it</Button>
-          </div>
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm">
+                <span className="font-mono">{deleteTarget.name}</span> will move to
+                Luna&apos;s trash on this drive. You can get it back later from Open trash.
+              </p>
+              <div className="mt-4 flex gap-3">
+                <Button variant="danger" loading={removeMutation.isPending} onClick={() => removeMutation.mutate(deleteTarget)}>
+                  Move to trash
+                </Button>
+                <Button variant="outline" onClick={close}>Keep it</Button>
+              </div>
+            </>
+          )}
         </ModalCard>
       )}
 
       {renameTarget && (
         <ModalCard title={`Rename ${renameTarget.name}`} onClose={() => setRenameTarget(null)}>
-          <input
-            className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-            value={renameValue}
-            maxLength={255}
-            onChange={(e) => setRenameValue(e.target.value)}
-          />
-          {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
-          <div className="mt-4 flex gap-3">
-            <Button
-              variant="primary"
-              loading={renameMutation.isPending}
-              onClick={() => renameMutation.mutate({ entry: renameTarget, newName: renameValue })}
-            >
-              Rename
-            </Button>
-            <Button variant="outline" onClick={() => setRenameTarget(null)}>Cancel</Button>
-          </div>
+          {({ close }) => (
+            <>
+              <input
+                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={renameValue}
+                maxLength={255}
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+              {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
+              <div className="mt-4 flex gap-3">
+                <Button
+                  variant="primary"
+                  loading={renameMutation.isPending}
+                  onClick={() => renameMutation.mutate({ entry: renameTarget, newName: renameValue })}
+                >
+                  Rename
+                </Button>
+                <Button variant="outline" onClick={close}>Cancel</Button>
+              </div>
+            </>
+          )}
         </ModalCard>
       )}
 
@@ -594,69 +602,81 @@ export default function FilesPage() {
           title={copyKind === "move" ? `Move ${copyTarget.name}` : `Copy ${copyTarget.name}`}
           onClose={() => setCopyTarget(null)}
         >
-          <p className="text-primary text-sm mb-3">
-            {copyKind === "move"
-              ? "Luna will copy it first, then put the original in trash."
-              : "The original stays where it is."}
-          </p>
-          <label className="block text-primary text-xs mb-1">Which drive?</label>
-          <Dropdown
-            options={(drives.data || []).map((d) => ({ value: d.id, label: d.label }))}
-            value={copyDrive}
-            onChange={setCopyDrive}
-            fullWidth
-          />
-          <label className="block text-primary text-xs mt-3 mb-1">Folder on that drive</label>
-          <input
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-            value={copyFolder}
-            placeholder="Leave blank for the top of the drive"
-            onChange={(e) => setCopyFolder(e.target.value)}
-          />
-          {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
-          <div className="mt-4 flex gap-3">
-            <Button variant="primary" loading={copyMutation.isPending} onClick={() => copyMutation.mutate()}>
-              {copyKind === "move" ? "Start moving" : "Start copying"}
-            </Button>
-            <Button variant="outline" onClick={() => setCopyTarget(null)}>Cancel</Button>
-          </div>
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm mb-3">
+                {copyKind === "move"
+                  ? "Luna will copy it first, then put the original in trash."
+                  : "The original stays where it is."}
+              </p>
+              <label className="block text-primary text-xs mb-1">Which drive?</label>
+              <Dropdown
+                options={(drives.data || []).map((d) => ({ value: d.id, label: d.label }))}
+                value={copyDrive}
+                onChange={setCopyDrive}
+                fullWidth
+              />
+              <label className="block text-primary text-xs mt-3 mb-1">Folder on that drive</label>
+              <input
+                className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={copyFolder}
+                placeholder="Leave blank for the top of the drive"
+                onChange={(e) => setCopyFolder(e.target.value)}
+              />
+              {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
+              <div className="mt-4 flex gap-3">
+                <Button variant="primary" loading={copyMutation.isPending} onClick={() => copyMutation.mutate()}>
+                  {copyKind === "move" ? "Start moving" : "Start copying"}
+                </Button>
+                <Button variant="outline" onClick={close}>Cancel</Button>
+              </div>
+            </>
+          )}
         </ModalCard>
       )}
 
       {restoreTarget && (
         <ModalCard title="Put this back?" onClose={() => setRestoreTarget(null)}>
-          <p className="text-primary text-sm">
-            Luna will move it out of trash on this same drive. Choose the name it should have.
-          </p>
-          <input
-            className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-            value={restoreName}
-            onChange={(e) => setRestoreName(e.target.value)}
-            aria-label="Restored file name"
-          />
-          {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
-          <div className="mt-4 flex gap-3">
-            <Button variant="primary" loading={restoreMutation.isPending} onClick={() => restoreMutation.mutate(restoreTarget)}>
-              Put it back
-            </Button>
-            <Button variant="outline" onClick={() => setRestoreTarget(null)}>Not now</Button>
-          </div>
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm">
+                Luna will move it out of trash on this same drive. Choose the name it should have.
+              </p>
+              <input
+                className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={restoreName}
+                onChange={(e) => setRestoreName(e.target.value)}
+                aria-label="Restored file name"
+              />
+              {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
+              <div className="mt-4 flex gap-3">
+                <Button variant="primary" loading={restoreMutation.isPending} onClick={() => restoreMutation.mutate(restoreTarget)}>
+                  Put it back
+                </Button>
+                <Button variant="outline" onClick={close}>Not now</Button>
+              </div>
+            </>
+          )}
         </ModalCard>
       )}
 
       {purgeTarget && (
         <ModalCard title="Delete forever?" onClose={() => setPurgeTarget(null)}>
-          <p className="text-primary text-sm">
-            <span className="font-mono">{purgeTarget.original_name}</span> will be
-            removed for good. Luna cannot get it back after this.
-          </p>
-          {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
-          <div className="mt-4 flex gap-3">
-            <Button variant="danger" loading={purgeMutation.isPending} onClick={() => purgeMutation.mutate(purgeTarget)}>
-              Delete forever
-            </Button>
-            <Button variant="outline" onClick={() => setPurgeTarget(null)}>Keep in trash</Button>
-          </div>
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm">
+                <span className="font-mono">{purgeTarget.original_name}</span> will be
+                removed for good. Luna cannot get it back after this.
+              </p>
+              {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
+              <div className="mt-4 flex gap-3">
+                <Button variant="danger" loading={purgeMutation.isPending} onClick={() => purgeMutation.mutate(purgeTarget)}>
+                  Delete forever
+                </Button>
+                <Button variant="outline" onClick={close}>Keep in trash</Button>
+              </div>
+            </>
+          )}
         </ModalCard>
       )}
       {accessTarget && (

@@ -12,11 +12,15 @@ import (
 
 type customerContext struct{}
 
-// CustomerAuth authenticates customer portal sessions via bearer token.
+// CustomerAuth authenticates customer portal sessions via bearer token
+// or the HttpOnly portal session cookie.
 func CustomerAuth(db *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearer(r)
+			if token == "" {
+				token = portalSessionToken(r)
+			}
 			if token == "" {
 				http.Error(w, `{"error":"missing token"}`, http.StatusUnauthorized)
 				return

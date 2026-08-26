@@ -563,6 +563,24 @@ body {
     }
 }
 
+@keyframes zoom-in-95 {
+    from {
+        transform: scale(0.95);
+    }
+    to {
+        transform: scale(1);
+    }
+}
+
+@keyframes zoom-out-95 {
+    from {
+        transform: scale(1);
+    }
+    to {
+        transform: scale(0.95);
+    }
+}
+
 @keyframes slide-in-from-bottom-1 {
     from {
         transform: translateY(4px);
@@ -653,6 +671,14 @@ body {
 
 .fade-out {
     animation-name: fade-out;
+}
+
+.zoom-in-95 {
+    animation-name: fade-in, zoom-in-95;
+}
+
+.zoom-out-95 {
+    animation-name: fade-out, zoom-out-95;
 }
 
 .slide-in-from-bottom-1 {
@@ -754,7 +780,9 @@ body {
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
     .pop-in,
-    .pop-out {
+    .pop-out,
+    .animate-in,
+    .animate-out {
         animation: none !important;
     }
     .animate-md-bar-1,
