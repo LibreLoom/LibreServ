@@ -553,25 +553,12 @@ echo "==> context $(wc -c < "${CTX}") bytes"
 PROMPT_FILE="${ATLAS_PROMPT_FILE:-${HERE}/prompt.md}"
 if [[ ${assigned} -eq 1 && ${mentioned} -eq 0 ]]; then
   if [[ "${IS_PULL}" == "1" ]]; then
-    DEFAULT_TASK="You were assigned this PR. Work this PR in place. Do not open a second PR unless this one cannot be used. Mentions are just mentions — there is no special review job type. Never POST /pulls/.../reviews except via fj, and only when the Owner asked you to review. Never spawn a subagent or ralph to review. Do not POST issue comments. Do not auto-review just because you cloned a PR."
+    DEFAULT_TASK="You were assigned this PR. Work this PR in place. Do not open a second PR unless this one cannot be used."
   else
-    DEFAULT_TASK="You were assigned this issue. Implement a fix on branch atlas-bot/<short-slug> and open a PR that resolves it. PR body must include Fixes #${INDEX}. Do not merge unless asked. Do not POST issue comments."
+    DEFAULT_TASK="You were assigned this issue. Implement a fix on branch atlas-bot/<short-slug> and open a PR that resolves it. PR body must include Fixes #${INDEX}. Do not merge unless asked."
   fi
 else
-  lc_ask="$(printf '%s' "${COMMENT_BODY}" | tr '[:upper:]' '[:lower:]')"
-  review_ask=0
-  case "${lc_ask}" in
-    *"review this"*|*"review the pr"*|*"review this pr"*|*"approve this"*|*"request changes"*|*"request-changes"*) review_ask=1 ;;
-  esac
-  if printf '%s' "${lc_ask}" | grep -qE '@atlas-bot[[:space:]]+(please[[:space:]]+)?review([^[:alnum:]]|$)'; then
-    review_ask=1
-  fi
-  # "scan" / "verify" / "check the docs" is not a review ask.
-  if [[ ${review_ask} -eq 1 ]]; then
-    DEFAULT_TASK="Follow @${SENDER}'s mention. They explicitly asked for a PR review. You may set review state with: fj pr review create ${INDEX} --approve|--request-changes|--comment --body. Never curl POST /pulls/.../reviews. Never write 'Automated review by Atlas' or Findings/Verdict headings. Do not POST issue comments."
-  else
-    DEFAULT_TASK="Follow @${SENDER}'s mention. That is the instruction. This is NOT a PR-review ask. Do not run fj pr review create. Do not approve or request-changes. Do not POST /pulls/.../reviews. Do not write 'Automated review by Atlas' or Findings/Verdict headings. Never spawn a subagent or ralph to review. Do not POST issue comments."
-  fi
+  DEFAULT_TASK="Follow @${SENDER}'s mention. That is the instruction."
 fi
 if [[ "${IS_PULL}" == "1" ]]; then KIND=PR; else KIND=issue; fi
 TASK="$(cat "${PROMPT_FILE}")
