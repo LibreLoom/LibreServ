@@ -64,7 +64,7 @@ describe("SetupPage", () => {
     vi.stubGlobal("fetch", stubFetch());
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
-    expect(await screen.findByRole("heading", { name: /Plug in the cable/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Connect Ethernet/i })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Cable")).toBeTruthy());
   });
 
