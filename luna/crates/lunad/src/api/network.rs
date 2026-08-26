@@ -35,9 +35,10 @@ async fn status(
         std::path::Path::new("/sys/class/net"),
         &std::fs::read_to_string("/proc/net/route").unwrap_or_default(),
     );
-    let setup = state.auth.count_users().unwrap_or(1) == 0;
+    let wizard_open =
+        state.auth.count_users().unwrap_or(1) == 0 || crate::auth::setup_wizard_open(&state);
     let admin = current.as_ref().is_some_and(|u| u.role == "admin");
-    if setup || admin {
+    if wizard_open || admin {
         return Ok(Json(serde_json::to_value(&full).unwrap_or(json!({}))));
     }
     // Household members only need "are we online?", not interface names or IPs.
@@ -103,8 +104,7 @@ fn network_setup_or_admin(
     state: &AppState,
     current: Option<&Extension<crate::auth::CurrentUser>>,
 ) -> bool {
-    let has_users = state.auth.count_users().unwrap_or(1) > 0;
-    if !has_users {
+    if state.auth.count_users().unwrap_or(1) == 0 || crate::auth::setup_wizard_open(state) {
         return true;
     }
     current.map(|u| u.role == "admin").unwrap_or(false)
