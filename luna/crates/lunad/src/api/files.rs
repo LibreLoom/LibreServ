@@ -14,6 +14,39 @@ use crate::api::response::json_error;
 use crate::files::{self, FileEntry, FilesError};
 
 const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024 * 1024;
+// A destination folder path never needs to come close to this.
+const MAX_PATH_FIELD_BYTES: usize = 4 * 1024;
+
+/// Reads a multipart text field with a hard cap so an oversized field cannot
+/// exhaust memory before validation (the body itself may be up to
+/// MAX_UPLOAD_BYTES). A mid-stream read error, truncation, or invalid UTF-8
+/// fails the whole field rather than accepting a partial destination.
+async fn read_bounded_text(
+    field: &mut axum::extract::multipart::Field<'_>,
+    max: usize,
+) -> Result<String, (StatusCode, Json<Value>)> {
+    let mut buf: Vec<u8> = Vec::with_capacity(128);
+    while let Some(chunk) = field.chunk().await.map_err(|_| {
+        json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna couldn't read the upload destination.",
+        )
+    })? {
+        if buf.len() + chunk.len() > max {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That upload destination is too long.",
+            ));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    String::from_utf8(buf).map_err(|_| {
+        json_error(
+            StatusCode::BAD_REQUEST,
+            "That upload destination is not valid text.",
+        )
+    })
+}
 
 #[derive(Deserialize)]
 struct ListQuery {
@@ -314,12 +347,7 @@ async fn upload(
     {
         match field.name() {
             Some("path") => {
-                dest_rel = field.text().await.map_err(|_| {
-                    json_error(
-                        StatusCode::BAD_REQUEST,
-                        "Luna couldn't read the upload destination.",
-                    )
-                })?;
+                dest_rel = read_bounded_text(&mut field, MAX_PATH_FIELD_BYTES).await?;
                 if !query_path.is_empty() && dest_rel != query_path {
                     return Err(json_error(
                         StatusCode::FORBIDDEN,
@@ -703,6 +731,38 @@ mod http_tests {
         let res = call(&app, http).await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert!(!mount.path().join("secret/x.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn oversized_multipart_path_field_is_refused() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+        }
+
+        let boundary = "----luna";
+        let big_path = "a".repeat(MAX_PATH_FIELD_BYTES + 1);
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n{big_path}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nhi\r\n--{boundary}--\r\n"
+        );
+        let mut http = HttpReq::builder()
+            .method(Method::POST)
+            .uri("/api/v1/drives/photos/files/upload?path=family")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("cookie", &sam_cookie)
+            .body(Body::from(body))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert!(!mount.path().join("family/a/a/x.txt").exists());
     }
 
     #[cfg(unix)]

@@ -132,6 +132,15 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
+	// Idempotent: a stored subscription id means one already exists at
+	// Stripe — subscribing again would bill the customer twice while we
+	// overwrite the old id and lose track of it. The cancellation webhook
+	// clears stripe_subscription_id, which is what re-opens this path.
+	if acct.StripeSub != "" {
+		already := acct.BillingStatus == "active" || acct.BillingStatus == "dev"
+		JSON(w, http.StatusOK, map[string]any{"ok": true, "already_active": already})
+		return
+	}
 	var raw json.RawMessage
 	_ = json.NewDecoder(r.Body).Decode(&raw)
 	pm := paymentMethodFromJSON(raw)

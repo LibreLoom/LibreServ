@@ -7,12 +7,20 @@ import (
 	"strings"
 	"testing"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
 func testServer(t *testing.T) http.Handler {
+	t.Helper()
+	return testServerWithProviders(t, nil, nil)
+}
+
+func testServerWithProviders(t *testing.T, tunnel providers.Tunnel, dns providers.DNS) http.Handler {
 	t.Helper()
 	t.Setenv("LUNACONNECT_DEV", "1")
 	dir := t.TempDir()
@@ -28,7 +36,20 @@ func testServer(t *testing.T) http.Handler {
 		t.Fatal(err)
 	}
 	config.C.Server.BaseURL = "https://connect.luna.libreloom.org"
-	return NewServer(db, st).Router()
+	if tunnel == nil {
+		tunnel = &providers.TunnelClient{MockMode: true}
+	}
+	if dns == nil {
+		dns = &providers.DNSClient{MockMode: true}
+	}
+	s := &Server{
+		db: db,
+		deps: handlers.Deps{
+			DB: db, Store: st, Tunnel: tunnel, DNS: dns, Hub: setuphub.New(),
+		},
+	}
+	s.routes()
+	return s.Router()
 }
 
 func TestSecurityHeaders(t *testing.T) {

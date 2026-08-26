@@ -361,6 +361,28 @@ pub fn clear_session_cookie(secure: bool) -> String {
     format!("{SESSION_COOKIE}=; Path=/; HttpOnly; Max-Age=0{secure_flag}")
 }
 
+/// CSRF origin comparison mirroring Luna Connect's `originGuard`: parse the
+/// Origin as a URL and compare its authority (host plus explicit port) with
+/// the request's Host header. Textual prefix-stripping mishandles explicit
+/// ports and bracketed IPv6 hosts, and garbage Origins must fail closed.
+fn origin_matches_host(origin: &str, host_header: Option<&str>) -> bool {
+    let Some(host_header) = host_header else {
+        return false;
+    };
+    let Ok(uri) = origin.parse::<axum::http::Uri>() else {
+        // Garbage origins fail closed; real browsers always send a URL.
+        return false;
+    };
+    // A bare hostname parses as authority-form with no scheme — Go's
+    // url.Parse treats it as a path instead, so Luna Connect rejects it.
+    // Require http/https to keep the two guards identical.
+    if !matches!(uri.scheme_str(), Some("http") | Some("https")) {
+        return false;
+    }
+    uri.authority()
+        .is_some_and(|authority| authority.as_str().eq_ignore_ascii_case(host_header))
+}
+
 pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
     if let Some(auth) = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -395,10 +417,26 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
     })
 }
 
+/// True while the first-run setup wizard is still open (`setup_completed` is
+/// false or unset). Used to keep network/connect endpoints reachable during
+/// setup even when a dev database already has an account.
+pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
+    let Ok(conn) = state.db.lock() else {
+        return false;
+    };
+    let completed = crate::db::get_meta(&conn, "setup")
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+        .unwrap_or(false);
+    !completed
+}
+
 /// Global auth guard: health, auth, setup, and the SPA shell stay public;
 /// every `/api/` data endpoint requires a valid session. The first-run setup
-/// wizard must reach the network endpoints before any account exists, so they
-/// stay public for exactly as long as the user table is empty.
+/// wizard must reach the network endpoints before setup is finished, so they
+/// stay public while the user table is empty or setup is still incomplete.
 ///
 /// A valid session (cookie, Bearer, or device token) is resolved and attached
 /// to the request even on public paths. Without that, `/api/v1/auth/me` can
@@ -407,6 +445,32 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
 /// context (after finishing setup, and after every login).
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
+    // CSRF: cookie-authenticated mutations must come from our own origin.
+    // Browsers attach Origin to every unsafe request, so a mismatched Origin
+    // marks a cross-site request even with SameSite=Lax. Non-browser clients
+    // (device tokens, curl, WebDAV) send no Origin and pass through untouched.
+    if matches!(
+        *req.method(),
+        axum::http::Method::POST
+            | axum::http::Method::PUT
+            | axum::http::Method::PATCH
+            | axum::http::Method::DELETE
+    ) && let Some(origin) = req
+        .headers()
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
+        let host_matches = origin_matches_host(
+            origin,
+            req.headers()
+                .get(axum::http::header::HOST)
+                .and_then(|v| v.to_str().ok()),
+        );
+        if !host_matches {
+            return json_error(StatusCode::FORBIDDEN, "Cross-site request blocked.")
+                .into_response();
+        }
+    }
     let mut is_public = path == "/health"
         || path == "/api/v1/health"
         || path.starts_with("/api/v1/auth/")
@@ -414,11 +478,12 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         || path.starts_with("/s/")
         || !path.starts_with("/api/");
     if !is_public && path.starts_with("/api/v1/network/") {
-        let setup_mode = state.auth.count_users().unwrap_or(1) == 0;
-        is_public = setup_mode;
+        let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
+        is_public = wizard_open;
     }
     if !is_public && (path == "/api/v1/connect/status" || path == "/api/v1/connect/setup-code") {
-        is_public = state.auth.count_users().unwrap_or(1) == 0;
+        let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
+        is_public = wizard_open;
     }
 
     // Prefer the session JWT; fall back to a device token so the mobile and
@@ -787,6 +852,37 @@ mod tests {
     }
 
     #[test]
+    fn csrf_origin_parsing_matches_authority() {
+        assert!(origin_matches_host(
+            "https://luna.local",
+            Some("luna.local")
+        ));
+        assert!(origin_matches_host(
+            "http://localhost:8080",
+            Some("localhost:8080")
+        ));
+        assert!(origin_matches_host(
+            "https://[::1]:9000",
+            Some("[::1]:9000")
+        ));
+        // Cross-origin and spoofed-host mismatches are refused.
+        assert!(!origin_matches_host(
+            "https://evil.example",
+            Some("luna.local")
+        ));
+        // An explicit port differs from a portless Host — same rule as
+        // Luna Connect's originGuard (plain authority comparison).
+        assert!(!origin_matches_host("https://host:443", Some("host")));
+        // Garbage and scheme-less origins fail closed; browsers always send
+        // a scheme, so legitimate clients keep working.
+        assert!(!origin_matches_host("not a url", Some("luna.local")));
+        assert!(!origin_matches_host("luna.local", Some("luna.local")));
+        assert!(!origin_matches_host("", Some("luna.local")));
+        // No Host at all fails closed.
+        assert!(!origin_matches_host("https://luna.local", None));
+    }
+
+    #[test]
     fn basic_auth_reads_token_from_password_or_username() {
         fn header(user: &str, password: &str) -> HeaderMap {
             let encoded =
@@ -1071,6 +1167,78 @@ mod guard_tests {
     }
 
     #[tokio::test]
+    async fn network_status_public_while_setup_incomplete_even_with_user() {
+        let (_dir, app) = test_app();
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"devadmin","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "register failed: {}", text(res).await);
+
+        let res = call(&app, req(Method::GET, "/api/v1/network/status", None, None)).await;
+        assert_eq!(
+            res.status(),
+            200,
+            "network status must stay public during setup: {}",
+            text(res).await
+        );
+        let v: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert!(v.get("ethernet_connected").is_some());
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"setup_completed":true}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 401);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/login",
+                Some(r#"{"username":"devadmin","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let cookie = session_cookie(&res);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"setup_completed":true}"#),
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let res = call(&app, req(Method::GET, "/api/v1/network/status", None, None)).await;
+        assert_eq!(
+            res.status(),
+            401,
+            "network status requires a session after setup: {}",
+            text(res).await
+        );
+    }
+
+    #[tokio::test]
     async fn first_account_on_public_hostname_needs_setup_secret() {
         let (dir, _) = test_app();
         let connect =
@@ -1156,5 +1324,44 @@ mod guard_tests {
             connect.first_user_secret().is_none(),
             "first-user secret must be one-time"
         );
+    }
+
+    #[tokio::test]
+    async fn cross_origin_unsafe_requests_are_blocked() {
+        let (_dir, app) = test_app();
+
+        // Mismatched Origin on an unsafe method is refused before any auth
+        // logic runs — this also covers login CSRF, since auth paths are just
+        // as cookie-exposed as the data API.
+        let mut r = req(Method::POST, "/api/v1/auth/login", Some("{}"), None);
+        r.headers_mut()
+            .insert("origin", "https://evil.example".parse().unwrap());
+        r.headers_mut()
+            .insert("host", "luna.local".parse().unwrap());
+        let res = call(&app, r).await;
+        assert_eq!(res.status(), 403, "cross-origin POST must be refused");
+
+        // Same authority (scheme may differ, explicit port must match) makes
+        // it through the guard and into the handler.
+        let mut r = req(Method::POST, "/api/v1/auth/login", Some("{}"), None);
+        r.headers_mut()
+            .insert("origin", "http://luna.local".parse().unwrap());
+        r.headers_mut()
+            .insert("host", "luna.local".parse().unwrap());
+        let res = call(&app, r).await;
+        assert_ne!(res.status(), 403, "same-origin POST must reach the handler");
+
+        // Unsafe method without any Origin (curl, device tokens, WebDAV)
+        // passes through untouched.
+        let res = call(
+            &app,
+            req(Method::POST, "/api/v1/auth/login", Some("{}"), None),
+        )
+        .await;
+        assert_ne!(res.status(), 403, "Origin-less POST must reach the handler");
+
+        // Safe methods are never Origin-checked.
+        let res = call(&app, req(Method::GET, "/api/v1/auth/me", None, None)).await;
+        assert_eq!(res.status(), 200);
     }
 }

@@ -167,8 +167,6 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
-    const lookButtons = await screen.findAllByRole("button", { name: /Look inside/i });
-    await user.click(lookButtons[lookButtons.length - 1]);
     expect(await screen.findByText(/12 folders and 7 files/i)).toBeInTheDocument();
     expect(screen.getByText(/still has the Luna installer/i)).toBeInTheDocument();
     expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
@@ -200,8 +198,6 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
-    const lookButtons = await screen.findAllByRole("button", { name: /Look inside/i });
-    await user.click(lookButtons[lookButtons.length - 1]);
     expect(await screen.findByText(/will not accept new files/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
   });

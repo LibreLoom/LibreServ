@@ -38,10 +38,13 @@ func TestStripeWebhookLocksBackups(t *testing.T) {
 		t.Fatalf("webhook %d %s", rec.Code, rec.Body.String())
 	}
 	var has int
-	var status string
-	_ = d.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, id).Scan(&has, &status)
+	var status, subID string
+	_ = d.DB.QueryRow(`SELECT has_card, billing_status, COALESCE(stripe_subscription_id,'') FROM accounts WHERE id = ?`, id).Scan(&has, &status, &subID)
 	if has != 0 || status != "canceled" {
 		t.Fatalf("lock has=%d status=%s", has, status)
+	}
+	if subID != "" {
+		t.Fatalf("canceled subscription id %q must be cleared so AttachCard can resubscribe", subID)
 	}
 }
 

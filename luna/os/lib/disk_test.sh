@@ -34,10 +34,18 @@ assert_true is_whole_disk /dev/sda
 assert_true is_whole_disk /dev/mmcblk0
 assert_true is_whole_disk /dev/mmcblk1
 assert_true is_whole_disk /dev/nvme0n1
+assert_true is_whole_disk /dev/sdaa
+assert_true is_whole_disk /dev/sdzz
+assert_true is_whole_disk /dev/mmcblk10
+assert_true is_whole_disk /dev/nvme10n1
+assert_true is_whole_disk /dev/nvme0n12
 assert_false is_whole_disk /dev/sda1
+assert_false is_whole_disk /dev/sdaa1
 assert_false is_whole_disk /dev/mmcblk0p1
+assert_false is_whole_disk /dev/mmcblk10p1
 assert_false is_whole_disk /dev/mmcblk0boot0
 assert_false is_whole_disk /dev/nvme0n1p1
+assert_false is_whole_disk /dev/nvme10n1p1
 
 assert_eq "$(partition_bios_grub /dev/sda)" /dev/sda1 "sda BIOS GRUB"
 assert_eq "$(partition_esp /dev/sda)" /dev/sda2 "sda ESP"
@@ -53,6 +61,9 @@ assert_eq "$(whole_disk_of /dev/mmcblk0)" /dev/mmcblk0 "mmc disk"
 assert_eq "$(whole_disk_of /dev/mmcblk0p2)" /dev/mmcblk0 "mmc ESP parent"
 assert_eq "$(whole_disk_of /dev/mmcblk0p3)" /dev/mmcblk0 "mmc root parent"
 assert_eq "$(whole_disk_of /dev/nvme0n1p1)" /dev/nvme0n1 "nvme partition parent"
+assert_eq "$(whole_disk_of /dev/sdaa1)" /dev/sdaa "double-letter partition parent"
+assert_eq "$(whole_disk_of /dev/sdaa)" /dev/sdaa "double-letter disk"
+assert_eq "$(whole_disk_of /dev/mmcblk10p2)" /dev/mmcblk10 "double-digit mmc parent"
 
 assert_true is_emmc_aux /dev/mmcblk0boot0
 assert_true is_emmc_aux /dev/mmcblk0rpmb

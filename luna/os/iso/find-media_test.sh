@@ -50,6 +50,21 @@ if [ -z "$sdb_line" ] || [ -z "$sdb1_line" ] || [ "$sdb_line" -ge "$sdb1_line" ]
 	fail=$((fail + 1))
 fi
 
+# Long device names are whole disks, not partitions (mirrors lib/disk.sh).
+mkdir -p "$TMP/sys2/sdaa" "$TMP/sys2/sdaa1" "$TMP/sys2/nvme10n1" \
+	"$TMP/sys2/nvme10n1p1" "$TMP/sys2/mmcblk10" "$TMP/sys2/mmcblk10p2"
+LUNA_SYS_CLASS_BLOCK="$TMP/sys2"
+export LUNA_SYS_CLASS_BLOCK
+got2="$(luna_block_candidates)"
+for _w in /dev/sdaa /dev/nvme10n1 /dev/mmcblk10; do
+	_wl="$(printf '%s\n' "$got2" | grep -n "^${_w}\$" | head -1 | cut -d: -f1)"
+	_pl="$(printf '%s\n' "$got2" | grep -n "^${_w}[0-9p]" | head -1 | cut -d: -f1)"
+	if [ -z "$_wl" ] || [ -z "$_pl" ] || [ "$_wl" -ge "$_pl" ]; then
+		echo "FAIL $_w must be classified as a whole disk before its partitions" >&2
+		fail=$((fail + 1))
+	fi
+done
+
 mkdir -p "$TMP/media"
 assert_false luna_dir_has_installer "$TMP/media"
 touch "$TMP/media/rapidinstall.sh"
