@@ -6,8 +6,9 @@ import { getJson, postJson } from "../lib/api";
 const AuthContext = createContext(undefined);
 
 // Pages you may visit before Luna is set up. Everything else bounces to the
-// setup wizard (same behavior as LibreServ's AuthContext), so a fresh Luna
-// always boots straight into setup instead of an app with no account.
+// setup wizard so a fresh Luna always boots straight into setup instead of
+// an app with no account. /login stays reachable only once at least one
+// account exists (mid-setup sign-in); with zero accounts it redirects to /setup.
 const ALLOWED_DURING_SETUP = ["/setup", "/login"];
 
 export function AuthProvider({ children }) {
@@ -43,10 +44,14 @@ export function AuthProvider({ children }) {
     } catch {
       meFailed = true;
     }
-    const setupState = await getJson("/api/v1/setup").catch(() => null);
+    const [setupState, authStatus] = await Promise.all([
+      getJson("/api/v1/setup").catch(() => null),
+      getJson("/api/v1/auth/status").catch(() => null),
+    ]);
     if (!meFailed) setUser(me || null);
     if (setupState) setSetup(setupState);
-    return { me: me || null, setup: setupState };
+    const hasAdmin = Boolean(authStatus?.has_admin);
+    return { me: me || null, setup: setupState, hasAdmin };
   }, []);
 
   // Startup-only: restore the session (or send a fresh Luna to the wizard)
@@ -56,10 +61,12 @@ export function AuthProvider({ children }) {
     let alive = true;
     const path = location.pathname;
     (async () => {
-      const { setup: setupState } = await refresh();
+      const { setup: setupState, hasAdmin } = await refresh();
       if (!alive) return;
       const needsSetup = Boolean(setupState && setupState.setup_completed === false);
-      if (needsSetup && !ALLOWED_DURING_SETUP.includes(path)) {
+      if (path === "/login" && !hasAdmin) {
+        navigateRef.current("/setup", { replace: true });
+      } else if (needsSetup && !ALLOWED_DURING_SETUP.includes(path)) {
         navigateRef.current("/setup", { replace: true });
       }
       setLoading(false);

@@ -10,6 +10,12 @@ function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
     if (u.endsWith("/api/v1/auth/me")) {
       return new Response("null", { status: 401 });
     }
+    if (u.endsWith("/api/v1/auth/status")) {
+      return new Response(JSON.stringify({ has_admin: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (u.endsWith("/api/v1/setup")) {
       return new Response(JSON.stringify({ name: "Luna", setup_completed: setupCompleted }), {
         status: 200,
@@ -76,7 +82,13 @@ describe("LoginPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
       const u = String(url);
       if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
-      if (u.endsWith("/api/v1/setup")) {
+      if (u.endsWith("/api/v1/auth/status")) {
+      return new Response(JSON.stringify({ has_admin: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.endsWith("/api/v1/setup")) {
         return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), {
           status: 200, headers: { "Content-Type": "application/json" },
         });
