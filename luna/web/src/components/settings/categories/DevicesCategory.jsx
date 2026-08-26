@@ -11,8 +11,8 @@ export default function DevicesCategory() {
       </p>
       <p className="text-primary text-sm mt-3">
         Computers: use the Luna Desktop app, or open a drive as a folder with
-        the steps on the Files page. Create an access token under Apps and access
-        tokens first — that is the password Finder or Explorer will ask for.
+        the steps on the Files page. Create an access token under Access first —
+        that is the password Finder or Explorer will ask for.
       </p>
     </SettingsCard>
   );
