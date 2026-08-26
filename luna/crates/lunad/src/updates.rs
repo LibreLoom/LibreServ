@@ -7,7 +7,7 @@
 //! prerelease tags are ignored.
 
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -102,10 +102,58 @@ impl Installer for BinaryInstaller {
             std::fs::set_permissions(&tmp, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
         }
         let backup = PathBuf::from(format!("{}.old", exec.display()));
-        std::fs::rename(&exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-        if let Err(e) = std::fs::rename(&tmp, &exec) {
-            let _ = std::fs::rename(&backup, &exec);
-            return Err(UpdateError::Other(e.to_string()));
+        // Swap tmp and exec in one atomic step so a power cut between the two
+        // renames of the old scheme can never leave no binary at `exec` (which
+        // would stop OpenRC from restarting lunad at all). After the exchange,
+        // `tmp` holds the previous binary and becomes the `.old` backup.
+        #[cfg(unix)]
+        {
+            use std::ffi::CString;
+            use std::os::unix::ffi::OsStrExt;
+            let to_c = |p: &Path| -> Result<CString, UpdateError> {
+                CString::new(p.as_os_str().as_bytes())
+                    .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
+            };
+            let exec_c = to_c(&exec)?;
+            let tmp_c = to_c(&tmp)?;
+            const AT_FDCWD: i32 = -100;
+            const RENAME_EXCHANGE: libc::c_uint = 2;
+            let rc = unsafe {
+                libc::renameat2(
+                    AT_FDCWD,
+                    exec_c.as_ptr(),
+                    AT_FDCWD,
+                    tmp_c.as_ptr(),
+                    RENAME_EXCHANGE,
+                )
+            };
+            if rc == 0 {
+                // Old binary now lives at `tmp`; park it as the rollback copy.
+                let _ = std::fs::remove_file(&backup);
+                let _ = std::fs::rename(&tmp, &backup);
+            } else {
+                // Kernel/filesystem without RENAME_EXCHANGE: fall back to the
+                // two-step rename, restoring on failure.
+                std::fs::rename(&exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
+                if let Err(e) = std::fs::rename(&tmp, &exec) {
+                    let _ = std::fs::rename(&backup, &exec);
+                    return Err(UpdateError::Other(e.to_string()));
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::rename(&exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
+            if let Err(e) = std::fs::rename(&tmp, &exec) {
+                let _ = std::fs::rename(&backup, &exec);
+                return Err(UpdateError::Other(e.to_string()));
+            }
+        }
+        // Persist the directory entries themselves, not just the file data.
+        if let Some(parent) = exec.parent()
+            && let Ok(dir) = std::fs::File::open(parent)
+        {
+            let _ = dir.sync_all();
         }
         Ok(())
     }
