@@ -21,7 +21,10 @@ discover_install_disk() {
 	if [ -z "$_src" ] && [ -f /proc/mounts ]; then
 		_src="$(awk '$2=="/src" { print $1; exit }' /proc/mounts || true)"
 	fi
-	[ -n "$_src" ] || return 0
+	if [ -z "$_src" ]; then
+		echo "WARNING: could not identify the boot media; installer-stick protection may be inactive." >&2
+		return 0
+	fi
 	LUNA_INSTALL_DISK="$(whole_disk_of "$_src")"
 	export LUNA_INSTALL_DISK
 }

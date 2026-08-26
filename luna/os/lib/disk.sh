@@ -3,11 +3,14 @@
 # GPT layout (x86_64 BIOS + UEFI): bios_grub (1) + ESP (2) + root (3).
 # USB install media must never be the flash target.
 
-# True for a whole disk we are willing to consider flashing.
+# True for a whole disk we are willing to consider flashing. Two-letter SCSI
+# suffixes (sdaa) and double-digit controllers/namespaces (nvme10n1,
+# mmcblk10) are covered; partition suffixes never match.
 is_whole_disk() {
 	case "$1" in
-	/dev/sd[a-z] | /dev/vd[a-z] | /dev/hd[a-z]) return 0 ;;
-	/dev/nvme[0-9]n[0-9] | /dev/nvme[0-9]n[0-9][0-9]) return 0 ;;
+	/dev/sd[a-z] | /dev/sd[a-z][a-z] | /dev/vd[a-z] | /dev/vd[a-z][a-z] | /dev/hd[a-z] | /dev/hd[a-z][a-z]) return 0 ;;
+	/dev/nvme[0-9]n[0-9] | /dev/nvme[0-9]n[0-9][0-9] | /dev/nvme[0-9]n[0-9][0-9][0-9]) return 0 ;;
+	/dev/nvme[0-9][0-9]n[0-9] | /dev/nvme[0-9][0-9]n[0-9][0-9] | /dev/nvme[0-9][0-9]n[0-9][0-9][0-9]) return 0 ;;
 	/dev/mmcblk[0-9] | /dev/mmcblk[0-9][0-9]) return 0 ;;
 	*) return 1 ;;
 	esac
@@ -49,7 +52,7 @@ whole_disk_of() {
 		printf '%s\n' "${1%p*}"
 		return
 		;;
-	/dev/sd[a-z][0-9]* | /dev/vd[a-z][0-9]* | /dev/hd[a-z][0-9]*)
+	/dev/sd[a-z][0-9]* | /dev/sd[a-z][a-z][0-9]* | /dev/vd[a-z][0-9]* | /dev/vd[a-z][a-z][0-9]* | /dev/hd[a-z][0-9]* | /dev/hd[a-z][a-z][0-9]*)
 		printf '/dev/%s\n' "$(printf '%s' "${1#/dev/}" | sed 's/[0-9][0-9]*$//')"
 		return
 		;;
