@@ -1,6 +1,8 @@
 # Sibling of atlas-bot. Uses the already-built atlas toolchain image.
 # Look up the live image if this tag is missing:
 #   docker inspect atlas-bot --format '{{.Config.Image}}'
+# First `docker compose up` is from a host checkout of this file.
+# After that the container force-pulls LibreServ into /data/LibreServ each run.
 name: lock-bot
 services:
   lock-bot:
@@ -10,18 +12,32 @@ services:
     user: "10000:10000"
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["/opt/lock-bot/loop.sh"]
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >-
+      set -euo pipefail;
+      : "${LOCK_BOT_TOKEN:?}";
+      dest=/data/LibreServ;
+      host="${FORGEJO_URL:-https://gt.plainskill.net}";
+      host="${host#https://}"; host="${host#http://}"; host="${host%%/*}";
+      if [ ! -d "${dest}/.git" ]; then
+        GIT_TERMINAL_PROMPT=0 git clone --depth 50
+        "https://oauth2:${LOCK_BOT_TOKEN}@${host}/LibreLoom/LibreServ.git" "${dest}";
+      fi;
+      git -C "${dest}" fetch --depth 50 origin main;
+      git -C "${dest}" reset --hard origin/main;
+      git -C "${dest}" clean -fd;
+      exec "${dest}/agents/lock-bot/loop.sh"
     env_file:
       - /stack/compose/.secrets/lock-bot.env
     environment:
       FORGEJO_URL: https://gt.plainskill.net
       LOCK_ORG: LibreLoom
       LOCK_BOT_LOGIN: lock-bot
-      DSH_HOME: /opt/lock-bot/dsh-home
+      BOT_REPO_DIR: /data/LibreServ
+      TZ: America/Los_Angeles
       HOME: /home/atlas
     volumes:
       - lock-bot-data:/data
-      - /opt/lock-bot:/opt/lock-bot
     networks:
       - proxy-net
 volumes:

@@ -3,7 +3,9 @@
 Scheduled docs steward for LibreServ. **Not atlas-bot. Not lock-bot.** Not a mention bot.
 No pull-request reviews. No webhook. Not the deleted agents/nightly harness or docs-updater.
 
-Live path: `/opt/docs-bot`. Container name: `docs-bot`.
+Live path: clone at `/data/LibreServ` (no `/opt` bind). Container name: `docs-bot`.
+Every cook force-pulls `origin/main` inside that clone, then runs
+`/data/LibreServ/agents/docs-bot/cook.sh`. Secrets stay in the env_file only.
 Schedule: once per calendar day at 04:00 America/Los_Angeles (after lock-bot at 03:00).
 Weekends included; false docs should not sit all weekend.
 
@@ -23,7 +25,7 @@ Required:
 Optional:
 - `DOCS_GITHUB_TOKEN` — if set, the wrapper may also push a GitHub remote.
 
-Do not commit the env file.
+Do not commit the env file. Do not put tokens in the repo.
 
 ## Forgejo user
 
@@ -31,17 +33,18 @@ Create user `docs-bot` (email `docs-bot@plainskill.net`) on the **Bots** team wi
 
 ## How to kick
 
-Default is the 04:00 PT loop (`loop.sh`). To run once now:
+Default is the 04:00 PT loop (`loop.sh` from the git clone). To run once now:
 
 - `DOCS_RUN_NOW=1` on container start, then it enters the daily loop
-- or `docker exec docs-bot /opt/docs-bot/cook.sh`
+- or `docker exec docs-bot /data/LibreServ/agents/docs-bot/cook.sh`
 
-If cook.sh fails, the loop logs and continues.
+If cook.sh fails, the loop logs and continues. It does not crash the container.
 
 ## Image and compose
 
-Share `localhost/atlas-bot:latest`. Own volume `docs-bot-data`, bind `/opt/docs-bot`, PID 1 is `loop.sh`.
-Do not share atlas-bot or lock-bot data volumes. Do not register a Forgejo runner.
+Share `localhost/atlas-bot:latest`. Own volume `docs-bot-data` at `/data` only. Never share atlas or lock-bot `/data`. No `/opt` bind. PID 1 is compose bootstrap then git `loop.sh`.
+`fj` is not in the image; `lib/forgejo.sh` uses curl. Keep it that way.
+Do not register a Forgejo runner.
 Do not publish 8787. Do not include atlas-bot or lock-bot in this compose file.
 
 ## Hard no

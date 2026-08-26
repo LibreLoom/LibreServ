@@ -3,7 +3,9 @@
 Scheduled supply-chain locker for LibreServ. **Not atlas-bot.** Not a mention bot.
 No pull-request reviews. No webhook. Not the deleted agents/nightly harness.
 
-Live path: `/opt/lock-bot`. Container name: `lock-bot`.
+Live path: clone at `/data/LibreServ` (no `/opt` bind). Container name: `lock-bot`.
+Every cook force-pulls `origin/main` inside that clone, then runs
+`/data/LibreServ/agents/lock-bot/cook.sh`. Secrets stay in the env_file only.
 Schedule: once per calendar day at 03:00 America/Los_Angeles (after the 2am Grok Bot audit).
 Weekends included; supply-chain does not wait.
 
@@ -33,24 +35,23 @@ Org: LibreLoom. Repo: LibreServ. Identity: lock-bot / lock-bot@plainskill.net.
 
 ## How to kick
 
-Default is the 03:00 PT loop (`loop.sh`). To run once now:
+Default is the 03:00 PT loop (`loop.sh` from the git clone). To run once now:
 
 - `LOCK_RUN_NOW=1` on container start, then it enters the daily loop
-- or exec into the container and run `/opt/lock-bot/cook.sh`
+- or `docker exec lock-bot /data/LibreServ/agents/lock-bot/cook.sh`
 
 If cook.sh fails, the loop logs and continues. It does not crash the container.
 
 ## Image and compose
 
-Share the atlas-bot image (it already has dsh, fj, node, go, rust).
+Share the atlas-bot image (it already has dsh, node, go, rust). `fj` is not in the image;
+`lib/forgejo.sh` uses curl. Keep it that way.
 Look up the live image with: inspect atlas-bot Config.Image.
-Set `ATLAS_IMAGE` to that value. Command is `loop.sh`.
 
 Placeholder compose: `compose.yml` in this directory.
-Volumes: `/opt/lock-bot` bind, plus a `/data` volume for cargo.
+Volumes: own `lock-bot-data` at `/data` only. Never share atlas `/data`. No `/opt` bind.
 env_file: `.secrets/lock-bot.env`. restart unless-stopped.
-Do not publish 8787. Optional 8788 later — omit for now.
-Do not include the atlas-bot service in this compose file.
+Do not publish 8787. Do not include the atlas-bot service in this compose file.
 
 ## Hard no
 
