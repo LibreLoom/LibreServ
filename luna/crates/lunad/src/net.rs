@@ -25,6 +25,32 @@ pub struct NetworkStatus {
     pub interfaces: Vec<InterfaceStatus>,
 }
 
+const DEV_MOCK_IPV4: &str = "192.168.1.20";
+
+/// Dev-only: pretend a cable is in when sysfs has no wired link. Enabled when
+/// `LUNA_DATA_DIR` ends in `/dev` (Cloud Agent / `make dev-daemon`) or
+/// `LUNA_MOCK_ETHERNET=1`.
+fn dev_mock_ethernet_enabled() -> bool {
+    if std::env::var("LUNA_MOCK_ETHERNET")
+        .ok()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    {
+        return true;
+    }
+    std::env::var("LUNA_DATA_DIR")
+        .ok()
+        .is_some_and(|d| d.ends_with("/dev") || d.ends_with("\\dev"))
+}
+
+fn apply_dev_mock(mut status: NetworkStatus) -> NetworkStatus {
+    status.ethernet_connected = true;
+    status.has_default_route = true;
+    if status.ipv4.is_empty() {
+        status.ipv4.push(DEV_MOCK_IPV4.to_string());
+    }
+    status
+}
+
 pub fn read_status(sys_net: &Path, proc_route: &str) -> NetworkStatus {
     let mut interfaces = Vec::new();
     let Ok(entries) = std::fs::read_dir(sys_net) else {
@@ -68,14 +94,18 @@ pub fn read_status(sys_net: &Path, proc_route: &str) -> NetworkStatus {
     let wifi_connected = interfaces.iter().any(|i| i.wireless && i.carrier);
     let route_iface = default_route(proc_route);
 
-    NetworkStatus {
+    let status = NetworkStatus {
         ethernet_connected,
         wifi_interface,
         wifi_connected,
         has_default_route: route_iface.is_some(),
         ipv4: live_ipv4(),
         interfaces,
+    };
+    if !status.ethernet_connected && dev_mock_ethernet_enabled() {
+        return apply_dev_mock(status);
     }
+    status
 }
 
 /// Current IPv4 addresses on non-loopback interfaces (never the old 169.254 product address).
@@ -220,5 +250,33 @@ mod tests {
     #[test]
     fn empty_proc_route_has_no_default() {
         assert_eq!(default_route("Iface\tDestination\neth0\t01000000\n"), None);
+    }
+
+    #[test]
+    fn dev_mock_marks_cable_in_with_ipv4() {
+        let status = apply_dev_mock(NetworkStatus {
+            ethernet_connected: false,
+            wifi_interface: None,
+            wifi_connected: false,
+            has_default_route: false,
+            ipv4: Vec::new(),
+            interfaces: Vec::new(),
+        });
+        assert!(status.ethernet_connected);
+        assert!(status.has_default_route);
+        assert_eq!(status.ipv4, ["192.168.1.20"]);
+    }
+
+    #[test]
+    fn dev_mock_keeps_live_ipv4_when_present() {
+        let status = apply_dev_mock(NetworkStatus {
+            ethernet_connected: false,
+            wifi_interface: None,
+            wifi_connected: false,
+            has_default_route: true,
+            ipv4: vec!["10.0.0.5".into()],
+            interfaces: Vec::new(),
+        });
+        assert_eq!(status.ipv4, ["10.0.0.5"]);
     }
 }

@@ -395,10 +395,26 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
     })
 }
 
+/// True while the first-run setup wizard is still open (`setup_completed` is
+/// false or unset). Used to keep network/connect endpoints reachable during
+/// setup even when a dev database already has an account.
+pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
+    let Ok(conn) = state.db.lock() else {
+        return false;
+    };
+    let completed = crate::db::get_meta(&conn, "setup")
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+        .unwrap_or(false);
+    !completed
+}
+
 /// Global auth guard: health, auth, setup, and the SPA shell stay public;
 /// every `/api/` data endpoint requires a valid session. The first-run setup
-/// wizard must reach the network endpoints before any account exists, so they
-/// stay public for exactly as long as the user table is empty.
+/// wizard must reach the network endpoints before setup is finished, so they
+/// stay public while the user table is empty or setup is still incomplete.
 ///
 /// A valid session (cookie, Bearer, or device token) is resolved and attached
 /// to the request even on public paths. Without that, `/api/v1/auth/me` can
@@ -414,11 +430,12 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         || path.starts_with("/s/")
         || !path.starts_with("/api/");
     if !is_public && path.starts_with("/api/v1/network/") {
-        let setup_mode = state.auth.count_users().unwrap_or(1) == 0;
-        is_public = setup_mode;
+        let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
+        is_public = wizard_open;
     }
     if !is_public && (path == "/api/v1/connect/status" || path == "/api/v1/connect/setup-code") {
-        is_public = state.auth.count_users().unwrap_or(1) == 0;
+        let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
+        is_public = wizard_open;
     }
 
     // Prefer the session JWT; fall back to a device token so the mobile and
@@ -1068,6 +1085,78 @@ mod guard_tests {
 
         let get = call(&app, req(Method::GET, "/api/v1/setup", None, None)).await;
         assert_eq!(get.status(), 401);
+    }
+
+    #[tokio::test]
+    async fn network_status_public_while_setup_incomplete_even_with_user() {
+        let (_dir, app) = test_app();
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"devadmin","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "register failed: {}", text(res).await);
+
+        let res = call(&app, req(Method::GET, "/api/v1/network/status", None, None)).await;
+        assert_eq!(
+            res.status(),
+            200,
+            "network status must stay public during setup: {}",
+            text(res).await
+        );
+        let v: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert!(v.get("ethernet_connected").is_some());
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"setup_completed":true}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 401);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/login",
+                Some(r#"{"username":"devadmin","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let cookie = session_cookie(&res);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"setup_completed":true}"#),
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let res = call(&app, req(Method::GET, "/api/v1/network/status", None, None)).await;
+        assert_eq!(
+            res.status(),
+            401,
+            "network status requires a session after setup: {}",
+            text(res).await
+        );
     }
 
     #[tokio::test]
