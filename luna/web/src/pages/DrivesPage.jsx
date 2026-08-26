@@ -333,21 +333,25 @@ export default function DrivesPage() {
 
       {removeTarget && (
         <ModalCard title="Remove this drive?" onClose={() => setRemoveTarget(null)}>
-          <p className="text-primary text-sm">
-            Luna will stop managing <span className="font-mono">{removeTarget.label}</span>.
-            Your files stay on the drive. Luna only removes its tiny{" "}
-            <span className="font-mono">.luna</span> sticker file.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <Button
-              variant="accent"
-              loading={remove.isPending}
-              onClick={() => remove.mutate(removeTarget)}
-            >
-              Remove
-            </Button>
-            <Button variant="outline" onClick={() => setRemoveTarget(null)}>Keep it</Button>
-          </div>
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm">
+                Luna will stop managing <span className="font-mono">{removeTarget.label}</span>.
+                Your files stay on the drive. Luna only removes its tiny{" "}
+                <span className="font-mono">.luna</span> sticker file.
+              </p>
+              <div className="mt-4 flex gap-3">
+                <Button
+                  variant="accent"
+                  loading={remove.isPending}
+                  onClick={() => remove.mutate(removeTarget)}
+                >
+                  Remove
+                </Button>
+                <Button variant="outline" onClick={close}>Keep it</Button>
+              </div>
+            </>
+          )}
         </ModalCard>
       )}
 
@@ -382,6 +386,8 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
 
   return (
     <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
+      {({ close }) => (
+        <>
       {needsInspect && (
         <>
           <p className="text-primary text-sm">
@@ -389,7 +395,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
           </p>
           <div className="mt-4 flex gap-3">
             <Button variant="primary" onClick={onInspect}>Look inside</Button>
-            <Button variant="outline" onClick={onClose}>Not now</Button>
+            <Button variant="outline" onClick={close}>Not now</Button>
           </div>
         </>
       )}
@@ -399,7 +405,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
       {error && (
         <>
           <p className="text-primary text-sm">{error}</p>
-          <div className="mt-4"><Button variant="outline" onClick={onClose}>Close</Button></div>
+          <div className="mt-4"><Button variant="outline" onClick={close}>Close</Button></div>
         </>
       )}
 
@@ -464,15 +470,17 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
                     {needsErase ? "Yes, erase it" : "Add this drive"}
                   </Button>
                 )}
-                <Button variant="outline" onClick={onClose}>Not now</Button>
+                <Button variant="outline" onClick={close}>Not now</Button>
               </div>
             </>
           )}
           {!canUse && (
             <div className="mt-4">
-              <Button variant="outline" onClick={onClose}>Close</Button>
+              <Button variant="outline" onClick={close}>Close</Button>
             </div>
           )}
+        </>
+      )}
         </>
       )}
     </ModalCard>

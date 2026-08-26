@@ -247,6 +247,7 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
   const [password, setPassword] = useState("");
   return (
     <ModalCard title="Add a user" onClose={onClose}>
+      {({ close }) => (
       <div className="space-y-3">
         <input
           className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
@@ -277,11 +278,12 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
           >
             Add user
           </Button>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={close}>
             Cancel
           </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }
