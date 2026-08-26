@@ -1,0 +1,24 @@
+# Atlas-bot overlay on the dsh-headless bundle.
+# Keep real plugins. Exa is keyless web search (same as the host web profile).
+# There is no review job type. The agent may call fj to set PR review state
+# when the Owner asks. Keep real plugins (Exa).
+#
+# No dsh plugin auto-POSTs /pulls/.../reviews (searched dsh-headless, dsh-base,
+# dsh-home settings/skills, @deepseek-ai plugins). Template PR reviews are
+# the agent curling the API / following nightly. Do not add a github/forgejo
+# review plugin. cook.sh sweeps bodies that start with
+# "Automated review by Atlas" during the cook.
+
+- insert:
+    - id: mcp-exa
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: exa
+        transport: streamable-http
+        url: https://mcp.exa.ai/mcp
+        toolCallTimeoutMs: 60000
+        reconnect:
+          enabled: true
+          initialDelayMs: 1000
+          maxDelayMs: 30000
+          maxAttempts: 10
