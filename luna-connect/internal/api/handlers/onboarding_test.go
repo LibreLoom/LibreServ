@@ -40,7 +40,7 @@ func mintOfficial(t *testing.T, h OnboardingHandler) string {
 
 func registerAccount(t *testing.T, acct AccountHandler, email string) *http.Cookie {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/account/register", bytes.NewBufferString(`{"email":"`+email+`","password":"password1"}`))
+	req := httptest.NewRequest(http.MethodPost, "/account/register", bytes.NewBufferString(`{"email":"`+email+`","password":"password1234"}`))
 	rec := httptest.NewRecorder()
 	acct.Register(rec, req)
 	if rec.Code != 201 {

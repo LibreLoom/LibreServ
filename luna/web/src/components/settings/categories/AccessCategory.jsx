@@ -7,16 +7,28 @@ import SettingsRow from "../SettingsRow";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
 import PageNotice from "../../common/PageNotice";
 
+function formatWhen(unix) {
+  if (!unix) return "Never";
+  return new Date(unix * 1000).toLocaleString();
+}
+
 export default function AccessCategory() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [tokenName, setTokenName] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState("");
   const [newToken, setNewToken] = useState(null);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [usageFor, setUsageFor] = useState(null);
 
   const tokens = useQuery({
     queryKey: ["device-tokens"],
     queryFn: () => getJson("/api/v1/device-tokens"),
+  });
+  const usage = useQuery({
+    queryKey: ["device-token-usage", usageFor],
+    queryFn: () => getJson(`/api/v1/device-tokens/${usageFor}/usage`),
+    enabled: Boolean(usageFor),
   });
 
   const signOutBrowsers = useMutation({
@@ -26,11 +38,15 @@ export default function AccessCategory() {
   });
 
   const createToken = useMutation({
-    mutationFn: () => postJson("/api/v1/device-tokens", { name: tokenName.trim() }),
+    mutationFn: () => postJson("/api/v1/device-tokens", {
+      name: tokenName.trim(),
+      expires_in_days: expiresInDays ? Number(expiresInDays) : undefined,
+    }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setNewToken(data);
       setTokenName("");
+      setExpiresInDays("");
       setError(null);
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -38,7 +54,10 @@ export default function AccessCategory() {
 
   const revokeOne = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/device-tokens/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["device-tokens"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
+      setUsageFor(null);
+    },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
@@ -77,11 +96,32 @@ export default function AccessCategory() {
         </p>
         <ul className="mt-3 space-y-2">
           {(tokens.data || []).map((t) => (
-            <li key={t.id} className="flex items-center justify-between gap-2">
-              <span className="text-primary text-sm font-mono truncate">{t.name}</span>
-              <Button size="sm" variant="outline" loading={revokeOne.isPending} onClick={() => revokeOne.mutate(t.id)}>
-                Stop this app
-              </Button>
+            <li key={t.id} className="rounded-large-element bg-primary text-secondary p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-primary text-sm font-mono truncate">{t.name}</span>
+                <div className="flex gap-2 shrink-0">
+                  <Button size="sm" variant="outline" onClick={() => setUsageFor(usageFor === t.id ? null : t.id)}>
+                    {usageFor === t.id ? "Hide log" : "Usage log"}
+                  </Button>
+                  <Button size="sm" variant="outline" loading={revokeOne.isPending} onClick={() => revokeOne.mutate(t.id)}>
+                    Stop this app
+                  </Button>
+                </div>
+              </div>
+              <p className="text-primary text-xs">
+                Last used: {formatWhen(t.last_used_at)}
+                {t.expires_at ? ` · Expires ${formatWhen(t.expires_at)}` : ""}
+              </p>
+              {usageFor === t.id && (
+                <ul className="text-primary text-xs space-y-1 border-t border-secondary/30 pt-2">
+                  {(usage.data || []).length === 0 && <li>No recent activity yet.</li>}
+                  {(usage.data || []).map((row, i) => (
+                    <li key={`${row.used_at}-${i}`}>
+                      {row.action}{row.detail ? ` — ${row.detail}` : ""} · {formatWhen(row.used_at)}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>
@@ -98,6 +138,18 @@ export default function AccessCategory() {
             placeholder="Kitchen Mac, photo backup, script"
             value={tokenName}
             onChange={(e) => setTokenName(e.target.value)}
+          />
+          <label className="text-primary text-sm" htmlFor="token-expiry">
+            Optional: stop working after this many days (leave blank for no expiry)
+          </label>
+          <input
+            id="token-expiry"
+            type="number"
+            min="1"
+            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+            placeholder="e.g. 90"
+            value={expiresInDays}
+            onChange={(e) => setExpiresInDays(e.target.value)}
           />
           <Button
             variant="primary"

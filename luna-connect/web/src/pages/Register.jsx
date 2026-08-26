@@ -55,7 +55,7 @@ export default function Register() {
             </div>
             <div>
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" />
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 12 characters, letters and numbers" />
             </div>
             {error && <p className="text-sm text-error">{error}</p>}
             <Button type="submit" className="w-full" loading={loading}>Create account</Button>

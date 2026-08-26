@@ -206,7 +206,7 @@ mod tests {
         )
         .unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let state = crate::AppState::new(conn, drive_manager);
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
         let app = api::router()
             .merge(router())
             .layer(axum::middleware::from_fn_with_state(
@@ -242,6 +242,7 @@ mod tests {
         uri: &str,
         body: &'static str,
         cookie: Option<&str>,
+        csrf: Option<&str>,
     ) -> HttpReq<Body> {
         let mut builder = HttpReq::builder()
             .method(method)
@@ -250,9 +251,27 @@ mod tests {
         if let Some(c) = cookie {
             builder = builder.header("cookie", c);
         }
+        if let Some(t) = csrf {
+            builder = builder.header("x-csrf-token", t);
+        }
         let mut http = builder.body(Body::from(body)).unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         http
+    }
+
+    fn auth_cookies(res: &axum::response::Response) -> (String, String) {
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(axum::http::header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (session, csrf)
     }
 
     async fn setup_admin_and_token(app: &axum::Router) -> String {
@@ -261,7 +280,8 @@ mod tests {
             json_req(
                 Method::POST,
                 "/api/v1/auth/register",
-                r#"{"username":"max","display_name":"Max","password":"hunter22hunter"}"#,
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
@@ -273,20 +293,16 @@ mod tests {
             json_req(
                 Method::POST,
                 "/api/v1/auth/login",
-                r#"{"username":"max","password":"hunter22hunter"}"#,
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
                 None,
             ),
         )
         .await;
         assert_eq!(res.status(), 200);
-        let cookie = res
-            .headers()
-            .get("set-cookie")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|c| c.split(';').next())
-            .expect("login must Set-Cookie luna_session")
-            .to_string();
-        assert!(cookie.starts_with("luna_session="));
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = format!("{session}; luna_csrf={csrf}");
+        assert!(session.starts_with("luna_session="));
         let body = axum::body::to_bytes(res.into_body(), 1 << 20)
             .await
             .unwrap();
@@ -303,6 +319,7 @@ mod tests {
                 "/api/v1/device-tokens",
                 r#"{"name":"Finder on the kitchen Mac"}"#,
                 Some(&cookie),
+                Some(&csrf),
             ),
         )
         .await;
@@ -345,7 +362,7 @@ mod tests {
             req(
                 Method::GET,
                 "/dav/photos/",
-                Some(&basic("max", "hunter22hunter")),
+                Some(&basic("max", "hunter22hunter1")),
             ),
         )
         .await;
@@ -377,7 +394,7 @@ mod tests {
 
     #[test]
     fn hashed_device_token_is_not_the_household_password() {
-        assert_ne!(hash_device_token("hunter22hunter"), hash_device_token(""));
+        assert_ne!(hash_device_token("hunter22hunter1"), hash_device_token(""));
     }
 
     #[test]

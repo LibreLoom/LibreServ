@@ -45,6 +45,7 @@ pub struct ConnectService {
     state_path: PathBuf,
     token_path: PathBuf,
     base_url: String,
+    device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
     ephemeral: Mutex<Option<Ephemeral>>,
     redeem: Mutex<bool>,
@@ -52,12 +53,14 @@ pub struct ConnectService {
 
 impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
+        let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
         Self {
             state_path: data_dir.join("connect.json"),
             token_path: data_dir.join("setup-token"),
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
+            device_key,
             child: Arc::new(Mutex::new(None)),
             ephemeral: Mutex::new(None),
             redeem: Mutex::new(false),
@@ -486,19 +489,28 @@ impl ConnectService {
     }
 
     fn load(&self) -> Value {
-        std::fs::read(&self.state_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_else(|| json!({ "base_url": self.base_url }))
+        let Some(bytes) = std::fs::read(&self.state_path).ok() else {
+            return json!({ "base_url": self.base_url });
+        };
+        if crate::at_rest::is_encrypted_blob(&bytes) {
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                if let Ok(value) = crate::at_rest::decrypt_json(&self.device_key, text) {
+                    return value;
+                }
+            }
+        }
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| json!({ "base_url": self.base_url }))
     }
 
     pub(crate) fn save(&self, state: &Value) -> Result<(), ConnectError> {
         if let Some(parent) = self.state_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let bytes =
-            serde_json::to_vec_pretty(state).map_err(|e| ConnectError::Other(e.to_string()))?;
-        std::fs::write(&self.state_path, bytes).map_err(|e| ConnectError::Other(e.to_string()))?;
+        let enc = crate::at_rest::encrypt_json(&self.device_key, state)
+            .map_err(|e| ConnectError::Other(e.to_string()))?;
+        std::fs::write(&self.state_path, enc.as_bytes())
+            .map_err(|e| ConnectError::Other(e.to_string()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

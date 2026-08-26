@@ -24,6 +24,8 @@ struct CreateShare {
 
 #[derive(Deserialize)]
 struct PublicQuery {
+    /// Deprecated: passwords must use X-Share-Password (ignored if present).
+    #[allow(dead_code)]
     password: Option<String>,
     /// Path relative to the shared file or folder (never `..`).
     path: Option<String>,
@@ -165,8 +167,7 @@ async fn remove(
 /// Public share access. Browsers opening `/s/{token}` get the Luna page so a
 /// household member sees files and a password box — not a raw data dump.
 /// Apps and the page itself send `Accept: application/json` (or `download=1`)
-/// to list a folder or stream a file. Password via `X-Share-Password` (preferred)
-/// or `?password=` (kept for existing download links). Never log the raw query.
+/// to list a folder or stream a file. Password via `X-Share-Password` header only.
 /// Optional `path=` walks inside a shared folder.
 async fn public(
     State(state): State<AppState>,
@@ -181,9 +182,18 @@ async fn public(
     let result: Result<axum::response::Response, (StatusCode, Json<Value>)> =
         public_inner(state, addr.ip().to_string(), token, query, headers).await;
     match result {
-        Ok(response) => response,
-        Err(err) => err.into_response(),
+        Ok(response) => with_referrer_policy(response),
+        Err(err) => with_referrer_policy(err.into_response()),
     }
+}
+
+fn with_referrer_policy(response: axum::response::Response) -> axum::response::Response {
+    let (mut parts, body) = response.into_parts();
+    parts.headers.insert(
+        header::REFERRER_POLICY,
+        header::HeaderValue::from_static("no-referrer"),
+    );
+    axum::response::Response::from_parts(parts, body)
 }
 
 async fn public_inner(
@@ -212,15 +222,17 @@ async fn public_inner(
             return Err(json_error(StatusCode::GONE, "This link has expired."));
         }
         if !share.password_hash.is_empty() {
-            let provided = share_password(&headers, &query);
-            // Rate-limit password attempts: `/s/` is a public, WAN-exposed
-            // endpoint, so an unthrottled share password would be brute-forceable.
-            // Keyed per share + IP so a brute-force on one link cannot exhaust
-            // the budget for every other share behind the same NAT.
-            if !state.share_limiter.allow(&format!("{}:{ip}", share.id)) {
+            if state.share_auth.is_locked(&share.id, &ip) {
                 return Err(json_error(
                     StatusCode::TOO_MANY_REQUESTS,
-                    "Too many tries. Wait a few minutes and try again.",
+                    "Too many wrong passwords. Wait a few minutes and try again.",
+                ));
+            }
+            let provided = share_password(&headers);
+            if provided.is_empty() {
+                return Err(json_error(
+                    StatusCode::UNAUTHORIZED,
+                    "This link needs its password.",
                 ));
             }
             let parsed =
@@ -230,9 +242,14 @@ async fn public_inner(
                         "Luna couldn't open this link.",
                     )
                 })?;
-            auth::verify_password_hash(&provided, &parsed).map_err(|_| {
-                json_error(StatusCode::UNAUTHORIZED, "This link needs its password.")
-            })?;
+            if auth::verify_password_hash(&provided, &parsed).is_err() {
+                state.share_auth.record_failure(&share.id, &ip);
+                return Err(json_error(
+                    StatusCode::UNAUTHORIZED,
+                    "This link needs its password.",
+                ));
+            }
+            state.share_auth.clear_success(&share.id, &ip);
         }
 
         let rel = child_under_share(&share.path, query.path.as_deref().unwrap_or("")).ok_or_else(
@@ -352,15 +369,13 @@ async fn serve_file(
     Ok(response)
 }
 
-/// Share password: prefer `X-Share-Password` so it does not appear in logs or
-/// Referer. `?password=` remains for existing download links and bookmarks.
-fn share_password(headers: &HeaderMap, query: &PublicQuery) -> String {
+/// Share password via `X-Share-Password` header only (never query strings).
+fn share_password(headers: &HeaderMap) -> String {
     headers
         .get("x-share-password")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .filter(|s| !s.is_empty())
-        .or_else(|| query.password.clone())
         .unwrap_or_default()
 }
 
@@ -456,15 +471,10 @@ mod tests {
     }
 
     #[test]
-    fn share_password_prefers_header_over_query() {
+    fn share_password_uses_header_only() {
         let mut headers = HeaderMap::new();
         headers.insert("x-share-password", HeaderValue::from_static("from-header"));
-        let query = PublicQuery {
-            password: Some("from-query".into()),
-            path: None,
-            download: None,
-        };
-        assert_eq!(share_password(&headers, &query), "from-header");
-        assert_eq!(share_password(&HeaderMap::new(), &query), "from-query");
+        assert_eq!(share_password(&headers), "from-header");
+        assert_eq!(share_password(&HeaderMap::new()), "");
     }
 }

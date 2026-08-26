@@ -1,0 +1,50 @@
+package accounts
+
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+	"time"
+)
+
+const orphanGraceDays = 7
+
+// CleanupOrphans removes Luna Connect accounts that never added a device and
+// never completed the $1 human verification check.
+func CleanupOrphans(ctx context.Context, db *sql.DB) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-orphanGraceDays * 24 * time.Hour).Unix()
+	res, err := db.ExecContext(ctx, `
+DELETE FROM accounts
+WHERE created_at < ?
+  AND id NOT IN (SELECT DISTINCT account_id FROM devices WHERE account_id IS NOT NULL AND account_id != '')
+  AND has_card = 0`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		slog.Info("luna connect removed idle accounts", "count", n, "grace_days", orphanGraceDays)
+	}
+	return n, nil
+}
+
+func RunCleanupLoop(ctx context.Context, db *sql.DB) {
+	if _, err := CleanupOrphans(ctx, db); err != nil {
+		slog.Warn("orphan account cleanup failed", "error", err)
+	}
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+		 return
+		case <-t.C:
+			if _, err := CleanupOrphans(ctx, db); err != nil {
+				slog.Warn("orphan account cleanup failed", "error", err)
+			}
+		}
+	}
+}

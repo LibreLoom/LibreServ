@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
         &cfg.data_dir,
         std::env::var("LUNA_CONNECT_URL").ok(),
     ));
-    let state = AppState::new(conn, drive_manager)
+    let state = AppState::new(conn, drive_manager, &cfg.data_dir)
         .with_connect(connect)
         .with_thumb_dir(cfg.data_dir.join("thumbs"));
 
@@ -47,14 +47,7 @@ async fn main() -> anyhow::Result<()> {
         let auth = state.auth.clone();
         std::thread::Builder::new()
             .name("luna-recovery".into())
-            .spawn(move || {
-                lunad::recovery::run_loop(
-                    auth,
-                    lunad::recovery::EvdevKeys::scan(),
-                    lunad::recovery::ConsolePrompt,
-                    std::time::Instant::now,
-                );
-            })
+            .spawn(move || lunad::recovery::run_console_loop(auth))
             .ok();
     }
 

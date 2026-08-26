@@ -101,22 +101,28 @@ async fn login(
         .auth
         .login(&body.username, &body.password)
         .map_err(map_auth_err)?;
-    let cookie = auth::session_cookie(&token, auth::request_is_https(&headers));
-    Ok((
-        StatusCode::OK,
-        [
-            (header::SET_COOKIE, cookie),
-            (header::CACHE_CONTROL, "no-store".to_string()),
-        ],
-        Json(json!({
-            "ok": true,
-            "id": user.id,
-            "username": user.username,
-            "display_name": user.display_name,
-            "role": user.role,
-        })),
-    )
-        .into_response())
+    let secure = auth::request_is_https(&headers);
+    let mut response = Json(json!({
+        "ok": true,
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "role": user.role,
+    }))
+    .into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        auth::session_cookie(&token, secure).parse().unwrap(),
+    );
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        auth::fresh_csrf_cookie(secure).parse().unwrap(),
+    );
+    Ok(response)
 }
 
 async fn logout(headers: HeaderMap) -> Response {
@@ -235,10 +241,7 @@ fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {
             StatusCode::BAD_REQUEST,
             "Usernames are 3-32 letters, numbers, dots, dashes, or underscores.",
         ),
-        AuthError::BadPassword => json_error(
-            StatusCode::BAD_REQUEST,
-            "Passwords need at least 8 characters.",
-        ),
+        AuthError::PasswordPolicy(msg) => json_error(StatusCode::BAD_REQUEST, &msg),
         AuthError::Taken => json_error(StatusCode::CONFLICT, "That username is already taken."),
         AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an admin can do that."),
         AuthError::Unauthenticated => {
