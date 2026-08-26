@@ -215,7 +215,9 @@ async fn public_inner(
             let provided = share_password(&headers, &query);
             // Rate-limit password attempts: `/s/` is a public, WAN-exposed
             // endpoint, so an unthrottled share password would be brute-forceable.
-            if !state.share_limiter.allow(&ip) {
+            // Keyed per share + IP so a brute-force on one link cannot exhaust
+            // the budget for every other share behind the same NAT.
+            if !state.share_limiter.allow(&format!("{}:{ip}", share.id)) {
                 return Err(json_error(
                     StatusCode::TOO_MANY_REQUESTS,
                     "Too many tries. Wait a few minutes and try again.",

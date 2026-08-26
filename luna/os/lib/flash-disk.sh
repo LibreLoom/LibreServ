@@ -118,8 +118,26 @@ _install_grub_modules() {
 		return 1
 	fi
 }
+# True when the device, any of its partitions, or an eMMC aux node of it is
+# currently mounted. Reads /proc/mounts directly so it works everywhere
+# busybox does, without depending on lsblk/findmnt being present.
+_disk_is_mounted() {
+	_base="$(block_name "$1")"
+	while read -r _src _rest; do
+		_m="$(basename "$_src" 2>/dev/null)" || continue
+		case "$_m" in
+		"$_base" | "$_base"[0-9]* | "$_base"p[0-9]*)
+			return 0
+			;;
+		esac
+	done <"${LUNA_PROC_MOUNTS:-/proc/mounts}"
+	return 1
+}
 
-flash_luna_disk() {
+# Every pre-flight refusal, kept as one function so nothing destructive can
+# run until all of them pass. Tests drive this directly to pin the
+# refuse-before-wipe ordering.
+_flash_guards() {
 	_dev="$1"
 	_tarball="$2"
 
@@ -135,8 +153,14 @@ flash_luna_disk() {
 		echo "That disk is the USB stick this installer booted from. Luna will not erase it." >&2
 		return 2
 	fi
-	if [ ! -b "$_dev" ]; then
+	# Tests cannot create real block devices; LUNA_FAKE_BLOCK skips only the
+	# existence probe, never a safety check.
+	if [ ! -b "$_dev" ] && [ -z "${LUNA_FAKE_BLOCK:-}" ]; then
 		echo "No disk at $_dev." >&2
+		return 2
+	fi
+	if _disk_is_mounted "$_dev"; then
+		echo "Refusing: $_dev (or one of its partitions) is currently mounted." >&2
 		return 2
 	fi
 	if [ ! -f "$_tarball" ]; then
@@ -147,6 +171,13 @@ flash_luna_disk() {
 		echo "This environment is missing GRUB. Boot the rapidinstall ISO instead." >&2
 		return 1
 	fi
+	return 0
+}
+
+flash_luna_disk() {
+	_dev="$1"
+	_tarball="$2"
+	_flash_guards "$_dev" "$_tarball" || return
 
 	_bios="$(partition_bios_grub "$_dev")"
 	_esp="$(partition_esp "$_dev")"
@@ -181,12 +212,30 @@ PART
 		return 1
 	fi
 
-	_mnt="$(mktemp -d)"
-	_espmnt="$(mktemp -d)"
-	mount "$_root" "$_mnt"
-	mount "$_esp" "$_espmnt"
+	_mnt="$(mktemp -d /tmp/luna-root.XXXXXX)" || {
+		echo "Could not create a temporary mount point. Stopped before writing anything." >&2
+		return 1
+	}
+	_espmnt="$(mktemp -d /tmp/luna-esp.XXXXXX)" || {
+		rmdir "$_mnt" 2>/dev/null || true
+		echo "Could not create a temporary mount point. Stopped before writing anything." >&2
+		return 1
+	}
+	# Check every mount: after the wipe above, extracting to a mount that
+	# silently failed would pour the rootfs into the installer's tmpfs.
+	if ! mount "$_root" "$_mnt"; then
+		echo "Mounting the new Luna partition failed. The disk is partitioned but empty — re-run to retry." >&2
+		rmdir "$_mnt" "$_espmnt" 2>/dev/null || true
+		return 1
+	fi
+	if ! mount "$_esp" "$_espmnt"; then
+		echo "Mounting the new EFI partition failed. The disk is partitioned but empty — re-run to retry." >&2
+		umount "$_mnt" 2>/dev/null || true
+		rmdir "$_mnt" "$_espmnt" 2>/dev/null || true
+		return 1
+	fi
 	# shellcheck disable=SC2064
-	trap 'umount "$_espmnt" 2>/dev/null || true; umount "$_mnt" 2>/dev/null || true; rmdir "$_espmnt" "$_mnt" 2>/dev/null || true; trap - EXIT INT' EXIT INT
+	trap 'umount "${_espmnt:-}" 2>/dev/null || true; umount "${_mnt:-}" 2>/dev/null || true; rmdir "${_espmnt:-}" "${_mnt:-}" 2>/dev/null || true; trap - EXIT INT' EXIT INT
 
 	echo "==> extracting Luna OS"
 	tar -xzf "$_tarball" -C "$_mnt"
