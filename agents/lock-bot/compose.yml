@@ -26,7 +26,7 @@ services:
       git -C "${dest}" fetch --depth 50 origin main;
       git -C "${dest}" reset --hard origin/main;
       git -C "${dest}" clean -fd;
-      exec "${dest}/agents/lock-bot/loop.sh"
+      exec /bin/bash "${dest}/agents/lock-bot/loop.sh"
     env_file:
       - /stack/compose/.secrets/lock-bot.env
     environment:

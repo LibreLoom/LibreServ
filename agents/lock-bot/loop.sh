@@ -37,14 +37,14 @@ run_once() {
   fi
   COOK="${BOT_REPO_DIR}/agents/lock-bot/cook.sh"
   log "cook start ${COOK}"
-  if [ -x "${COOK}" ]; then
-    if BOT_ALREADY_SYNCED=1 "${COOK}"; then
+  if [ -f "${COOK}" ]; then
+    if BOT_ALREADY_SYNCED=1 /bin/bash "${COOK}"; then
       log "cook ok"
     else
       log "cook failed rc=$?"
     fi
   else
-    log "cook.sh missing or not executable"
+    log "cook.sh missing"
   fi
 }
 
