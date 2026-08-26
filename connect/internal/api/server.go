@@ -132,9 +132,13 @@ func (s *Server) setupRoutes() {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.SPAFallback(s.serveCustomerSPA))
 			r.Use(middleware.CustomerAuth(s.db))
+			// Cookie sessions: reject cross-origin mutating requests.
+			// Bearer Authorization skips this check.
+			r.Use(middleware.PortalOriginCheck)
 
 			// Reachable without a verified email so unverified users can
 			// manage verification itself.
+			r.Post("/logout", portal.Logout)
 			r.Post("/resend-verification", portal.ResendVerification)
 			r.Get("/verification-status", portal.GetVerificationStatus)
 			r.Get("/me", portal.GetMe)
