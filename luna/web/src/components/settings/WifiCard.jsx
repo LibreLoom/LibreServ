@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cable, Eye, EyeOff, Wifi } from "lucide-react";
-import Card from "../cards/Card";
+import SettingsCard from "./SettingsCard";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import Pill from "../common/Pill";
@@ -82,7 +82,7 @@ export default function WifiCard() {
 
   return (
     <>
-      <Card icon={Wifi} title="Home network">
+      <SettingsCard icon={Wifi} title="Home network">
         <p className="text-primary text-sm">
           Phones and computers reach Luna on this network. A cable is the most
           reliable. Wi-Fi is fine if Luna sits away from your{" "}
@@ -122,7 +122,7 @@ export default function WifiCard() {
             </Button>
           )}
         </div>
-      </Card>
+      </SettingsCard>
 
       {open && (
         <ModalCard title="Connect to Wi-Fi" onClose={close}>
