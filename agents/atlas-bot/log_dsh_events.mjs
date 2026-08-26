@@ -174,7 +174,60 @@ function replay(raw, file, lastN, seen, logf) {
   return n;
 }
 
+
+function visibleAssistantText(ev) {
+  const msg = ev && ev.data && ev.data.message;
+  const content = msg && typeof msg === "object" ? msg.content : null;
+  if (!Array.isArray(content)) return "";
+  const bits = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "reasoning") continue;
+    if (part.type === "text" && typeof part.text === "string") bits.push(part.text);
+  }
+  return bits.join("").trim();
+}
+
+function lastVisibleText(raw) {
+  let last = "";
+  for (const line0 of raw.split("\n")) {
+    const line = line0.trim();
+    if (!line) continue;
+    let ev;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (ev.type !== "assistant/message") continue;
+    const t = visibleAssistantText(ev);
+    if (t) last = t;
+  }
+  return last;
+}
+
 const argv = process.argv.slice(2);
+if (argv[0] === "--last-text") {
+  const home = argv[1] || "/opt/atlas-bot/dsh-home";
+  const roots = [...new Set([
+    path.join(home, "sessions"),
+    "/opt/atlas-bot/dsh-home/sessions",
+    "/opt/dsh/sessions",
+  ])];
+  const newest = newestSession(roots);
+  if (!newest) process.exit(1);
+  let raw = "";
+  try {
+    raw = decompressFile(newest);
+  } catch {
+    process.exit(1);
+  }
+  const text = lastVisibleText(raw);
+  if (!text) process.exit(1);
+  process.stdout.write(text);
+  process.exit(0);
+}
+
 if (argv[0] === "--once") {
   const file = argv[1];
   if (!file) {
