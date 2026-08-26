@@ -171,5 +171,6 @@ npm ci
 npm run build
 cd "${REPO_ROOT}/luna"
 make build-daemon
+make mock-pssd
 
 echo ">> LibreServ + Luna install complete"

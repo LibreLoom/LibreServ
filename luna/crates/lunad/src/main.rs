@@ -31,7 +31,8 @@ async fn main() -> anyhow::Result<()> {
     ));
     {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-        let detected = lunad::detect::scan(std::path::Path::new("/sys/block"), &mounts);
+        let detected =
+            lunad::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
         drive_manager.reconcile(&conn, &detected)?;
     }
     let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();

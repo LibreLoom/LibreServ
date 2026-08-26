@@ -19,7 +19,7 @@ async function request(path, options = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(path, { ...options, headers, cache: "no-store" });
+  const res = await fetch(path, { ...options, headers, cache: "no-store", credentials: "include" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -37,6 +37,7 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ email, password, totp_code: totpCode || "" }),
   }),
+  logout: () => request("/portal/logout", { method: "POST" }),
   verifyEmail: (token) => request("/portal/verify-email", {
     method: "POST",
     body: JSON.stringify({ token }),

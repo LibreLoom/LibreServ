@@ -49,10 +49,10 @@ export default function NetworkStep({ name, onContinue }) {
   const waitingLease = ethernet && !online;
 
   return (
-    <div className="flex flex-col items-center text-center py-2" data-slot="setup-network-step">
+    <div className="flex flex-col items-center text-center pt-2" data-slot="setup-network-step">
       <Cable size={40} className="text-accent mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Plug in the cable
+        Connect Ethernet
       </h1>
       <p className="text-primary text-sm leading-relaxed max-w-md mb-8">
         {waitingLease
@@ -74,7 +74,7 @@ export default function NetworkStep({ name, onContinue }) {
             )}
       </p>
 
-      <div className="w-full max-w-sm space-y-2 mb-8" data-slot="network-board">
+      <div className="w-full max-w-sm space-y-2" data-slot="network-board">
         <BoardRow
           ok={ethernet}
           okText={ipv4[0] ? ipv4[0] : "Plugged in"}
@@ -83,7 +83,7 @@ export default function NetworkStep({ name, onContinue }) {
       </div>
 
       {online && (
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm flex flex-col items-center space-y-5 text-left mt-8" data-slot="network-online">
           <Button variant="primary" fullWidth onClick={onContinue} className="group py-4 font-mono">
             Continue
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
