@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# live /opt/atlas-bot/cook.sh is only a trampoline; real code is git-pulled each cook.
 # Atlas-bot job: owners-gate, Cooking... clock, context, dsh, in-thread reply.
 # Never mounts a docker socket, never SSHs, never touches /stack.
 # Comments MUST go out as atlas-bot, never forgejo-actions.
@@ -14,6 +15,43 @@ if [[ -z "${ATLAS_BOT_TOKEN:-}" ]]; then
   echo "cook.sh: ATLAS_BOT_TOKEN is required (refusing the Actions token, which posts as forgejo-actions)" >&2
   exit 2
 fi
+
+# /opt/atlas-bot/cook.sh is a trampoline. Real code is git-pulled each cook.
+BOT_REPO_DIR="${BOT_REPO_DIR:-/data/LibreServ}"
+if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
+  COMMON="${BOT_REPO_DIR}/agents/common/git-sync.sh"
+  if [ -f "${COMMON}" ]; then
+    # shellcheck disable=SC1091
+    . "${COMMON}"
+    sync_libreserv "${ATLAS_BOT_TOKEN}"
+  else
+    host="${FORGEJO_URL:-https://gt.plainskill.net}"
+    host="${host#https://}"; host="${host#http://}"; host="${host%%/*}"
+    export GIT_TERMINAL_PROMPT=0
+    url="https://oauth2:${ATLAS_BOT_TOKEN}@${host}/LibreLoom/LibreServ.git"
+    if [ ! -d "${BOT_REPO_DIR}/.git" ]; then
+      git clone --depth 50 "${url}" "${BOT_REPO_DIR}"
+    fi
+    git -C "${BOT_REPO_DIR}" remote set-url origin "${url}"
+    git -C "${BOT_REPO_DIR}" fetch --depth 50 origin main
+    git -C "${BOT_REPO_DIR}" checkout -B main origin/main
+    git -C "${BOT_REPO_DIR}" reset --hard origin/main
+    git -C "${BOT_REPO_DIR}" clean -fd
+    if [ -f "${BOT_REPO_DIR}/agents/common/git-sync.sh" ]; then
+      # shellcheck disable=SC1091
+      . "${BOT_REPO_DIR}/agents/common/git-sync.sh"
+    fi
+  fi
+  export BOT_ALREADY_SYNCED=1
+  NEW="${BOT_REPO_DIR}/agents/atlas-bot/cook.sh"
+  self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+  target="$(readlink -f "${NEW}" 2>/dev/null || echo "${NEW}")"
+  if [ -f "${NEW}" ] && [ "${self}" != "${target}" ]; then
+    echo "==> atlas-bot exec ${NEW}"
+    exec /bin/bash "${NEW}" "$@"
+  fi
+fi
+HERE="$(cd "$(dirname "$0")" && pwd)"
 unset GITHUB_TOKEN || true
 export FORGEJO_TOKEN="${ATLAS_BOT_TOKEN}"
 

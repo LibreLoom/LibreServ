@@ -41,7 +41,7 @@ if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
   NEW="${BOT_REPO_DIR}/agents/lock-bot/cook.sh"
   self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
   target="$(readlink -f "${NEW}" 2>/dev/null || echo "${NEW}")"
-  if [ -x "${NEW}" ] && [ "${self}" != "${target}" ]; then
+  if [ -f "${NEW}" ] && [ "${self}" != "${target}" ]; then
     echo "==> lock-bot exec ${NEW}"
     exec /bin/bash "${NEW}" "$@"
   fi
