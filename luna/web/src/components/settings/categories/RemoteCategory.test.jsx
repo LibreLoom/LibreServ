@@ -27,6 +27,22 @@ describe("RemoteCategory", () => {
     expect(screen.getByText(/free forever/i)).toBeTruthy();
   });
 
+  it("stacks connect code label above a full-width input", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    ));
+    renderPage();
+    expect(await screen.findByText(/Code from the Luna Connect site/i)).toBeTruthy();
+
+    const row = screen.getByText(/Code from the Luna Connect site/i).closest('[data-slot="settings-row"]');
+    expect(row?.className).toMatch(/flex-col/);
+    expect(row?.className).toMatch(/lg:flex-row/);
+
+    const input = screen.getByPlaceholderText(/Six letters from the site/i);
+    expect(input.className).toMatch(/w-full/);
+    expect(input.className).toMatch(/min-w-0/);
+  });
+
   it("shows hostname and change field when on", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(JSON.stringify({

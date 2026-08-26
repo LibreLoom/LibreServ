@@ -68,7 +68,7 @@ export default function RemoteCategory() {
               )}
               <SettingsRow label="Change address" stack>
                 <input
-                  className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
+                  className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
                   placeholder="kitchen"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
@@ -87,7 +87,7 @@ export default function RemoteCategory() {
               </p>
               <SettingsRow label="Code from the Luna Connect site" stack hideDivider>
                 <input
-                  className="w-full min-w-[12rem] rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
+                  className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   placeholder="Six letters from the site"
