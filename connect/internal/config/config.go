@@ -147,3 +147,9 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("scheduler.domain_sync_interval", "6h")
 	v.SetDefault("purchase.mock_domain", false)
 }
+
+// CookieSecure is true when the portal is served over HTTPS (base_url).
+// Session cookies then set the Secure attribute.
+func CookieSecure() bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(C.Server.BaseURL)), "https://")
+}
