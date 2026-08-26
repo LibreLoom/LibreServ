@@ -85,9 +85,6 @@ func TestOriginAllowed(t *testing.T) {
 		t.Fatal("matching base URL origin should be allowed")
 	}
 	req.Header.Set("Origin", "https://connect.example.com/")
-	// EqualFold on full string fails for trailing slash; host compare via Parse should work
-	// our EqualFold on full origin with trailing slash: base has no slash, so first check fails;
-	// Parse path shouldn't matter — we compare scheme+host only after first check.
 	if !OriginAllowed(req) {
 		t.Fatal("origin with trailing path slash should still match host")
 	}
@@ -120,7 +117,6 @@ func TestPortalOriginCheck(t *testing.T) {
 	})
 	h := PortalOriginCheck(ok)
 
-	// Cookie-authed POST with bad Origin -> 403
 	req := httptest.NewRequest(http.MethodPost, "/portal/cancel", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	rec := httptest.NewRecorder()
@@ -132,7 +128,6 @@ func TestPortalOriginCheck(t *testing.T) {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 
-	// Bearer skips Origin check
 	req = httptest.NewRequest(http.MethodPost, "/portal/cancel", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	req.Header.Set("Authorization", "Bearer some-token")
@@ -142,7 +137,6 @@ func TestPortalOriginCheck(t *testing.T) {
 		t.Fatalf("bearer status=%d, want 204", rec.Code)
 	}
 
-	// Safe method passes
 	req = httptest.NewRequest(http.MethodGet, "/portal/me", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	rec = httptest.NewRecorder()
@@ -151,7 +145,6 @@ func TestPortalOriginCheck(t *testing.T) {
 		t.Fatalf("GET status=%d, want 204", rec.Code)
 	}
 
-	// Matching origin passes
 	req = httptest.NewRequest(http.MethodPost, "/portal/cancel", nil)
 	req.Header.Set("Origin", "https://connect.example.com")
 	rec = httptest.NewRecorder()
@@ -171,5 +164,58 @@ func TestCookieSecure(t *testing.T) {
 	config.C.Server.BaseURL = "http://x.example"
 	if config.CookieSecure() {
 		t.Fatal("http base_url should not be secure")
+	}
+}
+
+func TestAttachPortalSessionCookie(t *testing.T) {
+	prev := config.C.Server.BaseURL
+	t.Cleanup(func() { config.C.Server.BaseURL = prev })
+	config.C.Server.BaseURL = "https://connect.example.com"
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"token":"sess_abc","id":"acct_1"}`))
+	})
+	h := AttachPortalSessionCookie(inner)
+	req := httptest.NewRequest(http.MethodPost, "/portal/login", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Value != "sess_abc" {
+		t.Fatalf("cookies=%v", cookies)
+	}
+	if !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode || !cookies[0].Secure {
+		t.Fatalf("flags httponly=%v samesite=%v secure=%v", cookies[0].HttpOnly, cookies[0].SameSite, cookies[0].Secure)
+	}
+}
+
+func TestAttachPortalSessionCookieSkipsNonToken(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"requires_2fa":true}`))
+	})
+	h := AttachPortalSessionCookie(inner)
+	req := httptest.NewRequest(http.MethodPost, "/portal/login", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if len(rec.Result().Cookies()) != 0 {
+		t.Fatalf("unexpected cookie on 2FA challenge: %v", rec.Result().Cookies())
+	}
+}
+
+func TestPortalLogout(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/portal/logout", nil)
+	rec := httptest.NewRecorder()
+	PortalLogout(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	c := rec.Result().Cookies()[0]
+	if c.MaxAge != -1 {
+		t.Fatalf("MaxAge=%d", c.MaxAge)
 	}
 }
