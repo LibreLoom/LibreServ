@@ -294,7 +294,12 @@ export default function DrivesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
-                onOpen={(d) => { inspect.reset(); adopt.reset(); setInspectFor(d); }}
+                onOpen={(d) => {
+                  inspect.reset();
+                  adopt.reset();
+                  setInspectFor(d);
+                  inspect.mutate(d);
+                }}
                 onIgnore={(d) => dismiss.mutate(d)}
               />
             ))}
@@ -338,10 +343,8 @@ export default function DrivesPage() {
         <InspectModal
           drive={inspectFor}
           result={inspect.data}
-          loading={inspect.isPending}
           error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
           onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
-          onInspect={() => { adopt.reset(); inspect.mutate(inspectFor); }}
           onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
           adoptError={adoptError}
           adopting={adopt.isPending}
@@ -351,10 +354,9 @@ export default function DrivesPage() {
   );
 }
 
-function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdopt, adoptError, adopting }) {
+function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adopting }) {
   const [label, setLabel] = useState(drive.model || "My Drive");
   const [confirmErase, setConfirmErase] = useState(false);
-  const needsInspect = !result && !loading && !error;
   const needsErase = Boolean(result?.needs_erase);
   const canUse = Boolean(result) && result.readable && (result.writable || needsErase);
   const blockedReason = result && !canUse
@@ -365,19 +367,9 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
 
   return (
     <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
-      {needsInspect && (
-        <>
-          <p className="text-primary text-sm">
-            Luna will look in read-only mode. Nothing is written until you add it.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <Button variant="primary" onClick={onInspect}>Look inside</Button>
-            <Button variant="outline" onClick={onClose}>Not now</Button>
-          </div>
-        </>
+      {!result && !error && (
+        <p className="text-primary text-sm">Looking… Luna reads in read-only mode and changes nothing until you add it.</p>
       )}
-
-      {loading && <p className="text-primary text-sm">Looking…</p>}
 
       {error && (
         <>
