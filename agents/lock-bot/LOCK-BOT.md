@@ -48,7 +48,7 @@ Share the atlas-bot image (it already has dsh, node, go, rust). `fj` is not in t
 `lib/forgejo.sh` uses curl. Keep it that way.
 Look up the live image with: inspect atlas-bot Config.Image.
 
-Placeholder compose: `compose.yml` in this directory.
+Compose: `compose.yml` in this directory.
 Volumes: own `lock-bot-data` at `/data` only. Never share atlas `/data`. No `/opt` bind.
 env_file: `.secrets/lock-bot.env`. restart unless-stopped.
 Do not publish 8787. Do not include the atlas-bot service in this compose file.
