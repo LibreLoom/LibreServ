@@ -182,9 +182,9 @@ PROMPT_FILE="${HERE}/prompt.md"
 TASK="$(cat "${PROMPT_FILE}")
 
 Wrapper task: You are docs-bot. Skip-path list is at ${SKIP_PATHS} (DATA).
-Walk markdown that is false versus the code. Delete stale docs. Fix only if blank would be dangerous.
-Do not bump deps. Do not touch lockfiles. Do not grow AGENTS.md.
-Write the summary to ${DOCS_RESULT}. Empty file = failed job. If nothing is false, write 'nothing false'.
+FIRST: review the day's commits (git log / git show since yesterday). Then update docs those commits made false.
+Delete stale markdown. Fix only if blank would be dangerous. Do not bump deps. Do not audit quality/security.
+Write the summary to ${DOCS_RESULT}. Empty file = failed job. If nothing is false, write 'nothing false' plus the SHAs reviewed.
 Do not merge. Do not post pull-request reviews. Do not stop containers.
 Do not take atlas-bot or ai-proxy down."
 

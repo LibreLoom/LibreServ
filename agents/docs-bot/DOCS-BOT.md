@@ -11,7 +11,7 @@ This exists because Grok Bot access goes away; docs must not live only in that c
 
 ## What it does
 
-Keep documentation true, or gone. Delete stale or false markdown. Rewrite only when leaving a blank would be dangerous (ports, auth, install). Do not grow AGENTS.md. Do not bump deps.
+Each run: review the day's commits, then delete or fix markdown those commits made false. Rewrite only when leaving a blank would be dangerous (ports, auth, install). Do not grow AGENTS.md. Do not bump deps. Quality/security coverage of the tree is the Grok Bot audit, not this agent.
 
 ## Secrets
 
