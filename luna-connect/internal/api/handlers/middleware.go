@@ -87,7 +87,7 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
 		HttpOnly: false,
 		Secure:   config.CookieSecure(),
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   30 * 24 * 3600,
+		MaxAge:   int(SessionTTL.Seconds()),
 	})
 	return tok
 }
