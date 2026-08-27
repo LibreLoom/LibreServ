@@ -49,7 +49,7 @@ _write_grub_cfg() {
 		echo '    insmod search'
 		echo '    insmod search_fs_uuid'
 		echo "    search --no-floppy --fs-uuid --set=root ${_root_uuid}"
-		echo "    linux /boot/${_k} root=UUID=${_root_uuid} modules=ext4 rootfstype=ext4 quiet"
+		echo "    linux /boot/${_k} root=UUID=${_root_uuid} rootflags=noatime modules=ext4 rootfstype=ext4 quiet loglevel=3"
 		echo "    initrd /boot/${_i}"
 		echo '}'
 	} >"$_rootmnt/boot/grub/grub.cfg"

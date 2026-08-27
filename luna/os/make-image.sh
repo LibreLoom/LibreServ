@@ -17,7 +17,7 @@ rm -f "$IMAGE"
 
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" sh -euc "apk add --no-cache e2fsprogs >/dev/null &&
     truncate -s ${SIZE_MB}M /out/luna-os-x86_64.img
-    mkfs.ext4 -F -L LUNA -E hash_seed=42 -d /rootfs /out/luna-os-x86_64.img
+    mkfs.ext4 -F -L LUNA -d /rootfs /out/luna-os-x86_64.img
 "
 e2fsck -fy "$IMAGE" >/dev/null
 printf 'built %s (%s MiB, ext4, label LUNA)\n' "$IMAGE" "$SIZE_MB"

@@ -22,6 +22,9 @@ disk both boot in either firmware mode.
 ./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
 #    Or after a rootfs already exists:
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
+#    If live-build fails with "umount: chroot/proc: target is busy" (common when
+#    an IDE indexer holds fds under the repo), rebuild with:
+#    LUNA_LIVE_WORK=/var/tmp/luna-debian-live ./os/make-iso.sh
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
 #    GRUB should load Linux on its own. You should see "Luna rapidinstall"

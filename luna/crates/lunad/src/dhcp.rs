@@ -33,7 +33,8 @@ fn dhcp_client_cmds(iface: &str) -> [(&'static str, Vec<String>); 3] {
     [
         (
             "udhcpc",
-            vec!["-i", iface, "-n", "-q", "-t", "8"]
+            // Keep retries short; watch_link_up re-runs on carrier edges.
+            vec!["-i", iface, "-n", "-q", "-t", "3"]
                 .into_iter()
                 .map(String::from)
                 .collect(),

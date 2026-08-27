@@ -4,6 +4,7 @@
 //! Capture dates come from EXIF, not file mtime. Originals are never rewritten.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use image::{ImageFormat, ImageReader};
 use rusqlite::{Connection, params};
@@ -13,6 +14,8 @@ const THUMB_MAX: u32 = 400;
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
 const MAX_IMAGE_DIM: u32 = 16_384;
 const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
+/// Per-drive thumbnail directory on the photo's own mount (not the OS eMMC).
+pub const THUMBS_DIR_NAME: &str = ".lunathumbs";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
@@ -40,21 +43,35 @@ pub fn is_image(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-pub fn thumb_path(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
+/// `{drive_root}/.lunathumbs` — thumbs live on the same drive as the photos.
+pub fn thumbs_dir(drive_root: &Path) -> PathBuf {
+    drive_root.join(THUMBS_DIR_NAME)
+}
+
+pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> PathBuf {
     let key = format!("{drive_id}:{rel}");
     let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
-    thumb_dir.join(format!("{hash}.jpg"))
+    thumbs_dir(drive_root).join(format!("{hash}.jpg"))
 }
 
 /// Walk one drive and refresh its photo rows + thumbnails. Blocking; callers
 /// run this on the background pool.
+///
+/// Thumbnails are written under `{root}/.lunathumbs/` on the data drive so the
+/// OS eMMC is not filled with JPEG previews.
+///
+/// Unchanged files (same size + mtime, thumb still on disk) are skipped so a
+/// re-scan of a large library does not re-decode every HEIC.
+///
+/// The DB mutex is released while decoding/thumbnailing so uploads and list
+/// APIs stay responsive during a gallery rebuild.
 pub fn scan_drive(
-    conn: &Connection,
+    db: &Mutex<Connection>,
     drive_id: &str,
     root: &Path,
-    thumb_dir: &Path,
 ) -> anyhow::Result<ScanReport> {
-    std::fs::create_dir_all(thumb_dir)?;
+    let thumb_dir = thumbs_dir(root);
+    std::fs::create_dir_all(&thumb_dir)?;
     let mut report = ScanReport::default();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -67,7 +84,10 @@ pub fn scan_drive(
             if meta.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if name == ".luna-trash" || name == crate::protect::PROTECTED_DIR {
+                if name == THUMBS_DIR_NAME
+                    || name == ".luna-trash"
+                    || name == crate::protect::PROTECTED_DIR
+                {
                     continue;
                 }
                 stack.push(entry.path());
@@ -85,18 +105,35 @@ pub fn scan_drive(
                 continue;
             };
             let name = name.to_string();
+            let size = meta.len() as i64;
             let mtime = meta
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
-            let taken_at = crate::exif::capture_unix(&path_buf).unwrap_or(mtime);
 
+            let dest = thumb_path(root, drive_id, rel);
+            {
+                let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+                if let Ok(Some((old_size, old_mtime, old_thumb))) =
+                    photo_cache_row(&conn, drive_id, rel)
+                    && old_size == size
+                    && old_mtime == mtime
+                    && !old_thumb.is_empty()
+                    && dest.exists()
+                {
+                    report.found += 1;
+                    continue;
+                }
+            }
+
+            // Decode / EXIF / heif-dec outside the mutex.
+            let taken_at = crate::exif::capture_unix(&path_buf).unwrap_or(mtime);
             let mut width = 0;
             let mut height = 0;
             let mut thumb = String::new();
-            match ensure_thumb(&entry.path(), &thumb_path(thumb_dir, drive_id, rel)) {
+            match ensure_thumb(&entry.path(), &dest) {
                 Ok((w, h, made)) => {
                     width = w;
                     height = h;
@@ -115,6 +152,7 @@ pub fn scan_drive(
                 }
             }
 
+            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
             conn.execute(
                 "INSERT INTO photos (drive_id, path, name, size, mtime, taken_at, width, height, thumb)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -126,7 +164,7 @@ pub fn scan_drive(
                     drive_id,
                     rel,
                     name,
-                    meta.len() as i64,
+                    size,
                     mtime,
                     taken_at,
                     width as i64,
@@ -137,6 +175,21 @@ pub fn scan_drive(
         }
     }
     Ok(report)
+}
+
+fn photo_cache_row(
+    conn: &Connection,
+    drive_id: &str,
+    rel: &str,
+) -> anyhow::Result<Option<(i64, i64, String)>> {
+    let mut stmt =
+        conn.prepare("SELECT size, mtime, thumb FROM photos WHERE drive_id = ?1 AND path = ?2")?;
+    let mut rows = stmt.query(params![drive_id, rel])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Generate a 400px JPEG thumbnail. Returns (width, height, was_created).
@@ -293,6 +346,32 @@ mod tests {
     }
 
     #[test]
+    fn scan_skips_unchanged_photos() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let src = photos_dir.join("same.png");
+        let png = image::RgbaImage::from_pixel(16, 16, image::Rgba([9, 9, 9, 255]));
+        png.save(&src).unwrap();
+
+        let db = std::sync::Mutex::new(crate::db::open(&dir.path().join("luna.db")).unwrap());
+        let first = scan_drive(&db, "d1", &photos_dir).unwrap();
+        assert_eq!(first.found, 1);
+        assert_eq!(first.thumbnailed, 1);
+        assert!(
+            thumbs_dir(&photos_dir).read_dir().unwrap().next().is_some(),
+            "thumbs must land under the photo drive's .lunathumbs"
+        );
+
+        let second = scan_drive(&db, "d1", &photos_dir).unwrap();
+        assert_eq!(second.found, 1);
+        assert_eq!(
+            second.thumbnailed, 0,
+            "unchanged photos must not be re-thumbnailed"
+        );
+    }
+
+    #[test]
     fn scan_sorts_by_exif_not_mtime() {
         let dir = tempfile::tempdir().unwrap();
         let photos_dir = dir.path().join("photos");
@@ -307,17 +386,9 @@ mod tests {
         let png = image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]));
         png.save(&recent).unwrap();
 
-        let db = rusqlite::Connection::open_in_memory().unwrap();
-        db.execute_batch(
-            "CREATE TABLE photos (
-                drive_id TEXT, path TEXT, name TEXT, size INTEGER, mtime INTEGER,
-                taken_at INTEGER NOT NULL DEFAULT 0, width INTEGER, height INTEGER, thumb TEXT,
-                PRIMARY KEY (drive_id, path))",
-        )
-        .unwrap();
-        let thumbs = dir.path().join("thumbs");
-        scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
-        let photos = list_photos(&db, Some("d1"), 10, 0).unwrap();
+        let db = std::sync::Mutex::new(crate::db::open(&dir.path().join("luna.db")).unwrap());
+        scan_drive(&db, "d1", &photos_dir).unwrap();
+        let photos = list_photos(&db.lock().unwrap(), Some("d1"), 10, 0).unwrap();
         assert_eq!(photos.len(), 2);
         assert_eq!(photos[0].name, "recent.png");
         assert_eq!(photos[1].name, "from-phone.jpg");

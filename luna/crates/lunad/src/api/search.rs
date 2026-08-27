@@ -93,15 +93,19 @@ async fn reindex(
     }
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        let drives = crate::db::list_drives(&conn).unwrap_or_default();
+        let mounts: Vec<(String, String)> = {
+            let conn = db.lock().unwrap();
+            crate::db::list_drives(&conn)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|drive| drive.state == "as_is" && !drive.mount_point.is_empty())
+                .map(|drive| (drive.id, drive.mount_point))
+                .collect()
+        };
         let mut dirs = 0u64;
-        for drive in drives {
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
-                continue;
-            }
+        for (id, mount) in mounts {
             if let Ok(n) =
-                crate::index::scan_drive(&conn, &drive.id, std::path::Path::new(&drive.mount_point))
+                crate::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
             {
                 dirs += n;
             }
@@ -163,8 +167,7 @@ async fn start_scrub(
     let db = state.db.clone();
     let flag = state.scrub_running.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        let _ = crate::scrub::scrub_all_drives(&conn);
+        let _ = crate::scrub::scrub_all_drives_unlocked(&db);
         flag.store(false, std::sync::atomic::Ordering::SeqCst);
     });
     Ok(Json(

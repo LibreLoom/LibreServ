@@ -40,10 +40,15 @@ mkdir -p "$ROOTFS" "$OUT"
 # --privileged is required so mkinitfs can mount proc/sys/dev in the chroot
 # (rootless Podman otherwise returns "mount: permission denied").
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
+    # linux-lts depends on linux-firmware-any. The meta package
+    # linux-firmware pulls ~800 MiB of GPU/Wi-Fi blobs we never use
+    # (Luna is Ethernet-only). linux-firmware-none satisfies the dep;
+    # keep only common wired NIC firmware for mini PCs / thin clients.
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
         alpine-base openrc linux-lts kmod \
+        linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
         avahi \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux \
@@ -85,10 +90,23 @@ pidfile="/run/luna.pid"
 start_stop_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80"
 depend() {
     need localmount
-    after avahi-daemon
+    # HTTP must not wait on mDNS — avahi can start in parallel.
+    after luna-network
 }
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"
+
+# Parallel OpenRC so luna-input / luna-network / chronyd / avahi / luna overlap.
+printf 'rc_parallel="YES"\n' > "$ROOTFS/etc/rc.conf"
+
+# Chrony: step the clock quickly after DHCP so TLS works without delaying HTTP.
+mkdir -p "$ROOTFS/etc/chrony"
+cat > "$ROOTFS/etc/chrony/chrony.conf" <<'CHRONY'
+pool pool.ntp.org iburst
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+rtcsync
+CHRONY
 
 # Keyboard / HID bring-up for cold-plugged USB (and PS/2) keyboards.
 # Alpine's mdev hotplug loads modules on *new* uevents, so a keyboard
@@ -135,28 +153,11 @@ MODS
 cat > "$ROOTFS/usr/local/bin/luna-input-up" <<'INIT'
 #!/bin/sh
 set -eu
-
-# Same ordering as the rapidinstall ISO: USB host, then HID, then PS/2.
-for mod in usb-common usbcore \
-    ehci-hcd ehci-pci ohci-hcd ohci-pci uhci-hcd \
-    xhci-hcd xhci-pci xhci-pci-renesas xhci-plat-hcd \
-    dwc3 dwc3-pci \
-    intel-lpss intel-lpss-pci mfd-core \
-    pinctrl-intel pinctrl-cherryview \
-    pwm-lpss pwm-lpss-pci pwm-lpss-platform \
-    hid hid-generic usbhid evdev ff-memless \
-    hid-logitech hid-logitech-dj hid-logitech-hidpp \
-    hid-apple hid-cherry hid-microsoft hid-lenovo hid-corsair \
-    atkbd i8042 serio libps2 \
-    i2c-core i2c-hid i2c-hid-acpi i2c-i801; do
-    modprobe "$mod" 2>/dev/null || true
-done
-
-# Re-coldplug USB so keyboards already enumerated before the modules
-# loaded get bound and /dev/input/event* nodes appear for lunad.
-if [ -d /sys/devices ]; then
-    find /sys/devices -name 'usb[0-9]*' 2>/dev/null | while read -r _usb; do
-        [ -e "$_usb/uevent" ] && echo add >"$_usb/uevent" 2>/dev/null || true
+# Modules come from modules-load.d + hwdrivers. This script only re-triggers
+# cold-plugged USB so HID devices present at power-on bind to /dev/input.
+if [ -d /sys/bus/usb/devices ]; then
+    for _uevent in /sys/bus/usb/devices/*/uevent; do
+        [ -e "$_uevent" ] && echo add >"$_uevent" 2>/dev/null || true
     done
 fi
 mdev -s 2>/dev/null || true
@@ -184,7 +185,7 @@ set -eu
 
 # ProDesk / Wyse: drivers are modules, not always autoloaded before we run.
 # Wired NICs only — Luna is Ethernet-only (no USB Wi-Fi dongle in the box).
-for mod in e1000e igc igb ixgbe r8169 atl1c; do
+for mod in e1000e igc igb ixgbe r8169 atl1c virtio_net virtio_pci; do
     modprobe "$mod" 2>/dev/null || true
 done
 
@@ -195,8 +196,10 @@ for iface_path in /sys/class/net/*; do
 
     ip link set "$iface" up 2>/dev/null || continue
 
+    # Short budget so OpenRC is not stuck for ~15s on an unplugged cable.
+    # lunad's link watcher retries DHCP after carrier comes up.
     if ! ip -4 addr show dev "$iface" | grep -q 'inet '; then
-        udhcpc -i "$iface" -q -n -t 15 2>/dev/null || true
+        udhcpc -i "$iface" -q -n -t 3 2>/dev/null || true
     fi
 done
 INIT
@@ -233,18 +236,19 @@ for svc in avahi-daemon luna crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
 
-# Rotate busybox syslog output so the small OS disk never fills up.
-cat > "$ROOTFS/etc/logrotate.d/luna" <<'LOGROT'
-/var/log/messages {
-    weekly
-    rotate 4
-    compress
-    missingok
-    notifempty
-    copytruncate
-}
-LOGROT
-chmod 644 "$ROOTFS/etc/logrotate.d/luna"
+# Keep syslog off the eMMC: /var/log is a small tmpfs (busybox syslog still
+# works; logs vanish on reboot, which is fine for an appliance OS disk).
+cat > "$ROOTFS/etc/fstab" <<'FSTAB'
+tmpfs /var/log tmpfs rw,nosuid,nodev,noatime,size=32M,mode=0755 0 0
+FSTAB
+
+# Remount root noatime even if an older install's cmdline lacked rootflags=.
+cat > "$ROOTFS/etc/local.d/luna-noatime.start" <<'NOATIME'
+#!/bin/sh
+mount -o remount,noatime / 2>/dev/null || true
+NOATIME
+chmod +x "$ROOTFS/etc/local.d/luna-noatime.start"
+ln -sf /etc/init.d/local "$ROOTFS/etc/runlevels/default/local" 2>/dev/null || true
 
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"

@@ -227,8 +227,7 @@ impl AuthService {
         let Some(user) = db::get_user(&conn, &dt.user_id).map_err(AuthError::Db)? else {
             return Ok(None);
         };
-        let _ = db::touch_device_token(&conn, &dt.id);
-        let _ = db::insert_device_token_usage(&conn, &dt.id, "auth", "api");
+        let _ = db::note_device_token_activity(&conn, &dt.id, dt.last_used_at);
         Ok(Some((
             CurrentUser {
                 id: user.id.clone(),

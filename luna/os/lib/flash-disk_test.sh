@@ -44,6 +44,7 @@ _write_grub_cfg "$_tmp" '11111111-2222-3333-4444-555555555555' vmlinuz-lts initr
 assert_has "$_tmp/boot/grub/grub.cfg" 'menuentry "Luna"' "root grub.cfg needs Luna menuentry"
 assert_has "$_tmp/boot/grub/grub.cfg" 'search_fs_uuid' "root grub.cfg must search by UUID"
 assert_has "$_tmp/boot/grub/grub.cfg" 'root=UUID=11111111-2222-3333-4444-555555555555' "root grub.cfg must pass root UUID"
+assert_has "$_tmp/boot/grub/grub.cfg" 'rootflags=noatime' "root grub.cfg must pass noatime for eMMC"
 
 _esptmp="$(mktemp -d)"
 _write_efi_grub_cfg "$_esptmp" '11111111-2222-3333-4444-555555555555'

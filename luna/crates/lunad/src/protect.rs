@@ -62,27 +62,50 @@ pub fn create(
     db::get_protection(conn, &id)?.ok_or_else(|| anyhow::anyhow!("protection not found"))
 }
 
-pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
-    let (src_root, src_meta) = files::resolve_any(conn, &row.source_drive, &row.source_path)?;
-    if !src_meta.is_dir() {
-        anyhow::bail!("The protected folder is missing.");
-    }
-    let target_root = {
-        let drive = files::drive_root(conn, &row.target_drive)?;
-        let root = std::path::PathBuf::from(&drive.mount_point);
-        luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
-            .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?
+pub fn sync_all(db: &std::sync::Mutex<Connection>) -> anyhow::Result<u64> {
+    let rows = {
+        let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        db::list_protections(&conn)?
     };
+    let mut copied = 0;
+    for row in rows {
+        // Resolve paths under a short lock, then copy without holding it.
+        let (src_root, target_root) = {
+            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+            let (src_root, src_meta) =
+                files::resolve_any(&conn, &row.source_drive, &row.source_path)?;
+            if !src_meta.is_dir() {
+                continue;
+            }
+            let drive = files::drive_root(&conn, &row.target_drive)?;
+            let root = std::path::PathBuf::from(&drive.mount_point);
+            let target_root = luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
+                .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?;
+            (src_root, target_root)
+        };
+        match sync_trees(&src_root, &target_root) {
+            Ok(n) => {
+                copied += n;
+                if let Ok(conn) = db.lock() {
+                    let _ = db::touch_protection(&conn, &row.id);
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    Ok(copied)
+}
 
+fn sync_trees(src_root: &Path, target_root: &Path) -> anyhow::Result<u64> {
     let mut copied = 0u64;
-    let mut stack = vec![(src_root.clone(), target_root.clone())];
+    let mut stack = vec![(src_root.to_path_buf(), target_root.to_path_buf())];
     while let Some((src_dir, dst_dir)) = stack.pop() {
         std::fs::create_dir_all(&dst_dir)?;
         for entry in std::fs::read_dir(&src_dir)? {
             let entry = entry?;
             let meta = std::fs::symlink_metadata(entry.path())?;
             if meta.file_type().is_symlink() {
-                continue; // never follow links in a protection copy
+                continue;
             }
             let name = entry.file_name();
             if meta.is_dir() {
@@ -100,17 +123,22 @@ pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
             copied += 1;
         }
     }
-    db::touch_protection(conn, &row.id)?;
     Ok(copied)
 }
 
-pub fn sync_all(conn: &Connection) -> anyhow::Result<u64> {
-    let mut copied = 0;
-    for row in db::list_protections(conn)? {
-        if let Ok(n) = sync(conn, &row) {
-            copied += n;
-        }
+pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
+    let (src_root, src_meta) = files::resolve_any(conn, &row.source_drive, &row.source_path)?;
+    if !src_meta.is_dir() {
+        anyhow::bail!("The protected folder is missing.");
     }
+    let target_root = {
+        let drive = files::drive_root(conn, &row.target_drive)?;
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
+            .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?
+    };
+    let copied = sync_trees(&src_root, &target_root)?;
+    db::touch_protection(conn, &row.id)?;
     Ok(copied)
 }
 

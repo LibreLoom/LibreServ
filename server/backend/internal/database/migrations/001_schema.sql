@@ -1,5 +1,5 @@
 -- Complete LibreServ Database Schema
--- All migrations consolidated into single file
+-- All migrations consolidated into a single file (formerly 001–009).
 
 -- =====================
 -- Core Tables
@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT DEFAULT 'user',
     last_login TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    mfa_required INTEGER NOT NULL DEFAULT 0
 );
 
 -- Apps table
@@ -115,6 +116,7 @@ CREATE TABLE IF NOT EXISTS routes (
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    restricted_access INTEGER NOT NULL DEFAULT 0,
     UNIQUE(subdomain, domain)
 );
 
@@ -211,6 +213,8 @@ CREATE TABLE IF NOT EXISTS user_security_settings (
     notify_on_disk_warning BOOLEAN DEFAULT TRUE,
     notify_on_docker_failure BOOLEAN DEFAULT TRUE,
     notify_on_database_issue BOOLEAN DEFAULT TRUE,
+    notify_on_app_updates BOOLEAN DEFAULT 1,
+    notify_on_user_management BOOLEAN DEFAULT 1,
     use_12_hour_time BOOLEAN DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -250,34 +254,6 @@ CREATE TABLE IF NOT EXISTS setup_state (
     current_sub_step TEXT,
     step_data TEXT DEFAULT '{}',
     progress_updated_at TIMESTAMP
-);
-
--- Support sessions (legacy, kept for transition)
-CREATE TABLE IF NOT EXISTS support_sessions (
-    id TEXT PRIMARY KEY,
-    code TEXT NOT NULL,
-    token TEXT NOT NULL,
-    scopes TEXT NOT NULL,
-    status TEXT NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    created_by TEXT,
-    revoked_at TIMESTAMP,
-    revoked_by TEXT,
-    support_level TEXT,
-    license_id TEXT
-);
-
--- Support audit log (legacy, kept for transition)
-CREATE TABLE IF NOT EXISTS support_audit (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT,
-    actor TEXT,
-    action TEXT,
-    target TEXT,
-    success BOOLEAN,
-    message TEXT,
-    occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Agent conversations
@@ -379,7 +355,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- DNS provider configuration
+-- DNS provider configuration (includes RFC 2136 / BYO DNS fields)
 CREATE TABLE IF NOT EXISTS dns_provider_configs (
     id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -387,7 +363,11 @@ CREATE TABLE IF NOT EXISTS dns_provider_configs (
     api_token TEXT NOT NULL,
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    nameserver TEXT NOT NULL DEFAULT '',
+    tsig_key_name TEXT NOT NULL DEFAULT '',
+    tsig_secret TEXT NOT NULL DEFAULT '',
+    hmac_algorithm TEXT NOT NULL DEFAULT 'hmac-sha256'
 );
 
 -- Password reset tokens table
@@ -410,6 +390,115 @@ CREATE TABLE IF NOT EXISTS email_templates (
     is_custom BOOLEAN DEFAULT FALSE,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_by TEXT
+);
+
+-- API tokens for programmatic access (distinct from JWT session tokens).
+-- The plaintext token is shown once at creation; only the SHA-256 hash is stored.
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    token_hash   TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP,
+    revoked_at   TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- MFA: methods + recovery codes
+CREATE TABLE IF NOT EXISTS mfa_methods (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    type         TEXT NOT NULL CHECK(type IN ('totp','email','passkey','security_key')),
+    label        TEXT NOT NULL,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP,
+    data         TEXT,  -- JSON; encrypted where sensitive (totp.secret_enc)
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    code_hash  TEXT NOT NULL,
+    used_at    TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Invite tokens: admin-initiated account creation (replaces public self-registration).
+CREATE TABLE IF NOT EXISTS invite_tokens (
+    id          TEXT PRIMARY KEY,
+    email       TEXT NOT NULL,
+    role        TEXT NOT NULL DEFAULT 'user',
+    inviter_id  TEXT NOT NULL,
+    token_hash  TEXT NOT NULL UNIQUE,
+    expires_at  TIMESTAMP NOT NULL,
+    redeemed_at TIMESTAMP,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- OIDC client registrations (one per "internal" app instance).
+CREATE TABLE IF NOT EXISTS oidc_clients (
+    id            TEXT PRIMARY KEY,
+    instance_id   TEXT NOT NULL,
+    client_id     TEXT UNIQUE NOT NULL,
+    client_secret TEXT NOT NULL,
+    redirect_uris TEXT NOT NULL DEFAULT '[]',
+    scopes        TEXT NOT NULL DEFAULT 'openid profile email',
+    name          TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User consent records — so users don't re-consent on every login.
+CREATE TABLE IF NOT EXISTS oidc_consent (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    client_id   TEXT NOT NULL,
+    scopes      TEXT NOT NULL,
+    granted_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, client_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- App access control — which users can access which app instances.
+CREATE TABLE IF NOT EXISTS app_access (
+    user_id     TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    granted_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(user_id, instance_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- OIDC signing keys — RSA keypairs for signing ID tokens (RS256).
+CREATE TABLE IF NOT EXISTS oidc_signing_keys (
+    id           TEXT PRIMARY KEY,
+    key_pem      TEXT NOT NULL,
+    public_pem   TEXT NOT NULL,
+    algorithm    TEXT NOT NULL DEFAULT 'RS256',
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at   TIMESTAMP,
+    is_current   INTEGER NOT NULL DEFAULT 1
+);
+
+-- Network exposure path state: one row per app × path × protocol × port.
+CREATE TABLE IF NOT EXISTS path_state (
+    id INTEGER PRIMARY KEY,
+    app_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    protocol TEXT NOT NULL DEFAULT '',
+    port INTEGER NOT NULL DEFAULT 0,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    consecutive_successes INTEGER NOT NULL DEFAULT 0,
+    last_verified_at INTEGER,
+    last_failure_at INTEGER,
+    last_failure_reason TEXT,
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (app_id, path, protocol, port)
 );
 
 -- =====================
@@ -485,9 +574,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 
--- Support sessions indexes
-CREATE UNIQUE INDEX IF NOT EXISTS idx_support_sessions_code_unique ON support_sessions(code, token);
-
 -- Agent conversation indexes
 CREATE INDEX IF NOT EXISTS idx_agent_conv_user ON agent_conversations(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_agent_conv_status ON agent_conversations(status);
@@ -498,6 +584,34 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_conv ON tool_calls(conversation_id, cr
 CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON tool_calls(status);
 CREATE INDEX IF NOT EXISTS idx_credit_usage_user ON credit_usage(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_credit_usage_conv ON credit_usage(conversation_id);
+
+-- API tokens indexes
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
+-- MFA indexes
+CREATE INDEX IF NOT EXISTS idx_mfa_methods_user ON mfa_methods(user_id);
+CREATE INDEX IF NOT EXISTS idx_mfa_methods_user_type ON mfa_methods(user_id, type);
+CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_user ON mfa_recovery_codes(user_id);
+
+-- Invite tokens indexes
+CREATE INDEX IF NOT EXISTS idx_invite_tokens_hash ON invite_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_invite_tokens_email ON invite_tokens(email);
+
+-- OIDC indexes
+CREATE INDEX IF NOT EXISTS idx_oidc_clients_instance ON oidc_clients(instance_id);
+CREATE INDEX IF NOT EXISTS idx_oidc_clients_client_id ON oidc_clients(client_id);
+CREATE INDEX IF NOT EXISTS idx_oidc_consent_user ON oidc_consent(user_id);
+CREATE INDEX IF NOT EXISTS idx_app_access_instance ON app_access(instance_id);
+
+-- At most one current OIDC signing key (partial unique index).
+DROP INDEX IF EXISTS idx_oidc_signing_keys_single_current;
+CREATE UNIQUE INDEX idx_oidc_signing_keys_single_current
+    ON oidc_signing_keys (is_current)
+    WHERE is_current = 1;
+
+-- Path state indexes
+CREATE INDEX IF NOT EXISTS idx_path_state_app ON path_state (app_id);
 
 -- =====================
 -- Default Data

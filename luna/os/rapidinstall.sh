@@ -18,6 +18,19 @@ HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 ARCH="${ARCH:-x86_64}"
 TARBALL="${LUNA_ROOTFS:-$HERE/luna-rootfs-$ARCH.tar.gz}"
 
+# QEMU / automation: allow overrides from the kernel command line.
+if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
+	for _tok in $(cat /proc/cmdline); do
+		case "$_tok" in
+		LUNA_TARGET=*) LUNA_TARGET="${_tok#LUNA_TARGET=}" ;;
+		LUNA_INSTALL_MEDIA=*) LUNA_INSTALL_MEDIA="${_tok#LUNA_INSTALL_MEDIA=}" ;;
+		LUNA_OVERRIDE_WAIT=*) LUNA_OVERRIDE_WAIT="${_tok#LUNA_OVERRIDE_WAIT=}" ;;
+		LUNA_ROOTFS=*) LUNA_ROOTFS="${_tok#LUNA_ROOTFS=}"; TARBALL="$LUNA_ROOTFS" ;;
+		esac
+	done
+	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_ROOTFS
+fi
+
 discover_install_disk() {
 	_src="${LUNA_INSTALL_MEDIA:-}"
 	if [ -z "$_src" ] && [ -f /proc/mounts ]; then
