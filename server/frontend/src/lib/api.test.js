@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import api, { AuthError } from "./api";
+import api, { AuthError, apiErrorMessage, setCsrfToken } from "./api";
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  setCsrfToken(null);
 });
 
 describe("AuthError", () => {
@@ -185,4 +186,75 @@ describe("api", () => {
       "Session expired. Please log in again.",
     );
   });
+
+  it("auto-attaches X-CSRF-Token on mutating requests", async () => {
+    setCsrfToken("csrf-abc");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
+      ok: true,
+      status: 200,
+    }));
+
+    await api("/network/ddns/update-now", { method: "POST" });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/network/ddns/update-now",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-CSRF-Token": "csrf-abc" }),
+      }),
+    );
+  });
+
+  it("does not overwrite an explicit X-CSRF-Token header", async () => {
+    setCsrfToken("csrf-abc");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
+      ok: true,
+      status: 200,
+    }));
+
+    await api("/settings", {
+      method: "PUT",
+      headers: { "X-CSRF-Token": "explicit-tok" },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/settings",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-CSRF-Token": "explicit-tok" }),
+      }),
+    );
+  });
+
+  it("maps opaque NetworkError to plain language", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+      new TypeError("NetworkError when attempting to fetch resource."),
+    );
+
+    await expect(api("/apps")).rejects.toThrow(
+      "Couldn't reach LibreServ. Check this device's connection and try again.",
+    );
+  });
+
+  it("rewrites CSRF 403s to a refresh hint", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
+      ok: false,
+      status: 403,
+      clone: () => ({
+        json: () => Promise.resolve({ error: "CSRF token is required" }),
+      }),
+    }));
+
+    await expect(api("/settings", { method: "PUT" })).rejects.toThrow(
+      "This page expired. Refresh LibreServ and try again.",
+    );
+  });
 });
+
+describe("apiErrorMessage", () => {
+  it("rewrites opaque browser network failures", () => {
+    expect(apiErrorMessage(new TypeError("Failed to fetch"))).toBe(
+      "Couldn't reach LibreServ. Check this device's connection and try again.",
+    );
+  });
+});
+

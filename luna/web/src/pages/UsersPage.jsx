@@ -11,17 +11,8 @@ import Table from "../components/common/Table";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import { InfoHint } from "../components/ui/Tooltip";
-import { getJson, postJson } from "../lib/api";
+import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
-
-async function del(path) {
-  const res = await fetch(path, { method: "DELETE", credentials: "include" });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Couldn't remove this user. Try again.");
-  }
-  return res.json();
-}
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
@@ -43,10 +34,10 @@ export default function UsersPage() {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: (err) => setError(String(err.message || err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't add this user. Try again.")),
   });
   const deleteMutation = useMutation({
-    mutationFn: (id) => del(`/api/v1/users/${id}`),
+    mutationFn: (id) => deleteJson(`/api/v1/users/${id}`),
     onSuccess: () => {
       setUserToDelete(null);
       setError(null);
@@ -54,7 +45,7 @@ export default function UsersPage() {
     },
     onError: (err) => {
       setUserToDelete(null);
-      setError(String(err.message || err));
+      setError(apiErrorMessage(err, "Couldn't remove this user. Try again."));
     },
   });
 
