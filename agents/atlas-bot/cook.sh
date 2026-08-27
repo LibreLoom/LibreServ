@@ -321,21 +321,25 @@ PY
 
 stop_one() {
   local jid="$1"
+  local note="${2:-}"
   local pidf="${TICKET_GLOB}-${jid}.pid"
   local cidf="${TICKET_GLOB}-${jid}.comment"
   local stopf="${TICKET_GLOB}-${jid}.stop"
   local old_pid="" old_cid=""
   [[ -f "${pidf}" ]] && old_pid="$(cat "${pidf}" 2>/dev/null || true)"
   [[ -f "${cidf}" ]] && old_cid="$(cat "${cidf}" 2>/dev/null || true)"
+  if [[ -z "${note}" ]]; then
+    note="Stopped \`${jid}\`. @${SENDER} said so."
+  fi
   if [[ -n "${old_pid}" ]] && pid_alive "${old_pid}"; then
     echo "==> stopping ${jid} pid=${old_pid}"
     echo "stop" > "${stopf}"
     kill_tree "${old_pid}"
     rm -f "${pidf}"
     if [[ -n "${old_cid}" ]]; then
-      fj_edit_comment "${OWNER}" "${REPO}" "${old_cid}" "Stopped \`${jid}\`. @${SENDER} said so." || true
+      fj_edit_comment "${OWNER}" "${REPO}" "${old_cid}" "${note}" || true
     else
-      fj_comment "${OWNER}" "${REPO}" "${INDEX}" "Stopped \`${jid}\`. @${SENDER} said so." >/dev/null || true
+      fj_comment "${OWNER}" "${REPO}" "${INDEX}" "${note}" >/dev/null || true
     fi
     return 0
   fi
@@ -598,8 +602,37 @@ on_exit() {
   fi
 }
 
-# Parallel cooks on the same ticket are allowed. Finished inner dsh/containers
-# die on their own. STOP by jobid still works.
+# Assign take-over: stop other live cooks on THIS ticket only (global cap 3 stays).
+# Review-only skips if already assigned or this ticket is already cooking.
+# Mention-only does not supersede. Parallel cooks on other tickets stay.
+
+if [[ ${review_requested} -eq 1 && ${assigned} -eq 0 && ${mentioned} -eq 0 ]]; then
+  live_pid=""
+  shopt -s nullglob
+  for pidf in "${TICKET_GLOB}"-*.pid; do
+    pid="$(cat "${pidf}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && pid_alive "${pid}"; then
+      live_pid="${pid}"
+      break
+    fi
+  done
+  shopt -u nullglob
+  if [[ ${on_ticket} -eq 1 || -n "${live_pid}" ]]; then
+    echo "cook.sh: skip review_requested ${OWNER}/${REPO}#${INDEX} already assigned=${on_ticket} live_pid=${live_pid:-none}" >&2
+    exit 0
+  fi
+fi
+
+if [[ ${assigned} -eq 1 ]]; then
+  shopt -s nullglob
+  for pidf in "${TICKET_GLOB}"-*.pid; do
+    jid="${pidf##*-}"
+    jid="${jid%.pid}"
+    echo "==> assign takes over ${OWNER}/${REPO}#${INDEX} stopping ${jid}"
+    stop_one "${jid}" "Assign takes over. \`${jid}\`" || true
+  done
+  shopt -u nullglob
+fi
 
 JOBID="$(python3 -c 'import secrets; print(secrets.token_hex(3).upper())')"
 JOB_PID="${TICKET_GLOB}-${JOBID}.pid"

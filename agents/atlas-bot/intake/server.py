@@ -57,6 +57,10 @@ def _wanted(payload: dict) -> bool:
         rt_name = (rt.get("name") or "")
         rt_slug = (rt.get("slug") or "")
         if rr == BOT or rt_name == BOT or rt_slug == BOT:
+            assignees = [a.get("login") for a in (issue.get("assignees") or pr.get("assignees") or [])]
+            if BOT in assignees:
+                print(f"[intake] skip review_requested {owner}/{name}#{index} already assigned", flush=True)
+                return False
             print(f"[intake] review_requested {owner}/{name}#{index} by {sender}", flush=True)
             return True
     return False
