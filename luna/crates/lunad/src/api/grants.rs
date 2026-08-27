@@ -1,6 +1,6 @@
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, patch};
+use axum::routing::{get, patch};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -196,7 +196,6 @@ fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
 
 #[cfg(test)]
 mod http_tests {
-    use super::*;
     use crate::api;
     use crate::drives::DriveManager;
     use crate::mount::shared_mock;
