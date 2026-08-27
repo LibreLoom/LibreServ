@@ -56,6 +56,21 @@ struct InspectionJson {
     writable: bool,
 }
 
+/// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
+/// folder/file counts and shortcuts are top-level only (no tree walk).
+#[derive(Serialize)]
+struct DriveSummaryJson {
+    id: String,
+    mounted: bool,
+    total_bytes: Option<u64>,
+    free_bytes: Option<u64>,
+    used_bytes: Option<u64>,
+    folders: Option<u64>,
+    files: Option<u64>,
+    /// Top-level folder names (or grant paths) for quick links into the drive.
+    shortcuts: Vec<String>,
+}
+
 #[derive(Deserialize)]
 struct AdoptBody {
     label: String,
@@ -73,6 +88,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/eject", post(eject))
         .route("/api/v1/drives/{id}/remove", post(remove))
         .route("/api/v1/drives/{id}/health", get(drive_health))
+        .route("/api/v1/drives/{id}/summary", get(drive_summary))
 }
 
 async fn list(
@@ -293,6 +309,77 @@ async fn drive_health(
             )
         })?;
     Ok(Json(health))
+}
+
+async fn drive_summary(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<DriveSummaryJson>, (StatusCode, Json<serde_json::Value>)> {
+    let (mount_point, can_list_root, grant_shortcuts) = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let drive = crate::db::get_drive(&conn, &id)
+            .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
+        if !crate::auth::has_drive_access(&user, &conn, &id) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to view this drive.",
+            ));
+        }
+        let can_list_root = crate::auth::can_access(&user, &conn, &id, "", false);
+        let grant_shortcuts = if can_list_root {
+            Vec::new()
+        } else {
+            crate::db::list_grants_for_user(&conn, &user.id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|g| g.drive_id == id && !g.path.is_empty())
+                .map(|g| g.path)
+                .take(6)
+                .collect::<Vec<_>>()
+        };
+        (drive.mount_point, can_list_root, grant_shortcuts)
+    };
+
+    if mount_point.is_empty() {
+        return Ok(Json(DriveSummaryJson {
+            id,
+            mounted: false,
+            total_bytes: None,
+            free_bytes: None,
+            used_bytes: None,
+            folders: None,
+            files: None,
+            shortcuts: grant_shortcuts,
+        }));
+    }
+
+    let root = std::path::PathBuf::from(mount_point);
+    let space = crate::summary::disk_space(&root);
+    let (folders, files, shortcuts) = if can_list_root {
+        let counts = crate::summary::top_level_counts(&root);
+        let shortcuts = crate::summary::top_level_shortcuts(&root);
+        (Some(counts.folders), Some(counts.files), shortcuts)
+    } else {
+        (None, None, grant_shortcuts)
+    };
+
+    Ok(Json(DriveSummaryJson {
+        id,
+        mounted: true,
+        total_bytes: space.as_ref().map(|s| s.total_bytes),
+        free_bytes: space.as_ref().map(|s| s.free_bytes),
+        used_bytes: space.as_ref().map(|s| s.used_bytes),
+        folders,
+        files,
+        shortcuts,
+    }))
 }
 
 fn find_device(name: &str) -> Option<crate::detect::DetectedDrive> {
