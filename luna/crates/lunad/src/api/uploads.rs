@@ -184,7 +184,21 @@ fn check_upload_access(
         )
     })?;
     let row = uploads::get_row(&conn, upload_id).map_err(map_upload_err)?;
-    check_access(state, user, &row.drive_id, &row.path, write)
+    // Reuse this lock — do not call check_access (it would deadlock on the
+    // non-reentrant Mutex).
+    if crate::auth::can_access(user, &conn, &row.drive_id, &row.path, write) {
+        Ok(())
+    } else if write {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to save here.",
+        ))
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this folder.",
+        ))
+    }
 }
 
 fn with_db<T>(
