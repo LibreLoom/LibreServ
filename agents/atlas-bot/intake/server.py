@@ -51,6 +51,14 @@ def _wanted(payload: dict) -> bool:
         if assignee == BOT or BOT in assignees:
             print(f"[intake] assigned {owner}/{name}#{index} by {sender}", flush=True)
             return True
+    if action == "review_requested":
+        rr = ((payload.get("requested_reviewer") or {}).get("login") or "")
+        rt = payload.get("requested_team") if isinstance(payload.get("requested_team"), dict) else {}
+        rt_name = (rt.get("name") or "")
+        rt_slug = (rt.get("slug") or "")
+        if rr == BOT or rt_name == BOT or rt_slug == BOT:
+            print(f"[intake] review_requested {owner}/{name}#{index} by {sender}", flush=True)
+            return True
     return False
 
 class Handler(BaseHTTPRequestHandler):
