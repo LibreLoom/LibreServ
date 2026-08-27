@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
 import CreateShareModal from "./CreateShareModal";
@@ -250,9 +251,12 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
                   {s.has_password ? "Password" : "Anyone with the link"} · {expiryLabel(s.expires_at)}
                 </p>
                 {url && (
-                  <Button size="sm" variant="outline" className="mt-2" onClick={() => navigator.clipboard.writeText(url)}>
-                    Copy address
-                  </Button>
+                  <CopyableValue
+                    className="mt-2"
+                    value={url}
+                    copyLabel="Copy address"
+                    ariaLabel="Share link address"
+                  />
                 )}
               </div>
               <Button size="iconSm" variant="danger" aria-label="Remove this link" onClick={() => revokeShare.mutate(s.id)}>

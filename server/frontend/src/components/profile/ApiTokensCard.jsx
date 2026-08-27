@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Copy, Check, Trash2, Plus, Loader2 } from "lucide-react";
+import { KeyRound, Trash2, Plus, Loader2 } from "lucide-react";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
+import CopyableValue from "../ui/CopyableValue";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
-import { copyWithFeedback } from "../../utils/clipboard";
 
 function formatDate(iso) {
   if (!iso) return "never";
@@ -29,7 +29,6 @@ export default function ApiTokensCard() {
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [newToken, setNewToken] = useState(null); // { token, id, name }
-  const [copied, setCopied] = useState(false);
   const [revokingId, setRevokingId] = useState(null);
 
   useEffect(() => {
@@ -98,11 +97,6 @@ export default function ApiTokensCard() {
     }
   }
 
-  async function handleCopy() {
-    if (!newToken?.token) return;
-    await copyWithFeedback(newToken.token, setCopied);
-  }
-
   return (
     <Card title="API Tokens" icon={KeyRound} data-slot="api-tokens-card">
       <div className="space-y-4">
@@ -112,32 +106,25 @@ export default function ApiTokensCard() {
         </p>
 
         {newToken && (
-          <div className="rounded-large-element border-2 border-accent/40 bg-accent/10 p-4 space-y-2">
-            <p className="text-sm font-mono text-secondary">
+          <div className="rounded-large-element border-2 border-accent/40 bg-primary text-secondary p-4 space-y-3">
+            <p className="text-sm font-mono">
               Copy this token now — you won&apos;t be able to see it again.
             </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 px-3 py-2 bg-primary rounded-large-element font-mono text-xs text-secondary break-all">
-                {newToken.token}
-              </code>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleCopy}
-                aria-label="Copy token"
-              >
-                {copied ? <Check size={16} /> : <Copy size={16} />}
-              </Button>
-            </div>
-            <p className="text-xs text-secondary/70">
+            <CopyableValue
+              value={newToken.token}
+              copyLabel="Copy token"
+              ariaLabel="API token"
+              surface="primary"
+              multiline
+            />
+            <p className="text-xs text-secondary">
               Use it in your app or script by sending it as an{" "}
               <span className="font-mono">Authorization: Bearer</span> header.
             </p>
             <button
               type="button"
               onClick={() => setNewToken(null)}
-              className="text-xs text-accent hover:text-primary"
+              className="text-xs text-accent hover:text-secondary"
             >
               I&apos;ve copied it — dismiss
             </button>

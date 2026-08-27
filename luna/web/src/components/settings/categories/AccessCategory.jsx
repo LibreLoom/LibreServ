@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, Smartphone } from "lucide-react";
 import Button from "../../ui/Button";
+import CopyableValue from "../../ui/CopyableValue";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
@@ -18,7 +19,6 @@ export default function AccessCategory() {
   const [tokenName, setTokenName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState("");
   const [newToken, setNewToken] = useState(null);
-  const [copiedToken, setCopiedToken] = useState(false);
   const [usageFor, setUsageFor] = useState(null);
 
   const tokens = useQuery({
@@ -132,28 +132,18 @@ export default function AccessCategory() {
         </div>
 
         {newToken?.token && (
-          <div className="mt-4 rounded-large-element bg-primary text-secondary p-4">
+          <div className="mt-4 rounded-large-element bg-primary text-secondary p-4 space-y-3">
             <p className="text-sm">
               Copy this now. Luna will not show it again. Use it as the password when a computer
               asks to open your files as a folder.
             </p>
-            <p className="mt-2 text-sm font-mono break-all">{newToken.token}</p>
-            <Button
-              size="sm"
-              variant="secondary"
+            <CopyableValue
+              value={newToken.token}
+              copyLabel="Copy token"
+              ariaLabel="Access token"
               surface="primary"
-              className="mt-3"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(newToken.token);
-                  setCopiedToken(true);
-                } catch {
-                  setCopiedToken(false);
-                }
-              }}
-            >
-              {copiedToken ? "Copied" : "Copy token"}
-            </Button>
+              multiline
+            />
           </div>
         )}
 

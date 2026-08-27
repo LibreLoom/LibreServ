@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, KeyRound, ShieldOff, Unplug } from "lucide-react";
 import Button from "../../ui/Button";
+import CopyableValue from "../../ui/CopyableValue";
 import Pill from "../../common/Pill";
 import PageNotice from "../../common/PageNotice";
 import SettingsCard from "../SettingsCard";
@@ -11,7 +12,6 @@ import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
 export default function RemoteCategory() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(false);
   const [newName, setNewName] = useState("");
   const [code, setCode] = useState("");
   const status = useQuery({ queryKey: ["connect-status"], queryFn: () => getJson("/api/v1/connect/status") });
@@ -48,23 +48,15 @@ export default function RemoteCategory() {
         <SettingsCard icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
           {s.enabled ? (
             <div className="space-y-3">
-              <p className="text-primary text-sm font-mono">{host || "your Luna address"}</p>
               <p className="text-primary text-sm">That address is free forever.</p>
-              {address && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(address);
-                      setCopied(true);
-                    } catch {
-                      setCopied(false);
-                    }
-                  }}
-                >
-                  {copied ? "Copied" : "Copy address"}
-                </Button>
+              {address ? (
+                <CopyableValue
+                  value={address}
+                  copyLabel="Copy address"
+                  ariaLabel="Luna Connect address"
+                />
+              ) : (
+                <p className="text-primary text-sm font-mono">your Luna address</p>
               )}
               <SettingsRow label="Change address" stack>
                 <input
