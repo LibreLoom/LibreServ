@@ -81,7 +81,7 @@ describe("DrivesPage", () => {
   it("shows universal search above the drive list", async () => {
     stubDrivesApi();
     renderPage();
-    const search = await screen.findByLabelText("Search files, folders, and drive names");
+    const search = await screen.findByLabelText("Search for a file");
     expect(search).toBeInTheDocument();
     expect(screen.getByText(/Type at least two letters/i)).toBeInTheDocument();
   });
