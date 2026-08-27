@@ -11,17 +11,14 @@ import Table from "../components/common/Table";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import { InfoHint } from "../components/ui/Tooltip";
-import { getJson, postJson } from "../lib/api";
+import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
+import {
+  PASSWORD_POLICY_HINT,
+  meetsPasswordPolicy,
+  passwordChecks,
+  passwordPolicyError,
+} from "../lib/passwordPolicy";
 import { useAuth } from "../context/AuthContext";
-
-async function del(path) {
-  const res = await fetch(path, { method: "DELETE", credentials: "include" });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Couldn't remove this user. Try again.");
-  }
-  return res.json();
-}
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
@@ -43,10 +40,10 @@ export default function UsersPage() {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: (err) => setError(String(err.message || err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't add this user. Try again.")),
   });
   const deleteMutation = useMutation({
-    mutationFn: (id) => del(`/api/v1/users/${id}`),
+    mutationFn: (id) => deleteJson(`/api/v1/users/${id}`),
     onSuccess: () => {
       setUserToDelete(null);
       setError(null);
@@ -54,7 +51,7 @@ export default function UsersPage() {
     },
     onError: (err) => {
       setUserToDelete(null);
-      setError(String(err.message || err));
+      setError(apiErrorMessage(err, "Couldn't remove this user. Try again."));
     },
   });
 
@@ -245,6 +242,15 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [touchedPassword, setTouchedPassword] = useState(false);
+
+  const checks = passwordChecks(password);
+  const passwordOk = meetsPasswordPolicy(password);
+  const passwordError =
+    touchedPassword || password.length > 0 ? passwordPolicyError(password) : null;
+  const canSubmit =
+    username.trim().length > 0 && passwordOk && !busy;
+
   return (
     <ModalCard title="Add a user" onClose={onClose}>
       {({ close }) => (
@@ -254,27 +260,61 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
           placeholder="Their name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
+          autoComplete="name"
         />
         <input
           className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
           placeholder="Username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          required
         />
-        <input
-          type="password"
-          className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-          placeholder="Password (8+ characters)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div>
+          <input
+            type="password"
+            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+            placeholder={PASSWORD_POLICY_HINT}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => setTouchedPassword(true)}
+            autoComplete="new-password"
+            aria-invalid={passwordError ? true : undefined}
+            aria-describedby={passwordError ? "add-user-password-hint" : undefined}
+          />
+          {password.length > 0 && (
+            <div className="mt-2 px-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-mono">
+              <span className={checks.hasLength ? "text-success" : "text-primary"}>
+                {checks.hasLength ? "✓" : "·"} 12+ characters
+              </span>
+              <span className={checks.hasLetter ? "text-success" : "text-primary"}>
+                {checks.hasLetter ? "✓" : "·"} a letter
+              </span>
+              <span className={checks.hasDigit ? "text-success" : "text-primary"}>
+                {checks.hasDigit ? "✓" : "·"} a number
+              </span>
+            </div>
+          )}
+          {passwordError && (
+            <p id="add-user-password-hint" className="mt-1.5 px-1 text-xs text-error" role="alert">
+              {passwordError}
+            </p>
+          )}
+        </div>
         <div className="flex gap-3">
           <Button
             variant="primary"
             loading={busy}
-            onClick={() =>
-              onSubmit({ username, display_name: displayName, password, role: "user" })
-            }
+            disabled={!canSubmit}
+            onClick={() => {
+              if (!canSubmit) return;
+              onSubmit({
+                username: username.trim(),
+                display_name: displayName.trim() || username.trim(),
+                password,
+                role: "user",
+              });
+            }}
           >
             Add user
           </Button>

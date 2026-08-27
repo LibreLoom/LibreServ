@@ -6,6 +6,10 @@ import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "luc
 import PropTypes from "prop-types";
 import { getJson, postJson } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
+import {
+  PASSWORD_POLICY_HINT,
+  passwordChecks,
+} from "../lib/passwordPolicy";
 import NetworkStep from "../components/setup/NetworkStep";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
@@ -212,18 +216,12 @@ WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
 };
 
-// ─── Password strength (same policy display as LibreServ's account step) ──────
-// Luna's backend policy is exactly "8+ characters"; letters/numbers/symbols are
-// shown as encouraging chips but don't gate the button (gating on them would
-// reject valid passwords the backend accepts).
+// ─── Password strength (same policy as LibreServ + lunad) ─────────────────────
+// Acceptable = 12+ chars, a letter, and a digit. Symbols strengthen the bar but
+// are NOT required — gating on them would reject passwords the backend accepts.
 function strengthInfo(pw) {
   if (!pw) return null;
-  const hasLength  = pw.length >= 8;
-  const hasLetter  = /[a-zA-Z]/.test(pw);
-  const hasDigit   = /[0-9]/.test(pw);
-  const hasSpecial = /[!@#$%^&*(),.?":{}|<>[\]\\;'`~\-_=+]/.test(pw);
-  const score = [hasLength, hasLetter, hasDigit, hasSpecial].filter(Boolean).length;
-  return { score, hasLength, hasLetter, hasDigit, hasSpecial };
+  return passwordChecks(pw);
 }
 
 const STRENGTH_LABEL = ["", "Weak", "Fair", "Good", "Strong"];
@@ -292,7 +290,7 @@ function AccountStep({ hasAdmin, onContinue }) {
   const pw       = form.password;
   const confirm  = form.confirm_password;
   const strength = strengthInfo(pw);
-  const meetsPolicy = !!strength?.hasLength;
+  const meetsPolicy = !!(strength?.ok);
   const usernameOk  = form.username.trim().length >= 3;
   const confirmOk   = confirm === pw && pw !== "";
   const isValid = !!(usernameOk && pw && meetsPolicy && confirmOk && (!needsSetupCode || form.setup_secret.trim()));
@@ -427,7 +425,7 @@ function AccountStep({ hasAdmin, onContinue }) {
                   name="password"
                   type={showPw ? "text" : "password"}
                   autoComplete="new-password"
-                  placeholder="At least 8 characters"
+                  placeholder={PASSWORD_POLICY_HINT}
                   value={pw}
                   onChange={handleChange}
                   disabled={submitting}
@@ -457,7 +455,7 @@ function AccountStep({ hasAdmin, onContinue }) {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-                    <ReqChip ok={strength.hasLength}  label="8+ chars" />
+                    <ReqChip ok={strength.hasLength}  label="12+ chars" />
                     <ReqChip ok={strength.hasLetter}  label="letters" />
                     <ReqChip ok={strength.hasDigit}   label="numbers" />
                     <ReqChip ok={strength.hasSpecial} label="symbols" />

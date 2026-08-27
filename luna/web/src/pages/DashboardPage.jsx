@@ -30,6 +30,42 @@ const STATE_LABELS = {
   failed: "Needs help",
 };
 
+/** Decimal sizes, matching DrivesPage. */
+function formatBytes(bytes) {
+  if (bytes == null || Number.isNaN(Number(bytes))) return "";
+  const n = Number(bytes);
+  if (n < 1000) return `${Math.round(n)} B`;
+  const kb = n / 1000;
+  if (kb < 1000) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1000;
+  if (mb < 1000) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+  const gb = mb / 1000;
+  if (gb < 1000) return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`;
+  const tb = gb / 1000;
+  return `${tb < 10 ? tb.toFixed(1) : Math.round(tb)} TB`;
+}
+
+function folderHref(driveId, folderPath) {
+  if (!folderPath) return `/drives/${driveId}`;
+  return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
+}
+
+function shortcutLabel(path) {
+  const parts = String(path || "")
+    .split("/")
+    .filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
+function countLine(folders, files) {
+  if (folders == null && files == null) return null;
+  const folderN = Number(folders) || 0;
+  const fileN = Number(files) || 0;
+  const folderBit = `${folderN} folder${folderN === 1 ? "" : "s"}`;
+  const fileBit = `${fileN} file${fileN === 1 ? "" : "s"}`;
+  return `${folderBit} · ${fileBit} at the top`;
+}
+
 function DriveStateLabel({ state }) {
   const label = STATE_LABELS[state] || state;
   if (state === "readonly") {
@@ -40,6 +76,142 @@ function DriveStateLabel({ state }) {
     );
   }
   return label;
+}
+
+/**
+ * Home drive card — storage, top-level counts, and folder shortcuts from
+ * GET /api/v1/drives/{id}/summary. Never invents numbers when the drive is
+ * unplugged or the summary is still loading.
+ *
+ * @param {{ drive: { id: string, label?: string, state: string } }} props
+ */
+function DriveHomeCard({ drive }) {
+  const ready = drive.state === "as_is" || drive.state === "readonly";
+  const summary = useQuery({
+    queryKey: ["drive-summary", drive.id],
+    queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
+    enabled: ready,
+    staleTime: 30_000,
+    refetchInterval: ready ? 60_000 : false,
+  });
+
+  const data = summary.data;
+  const freeLabel = formatBytes(data?.free_bytes);
+  const totalLabel = formatBytes(data?.total_bytes);
+  const usedLabel = formatBytes(data?.used_bytes);
+  const hasSpace =
+    data?.mounted &&
+    data?.total_bytes != null &&
+    Number(data.total_bytes) > 0 &&
+    freeLabel &&
+    totalLabel;
+  const usedPct = hasSpace
+    ? Math.min(100, Math.round((Number(data.used_bytes) / Number(data.total_bytes)) * 100))
+    : 0;
+  const counts = countLine(data?.folders, data?.files);
+  const shortcuts = Array.isArray(data?.shortcuts) ? data.shortcuts : [];
+  const variant = STATE_PILLS[drive.state] || "info";
+
+  let body;
+  if (!ready) {
+    body = (
+      <div className="space-y-3">
+        <p className="text-primary text-sm">
+          {drive.state === "missing"
+            ? "This drive is unplugged. Plug it back in to see files and space."
+            : drive.state === "ejected"
+              ? "Safely removed. Plug it in again when you need it."
+              : "Luna ran into a problem with this drive. Open Drives for details."}
+        </p>
+        <Button size="sm" variant="outline" asChild>
+          <Link to="/drives">Open Drives</Link>
+        </Button>
+      </div>
+    );
+  } else if (summary.isError) {
+    body = (
+      <p className="text-primary text-sm">Open this drive to see your files.</p>
+    );
+  } else {
+    body = (
+      <div className="space-y-4">
+        {hasSpace ? (
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+                aria-hidden="true"
+              />
+              <span className="text-xs font-mono uppercase tracking-widest text-accent">
+                Storage
+              </span>
+            </div>
+            <div className="text-2xl font-mono font-normal leading-tight text-primary">
+              {freeLabel} free
+            </div>
+            <p className="text-primary text-sm mt-1">
+              {usedLabel ? `${usedLabel} used · ` : ""}
+              {totalLabel} total
+            </p>
+            <div
+              className="mt-3 h-2 rounded-pill bg-primary overflow-hidden"
+              role="progressbar"
+              aria-valuenow={usedPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${usedPct}% used`}
+            >
+              <div
+                className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-500"
+                style={{ width: `${usedPct}%` }}
+              />
+            </div>
+          </div>
+        ) : summary.isLoading ? (
+          <p className="text-primary text-sm">Checking space…</p>
+        ) : (
+          <p className="text-primary text-sm">Open this drive to see your files.</p>
+        )}
+
+        {counts ? <p className="text-primary text-sm">{counts}</p> : null}
+
+        {shortcuts.length > 0 ? (
+          <div>
+            <div className="text-xs font-mono uppercase tracking-widest text-accent mb-2">
+              Folders
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {shortcuts.map((path) => (
+                <Button key={path} size="sm" variant="outline" asChild>
+                  <Link to={folderHref(drive.id, path)}>{shortcutLabel(path)}</Link>
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div>
+          <Button size="sm" variant="primary" asChild>
+            <Link to={`/drives/${drive.id}`}>Browse files</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Card
+      icon={HardDrive}
+      title={drive.label || "Drive"}
+      headerActions={
+        <Pill variant={variant}>
+          <DriveStateLabel state={drive.state} />
+        </Pill>
+      }
+    >
+      {body}
+    </Card>
+  );
 }
 
 function getGreeting() {
@@ -320,28 +492,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
-          {adopted.map((drive) => {
-            const variant = STATE_PILLS[drive.state] || "info";
-            return (
-              <Card
-                key={drive.id}
-                icon={HardDrive}
-                title={drive.label || "Drive"}
-                headerActions={
-                  <Pill variant={variant}>
-                    <DriveStateLabel state={drive.state} />
-                  </Pill>
-                }
-              >
-                <p className="text-primary text-sm">Open this drive to see your files.</p>
-                <div className="mt-3">
-                  <Button size="sm" variant="primary" asChild>
-                    <Link to={`/drives/${drive.id}`}>Open files</Link>
-                  </Button>
-                </div>
-              </Card>
-            );
-          })}
+          {adopted.map((drive) => (
+            <DriveHomeCard key={drive.id} drive={drive} />
+          ))}
 
           {isAdmin && pluggedIn.length > 0 && (
             <Card icon={PlugZap} title="New drive plugged in">

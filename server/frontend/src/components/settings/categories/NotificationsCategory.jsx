@@ -9,6 +9,7 @@ import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow.jsx";
 import Button from "../../ui/Button";
 import { useToast } from "../../../context/ToastContext";
+import api from "../../../lib/api";
 
 const FREQUENCY_OPTIONS = [
   {
@@ -94,26 +95,14 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
     try {
       setTesting(true);
 
-      const csrfRes = await fetch("/api/v1/auth/csrf");
-      const csrfData = await csrfRes.json();
-      const csrfToken = csrfData.csrf_token;
-
-      const res = await fetch("/api/v1/monitoring/email/test", {
+      // api() attaches credentials + the session CSRF token automatically.
+      await api("/monitoring/email/test", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: settings?.smtp?.from || "test@example.com",
         }),
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        const errorMsg = data.message || data.error || "Failed to send test";
-        throw new Error(errorMsg);
-      }
 
       addToast({ type: "success", message: "Test email sent!" });
     } catch (err) {

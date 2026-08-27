@@ -291,6 +291,61 @@ fn install_no_overwrite(temp: &Path, dest: &Path) -> Result<(), FilesError> {
     }
 }
 
+/// Try an atomic same-filesystem move that never overwrites `to`.
+///
+/// Returns `Ok(true)` when the rename succeeded. Returns `Ok(false)` when the
+/// kernel reports a cross-device move (EXDEV) so the caller can fall back to
+/// copy-then-trash. Other failures stay as errors (conflict, I/O, etc.).
+pub fn try_rename_move(from: &Path, to: &Path) -> Result<bool, FilesError> {
+    match rename_noreplace(from, to) {
+        Ok(()) => {
+            if let Some(parent) = to.parent()
+                && let Ok(dir) = std::fs::File::open(parent)
+            {
+                let _ = dir.sync_all();
+            }
+            if let Some(parent) = from.parent()
+                && let Ok(dir) = std::fs::File::open(parent)
+            {
+                let _ = dir.sync_all();
+            }
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
+        Err(e) if is_cross_device(&e) => Ok(false),
+        // Some USB/FUSE mounts reject renameat2(RENAME_NOREPLACE). Plain
+        // rename(2) still works for a real same-filesystem move when the
+        // destination does not exist (prepare already refused conflicts).
+        Err(e) if noreplace_unavailable(&e) => match to.symlink_metadata() {
+            Ok(_) => Err(FilesError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "destination exists",
+            ))),
+            Err(e2) if e2.kind() == std::io::ErrorKind::NotFound => {
+                match std::fs::rename(from, to) {
+                    Ok(()) => {
+                        if let Some(parent) = to.parent()
+                            && let Ok(dir) = std::fs::File::open(parent)
+                        {
+                            let _ = dir.sync_all();
+                        }
+                        Ok(true)
+                    }
+                    Err(e3) if is_cross_device(&e3) => Ok(false),
+                    Err(e3) => Err(FilesError::Io(e3)),
+                }
+            }
+            Err(e2) => Err(FilesError::Io(e2)),
+        },
+        Err(e) => Err(FilesError::Io(e)),
+    }
+}
+
+fn is_cross_device(err: &std::io::Error) -> bool {
+    matches!(err.kind(), std::io::ErrorKind::CrossesDevices)
+        || matches!(err.raw_os_error(), Some(libc::EXDEV))
+}
+
 fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {

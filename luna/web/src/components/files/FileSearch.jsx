@@ -1,29 +1,84 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Search } from "lucide-react";
+import {
+  Copy,
+  Download,
+  File as FileIcon,
+  Folder,
+  FolderInput,
+  FolderOpen,
+  Search,
+  Trash2,
+} from "lucide-react";
 import Card from "../cards/Card";
+import ModalCard from "../cards/ModalCard";
 import EmptyState from "../common/EmptyState";
-import { getDrives, getJson } from "../../lib/api";
+import PageNotice from "../common/PageNotice";
+import Dropdown from "../common/Dropdown";
+import Button from "../ui/Button";
+import AccessSheet, { AccessButton } from "./AccessSheet";
+import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
 
 function folderOf(path) {
   const idx = path.lastIndexOf("/");
   return idx < 0 ? "" : path.slice(0, idx);
 }
 
-function resultHref(item) {
-  const folder = folderOf(item.path);
+function openHref(item) {
+  if (item.kind === "dir") {
+    return item.path
+      ? `/drives/${item.drive_id}?path=${encodeURIComponent(item.path)}`
+      : `/drives/${item.drive_id}`;
+  }
+  const folder = item.parent != null ? item.parent : folderOf(item.path);
   if (!folder) return `/drives/${item.drive_id}`;
   return `/drives/${item.drive_id}?path=${encodeURIComponent(folder)}`;
 }
 
+function downloadHref(item) {
+  return `/api/v1/drives/${item.drive_id}/files/content?path=${encodeURIComponent(item.path)}&download=1`;
+}
+
+function fmtSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1000) return `${n} B`;
+  if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
+  if (n < 1000 * 1000 * 1000) return `${(n / 1000 / 1000).toFixed(1)} MB`;
+  return `${(n / 1000 / 1000 / 1000).toFixed(1)} GB`;
+}
+
+function locationLabel(item, driveLabel) {
+  const folder = item.parent != null ? item.parent : folderOf(item.path);
+  if (!folder) return driveLabel;
+  return `${driveLabel} / ${folder}`;
+}
+
+async function parseError(res) {
+  try {
+    const data = await res.json();
+    return data.error || `Request failed (${res.status})`;
+  } catch {
+    return `Request failed (${res.status})`;
+  }
+}
+
 /**
- * File search across drives this person can open. Results are already
- * filtered to folders they are allowed to see.
+ * Universal search across drives — files, folders, paths, and drive names.
+ * Each hit includes the same actions you get on a file row (open, download,
+ * share, copy, move, trash) so a match is never just a name you can't use.
  */
-export default function FileSearch({ compact = false }) {
+export default function FileSearch() {
+  const queryClient = useQueryClient();
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
+  const [actionError, setActionError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [copyTarget, setCopyTarget] = useState(null);
+  const [copyKind, setCopyKind] = useState("copy");
+  const [copyDrive, setCopyDrive] = useState("");
+  const [copyFolder, setCopyFolder] = useState("");
+  const [accessTarget, setAccessTarget] = useState(null);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(typed.trim()), 250);
@@ -39,29 +94,85 @@ export default function FileSearch({ compact = false }) {
     enabled: q.length >= 2,
   });
 
+  const removeMutation = useMutation({
+    mutationFn: async (/** @type {any} */ item) => {
+      const res = await fetch(
+        `/api/v1/drives/${item.drive_id}/files?path=${encodeURIComponent(item.path)}`,
+        { method: "DELETE", credentials: "include" }
+      );
+      if (!res.ok) throw new Error(await parseError(res));
+      return res.json();
+    },
+    onSuccess: () => {
+      setDeleteTarget(null);
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+      queryClient.invalidateQueries({ queryKey: ["trash"] });
+    },
+    onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't move that to trash. Try again.")),
+  });
+
+  const copyMutation = useMutation({
+    mutationFn: async () => {
+      return postJson("/api/v1/jobs", {
+        kind: copyKind,
+        from_drive: copyTarget.drive_id,
+        from_path: copyTarget.path,
+        to_drive: copyDrive || copyTarget.drive_id,
+        to_path: copyFolder,
+      });
+    },
+    onSuccess: () => {
+      setCopyTarget(null);
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+    },
+    onError: (err) =>
+      setActionError(
+        apiErrorMessage(
+          err,
+          copyKind === "move"
+            ? "Luna couldn't start moving that. Try again."
+            : "Luna couldn't start copying that. Try again."
+        )
+      ),
+  });
+
   return (
-    <Card className={compact ? "mb-4" : "mb-6"} padding>
+    <Card className="mb-6" padding>
       <label className="block">
-        <span className="sr-only">Find a file</span>
-        <span className="flex items-center gap-3 rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 focus-within:ring-2 focus-within:ring-accent">
+        <span className="sr-only">Search files and folders</span>
+        <span className="flex items-center gap-3 rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 focus-within:ring-2 focus-within:ring-accent motion-safe:transition-shadow">
           <Search size={16} className="text-accent shrink-0" aria-hidden="true" />
           <input
             className="flex-1 min-w-0 bg-transparent text-secondary text-sm focus:outline-none"
-            placeholder="Find a file by name"
+            placeholder="Search files, folders, and drive names"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            aria-label="Find a file by name"
+            aria-label="Search files, folders, and drive names"
           />
         </span>
       </label>
       <p className="text-primary text-xs mt-2">
-        Luna looks through the files you can open. Type at least two letters.
+        Type at least two letters. Luna looks through names, folders, and drives you can open.
       </p>
+
+      {actionError && (
+        <PageNotice variant="error" className="mt-3">
+          {actionError}
+        </PageNotice>
+      )}
 
       {q.length >= 2 && results.isError && (
         <p className="text-error text-xs mt-2">
-          {String(results.error?.message || "Luna couldn't search right now. Try again.")}
+          {apiErrorMessage(results.error, "Luna couldn't search right now. Try again.")}
         </p>
+      )}
+
+      {q.length >= 2 && results.isLoading && (
+        <p className="text-primary text-xs mt-3">Searching…</p>
       )}
 
       {q.length >= 2 && !results.isLoading && (results.data || []).length === 0 && (
@@ -74,20 +185,185 @@ export default function FileSearch({ compact = false }) {
 
       {(results.data || []).length > 0 && (
         <ul className="mt-3 grid gap-2">
-          {results.data.map((item) => (
-            <li key={`${item.drive_id}:${item.path}`}>
-              <Link
-                to={resultHref(item)}
-                className="flex items-center justify-between gap-3 rounded-large-element bg-primary text-secondary px-4 py-2 hover:ring-2 hover:ring-accent motion-safe:transition-colors"
-              >
-                <span className="font-mono text-sm truncate">{item.name}</span>
-                <span className="text-xs text-secondary shrink-0 truncate max-w-[40%]">
-                  {labels[item.drive_id] || "A drive"}
-                </span>
-              </Link>
-            </li>
-          ))}
+          {results.data.map((item) => {
+            const driveLabel = labels[item.drive_id] || "A drive";
+            const isDir = item.kind === "dir";
+            return (
+              <li key={`${item.drive_id}:${item.path}`}>
+                <div className="rounded-large-element bg-primary text-secondary px-3 py-2 motion-safe:transition-shadow hover:ring-2 hover:ring-accent">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isDir ? (
+                      <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
+                    ) : (
+                      <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-sm truncate text-secondary">{item.name}</p>
+                      <p className="text-xs truncate text-secondary">
+                        {locationLabel(item, driveLabel)}
+                        {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        surface="primary"
+                        size="iconSm"
+                        asChild
+                        aria-label={isDir ? `Open ${item.name}` : `Go to folder for ${item.name}`}
+                      >
+                        <Link to={openHref(item)}>
+                          <FolderOpen size={14} />
+                        </Link>
+                      </Button>
+                      {!isDir && (
+                        <Button
+                          variant="ghost"
+                          surface="primary"
+                          size="iconSm"
+                          asChild
+                          aria-label={`Download ${item.name}`}
+                        >
+                          <a href={downloadHref(item)}>
+                            <Download size={14} />
+                          </a>
+                        </Button>
+                      )}
+                      <AccessButton
+                        label={item.name}
+                        surface="primary"
+                        onClick={() =>
+                          setAccessTarget({
+                            driveId: item.drive_id,
+                            path: item.path,
+                            kind: isDir ? "folder" : "file",
+                          })
+                        }
+                      />
+                      <Button
+                        variant="ghost"
+                        surface="primary"
+                        size="iconSm"
+                        aria-label={`Copy ${item.name}`}
+                        onClick={() => {
+                          setCopyKind("copy");
+                          setCopyTarget(item);
+                          setCopyDrive(item.drive_id);
+                          setCopyFolder(item.parent != null ? item.parent : folderOf(item.path));
+                          setActionError(null);
+                        }}
+                      >
+                        <Copy size={14} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        surface="primary"
+                        size="iconSm"
+                        aria-label={`Move ${item.name}`}
+                        onClick={() => {
+                          setCopyKind("move");
+                          setCopyTarget(item);
+                          setCopyDrive(item.drive_id);
+                          setCopyFolder(item.parent != null ? item.parent : folderOf(item.path));
+                          setActionError(null);
+                        }}
+                      >
+                        <FolderInput size={14} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        surface="primary"
+                        size="iconSm"
+                        aria-label={`Move ${item.name} to trash`}
+                        onClick={() => {
+                          setDeleteTarget(item);
+                          setActionError(null);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
         </ul>
+      )}
+
+      {deleteTarget && (
+        <ModalCard title="Move to trash?" onClose={() => setDeleteTarget(null)}>
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm">
+                <span className="font-mono">{deleteTarget.name}</span> will move to
+                Luna&apos;s trash on its drive. You can get it back later from Open trash.
+              </p>
+              {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+              <div className="mt-4 flex gap-3">
+                <Button
+                  variant="danger"
+                  loading={removeMutation.isPending}
+                  onClick={() => removeMutation.mutate(deleteTarget)}
+                >
+                  Move to trash
+                </Button>
+                <Button variant="outline" onClick={close}>
+                  Keep it
+                </Button>
+              </div>
+            </>
+          )}
+        </ModalCard>
+      )}
+
+      {copyTarget && (
+        <ModalCard
+          title={copyKind === "move" ? `Move ${copyTarget.name}` : `Copy ${copyTarget.name}`}
+          onClose={() => setCopyTarget(null)}
+        >
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm mb-3">
+                {copyKind === "move"
+                  ? "Luna will copy it first, then put the original in trash."
+                  : "The original stays where it is."}
+              </p>
+              <label className="block text-primary text-xs mb-1">Which drive?</label>
+              <Dropdown
+                options={(drives.data || []).map((d) => ({ value: d.id, label: d.label }))}
+                value={copyDrive}
+                onChange={setCopyDrive}
+                fullWidth
+              />
+              <label className="block text-primary text-xs mt-3 mb-1">Folder on that drive</label>
+              <input
+                className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={copyFolder}
+                placeholder="Leave blank for the top of the drive"
+                onChange={(e) => setCopyFolder(e.target.value)}
+              />
+              {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+              <div className="mt-4 flex gap-3">
+                <Button variant="primary" loading={copyMutation.isPending} onClick={() => copyMutation.mutate()}>
+                  {copyKind === "move" ? "Start moving" : "Start copying"}
+                </Button>
+                <Button variant="outline" onClick={close}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          )}
+        </ModalCard>
+      )}
+
+      {accessTarget && (
+        <AccessSheet
+          driveId={accessTarget.driveId}
+          path={accessTarget.path}
+          kind={accessTarget.kind}
+          onClose={() => setAccessTarget(null)}
+        />
       )}
     </Card>
   );

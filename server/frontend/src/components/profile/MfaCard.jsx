@@ -29,7 +29,7 @@ import {
   plainWebAuthnError,
 } from "../../utils/webauthn";
 import { TYPE_META, ORDER, inputClass } from "./mfa-shared";
-import { copyToClipboard } from "../../utils/clipboard";
+import { copyToClipboard, canUseClipboard } from "../../utils/clipboard";
 
 /**
  * @param {{ onMethodEnabled?: () => void, onComplete?: () => void, embedded?: boolean } | undefined} [props]
@@ -38,6 +38,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
   const { me, request } = useAuth();
   const { addToast } = useToast();
   const { availability, loading: loadingAvailability } = useMfaAvailability();
+  const clipboardOk = canUseClipboard();
   const [methods, setMethods] = useState(/** @type {Array<object>} */ ([]));
   const [loadingMethods, setLoadingMethods] = useState(true);
   const [remainingRecovery, setRemainingRecovery] = useState(null);
@@ -308,19 +309,27 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
           </p>
           {showRecoveryCodes && (
             <div className="mt-3 p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="text-xs font-medium">Save these now — they won't be shown again</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  surface="primary"
-                  onClick={copyCodes}
-                  className="text-xs text-accent hover:text-secondary"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                </Button>
+                {clipboardOk ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    surface="primary"
+                    onClick={copyCodes}
+                    className="text-xs text-accent hover:text-secondary"
+                  >
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                  </Button>
+                ) : null}
               </div>
+              {!clipboardOk ? (
+                <p className="text-xs text-secondary mb-2">
+                  Select the codes below, then copy them. Automatic copy needs a secure
+                  connection, and this page does not have one yet.
+                </p>
+              ) : null}
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
                 {showRecoveryCodes.map((c, i) => (
                   <li key={i} className="truncate">{c}</li>
@@ -362,6 +371,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = undefined }) {
   const { me, request, refreshAuth } = useAuth();
   const { addToast } = useToast();
+  const clipboardOk = canUseClipboard();
   const [step, setStep] = useState("setup"); // setup | verify | done
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -679,24 +689,42 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             <CollapsibleSection title="Can't scan? Click to show the one-time password code" size="xs" className="text-primary/70">
               <div className="flex items-center gap-2">
                 {/* color-scan: ignore-next-line manual key needs a high-contrast surface for legibility + selection */}
-                <code className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs">
+                <code
+                  className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs"
+                  tabIndex={0}
+                  onFocus={(e) => {
+                    const range = document.createRange();
+                    range.selectNodeContents(e.currentTarget);
+                    const sel = window.getSelection();
+                    sel?.removeAllRanges();
+                    sel?.addRange(range);
+                  }}
+                >
                   {totp.secret}
                 </code>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  surface="secondary"
-                  onClick={copySecret}
-                  className="shrink-0 text-xs text-accent hover:text-primary"
-                  aria-label="Copy manual key"
-                >
-                  <Copy size={12} />{" "}
-                  <span ref={copyLabelRef} className="inline-block whitespace-nowrap">
-                    {secretCopied ? "Copied" : "Copy"}
-                  </span>
-                </Button>
+                {clipboardOk ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    surface="secondary"
+                    onClick={copySecret}
+                    className="shrink-0 text-xs text-accent hover:text-primary"
+                    aria-label="Copy manual key"
+                  >
+                    <Copy size={12} />{" "}
+                    <span ref={copyLabelRef} className="inline-block whitespace-nowrap">
+                      {secretCopied ? "Copied" : "Copy"}
+                    </span>
+                  </Button>
+                ) : null}
               </div>
+              {!clipboardOk ? (
+                <p className="text-xs text-primary mt-2">
+                  Select the key above, then copy it. Automatic copy needs a secure
+                  connection, and this page does not have one yet.
+                </p>
+              ) : null}
             </CollapsibleSection>
           )}
         </div>
@@ -852,6 +880,7 @@ EnrollFlow.propTypes = {
 export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExpired, onPhaseChange }) {
   const { request } = useAuth();
   const { addToast } = useToast();
+  const clipboardOk = canUseClipboard();
   const {
     availability,
     loading: loadingAvail,
@@ -1065,19 +1094,27 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
           <>
             {/* color-scan: ignore-next-line recovery codes need a high-contrast surface for legibility */}
             <div className="p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="text-xs font-medium">Save these now — they won't be shown again</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  surface="primary"
-                  onClick={copyCodes}
-                  className="text-xs text-accent hover:text-secondary"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                </Button>
+                {clipboardOk ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    surface="primary"
+                    onClick={copyCodes}
+                    className="text-xs text-accent hover:text-secondary"
+                  >
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                  </Button>
+                ) : null}
               </div>
+              {!clipboardOk ? (
+                <p className="text-xs text-secondary mb-2">
+                  Select the codes below, then copy them. Automatic copy needs a secure
+                  connection, and this page does not have one yet.
+                </p>
+              ) : null}
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
                 {codes.map((c, i) => (
                   <li key={i} className="truncate">{c}</li>

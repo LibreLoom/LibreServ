@@ -176,9 +176,13 @@ mod tests {
 
     #[test]
     fn progress_round_trips() {
-        let mut state = SetupState::default();
-        state.current_step = "account".into();
-        state.step_data.insert("network_connected".into(), json!(true));
+        let mut state = SetupState {
+            current_step: "account".into(),
+            ..Default::default()
+        };
+        state
+            .step_data
+            .insert("network_connected".into(), json!(true));
         let raw = serde_json::to_string(&state).unwrap();
         let back: SetupState = serde_json::from_str(&raw).unwrap();
         assert_eq!(back.current_step, "account");

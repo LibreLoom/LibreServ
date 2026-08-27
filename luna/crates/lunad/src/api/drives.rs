@@ -32,6 +32,13 @@ struct DetectedDriveJson {
 }
 
 #[derive(Serialize)]
+struct InspectEntryJson {
+    name: String,
+    /// `"folder"` or `"file"`.
+    kind: String,
+}
+
+#[derive(Serialize)]
 struct InspectionJson {
     device: String,
     model: String,
@@ -42,9 +49,26 @@ struct InspectionJson {
     folders: u64,
     files: u64,
     unreadable: u64,
+    /// Non-hidden top-level names (folders first), for the Look-inside preview.
+    entries: Vec<InspectEntryJson>,
     needs_erase: bool,
     readable: bool,
     writable: bool,
+}
+
+/// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
+/// folder/file counts and shortcuts are top-level only (no tree walk).
+#[derive(Serialize)]
+struct DriveSummaryJson {
+    id: String,
+    mounted: bool,
+    total_bytes: Option<u64>,
+    free_bytes: Option<u64>,
+    used_bytes: Option<u64>,
+    folders: Option<u64>,
+    files: Option<u64>,
+    /// Top-level folder names (or grant paths) for quick links into the drive.
+    shortcuts: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +88,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/eject", post(eject))
         .route("/api/v1/drives/{id}/remove", post(remove))
         .route("/api/v1/drives/{id}/health", get(drive_health))
+        .route("/api/v1/drives/{id}/summary", get(drive_summary))
 }
 
 async fn list(
@@ -106,7 +131,8 @@ async fn detected(
     require_admin(user)?;
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     let drives = crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
-    // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is.
+    // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
+    // ejected stays ejected while still plugged in.
     let known_devices = with_db(&state.db, |conn| {
         state.drive_manager.reconcile(conn, &drives)?;
         let rows = crate::db::list_drives(conn)?;
@@ -166,6 +192,15 @@ async fn inspect(
         folders: inspection.summary.folders,
         files: inspection.summary.files,
         unreadable: inspection.summary.unreadable,
+        entries: inspection
+            .summary
+            .entries
+            .into_iter()
+            .map(|e| InspectEntryJson {
+                name: e.name,
+                kind: e.kind,
+            })
+            .collect(),
         needs_erase: inspection.needs_erase,
         readable: inspection.readable,
         writable: inspection.writable,
@@ -225,12 +260,8 @@ async fn eject(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    with_db(&state.db, |conn| state.drive_manager.eject(conn, &id)).map_err(|e| {
-        json_error(
-            StatusCode::BAD_REQUEST,
-            format!("Luna couldn't eject this drive safely. {e}"),
-        )
-    })?;
+    with_db(&state.db, |conn| state.drive_manager.eject(conn, &id))
+        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -280,6 +311,77 @@ async fn drive_health(
     Ok(Json(health))
 }
 
+async fn drive_summary(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<DriveSummaryJson>, (StatusCode, Json<serde_json::Value>)> {
+    let (mount_point, can_list_root, grant_shortcuts) = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let drive = crate::db::get_drive(&conn, &id)
+            .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
+        if !crate::auth::has_drive_access(&user, &conn, &id) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to view this drive.",
+            ));
+        }
+        let can_list_root = crate::auth::can_access(&user, &conn, &id, "", false);
+        let grant_shortcuts = if can_list_root {
+            Vec::new()
+        } else {
+            crate::db::list_grants_for_user(&conn, &user.id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|g| g.drive_id == id && !g.path.is_empty())
+                .map(|g| g.path)
+                .take(6)
+                .collect::<Vec<_>>()
+        };
+        (drive.mount_point, can_list_root, grant_shortcuts)
+    };
+
+    if mount_point.is_empty() {
+        return Ok(Json(DriveSummaryJson {
+            id,
+            mounted: false,
+            total_bytes: None,
+            free_bytes: None,
+            used_bytes: None,
+            folders: None,
+            files: None,
+            shortcuts: grant_shortcuts,
+        }));
+    }
+
+    let root = std::path::PathBuf::from(mount_point);
+    let space = crate::summary::disk_space(&root);
+    let (folders, files, shortcuts) = if can_list_root {
+        let counts = crate::summary::top_level_counts(&root);
+        let shortcuts = crate::summary::top_level_shortcuts(&root);
+        (Some(counts.folders), Some(counts.files), shortcuts)
+    } else {
+        (None, None, grant_shortcuts)
+    };
+
+    Ok(Json(DriveSummaryJson {
+        id,
+        mounted: true,
+        total_bytes: space.as_ref().map(|s| s.total_bytes),
+        free_bytes: space.as_ref().map(|s| s.free_bytes),
+        used_bytes: space.as_ref().map(|s| s.used_bytes),
+        folders,
+        files,
+        shortcuts,
+    }))
+}
+
 fn find_device(name: &str) -> Option<crate::detect::DetectedDrive> {
     let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
     crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts)
@@ -324,6 +426,25 @@ fn plain_adopt_error(err: &anyhow::Error) -> String {
         "Make sure the drive is plugged in and your computer isn't using it.".into()
     } else {
         text
+    }
+}
+
+/// User-facing eject errors — never dump raw mount paths or UUIDs.
+fn plain_eject_error(err: &anyhow::Error) -> String {
+    let text = err.to_string();
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("doesn't know") {
+        "Luna doesn't know this drive.".into()
+    } else if lower.contains("close any files")
+        || lower.contains("target is busy")
+        || lower.contains("device is busy")
+        || lower.contains("busy")
+    {
+        "Luna couldn't eject this drive safely. Close any files open from it, then try again."
+            .into()
+    } else {
+        "Luna couldn't eject this drive safely. Unplug it, wait a moment, and plug it back in."
+            .into()
     }
 }
 
@@ -391,5 +512,22 @@ mod tests {
         assert!(other_plain.contains("Unplug"));
         assert!(!other_plain.to_ascii_lowercase().contains("installer"));
         assert!(!other_plain.contains("os error"));
+    }
+
+    #[test]
+    fn eject_errors_never_leak_paths_or_uuids() {
+        let busy = anyhow::anyhow!("Close any files open from this drive, then try again.");
+        let plain = super::plain_eject_error(&busy);
+        assert!(plain.contains("Close any files"));
+        assert!(!plain.contains("/var/lib"));
+
+        let raw = anyhow::anyhow!(
+            "unmount /var/lib/luna/mounts/drives/4b8d8abb-c7da-4d24-960a-7670030b96e5 failed: umount: no mount point specified."
+        );
+        let plain_raw = super::plain_eject_error(&raw);
+        assert!(plain_raw.starts_with("Luna couldn't eject"));
+        assert!(!plain_raw.contains("4b8d8abb"));
+        assert!(!plain_raw.contains("/var/lib"));
+        assert!(!plain_raw.contains("umount"));
     }
 }

@@ -3,6 +3,14 @@ import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import "./index.css";
 
+function canUseClipboard() {
+  return Boolean(
+    typeof window !== "undefined"
+      && window.isSecureContext
+      && navigator.clipboard?.writeText,
+  );
+}
+
 function App() {
   const [baseUrl, setBaseUrl] = useState("http://luna.local");
   const [username, setUsername] = useState("");
@@ -12,21 +20,29 @@ function App() {
   const [drives, setDrives] = useState([]);
   const [status, setStatus] = useState("");
   const [canCopyToken, setCanCopyToken] = useState(false);
+  const [manualToken, setManualToken] = useState("");
 
   async function login() {
     try {
       const message = await invoke("login", { baseUrl, username, password });
       setStatus(message);
       setCanCopyToken(true);
+      setManualToken("");
       setDrives(await invoke("list_drives", { baseUrl }));
     } catch (e) { setStatus(String(e)); }
   }
   async function copyToken() {
     try {
       const token = await invoke("copy_access_token");
-      await navigator.clipboard.writeText(token);
-      setCanCopyToken(false);
-      setStatus("Access token copied. Paste it as the folder-mount password. It will not stay on this screen.");
+      if (canUseClipboard()) {
+        await navigator.clipboard.writeText(token);
+        setCanCopyToken(false);
+        setManualToken("");
+        setStatus("Access token copied. Paste it as the folder-mount password. It will not stay on this screen.");
+      } else {
+        setManualToken(token || "");
+        setStatus("Select the access token below and copy it. Automatic copy needs a secure connection.");
+      }
     } catch (e) { setStatus(String(e)); }
   }
   async function pickFolder() {
@@ -54,7 +70,20 @@ function App() {
           <button type="button" onClick={login}>Sign in</button>
         </div>
         {canCopyToken && (
-          <button type="button" onClick={copyToken}>Copy access token</button>
+          <button type="button" onClick={copyToken}>
+            {manualToken ? "Show access token again" : "Copy access token"}
+          </button>
+        )}
+        {manualToken && (
+          <div>
+            <p className="hint">Select the text below, then copy it.</p>
+            <input
+              readOnly
+              value={manualToken}
+              onFocus={(e) => e.target.select()}
+              aria-label="Access token"
+            />
+          </div>
         )}
       </div>
       <div className="card">

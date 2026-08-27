@@ -422,7 +422,7 @@ build_binaries() {
     log_info "Downloading restic for embedding..."
     cd server/backend
     
-    RESTIC_VERSION="0.18.1"
+    RESTIC_VERSION="0.19.1"
     
     # AMD64 restic
     log_info "Downloading restic ${RESTIC_VERSION} for linux/amd64..."

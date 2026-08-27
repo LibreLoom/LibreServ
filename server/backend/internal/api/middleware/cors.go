@@ -25,7 +25,7 @@ func CORS(allowedOrigins []string, devMode bool, trustedHost ...string) func(nex
 					w.Header().Set("Vary", "Origin")
 				}
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-				w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Request-ID, X-CSRF-Token")
+				w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Content-Range, X-Request-ID, X-CSRF-Token, X-Setup-Token")
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset")
 				w.Header().Set("Access-Control-Max-Age", "86400")
@@ -59,7 +59,7 @@ func CORS(allowedOrigins []string, devMode bool, trustedHost ...string) func(nex
 				w.Header().Set("Vary", "Origin")
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Request-ID, X-CSRF-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Content-Range, X-Request-ID, X-CSRF-Token, X-Setup-Token")
 			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { File as FileIcon, Folder, FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
@@ -10,11 +11,36 @@ import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
+import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import FileSearch from "../components/files/FileSearch";
+import FileBrowser from "../components/files/FileBrowser";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
-import { withDevMockDetected } from "../lib/devMockDrives.js";
+import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
+import { describeInspectSummary } from "../lib/fileCounts";
+
+/** @param {number} n @param {string} one @param {string} many */
+function pluralCount(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Plain-language count line for Look-inside (singular/plural).
+ * @param {number} folders
+ * @param {number} files
+ * @param {number} [unreadable]
+ */
+export function inspectCountLine(folders, files, unreadable = 0) {
+  const folderBit = pluralCount(folders, "folder", "folders");
+  const fileBit = pluralCount(files, "file", "files");
+  let line = `We found ${folderBit} and ${fileBit} on this drive`;
+  if (unreadable > 0) {
+    line += ` (${pluralCount(unreadable, "item", "items")} could not be read)`;
+  }
+  return `${line}.`;
+}
 
 const STATE_PILLS = {
   as_is: "success",
@@ -68,7 +94,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }) {
+function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -87,13 +113,15 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }
       {copy && (
         <div className="mt-3">
           <Pill variant={copy.pill}>{copy.title}</Pill>
-          <p className="text-primary text-xs mt-2">{copy.detail}</p>
+          {copy.detail ? (
+            <p className="text-primary text-xs mt-2">{copy.detail}</p>
+          ) : null}
         </div>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {(drive.state === "as_is" || drive.state === "readonly") && (
-          <Button size="sm" variant="primary" asChild>
-            <a href={`/drives/${drive.id}`}>Open files</a>
+          <Button size="sm" variant="primary" onClick={() => onBrowse(drive)}>
+            Browse files
           </Button>
         )}
         {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
@@ -108,6 +136,9 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }
         )}
         {onShare && (drive.state === "as_is" || drive.state === "readonly") && (
           <AccessButton label={drive.label} onClick={() => onShare(drive)} />
+        )}
+        {onProtect && (drive.state === "as_is" || drive.state === "readonly") && (
+          <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
         )}
       </div>
     </Card>
@@ -141,7 +172,12 @@ export default function DrivesPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  const drives = useQuery({
+    queryKey: ["drives"],
+    queryFn: getDrives,
+    // Keep pace with detected reconcile so Ejected sticks after umount/reconcile.
+    refetchInterval: 5000,
+  });
   const detected = useQuery({
     queryKey: ["drives-detected"],
     queryFn: () => getJson("/api/v1/drives/detected"),
@@ -152,6 +188,8 @@ export default function DrivesPage() {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
+  const [protectingDrive, setProtectingDrive] = useState(null);
+  const [browsingDrive, setBrowsingDrive] = useState(null);
   /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
@@ -164,8 +202,16 @@ export default function DrivesPage() {
   });
 
   const inspect = useMutation({
-    mutationFn: (/** @type {any} */ drive) =>
-      postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
+    mutationFn: (/** @type {any} */ drive) => {
+      // Frontend-only review fixture: no real block device, so skip lunad.
+      if (
+        isMockUnknownDrive(drive?.name)
+        && !detected.data?.some((real) => real.name === drive.name)
+      ) {
+        return Promise.resolve(mockInspectResult());
+      }
+      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
+    },
   });
 
   const adopt = useMutation({
@@ -221,6 +267,7 @@ export default function DrivesPage() {
     const grants = access.data || [];
     return (
       <Page title="Files" titleId="drives-title">
+        <FileSearch />
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
@@ -249,7 +296,6 @@ export default function DrivesPage() {
           <AccessSheet
             driveId={sharingDrive.id}
             path={sharingDrive.path}
-            kind={sharingDrive.kind}
             onClose={() => setSharingDrive(null)}
           />
         )}
@@ -259,6 +305,7 @@ export default function DrivesPage() {
 
   return (
     <Page title="Files" titleId="drives-title">
+      <FileSearch />
       {actionError && <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
@@ -279,6 +326,8 @@ export default function DrivesPage() {
               ejecting={eject.isPending}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
+              onBrowse={(d) => setBrowsingDrive(d)}
+              onProtect={(d) => setProtectingDrive({ id: d.id, path: "" })}
             />
           ))}
         </div>
@@ -314,9 +363,39 @@ export default function DrivesPage() {
         <AccessSheet
           driveId={sharingDrive.id}
           path={sharingDrive.path}
-          kind={sharingDrive.kind}
           onClose={() => setSharingDrive(null)}
         />
+      )}
+      {protectingDrive && (
+        <ProtectSheet
+          driveId={protectingDrive.id}
+          path={protectingDrive.path}
+          onClose={() => setProtectingDrive(null)}
+        />
+      )}
+      {browsingDrive && (
+        <ModalCard
+          title={`Browse ${browsingDrive.label}`}
+          size="lg"
+          onClose={() => setBrowsingDrive(null)}
+        >
+          {({ close }) => (
+            <>
+              <FileBrowser
+                driveId={browsingDrive.id}
+                driveLabel={browsingDrive.label}
+                enableDownload
+                headerExtra={
+                  <Button variant="outline" surface="secondary" size="sm" asChild>
+                    <Link to={`/drives/${browsingDrive.id}`} onClick={close}>
+                      Open full files page
+                    </Link>
+                  </Button>
+                }
+              />
+            </>
+          )}
+        </ModalCard>
       )}
 
       {removeTarget && (
@@ -387,9 +466,46 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
       {result && (
         <>
           <p className="text-primary text-sm">
-            We found {result.folders} folders and {result.files} files on this
-            drive{result.unreadable > 0 ? ` (${result.unreadable} could not be read)` : ""}.
+            {describeInspectSummary(result)}
           </p>
+          {Array.isArray(result.entries) && result.entries.length > 0 && (
+            <div className="mt-3 rounded-large-element bg-primary text-secondary p-3">
+              <p className="text-xs font-mono uppercase tracking-widest text-accent mb-2">
+                On this drive
+              </p>
+              <ul
+                className="grid gap-1.5 max-h-40 overflow-y-auto"
+                aria-label="What's on this drive"
+              >
+                {result.entries.map((entry) => {
+                  const isFolder = entry.kind === "folder" || entry.kind === "dir";
+                  return (
+                    <li
+                      key={`${entry.kind}:${entry.name}`}
+                      className="flex items-center gap-2 text-sm font-mono min-w-0"
+                    >
+                      {isFolder ? (
+                        <Folder size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      ) : (
+                        <FileIcon size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="truncate">{entry.name}</span>
+                      <span className="text-xs text-accent shrink-0">
+                        {isFolder ? "folder" : "file"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {(Number(result.folders) + Number(result.files) > result.entries.length) && (
+                <p className="text-primary text-xs mt-2">
+                  Showing names at the top of the drive
+                  {result.entries.length >= 24 ? " (first 24)" : ""}.
+                  Add it to open folders and see everything.
+                </p>
+              )}
+            </div>
+          )}
           {needsErase ? (
             <div className="mt-4 flex items-center gap-3">
               <TriangleAlert size={18} className="text-warning shrink-0" />

@@ -61,7 +61,7 @@ function placePopup(trigger, popup) {
  *   popupClassName: string,
  *   dataSlot: string,
  *   renderTrigger: (args: {
- *     triggerRef: import("react").RefObject<HTMLElement>,
+ *     triggerRef: import("react").RefObject<HTMLButtonElement | null>,
  *     open: boolean,
  *     tooltipId: string,
  *     onClick: (e: import("react").MouseEvent) => void,

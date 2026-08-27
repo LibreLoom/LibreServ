@@ -83,8 +83,10 @@ pub fn scan_drive(
             }
             if meta.is_dir() {
                 let name = entry.file_name();
-                if name.to_str() == Some(THUMBS_DIR_NAME)
-                    || name.to_str() == Some(".luna-trash")
+                let name = name.to_string_lossy();
+                if name == THUMBS_DIR_NAME
+                    || name == ".luna-trash"
+                    || name == crate::protect::PROTECTED_DIR
                 {
                     continue;
                 }

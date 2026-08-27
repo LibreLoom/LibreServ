@@ -32,6 +32,7 @@ export default function Dropdown({
   disabled = false,
   ghost = false,
   className = "",
+  "aria-label": ariaLabel,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -156,7 +157,7 @@ export default function Dropdown({
         )}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}
+        aria-label={ariaLabel || (label ? `${label}: ${selectedOption?.label || "select"}` : undefined)}
       >
         {label && !ghost && <span className="opacity-70">{label}</span>}
         <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>

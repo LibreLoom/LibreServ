@@ -1,14 +1,19 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import api, { AuthError } from "../lib/api";
+import api, { AuthError, setCsrfToken as setApiCsrfToken } from "../lib/api";
 import { AuthContext } from "./AuthContextContext";
 
 export function AuthProvider({ children, queryClient }) {
   const [me, setMe] = useState(null);
-  const [csrfToken, setCsrfToken] = useState(null);
+  const [csrfToken, setCsrfTokenState] = useState(null);
   const [initialized, setInitialized] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const setCsrfToken = useCallback((token) => {
+    setCsrfTokenState(token);
+    setApiCsrfToken(token);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;

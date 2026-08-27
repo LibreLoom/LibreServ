@@ -6,7 +6,6 @@ import {
   Download,
   File as FileIcon,
   Folder,
-  FolderOpen,
   FolderInput,
   Pencil,
   RotateCcw,
@@ -17,53 +16,33 @@ import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
-import TextLink from "../components/ui/TextLink";
 import Dropdown from "../components/common/Dropdown";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import FileSearch from "../components/files/FileSearch";
+import FileBrowser from "../components/files/FileBrowser";
 import ComputerMountHelp from "../components/files/ComputerMountHelp";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
-import { getDrives, getJson, postJson } from "../lib/api";
+import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import {
+  apiErrorMessage,
+  deleteJson,
+  getDrives,
+  getJson,
+  postForm,
+  postJson,
+  putBinary,
+} from "../lib/api";
+import { downloadHref, folderHref, fmtSize, joinPath } from "../lib/paths";
 import { useAuth } from "../context/AuthContext";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
 
-function fmtSize(bytes) {
-  if (bytes < 1000) return `${bytes} B`;
-  if (bytes < 1000 * 1000) return `${(bytes / 1000).toFixed(1)} KB`;
-  if (bytes < 1000 * 1000 * 1000) return `${(bytes / 1000 / 1000).toFixed(1)} MB`;
-  return `${(bytes / 1000 / 1000 / 1000).toFixed(1)} GB`;
-}
-
-function joinPath(base, name) {
-  return base ? `${base}/${name}` : name;
-}
-
-function parentPath(path) {
-  if (!path) return null;
-  const idx = path.lastIndexOf("/");
-  return idx < 0 ? "" : path.slice(0, idx);
-}
-
-function folderHref(driveId, folderPath) {
-  if (!folderPath) return `/drives/${driveId}`;
-  return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
-}
-
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
 }
 
-async function parseError(res) {
-  try {
-    const data = await res.json();
-    return data.error || `Request failed (${res.status})`;
-  } catch {
-    return `Request failed (${res.status})`;
-  }
-}
 
 export default function FilesPage() {
   const { id } = useParams();
@@ -85,17 +64,13 @@ export default function FilesPage() {
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(null);
   const [accessTarget, setAccessTarget] = useState(null);
+  const [protectTarget, setProtectTarget] = useState(null);
   const filePicker = useRef(null);
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
-
-  const files = useQuery({
-    queryKey: ["files", id, path],
-    queryFn: () => getJson(`/api/v1/drives/${id}/files?path=${encodeURIComponent(path)}`),
-    enabled: !!drive && !inTrash,
-  });
 
   const trash = useQuery({
     queryKey: ["trash", id],
@@ -119,45 +94,29 @@ export default function FilesPage() {
     const form = new FormData();
     form.append("path", path);
     form.append("file", file);
-    const res = await fetch(`/api/v1/drives/${id}/files/upload?path=${encodeURIComponent(path)}`, {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
-    if (!res.ok) throw new Error(await parseError(res));
-    return res.json();
+    // postForm attaches CSRF; do not set Content-Type so the browser can
+    // supply the multipart boundary.
+    return postForm(`/api/v1/drives/${id}/files/upload?path=${encodeURIComponent(path)}`, form);
   }
 
   async function uploadChunked(file) {
-    const created = await fetch("/api/v1/uploads", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ drive_id: id, path, name: file.name, size: file.size }),
+    const session = await postJson("/api/v1/uploads", {
+      drive_id: id,
+      path,
+      name: file.name,
+      size: file.size,
     });
-    if (!created.ok) throw new Error(await parseError(created));
-    const session = await created.json();
     let received = 0;
     for (let start = 0; start < file.size; start += CHUNK_SIZE) {
       const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
       const chunk = file.slice(start, end + 1);
-      const put = await fetch(`/api/v1/uploads/${session.upload_id}`, {
-        method: "PUT",
-        credentials: "include",
+      const progress = await putBinary(`/api/v1/uploads/${session.upload_id}`, chunk, {
         headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
-        body: chunk,
       });
-      if (!put.ok) throw new Error(await parseError(put));
-      const progress = await put.json();
       received = progress.received;
       setUploading({ name: file.name, received, size: file.size });
     }
-    const done = await fetch(`/api/v1/uploads/${session.upload_id}/complete`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!done.ok) throw new Error(await parseError(done));
-    return done.json();
+    return postJson(`/api/v1/uploads/${session.upload_id}/complete`, {});
   }
 
   async function uploadOne(file) {
@@ -171,8 +130,7 @@ export default function FilesPage() {
       }
       invalidate();
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      setUploadError(raw.replace(/^Error:\s*/i, ""));
+      setUploadError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
     } finally {
       setUploading(null);
     }
@@ -188,31 +146,22 @@ export default function FilesPage() {
   }
 
   const removeMutation = useMutation({
-    mutationFn: async (/** @type {any} */ entry) => {
-      const res = await fetch(
+    mutationFn: (/** @type {any} */ entry) =>
+      deleteJson(
         `/api/v1/drives/${id}/files?path=${encodeURIComponent(joinPath(path, entry.name))}`,
-        { method: "DELETE", credentials: "include" }
-      );
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+      ),
     onSuccess: () => { setDeleteTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't move that to Trash. Try again.")),
   });
 
   const renameMutation = useMutation({
-    mutationFn: async (/** @type {{ entry: any, newName: string }} */ { entry, newName }) => {
-      const res = await fetch(`/api/v1/drives/${id}/files/rename`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: joinPath(path, entry.name), new_name: newName }),
-      });
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+    mutationFn: (/** @type {{ entry: any, newName: string }} */ { entry, newName }) =>
+      postJson(`/api/v1/drives/${id}/files/rename`, {
+        path: joinPath(path, entry.name),
+        new_name: newName,
+      }),
     onSuccess: () => { setRenameTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't rename that. Try again.")),
   });
 
   const copyMutation = useMutation({
@@ -227,7 +176,7 @@ export default function FilesPage() {
       });
     },
     onSuccess: () => { setCopyTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't start that copy. Try again.")),
   });
 
   const restoreMutation = useMutation({
@@ -237,27 +186,22 @@ export default function FilesPage() {
         dest: restoreName,
       }),
     onSuccess: () => { setRestoreTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
   });
 
   const purgeMutation = useMutation({
     mutationFn: (/** @type {any} */ item) =>
       postJson(`/api/v1/drives/${id}/files/purge`, { path: item.path }),
     onSuccess: () => { setPurgeTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
   });
 
   const cancelMutation = useMutation({
-    mutationFn: async (jobId) => {
-      const res = await fetch(`/api/v1/jobs/${jobId}`, { method: "DELETE", credentials: "include" });
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+    mutationFn: (jobId) => deleteJson(`/api/v1/jobs/${jobId}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't cancel that job. Try again.")),
   });
 
-  const up = parentPath(path);
-  const visible = (files.data || []).filter((entry) => !entry.hidden);
   const activeJobs = (jobs.data || []).filter(jobBusy);
   const trashItems = trash.data || [];
 
@@ -301,50 +245,24 @@ export default function FilesPage() {
         </div>
       )}
 
-      <Card className="mb-4" padding>
-        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-primary">
-          <TextLink to={folderHref(id, "")} surface="secondary">
-            {drive?.label || "Drive"}
-          </TextLink>
-          {inTrash ? (
+      {inTrash ? (
+        <Card className="mb-4" padding>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-primary">
+            <Button variant="ghost" surface="secondary" size="sm" asChild>
+              <Link to={folderHref(id, "")}>{drive?.label || "Drive"}</Link>
+            </Button>
             <span className="flex items-center gap-2">
               <span className="text-accent">/</span>
               <span>Trash</span>
             </span>
-          ) : (
-            path.split("/").filter(Boolean).map((segment, i, all) => (
-              <span key={`${segment}-${i}`} className="flex items-center gap-2">
-                <span className="text-accent">/</span>
-                <TextLink to={folderHref(id, all.slice(0, i + 1).join("/"))} surface="secondary">
-                  {segment}
-                </TextLink>
-              </span>
-            ))
-          )}
-          {!inTrash && (
-            <AccessButton
-              label={path || drive?.label || "this folder"}
-              onClick={() => setAccessTarget({ path, kind: path ? "folder" : "drive" })}
-            />
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {!inTrash && up !== null && (
-            <Button variant="outline" surface="secondary" size="sm" asChild>
-              <Link to={folderHref(id, up)}>↑ Up one folder</Link>
-            </Button>
-          )}
-          {inTrash ? (
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="outline" surface="secondary" size="sm" asChild>
               <Link to={`/drives/${id}`}>Back to files</Link>
             </Button>
-          ) : (
-            <Button variant="outline" surface="secondary" size="sm" asChild>
-              <Link to={`/drives/${id}?view=trash`}>Open trash</Link>
-            </Button>
-          )}
-        </div>
-      </Card>
+          </div>
+        </Card>
+      ) : null}
 
       {!inTrash && (
         <Card
@@ -391,98 +309,110 @@ export default function FilesPage() {
 
       {inTrash && uploadError && <PageNotice variant="error" className="mb-4">{uploadError}</PageNotice>}
 
-      {!inTrash && (
-        <div className="grid gap-3">
-          {visible.map((entry) => (
-            <Card key={entry.name} padding={false} noPopIn noHeightAnim>
-              <div className="flex items-center justify-between p-4 gap-2">
-                {entry.kind === "dir" ? (
-                  <Link
-                    to={folderHref(id, joinPath(path, entry.name))}
-                    className="flex items-center gap-3 text-left flex-1 min-w-0 text-primary hover:text-accent motion-safe:transition-colors"
-                  >
-                    <Folder size={18} className="text-accent shrink-0" />
-                    <span className="font-mono text-sm truncate">{entry.name}</span>
-                  </Link>
-                ) : (
-                  <div className="flex items-center gap-3 text-left flex-1 min-w-0">
-                    <FileIcon size={18} className="text-accent shrink-0" />
-                    <span className="text-primary font-mono text-sm truncate">{entry.name}</span>
-                  </div>
-                )}
-                <span className="text-primary text-xs w-20 text-right hidden sm:block">{fmtSize(entry.size)}</span>
-                <div className="flex items-center gap-1">
-                  <AccessButton
-                    label={entry.name}
-                    onClick={() => setAccessTarget({
-                      path: joinPath(path, entry.name),
-                      kind: entry.kind === "dir" ? "folder" : "file",
-                    })}
-                  />
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Copy ${entry.name}`}
-                    onClick={() => {
-                      setCopyKind("copy");
-                      setCopyTarget(entry);
-                      setCopyDrive(id);
-                      setCopyFolder(path);
-                    }}
-                  >
-                    <Copy size={14} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Move ${entry.name}`}
-                    onClick={() => {
-                      setCopyKind("move");
-                      setCopyTarget(entry);
-                      setCopyDrive(id);
-                      setCopyFolder(path);
-                    }}
-                  >
-                    <FolderInput size={14} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Rename ${entry.name}`}
-                    onClick={() => { setRenameTarget(entry); setRenameValue(entry.name); }}
-                  >
-                    <Pencil size={14} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Move ${entry.name} to trash`}
-                    onClick={() => setDeleteTarget(entry)}
-                  >
-                    <Trash2 size={14} />
-                  </Button>
-                  {entry.kind === "file" && (
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      asChild
-                      aria-label={`Download ${entry.name}`}
-                    >
-                      <a href={`/api/v1/drives/${id}/files/content?path=${encodeURIComponent(joinPath(path, entry.name))}&download=1`}>
-                        <Download size={14} />
-                      </a>
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+      {!inTrash && drive && (
+        <FileBrowser
+          driveId={id}
+          driveLabel={drive.label}
+          path={path}
+          linkNavigation
+          folderHref={folderHref}
+          enableDownload={false}
+          breadcrumbExtra={
+            <>
+              <AccessButton
+                label={path || drive.label || "this folder"}
+                onClick={() => setAccessTarget({ path, kind: path ? "folder" : "drive" })}
+              />
+              {isAdmin && (
+                <ProtectButton
+                  label={path || drive.label || "this folder"}
+                  onClick={() => setProtectTarget({ path })}
+                />
+              )}
+            </>
+          }
+          headerExtra={
+            <Button variant="outline" surface="secondary" size="sm" asChild>
+              <Link to={`/drives/${id}?view=trash`}>Open trash</Link>
+            </Button>
+          }
+          renderRowActions={({ entry, fullPath }) => (
+            <div className="flex items-center gap-1">
+              <AccessButton
+                label={entry.name}
+                onClick={() => setAccessTarget({
+                  path: fullPath,
+                  kind: entry.kind === "dir" ? "folder" : "file",
+                })}
+              />
+              {isAdmin && entry.kind === "dir" && (
+                <ProtectButton
+                  label={entry.name}
+                  onClick={() => setProtectTarget({ path: fullPath })}
+                />
+              )}
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`Copy ${entry.name}`}
+                onClick={() => {
+                  setCopyKind("copy");
+                  setCopyTarget(entry);
+                  setCopyDrive(id);
+                  setCopyFolder(path);
+                }}
+              >
+                <Copy size={14} />
+              </Button>
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`Move ${entry.name}`}
+                onClick={() => {
+                  setCopyKind("move");
+                  setCopyTarget(entry);
+                  setCopyDrive(id);
+                  setCopyFolder(path);
+                }}
+              >
+                <FolderInput size={14} />
+              </Button>
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`Rename ${entry.name}`}
+                onClick={() => { setRenameTarget(entry); setRenameValue(entry.name); }}
+              >
+                <Pencil size={14} />
+              </Button>
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`Move ${entry.name} to trash`}
+                onClick={() => setDeleteTarget(entry)}
+              >
+                <Trash2 size={14} />
+              </Button>
+              {entry.kind === "file" && (
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  asChild
+                  aria-label={`Download ${entry.name}`}
+                >
+                  <a href={downloadHref(id, fullPath)}>
+                    <Download size={14} />
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
+        />
       )}
 
       {inTrash && (
@@ -528,14 +458,6 @@ export default function FilesPage() {
             </Card>
           ))}
         </div>
-      )}
-
-      {!inTrash && !files.isLoading && visible.length === 0 && (
-        <EmptyState
-          className="mt-4"
-          icon={FolderOpen}
-          title="Nothing here yet"
-        />
       )}
 
       {inTrash && !trash.isLoading && trashItems.length === 0 && (
@@ -606,7 +528,7 @@ export default function FilesPage() {
             <>
               <p className="text-primary text-sm mb-3">
                 {copyKind === "move"
-                  ? "Luna will copy it first, then put the original in trash."
+                  ? "Luna will move it to the place you choose."
                   : "The original stays where it is."}
               </p>
               <label className="block text-primary text-xs mb-1">Which drive?</label>
@@ -685,6 +607,13 @@ export default function FilesPage() {
           path={accessTarget.path}
           kind={accessTarget.kind}
           onClose={() => setAccessTarget(null)}
+        />
+      )}
+      {protectTarget && (
+        <ProtectSheet
+          driveId={id}
+          path={protectTarget.path}
+          onClose={() => setProtectTarget(null)}
         />
       )}
     </Page>

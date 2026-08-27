@@ -31,6 +31,7 @@ pub mod scrub;
 pub mod secrets;
 pub mod smart;
 pub mod staticweb;
+pub mod summary;
 pub mod updates;
 pub mod uploads;
 
@@ -65,10 +66,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(conn: Connection, drive_manager: Arc<DriveManager>, data_dir: &std::path::Path) -> Self {
+    pub fn new(
+        conn: Connection,
+        drive_manager: Arc<DriveManager>,
+        data_dir: &std::path::Path,
+    ) -> Self {
         let db = Arc::new(Mutex::new(conn));
-        let secret = crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap())
-            .expect("jwt secret");
+        let secret =
+            crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");
         let auth = Arc::new(crate::auth::AuthService::new(
             db.clone(),
             secret,
