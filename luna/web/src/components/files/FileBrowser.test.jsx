@@ -148,7 +148,7 @@ describe("FileBrowser", () => {
     );
   });
 
-  it("shows loading inside the list while a folder fetch is in flight", async () => {
+  it("shows a spinner beside the current folder while listing loads", async () => {
     let resolveListing;
     vi.stubGlobal(
       "fetch",
@@ -160,7 +160,7 @@ describe("FileBrowser", () => {
       ),
     );
     renderBrowser({ multiSelect: false });
-    expect(await screen.findByRole("status")).toHaveTextContent(/Loading files/i);
+    expect(await screen.findByRole("status", { name: /Loading folder/i })).toBeInTheDocument();
     resolveListing(
       new Response(JSON.stringify([]), {
         status: 200,
@@ -168,6 +168,7 @@ describe("FileBrowser", () => {
       }),
     );
     expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /Loading folder/i })).not.toBeInTheDocument();
   });
 
   it("shows an empty state when the folder has nothing", async () => {

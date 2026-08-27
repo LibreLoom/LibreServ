@@ -18,6 +18,7 @@ import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import TextLink from "../ui/TextLink.jsx";
 import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
+import Spinner from "../ui/Spinner.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import { getJson } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
@@ -474,6 +475,9 @@ export default function FileBrowser({
                     </span>
                   );
                 })}
+                {listBusy ? (
+                  <Spinner size="sm" label="Loading folder" className="text-primary" />
+                ) : null}
                 {breadcrumbExtra}
               </div>
             </div>
@@ -572,16 +576,7 @@ export default function FileBrowser({
       )}
 
       <Card padding={false} className={listClassName} aria-busy={listBusy || undefined}>
-        {listBusy && entries.length > 0 && (
-          <div
-            className="h-11 flex items-center px-3 border-b border-primary/20 text-sm text-primary"
-            role="status"
-          >
-            Loading files…
-          </div>
-        )}
-
-        {!isPicker && multiSelect && entries.length > 0 && !listBusy && (
+        {!isPicker && multiSelect && entries.length > 0 && (
           <div
             className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
               selectedCount > 0 ? "bg-accent/20" : ""
@@ -668,9 +663,7 @@ export default function FileBrowser({
         )}
 
         {listBusy && entries.length === 0 ? (
-          <div className="px-3 py-10 text-sm text-primary text-center" role="status">
-            Loading files…
-          </div>
+          <div className="h-11" aria-hidden="true" />
         ) : (
           <ul
             className={["m-0 p-0 list-none", showingStaleListing ? "pointer-events-none" : ""]
