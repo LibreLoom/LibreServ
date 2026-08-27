@@ -7,20 +7,26 @@
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
 //! assert that). Keep this block as the source of truth for the printed
-//! card, booklet, and future docs:
+//! card, booklet, and future docs. Spell out every Enter — users follow
+//! this without a second person watching:
 //!
 //!   If you forget your password
 //!   1. Hold the power button until Luna is visibly off and silent.
 //!   2. Press the power button once to turn it back on.
-//!   3. Wait about 2 minutes.
-//!   4. Plug a USB keyboard into Luna.
-//!   5. Type pwreset and press Enter.
-//!   6. Type your username, then your new password (at least 12 characters,
-//!      with letters and numbers).
-//!   7. Type logout and press Enter.
-//!   8. Sign in again on the Luna web page.
+//!   3. Wait about 2 minutes (until Luna has finished starting).
+//!   4. Plug a screen into Luna if one is not already connected, so you
+//!      can read the prompts.
+//!   5. Plug a USB keyboard into Luna.
+//!   6. Type pwreset and press Enter.
+//!   7. When it asks for Username, type your admin username and press Enter.
+//!   8. When it asks for New password, type a new password (at least 12
+//!      characters, with letters and numbers) and press Enter.
+//!   9. Type logout and press Enter.
+//!  10. On your phone or computer, open the Luna web page and sign in
+//!      with that username and the new password.
 //!
 //! Typing pwreset once is enough — do not ask the user to type it twice.
+//! Only an admin account can be reset this way.
 
 use std::io::{BufRead, Read, Write};
 use std::path::Path;
@@ -46,12 +52,14 @@ pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
     "Hold the power button until Luna is visibly off and silent.",
     "Press the power button once to turn it back on.",
-    "Wait about 2 minutes.",
+    "Wait about 2 minutes (until Luna has finished starting).",
+    "Plug a screen into Luna if one is not already connected, so you can read the prompts.",
     "Plug a USB keyboard into Luna.",
     "Type pwreset and press Enter.",
-    "Type your username, then your new password (at least 12 characters, with letters and numbers).",
+    "When it asks for Username, type your admin username and press Enter.",
+    "When it asks for New password, type a new password (at least 12 characters, with letters and numbers) and press Enter.",
     "Type logout and press Enter.",
-    "Sign in again on the Luna web page.",
+    "On your phone or computer, open the Luna web page and sign in with that username and the new password.",
 ];
 
 /// Soft-login name for console recovery. Typing this once signs into the
@@ -595,6 +603,19 @@ mod tests {
                 .any(|s| s.contains("visibly off and silent")),
             "card must tell users how to confirm Luna is off"
         );
+        // Every console line the user types needs an explicit Enter.
+        assert!(CARD_STEPS.iter().any(|s| {
+            s == &"Type pwreset and press Enter."
+        }));
+        assert!(CARD_STEPS.iter().any(|s| {
+            s.contains("Username") && s.contains("press Enter")
+        }));
+        assert!(CARD_STEPS.iter().any(|s| {
+            s.contains("New password") && s.contains("press Enter")
+        }));
+        assert!(CARD_STEPS.iter().any(|s| {
+            s == &"Type logout and press Enter."
+        }));
         assert_eq!(CARD_TITLE, "If you forget your password");
     }
 }
