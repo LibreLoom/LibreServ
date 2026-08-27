@@ -21,6 +21,7 @@ import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import { getJson } from "../../lib/api.js";
+import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import {
   downloadHref,
@@ -254,7 +255,7 @@ export default function FileBrowser({
     event.preventDefault();
     setDragOver(false);
     setDropTarget(null);
-    const files = Array.from(event.dataTransfer?.files || []);
+    const files = await filesFromDataTransfer(event.dataTransfer);
     if (files.length && onUploadFiles) {
       await onUploadFiles(files, destPath);
     }
@@ -275,7 +276,7 @@ export default function FileBrowser({
     event.preventDefault();
     event.stopPropagation();
     setDropTarget(null);
-    const osFiles = Array.from(event.dataTransfer?.files || []);
+    const osFiles = await filesFromDataTransfer(event.dataTransfer);
     if (osFiles.length && onUploadFiles) {
       await onUploadFiles(osFiles, destFolder);
       return;
@@ -496,7 +497,7 @@ export default function FileBrowser({
                   multiple
                   className="sr-only"
                   onChange={async (e) => {
-                    const files = [...(e.target.files || [])];
+                    const files = filesFromFileList(e.target.files);
                     e.target.value = "";
                     if (files.length && onUploadFiles) await onUploadFiles(files, path);
                   }}

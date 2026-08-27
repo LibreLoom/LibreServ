@@ -17,72 +17,141 @@ import {
   apiErrorMessage,
   deleteJson,
   getDrives,
-  postForm,
+  postFormProgress,
   postJson,
-  putBinary,
+  putBinaryProgress,
 } from "../../lib/api.js";
+import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { folderHref as defaultFolderHref, fmtSize, joinPath, pathBasename } from "../../lib/paths.js";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
+/** Parallel uploads — enough for multi-select without saturating the link. */
+const UPLOAD_PARALLEL = 2;
 
 /**
- * Compact upload progress — drive-card language, small footprint for modal + page.
- *
- * @param {{ name: string, received: number, size: number }} props
+ * @typedef {{
+ *   id: string,
+ *   name: string,
+ *   received: number,
+ *   size: number,
+ *   uploadId: string | null,
+ *   abort: AbortController,
+ * }} UploadRow
  */
-function UploadProgress({ name, received, size }) {
-  const total = Number(size) || 0;
-  const done = Math.min(total, Math.max(0, Number(received) || 0));
-  const pct = total > 0 ? Math.min(100, Math.round((100 * done) / total)) : null;
-  const barWidth = pct != null ? Math.max(pct, done > 0 ? 2 : 8) : 8;
-  const sizeLine = total > 0
-    ? `${fmtSize(done)} of ${fmtSize(total)}`
-    : "Starting…";
+
+/**
+ * Compact multi-file upload progress with per-file cancel.
+ *
+ * @param {{
+ *   uploads: Array<{ id: string, name: string, received: number, size: number }>,
+ *   onCancel: (id: string) => void,
+ * }} props
+ */
+function UploadProgressList({ uploads, onCancel }) {
+  if (!uploads.length) return null;
 
   return (
     <Card className="mb-3" padding={false} noPopIn>
-      <div className="px-3 py-2.5 space-y-2" role="status" aria-live="polite">
-        <div className="flex items-center gap-2 min-w-0">
-          <span
-            className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
-            aria-hidden="true"
-          />
-          <span className="text-xs font-mono uppercase tracking-widest text-accent shrink-0">
-            Uploading
-          </span>
-          <Spinner size="sm" decorative className="text-primary shrink-0" />
-          <span className="font-mono text-sm text-primary truncate min-w-0 flex-1">
-            {name}
-          </span>
-          <span className="font-mono text-xs text-primary shrink-0 tabular-nums">
-            {pct != null ? `${pct}%` : "…"}
-          </span>
-        </div>
-        <p className="text-xs text-primary font-mono">{sizeLine}</p>
-        <div
-          className="h-1.5 rounded-pill bg-primary overflow-hidden"
-          role="progressbar"
-          aria-valuenow={pct ?? 0}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={pct != null ? `Uploading ${name}, ${pct}% done` : `Uploading ${name}`}
-        >
-          <div
-            className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-300"
-            style={{ width: `${barWidth}%` }}
-          />
-        </div>
-      </div>
+      <ul className="m-0 p-0 list-none divide-y divide-primary/15" aria-label="Uploads in progress">
+        {uploads.map((item) => {
+          const total = Number(item.size) || 0;
+          const done = Math.min(total, Math.max(0, Number(item.received) || 0));
+          const pct = total > 0 ? Math.min(100, Math.round((100 * done) / total)) : null;
+          const sizeLine = total > 0
+            ? `${fmtSize(done)} of ${fmtSize(total)}`
+            : "Starting…";
+
+          return (
+            <li key={item.id} className="px-3 py-2.5 space-y-2" role="status" aria-live="polite">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+                  aria-hidden="true"
+                />
+                <span className="text-xs font-mono uppercase tracking-widest text-accent shrink-0">
+                  Uploading
+                </span>
+                <Spinner size="sm" decorative className="text-primary shrink-0" />
+                <span className="font-mono text-sm text-primary truncate min-w-0 flex-1">
+                  {item.name}
+                </span>
+                <span className="font-mono text-xs text-primary shrink-0 tabular-nums">
+                  {pct != null ? `${pct}%` : "…"}
+                </span>
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => onCancel(item.id)}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <p className="text-xs text-primary font-mono">{sizeLine}</p>
+              <div
+                className="h-1.5 rounded-pill bg-primary overflow-hidden"
+                role="progressbar"
+                aria-valuenow={pct ?? 0}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={
+                  pct != null
+                    ? `Uploading ${item.name}, ${pct}% done`
+                    : `Uploading ${item.name}`
+                }
+              >
+                <div
+                  className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-300"
+                  style={{ width: `${pct ?? 0}%` }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }
 
-UploadProgress.propTypes = {
-  name: PropTypes.string.isRequired,
-  received: PropTypes.number.isRequired,
-  size: PropTypes.number.isRequired,
+UploadProgressList.propTypes = {
+  uploads: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string.isRequired,
+      name: PropTypes.string.isRequired,
+      received: PropTypes.number.isRequired,
+      size: PropTypes.number.isRequired,
+    }),
+  ).isRequired,
+  onCancel: PropTypes.func.isRequired,
 };
+
+function isAbortError(err) {
+  return (
+    err?.name === "AbortError"
+    || (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError")
+  );
+}
+
+/**
+ * Run async work over items with a fixed concurrency limit.
+ * @template T
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T) => Promise<void>} worker
+ */
+async function mapPool(items, limit, worker) {
+  const queue = [...items];
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (queue.length) {
+      const next = queue.shift();
+      if (next === undefined) return;
+      await worker(next);
+    }
+  });
+  await Promise.all(runners);
+}
 
 /**
  * Full file explorer used by the Files page and the Drives browse modal.
@@ -123,7 +192,8 @@ export default function DriveFileExplorer({
   }
 
   const [actionError, setActionError] = useState(/** @type {string|null} */ (null));
-  const [uploading, setUploading] = useState(/** @type {null|{name:string,received:number,size:number}} */ (null));
+  const [uploads, setUploads] = useState(/** @type {UploadRow[]} */ ([]));
+  const uploadsRef = useRef(/** @type {UploadRow[]} */ ([]));
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
@@ -134,6 +204,21 @@ export default function DriveFileExplorer({
   const selectedRef = useRef(/** @type {string[]} */ ([]));
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+
+  function setUploadRows(next) {
+    uploadsRef.current = next;
+    setUploads(next);
+  }
+
+  function patchUpload(id, patch) {
+    setUploadRows(
+      uploadsRef.current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  }
+
+  function removeUpload(id) {
+    setUploadRows(uploadsRef.current.filter((row) => row.id !== id));
+  }
 
   function invalidate(paths = [path]) {
     const folders = new Set(paths.map((p) => {
@@ -148,50 +233,137 @@ export default function DriveFileExplorer({
     queryClient.invalidateQueries({ queryKey: ["trash", driveId] });
   }
 
-  async function uploadMultipart(file, destPath) {
+  /**
+   * @param {UploadRow} row
+   * @param {File} file
+   * @param {string} destPath
+   * @param {string} name
+   */
+  async function uploadMultipart(row, file, destPath, name) {
     const form = new FormData();
     form.append("path", destPath);
-    form.append("file", file);
-    return postForm(
+    // Keep the leaf name the server expects; File may carry a relative path.
+    const blob = file.name === name ? file : new File([file], name, { type: file.type });
+    form.append("file", blob);
+    await postFormProgress(
       `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(destPath)}`,
       form,
+      {
+        signal: row.abort.signal,
+        onProgress: (loaded, total) => {
+          const size = total > 0 ? total : file.size;
+          patchUpload(row.id, { received: Math.min(loaded, size), size });
+        },
+      },
     );
   }
 
-  async function uploadChunked(file, destPath) {
-    const session = await postJson("/api/v1/uploads", {
-      drive_id: driveId,
-      path: destPath,
-      name: file.name,
-      size: file.size,
-    });
-    let received = 0;
+  /**
+   * @param {UploadRow} row
+   * @param {File} file
+   * @param {string} destPath
+   * @param {string} name
+   */
+  async function uploadChunked(row, file, destPath, name) {
+    const session = await postJson(
+      "/api/v1/uploads",
+      {
+        drive_id: driveId,
+        path: destPath,
+        name,
+        size: file.size,
+      },
+      { signal: row.abort.signal },
+    );
+    patchUpload(row.id, { uploadId: session.upload_id });
+
     for (let start = 0; start < file.size; start += CHUNK_SIZE) {
+      if (row.abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
       const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
       const chunk = file.slice(start, end + 1);
-      const progress = await putBinary(`/api/v1/uploads/${session.upload_id}`, chunk, {
-        headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
+      const progress = await putBinaryProgress(
+        `/api/v1/uploads/${session.upload_id}`,
+        chunk,
+        {
+          signal: row.abort.signal,
+          headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
+          onProgress: (loaded) => {
+            patchUpload(row.id, {
+              received: Math.min(file.size, start + loaded),
+              size: file.size,
+            });
+          },
+        },
+      );
+      patchUpload(row.id, {
+        received: Number(progress.received) || end + 1,
+        size: file.size,
       });
-      received = progress.received;
-      setUploading({ name: file.name, received, size: file.size });
     }
-    return postJson(`/api/v1/uploads/${session.upload_id}/complete`, {});
+    await postJson(`/api/v1/uploads/${session.upload_id}/complete`, {}, { signal: row.abort.signal });
   }
 
-  async function uploadFiles(files, destPath) {
-    setActionError(null);
-    for (const file of files) {
-      setUploading({ name: file.name, received: 0, size: file.size });
-      try {
-        if (file.size <= MULTIPART_LIMIT) await uploadMultipart(file, destPath);
-        else await uploadChunked(file, destPath);
-      } catch (err) {
-        setActionError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
-        break;
-      }
+  function cancelUpload(id) {
+    const row = uploadsRef.current.find((item) => item.id === id);
+    if (!row) return;
+    row.abort.abort();
+    if (row.uploadId) {
+      void deleteJson(`/api/v1/uploads/${row.uploadId}`).catch(() => {});
     }
-    setUploading(null);
-    invalidate([destPath ? `${destPath}/x` : "x"]);
+    removeUpload(id);
+  }
+
+  /**
+   * Queue many files at once; upload a few in parallel with per-file cancel.
+   * @param {File[]} files
+   * @param {string} destFolder
+   */
+  async function uploadFiles(files, destFolder) {
+    const list = filesFromFileList(files);
+    if (!list.length) return;
+    setActionError(null);
+
+    /** @type {Array<UploadRow & { file: File, destPath: string, leafName: string }>} */
+    const batch = list.map((file) => {
+      const { destPath, name } = uploadDestForFile(destFolder || "", file);
+      return {
+        id: crypto.randomUUID(),
+        name,
+        received: 0,
+        size: file.size,
+        uploadId: null,
+        abort: new AbortController(),
+        file,
+        destPath,
+        leafName: name,
+      };
+    });
+
+    setUploadRows([...uploadsRef.current, ...batch.map(({ file: _f, destPath: _d, leafName: _n, ...row }) => row)]);
+
+    const touched = new Set(batch.map((item) => (item.destPath ? `${item.destPath}/x` : "x")));
+    let hadError = false;
+
+    await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
+      const row = uploadsRef.current.find((u) => u.id === item.id) || item;
+      try {
+        if (item.file.size <= MULTIPART_LIMIT) {
+          await uploadMultipart(row, item.file, item.destPath, item.leafName);
+        } else {
+          await uploadChunked(row, item.file, item.destPath, item.leafName);
+        }
+        removeUpload(item.id);
+      } catch (err) {
+        removeUpload(item.id);
+        if (isAbortError(err) || item.abort.signal.aborted) return;
+        if (!hadError) {
+          hadError = true;
+          setActionError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
+        }
+      }
+    });
+
+    invalidate([...touched]);
   }
 
   const removeMutation = useMutation({
@@ -267,12 +439,8 @@ export default function DriveFileExplorer({
       {actionError && (
         <PageNotice variant="error" className="mb-3">{actionError}</PageNotice>
       )}
-      {uploading && (
-        <UploadProgress
-          name={uploading.name}
-          received={uploading.received}
-          size={uploading.size}
-        />
+      {uploads.length > 0 && (
+        <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
       )}
 
       <FileBrowser

@@ -87,6 +87,163 @@ export async function putBinary(path, body, options = {}) {
   });
 }
 
+/**
+ * PUT binary with upload-byte progress (XHR). Use for large chunked uploads so
+ * the bar moves while a chunk is still in flight; fetch cannot report that.
+ *
+ * @param {string} path
+ * @param {Blob|ArrayBuffer|ArrayBufferView} body
+ * @param {{
+ *   headers?: Record<string, string>,
+ *   signal?: AbortSignal,
+ *   onProgress?: (loaded: number, total: number) => void,
+ * }} [options]
+ */
+export function putBinaryProgress(path, body, options = {}) {
+  const method = "PUT";
+  const headers = withCsrfHeaders(method, {
+    Accept: "application/json",
+    ...(options.headers || {}),
+  });
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, path);
+    xhr.withCredentials = true;
+    for (const [key, value] of Object.entries(headers)) {
+      if (value != null && value !== "") xhr.setRequestHeader(key, String(value));
+    }
+
+    const onAbort = () => xhr.abort();
+    if (options.signal) {
+      if (options.signal.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (!options.onProgress) return;
+      const total = event.lengthComputable ? event.total : (body?.size ?? body?.byteLength ?? 0);
+      options.onProgress(event.loaded, total || event.loaded);
+    };
+
+    xhr.onload = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const text = xhr.responseText || "";
+        if (!text) {
+          resolve({});
+          return;
+        }
+        try {
+          resolve(JSON.parse(text));
+        } catch {
+          reject(new ApiError(xhr.status, "Luna sent a response this page couldn't read. Try again."));
+        }
+        return;
+      }
+      let message = "";
+      try {
+        message = JSON.parse(xhr.responseText || "{}").error || "";
+      } catch {
+        // fall through
+      }
+      reject(new ApiError(xhr.status, message || `Request failed (${xhr.status})`));
+    };
+
+    xhr.onerror = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      reject(new ApiError(0, "Couldn't reach Luna. Check this device's connection and try again."));
+    };
+
+    xhr.onabort = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+
+    xhr.send(body);
+  });
+}
+
+/**
+ * POST multipart/form-data with upload-byte progress and abort (XHR).
+ *
+ * @param {string} path
+ * @param {FormData} formData
+ * @param {{
+ *   signal?: AbortSignal,
+ *   onProgress?: (loaded: number, total: number) => void,
+ * }} [options]
+ */
+export function postFormProgress(path, formData, options = {}) {
+  const method = "POST";
+  const headers = withCsrfHeaders(method, {
+    Accept: "application/json",
+  });
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, path);
+    xhr.withCredentials = true;
+    for (const [key, value] of Object.entries(headers)) {
+      if (value != null && value !== "") xhr.setRequestHeader(key, String(value));
+    }
+
+    const onAbort = () => xhr.abort();
+    if (options.signal) {
+      if (options.signal.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (!options.onProgress) return;
+      const total = event.lengthComputable ? event.total : 0;
+      options.onProgress(event.loaded, total || event.loaded);
+    };
+
+    xhr.onload = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const text = xhr.responseText || "";
+        if (!text) {
+          resolve({});
+          return;
+        }
+        try {
+          resolve(JSON.parse(text));
+        } catch {
+          reject(new ApiError(xhr.status, "Luna sent a response this page couldn't read. Try again."));
+        }
+        return;
+      }
+      let message = "";
+      try {
+        message = JSON.parse(xhr.responseText || "{}").error || "";
+      } catch {
+        // fall through
+      }
+      reject(new ApiError(xhr.status, message || `Request failed (${xhr.status})`));
+    };
+
+    xhr.onerror = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      reject(new ApiError(0, "Couldn't reach Luna. Check this device's connection and try again."));
+    };
+
+    xhr.onabort = () => {
+      options.signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+
+    xhr.send(formData);
+  });
+}
+
 export async function patchJson(path, body, options = {}) {
   return request(path, {
     ...options,
