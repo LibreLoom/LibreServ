@@ -182,7 +182,7 @@ describe("FilesPage", () => {
     expect(await screen.findByRole("heading", { name: "Move Vase (XS).gcode" })).toBeInTheDocument();
     expect(screen.getByText("Luna will move it to the place you choose.")).toBeInTheDocument();
     expect(screen.queryByText(/copy it first/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/trash/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/put the original in trash/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
   });
 });
