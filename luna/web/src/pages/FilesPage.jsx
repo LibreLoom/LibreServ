@@ -172,16 +172,10 @@ export default function FilesPage() {
 
       {inTrash && (
         <div className="rounded-large-element bg-secondary text-primary overflow-hidden">
-          {trashItems.map((item, index) => {
-            const zebra = index % 2 === 1;
-            return (
+          {trashItems.map((item) => (
               <div
                 key={item.path}
-                className={[
-                  "flex items-center justify-between px-3 py-2.5 gap-2 bg-secondary text-primary",
-                  zebra ? "shadow-[inset_3px_0_0_0_var(--accent)]" : "",
-                  "border-b border-primary/15 last:border-b-0",
-                ].filter(Boolean).join(" ")}
+                className="flex items-center justify-between px-3 py-2.5 gap-2 bg-secondary text-primary border-b border-primary/15 last:border-b-0"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {item.kind === "dir" ? (
@@ -218,8 +212,7 @@ export default function FilesPage() {
                   </Button>
                 </div>
               </div>
-            );
-          })}
+          ))}
         </div>
       )}
 

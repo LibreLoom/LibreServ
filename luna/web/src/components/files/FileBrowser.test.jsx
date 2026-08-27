@@ -38,7 +38,7 @@ function renderBrowser(props = {}) {
 }
 
 describe("FileBrowser", () => {
-  it("lists folders and files with a current-path label and zebra rows", async () => {
+  it("lists folders and files with a current-path label", async () => {
     stubListing({
       "": [
         { name: "album", kind: "dir", size: 0, hidden: false },

@@ -642,9 +642,8 @@ export default function FileBrowser({
         )}
 
         <ul className="m-0 p-0 list-none" aria-label="Files and folders">
-          {entries.map((entry, index) => {
+          {entries.map((entry) => {
             const ctx = rowContext(entry);
-            const zebra = index % 2 === 1;
             const isSelected = selectedPaths.includes(ctx.fullPath);
             const isDrop = dropTarget === ctx.fullPath;
             const openable = entry.kind === "file" && openableKind(entry.name);
@@ -656,7 +655,6 @@ export default function FileBrowser({
                   "flex items-center gap-2 px-3",
                   padY,
                   "bg-secondary text-primary",
-                  zebra ? "shadow-[inset_3px_0_0_0_var(--accent)]" : "",
                   isSelected ? "ring-2 ring-inset ring-accent" : "",
                   isDrop ? "outline outline-2 outline-accent" : "",
                   "border-b border-primary/15 last:border-b-0",
