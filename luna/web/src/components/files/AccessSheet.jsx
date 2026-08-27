@@ -43,11 +43,11 @@ function grantCovers(grant, driveId, path) {
   return target === granted || target.startsWith(`${granted}/`);
 }
 
-export function AccessButton({ label, onClick }) {
+export function AccessButton({ label, onClick, surface = "secondary" }) {
   return (
     <Button
       variant="ghost"
-      surface="secondary"
+      surface={surface}
       size="iconSm"
       aria-label={`Sharing for ${label}`}
       onClick={onClick}

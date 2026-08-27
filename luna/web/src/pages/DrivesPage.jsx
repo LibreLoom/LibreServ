@@ -11,6 +11,7 @@ import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import FileSearch from "../components/files/FileSearch";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
@@ -233,6 +234,7 @@ export default function DrivesPage() {
     const grants = access.data || [];
     return (
       <Page title="Files" titleId="drives-title">
+        <FileSearch />
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
@@ -270,6 +272,7 @@ export default function DrivesPage() {
 
   return (
     <Page title="Files" titleId="drives-title">
+      <FileSearch />
       {actionError && <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
