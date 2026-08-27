@@ -33,9 +33,12 @@ export default defineConfig({
     host: "0.0.0.0",
     open: false,
     allowedHosts: true,
+    // Keep the browser Host header (changeOrigin: false). lunad's CSRF guard
+    // compares Origin to Host; rewriting Host to :8090 makes every Vite-dev
+    // POST look cross-site and returns 403 "Cross-site request blocked."
     proxy: {
-      "/api": { target: "http://localhost:8090", changeOrigin: true },
-      "/health": { target: "http://localhost:8090", changeOrigin: true },
+      "/api": { target: "http://localhost:8090", changeOrigin: false },
+      "/health": { target: "http://localhost:8090", changeOrigin: false },
     },
   },
   test: {

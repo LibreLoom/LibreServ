@@ -24,7 +24,15 @@ import PageNotice from "../components/common/PageNotice";
 import FileSearch from "../components/files/FileSearch";
 import ComputerMountHelp from "../components/files/ComputerMountHelp";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
-import { getDrives, getJson, postJson } from "../lib/api";
+import {
+  apiErrorMessage,
+  deleteJson,
+  getDrives,
+  getJson,
+  postForm,
+  postJson,
+  putBinary,
+} from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -54,15 +62,6 @@ function folderHref(driveId, folderPath) {
 
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
-}
-
-async function parseError(res) {
-  try {
-    const data = await res.json();
-    return data.error || `Request failed (${res.status})`;
-  } catch {
-    return `Request failed (${res.status})`;
-  }
 }
 
 export default function FilesPage() {
@@ -119,45 +118,29 @@ export default function FilesPage() {
     const form = new FormData();
     form.append("path", path);
     form.append("file", file);
-    const res = await fetch(`/api/v1/drives/${id}/files/upload?path=${encodeURIComponent(path)}`, {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
-    if (!res.ok) throw new Error(await parseError(res));
-    return res.json();
+    // postForm attaches CSRF; do not set Content-Type so the browser can
+    // supply the multipart boundary.
+    return postForm(`/api/v1/drives/${id}/files/upload?path=${encodeURIComponent(path)}`, form);
   }
 
   async function uploadChunked(file) {
-    const created = await fetch("/api/v1/uploads", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ drive_id: id, path, name: file.name, size: file.size }),
+    const session = await postJson("/api/v1/uploads", {
+      drive_id: id,
+      path,
+      name: file.name,
+      size: file.size,
     });
-    if (!created.ok) throw new Error(await parseError(created));
-    const session = await created.json();
     let received = 0;
     for (let start = 0; start < file.size; start += CHUNK_SIZE) {
       const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
       const chunk = file.slice(start, end + 1);
-      const put = await fetch(`/api/v1/uploads/${session.upload_id}`, {
-        method: "PUT",
-        credentials: "include",
+      const progress = await putBinary(`/api/v1/uploads/${session.upload_id}`, chunk, {
         headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
-        body: chunk,
       });
-      if (!put.ok) throw new Error(await parseError(put));
-      const progress = await put.json();
       received = progress.received;
       setUploading({ name: file.name, received, size: file.size });
     }
-    const done = await fetch(`/api/v1/uploads/${session.upload_id}/complete`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!done.ok) throw new Error(await parseError(done));
-    return done.json();
+    return postJson(`/api/v1/uploads/${session.upload_id}/complete`, {});
   }
 
   async function uploadOne(file) {
@@ -171,8 +154,7 @@ export default function FilesPage() {
       }
       invalidate();
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      setUploadError(raw.replace(/^Error:\s*/i, ""));
+      setUploadError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
     } finally {
       setUploading(null);
     }
@@ -188,31 +170,22 @@ export default function FilesPage() {
   }
 
   const removeMutation = useMutation({
-    mutationFn: async (/** @type {any} */ entry) => {
-      const res = await fetch(
+    mutationFn: (/** @type {any} */ entry) =>
+      deleteJson(
         `/api/v1/drives/${id}/files?path=${encodeURIComponent(joinPath(path, entry.name))}`,
-        { method: "DELETE", credentials: "include" }
-      );
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+      ),
     onSuccess: () => { setDeleteTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't move that to Trash. Try again.")),
   });
 
   const renameMutation = useMutation({
-    mutationFn: async (/** @type {{ entry: any, newName: string }} */ { entry, newName }) => {
-      const res = await fetch(`/api/v1/drives/${id}/files/rename`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: joinPath(path, entry.name), new_name: newName }),
-      });
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+    mutationFn: (/** @type {{ entry: any, newName: string }} */ { entry, newName }) =>
+      postJson(`/api/v1/drives/${id}/files/rename`, {
+        path: joinPath(path, entry.name),
+        new_name: newName,
+      }),
     onSuccess: () => { setRenameTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't rename that. Try again.")),
   });
 
   const copyMutation = useMutation({
@@ -227,7 +200,7 @@ export default function FilesPage() {
       });
     },
     onSuccess: () => { setCopyTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't start that copy. Try again.")),
   });
 
   const restoreMutation = useMutation({
@@ -237,23 +210,20 @@ export default function FilesPage() {
         dest: restoreName,
       }),
     onSuccess: () => { setRestoreTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
   });
 
   const purgeMutation = useMutation({
     mutationFn: (/** @type {any} */ item) =>
       postJson(`/api/v1/drives/${id}/files/purge`, { path: item.path }),
     onSuccess: () => { setPurgeTarget(null); invalidate(); },
-    onError: (err) => setUploadError(String(err)),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
   });
 
   const cancelMutation = useMutation({
-    mutationFn: async (jobId) => {
-      const res = await fetch(`/api/v1/jobs/${jobId}`, { method: "DELETE", credentials: "include" });
-      if (!res.ok) throw new Error(await parseError(res));
-      return res.json();
-    },
+    mutationFn: (jobId) => deleteJson(`/api/v1/jobs/${jobId}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    onError: (err) => setUploadError(apiErrorMessage(err, "Couldn't cancel that job. Try again.")),
   });
 
   const up = parentPath(path);

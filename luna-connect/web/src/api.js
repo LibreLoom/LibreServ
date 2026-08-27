@@ -15,9 +15,10 @@ export async function api(path, opts = {}) {
     const csrf = readCookie("luna_connect_csrf");
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
+  // Force credentials after opts so callers cannot drop cookies/CSRF.
   const res = await fetch(path, {
-    credentials: "include",
     ...opts,
+    credentials: "include",
     headers,
   });
   const text = await res.text();
