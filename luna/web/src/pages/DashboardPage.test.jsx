@@ -231,7 +231,7 @@ describe("DashboardPage", () => {
       ],
     });
     renderPage();
-    expect(await screen.findByText("Recent copies")).toBeInTheDocument();
+    expect(await screen.findByText("Recent activity")).toBeInTheDocument();
     expect(screen.getByText("1 active")).toBeInTheDocument();
     expect(screen.getByText("Moving")).toBeInTheDocument();
     expect(screen.getByText("vacation.jpg")).toBeInTheDocument();

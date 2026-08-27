@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Copy, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { Activity, ChevronRight, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
@@ -418,8 +418,8 @@ function RecentJobsCard({ jobs, drives }) {
 
   return (
     <Card
-      icon={Copy}
-      title="Recent copies"
+      icon={Activity}
+      title="Recent activity"
       headerActions={
         activeCount > 0 ? (
           <Pill variant="info">
