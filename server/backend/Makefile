@@ -1,6 +1,6 @@
 APP_NAME := libreserv
 BIN_DIR := bin
-RESTIC_VERSION ?= 0.18.1
+RESTIC_VERSION ?= 0.19.1
 RESTIC_DIR := OS/bin
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")

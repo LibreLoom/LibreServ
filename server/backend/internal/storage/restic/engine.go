@@ -22,16 +22,16 @@ import (
 	osdist "gt.plainskill.net/LibreLoom/LibreServ/OS"
 )
 
-const DefaultResticVersion = "0.18.1"
+const DefaultResticVersion = "0.19.1"
 
 // downloadClient is a shared HTTP client with timeout for all restic downloads and signature checks (H-2).
 var downloadClient = &http.Client{Timeout: 120 * time.Second}
 
 var ExpectedResticHashes = map[string]string{
-	"linux/amd64":  "680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d",
-	"linux/arm64":  "87f53fddde38764095e9c058a3b31834052c37e5826d2acf34e18923c006bd45",
-	"darwin/amd64": "eb8543ed92ff1ddb67762daebf09f7bea4b0c37d21edb6a910bee3d4f514015f",
-	"darwin/arm64": "193fccc8bb4567b498923bc70261e104ff22be88016f0f108b035dad372ab711",
+	"linux/amd64":  "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c",
+	"linux/arm64":  "a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465",
+	"darwin/amd64": "c38d579622cf602f665234c5a8c315030b6cf70656028fe6dc29a786b60e5f35",
+	"darwin/arm64": "7be0a144ccc377880f294204aa271d76e4b79554b42a751151d425ce6ebac143",
 }
 
 var binaryMu sync.Mutex
