@@ -33,6 +33,9 @@ function stubDrivesApi(extra = {}) {
     if (u.endsWith("/drives")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/api/v1/search")) {
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.endsWith("/drives/detected")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }

@@ -54,11 +54,11 @@ async fn search(
         )
     })?;
     let mut out = Vec::new();
-    for (drive_id, parent, name) in rows {
-        let full = if parent.is_empty() {
-            name.clone()
+    for hit in rows {
+        let full = if hit.parent.is_empty() {
+            hit.name.clone()
         } else {
-            format!("{parent}/{name}")
+            format!("{}/{}", hit.parent, hit.name)
         };
         if full == ".luna-trash" || full.starts_with(".luna-trash/") {
             continue;
@@ -66,8 +66,16 @@ async fn search(
         if crate::protect::is_protected_store(&full) {
             continue;
         }
-        if crate::auth::can_access(&user, &conn, &drive_id, &full, false) {
-            out.push(json!({ "drive_id": drive_id, "path": full, "name": name }));
+        if crate::auth::can_access(&user, &conn, &hit.drive_id, &full, false) {
+            out.push(json!({
+                "drive_id": hit.drive_id,
+                "path": full,
+                "parent": hit.parent,
+                "name": hit.name,
+                "kind": hit.kind,
+                "size": hit.size,
+                "modified": hit.modified,
+            }));
         }
     }
     Ok(Json(out))

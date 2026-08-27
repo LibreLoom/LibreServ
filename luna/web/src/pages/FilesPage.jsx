@@ -21,7 +21,6 @@ import TextLink from "../components/ui/TextLink";
 import Dropdown from "../components/common/Dropdown";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import FileSearch from "../components/files/FileSearch";
 import ComputerMountHelp from "../components/files/ComputerMountHelp";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
@@ -239,8 +238,6 @@ export default function FilesPage() {
       title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
       titleId="files-title"
     >
-      <FileSearch compact />
-
       {activeJobs.length > 0 && (
         <div className="grid gap-3 mb-4">
           {activeJobs.map((job) => (
