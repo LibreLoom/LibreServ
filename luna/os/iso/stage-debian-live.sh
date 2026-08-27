@@ -28,6 +28,14 @@ chmod +x "$BINL/rapidinstall.sh" "$BINL/lib/flash-disk.sh"
 
 cp "$TARBALL" "$BINL/luna-rootfs-$ARCH.tar.gz"
 
+# Stage the OTA/factory slot image when present (built by make-image.sh).
+if [ -f "$OUT/luna-os-$ARCH.img" ]; then
+	cp "$OUT/luna-os-$ARCH.img" "$BINL/luna-os-$ARCH.img"
+	if [ -f "$OUT/luna-os-$ARCH.img.sha256" ]; then
+		cp "$OUT/luna-os-$ARCH.img.sha256" "$BINL/luna-os-$ARCH.img.sha256"
+	fi
+fi
+
 cp "$ROOT/os/iso/find-media.sh" "$CHROOT_LIB/find-media.sh"
 chmod +x "$CHROOT_LIB/find-media.sh" "$DL/config/includes.chroot/usr/lib/luna-installer/start.sh"
 

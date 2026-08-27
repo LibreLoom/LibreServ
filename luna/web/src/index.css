@@ -178,6 +178,15 @@ body {
     outline-offset: 2px;
 }
 
+/* Search field lives inside a pill — never draw a rectangular outline on the input. */
+.file-search-input,
+.file-search-input:focus,
+.file-search-input:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+
 .skip-link {
     position: absolute;
     top: 0.75rem;

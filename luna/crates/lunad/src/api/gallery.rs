@@ -107,36 +107,25 @@ async fn scan(
                 .collect::<Vec<_>>()
         }
     };
-    // Resolve mount points under a short lock, then scan without holding it.
-    let targets: Vec<(String, String)> = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        let mut out = Vec::with_capacity(drive_ids.len());
-        for drive_id in drive_ids {
-            let Some(drive) = crate::db::get_drive(&conn, &drive_id).unwrap_or(None) else {
-                continue;
-            };
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
-                continue;
-            }
-            out.push((drive.id, drive.mount_point));
-        }
-        out
-    };
     let db = state.db.clone();
-    let thumb_dir = state.thumb_dir.clone();
     tokio::task::spawn_blocking(move || {
-        for (drive_id, mount_point) in targets {
-            let _ = crate::gallery::scan_drive(
-                &db,
-                &drive_id,
-                std::path::Path::new(&mount_point),
-                &thumb_dir,
-            );
+        // Resolve mounts under a short lock, then scan one drive at a time so
+        // other API handlers can use the DB between drives.
+        let mounts: Vec<(String, String)> = {
+            let conn = db.lock().unwrap();
+            drive_ids
+                .into_iter()
+                .filter_map(|drive_id| {
+                    let drive = crate::db::get_drive(&conn, &drive_id).ok().flatten()?;
+                    if drive.state != "as_is" || drive.mount_point.is_empty() {
+                        return None;
+                    }
+                    Some((drive.id, drive.mount_point))
+                })
+                .collect()
+        };
+        for (id, mount) in mounts {
+            let _ = crate::gallery::scan_drive(&db, &id, std::path::Path::new(&mount));
         }
     });
     Ok(Json(
@@ -149,7 +138,7 @@ async fn thumb(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<ThumbQuery>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    {
+    let mount = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -162,35 +151,30 @@ async fn thumb(
                 "You don't have permission to view this.",
             ));
         }
-    }
-    let thumb_path = crate::gallery::thumb_path(&state.thumb_dir, &query.drive_id, &query.path);
-    if !thumb_path.exists() {
-        let mount_point = {
-            let conn = state.db.lock().map_err(|_| {
+        crate::db::get_drive(&conn, &query.drive_id)
+            .map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna's index is busy. Try again.",
+                    "Luna couldn't open this drive.",
                 )
-            })?;
-            crate::db::get_drive(&conn, &query.drive_id)
-                .map_err(|_| {
-                    json_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna couldn't open this drive.",
-                    )
-                })?
-                .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that drive."))?
-                .mount_point
-        };
-        let (thumb_dir, drive_id, path) = (
-            state.thumb_dir.clone(),
-            query.drive_id.clone(),
-            query.path.clone(),
-        );
+            })?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that drive."))?
+            .mount_point
+    };
+    if mount.is_empty() {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "This drive isn't mounted.",
+        ));
+    }
+    let root = std::path::PathBuf::from(&mount);
+    let thumb_path = crate::gallery::thumb_path(&root, &query.drive_id, &query.path);
+    if !thumb_path.exists() {
+        let (drive_id, path) = (query.drive_id.clone(), query.path.clone());
+        let root2 = root.clone();
         tokio::task::spawn_blocking(move || -> Result<(), ()> {
-            let src = luna_core::path::resolve_child(std::path::Path::new(&mount_point), &path)
-                .map_err(|_| ())?;
-            let dest = crate::gallery::thumb_path(&thumb_dir, &drive_id, &path);
+            let src = luna_core::path::resolve_child(&root2, &path).map_err(|_| ())?;
+            let dest = crate::gallery::thumb_path(&root2, &drive_id, &path);
             // Decode runs without the DB lock so other requests stay responsive.
             crate::gallery::ensure_thumb(&src, &dest).map_err(|_| ())?;
             Ok(())

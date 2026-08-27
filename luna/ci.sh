@@ -24,7 +24,8 @@ cargo test --workspace
 echo "==> os scripts"
 sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-iso.sh os/rapidinstall.sh \
 	os/lib/disk.sh os/lib/flash-disk.sh os/lib/console.sh os/lib/factory-assets.sh \
-	os/lib/disk_test.sh os/lib/factory-assets_test.sh \
+	os/lib/disk_test.sh os/lib/factory-assets_test.sh os/lib/flash-disk_test.sh \
+	os/ab_update_rehearsal_test.sh \
 	os/lib/alpine-image.sh \
 	os/iso/find-media.sh os/iso/find-media_test.sh \
 	os/iso/stage-debian-live.sh os/iso/build-debian-live.sh os/iso/wait-iso-build.sh \
@@ -32,6 +33,8 @@ sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-is
 	os/debian-live/debian_live_test.sh os/rootfs_test.sh os/rapidinstall_wait_test.sh
 sh os/lib/disk_test.sh
 sh os/lib/factory-assets_test.sh
+sh os/lib/flash-disk_test.sh
+sh os/ab_update_rehearsal_test.sh
 sh os/iso/find-media_test.sh
 sh os/debian-live/debian_live_test.sh
 sh os/rapidinstall_wait_test.sh

@@ -31,17 +31,14 @@ async fn main() -> anyhow::Result<()> {
     ));
     {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-        let detected =
-            lunad::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
+        let detected = lunad::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
         drive_manager.reconcile(&conn, &detected)?;
     }
     let connect = std::sync::Arc::new(lunad::connect::ConnectService::new(
         &cfg.data_dir,
         std::env::var("LUNA_CONNECT_URL").ok(),
     ));
-    let state = AppState::new(conn, drive_manager, &cfg.data_dir)
-        .with_connect(connect)
-        .with_thumb_dir(cfg.data_dir.join("thumbs"));
+    let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
     {
         let auth = state.auth.clone();
@@ -130,9 +127,11 @@ async fn main() -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
-            if let Ok(conn) = protect_db.lock() {
-                let _ = lunad::protect::sync_all(&conn);
-            }
+            let db = protect_db.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = lunad::protect::sync_all(&db);
+            })
+            .await;
         }
     });
 
@@ -148,9 +147,7 @@ async fn main() -> anyhow::Result<()> {
             let connect = backup_state.connect.clone();
             let db = backup_state.db.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(conn) = db.lock() {
-                    lunad::cloud_backup::tick(&connect, last, now, &conn);
-                }
+                lunad::cloud_backup::tick(&connect, last, now, &db);
             })
             .await;
         }
@@ -191,11 +188,53 @@ async fn main() -> anyhow::Result<()> {
             let db = scrub_state.db.clone();
             let flag = scrub_state.scrub_running.clone();
             let _ = tokio::task::spawn_blocking(move || {
+                let _ = lunad::scrub::scrub_all_drives_unlocked(&db);
                 if let Ok(conn) = db.lock() {
-                    let _ = lunad::scrub::scrub_all_drives(&conn);
                     let _ = lunad::db::set_meta(&conn, "last_periodic_scrub_at", &now.to_string());
+                    let _ = lunad::db::wal_checkpoint_passive(&conn);
+                    let last_vac = lunad::db::get_meta(&conn, "last_vacuum_at")
+                        .ok()
+                        .flatten()
+                        .and_then(|raw| raw.parse::<i64>().ok())
+                        .unwrap_or(0);
+                    // Compact at most monthly — VACUUM rewrites the whole file.
+                    if now.saturating_sub(last_vac) >= 30 * 24 * 60 * 60
+                        && lunad::db::vacuum_if_possible(&conn).is_ok()
+                    {
+                        let _ = lunad::db::set_meta(&conn, "last_vacuum_at", &now.to_string());
+                    }
                 }
                 flag.store(false, std::sync::atomic::Ordering::SeqCst);
+            })
+            .await;
+        }
+    });
+
+    let trim_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        loop {
+            ticker.tick().await;
+            let hour = lunad::scrub::local_hour_now();
+            let now = lunad::db::now_unix();
+            let last_run = trim_state
+                .db
+                .lock()
+                .ok()
+                .and_then(|conn| lunad::db::get_meta(&conn, "last_fstrim_at").ok().flatten())
+                .and_then(|raw| raw.parse::<i64>().ok());
+            let last_activity = trim_state
+                .last_io_activity
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if !lunad::fstrim::should_run_fstrim(false, hour, last_run, last_activity, now) {
+                continue;
+            }
+            let db = trim_state.db.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(conn) = db.lock() {
+                    let _ = lunad::fstrim::fstrim_all_drives(&conn);
+                    let _ = lunad::db::set_meta(&conn, "last_fstrim_at", &now.to_string());
+                }
             })
             .await;
         }

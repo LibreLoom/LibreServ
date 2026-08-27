@@ -35,6 +35,46 @@ assert_file_has "$BUILD" 'evdev' "rootfs must load evdev for /dev/input/event*"
 assert_file_has "$BUILD" 'atkbd' "rootfs must load atkbd for PS/2 keyboards"
 assert_file_has "$BUILD" ' alpine-base openrc linux-lts kmod ' \
 	"rootfs must install kmod so gzipped .ko.gz modules load"
+assert_file_has "$BUILD" 'linux-firmware-none' \
+	"rootfs must use linux-firmware-none instead of the full firmware meta package"
+assert_file_has "$BUILD" 'virtio_net' \
+	"rootfs network bring-up must load virtio_net for QEMU / virt guests"
+assert_file_has "$BUILD" 'rc_parallel="YES"' \
+	"OpenRC must start services in parallel for faster boot"
+assert_file_has "$BUILD" 'udhcpc -i "$iface" -q -n -t 3' \
+	"boot DHCP must use a short retry budget so OpenRC is not blocked"
+assert_file_has "$BUILD" 'after luna-network' \
+	"lunad must not wait on avahi before binding HTTP"
+assert_file_has "$BUILD" 'makestep 1.0 3' \
+	"chrony must step the clock quickly after DHCP for TLS"
+assert_file_has "$BUILD" 'tmpfs /var/log' \
+	"syslog must land on tmpfs so messages do not wear the eMMC"
+assert_file_has "$BUILD" 'LABEL=LUNA_DATA /var/lib/luna' \
+	"rootfs must mount the data partition at /var/lib/luna"
+assert_file_has "$BUILD" 'luna-root-ro.start' \
+	"rootfs must remount root read-only + noatime"
+assert_file_has "$BUILD" 'luna-run' \
+	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"
+assert_file_has "$BUILD" 'util-linux' \
+	"rootfs must include util-linux (provides fstrim)"
+
+FLASH="$ROOT/os/lib/flash-disk.sh"
+assert_file_has "$FLASH" 'rootflags=ro,noatime' \
+	"installed kernel cmdline must mount OS slots read-only with noatime"
+assert_file_has "$FLASH" 'LUNA_A' \
+	"flash must create OS slot A"
+assert_file_has "$FLASH" 'LUNA_B' \
+	"flash must create OS slot B"
+assert_file_has "$FLASH" 'LUNA_DATA' \
+	"flash must create the data partition"
+assert_file_has "$FLASH" 'luna_boot_ok' \
+	"flash GRUB must implement tryboot rollback"
+
+# Only flag an apk install of the meta package, not comments mentioning it.
+if grep -E 'apk add' "$BUILD" | grep -qE '(^|[[:space:]])linux-firmware([[:space:]]|$)'; then
+	echo "FAIL: do not install the linux-firmware meta package (hundreds of MB of unused blobs)" >&2
+	exit 1
+fi
 
 if grep 'for svc in .*networking;' "$BUILD" >/dev/null 2>&1; then
 	echo "FAIL: stock Alpine networking must not stay in boot runlevel" >&2

@@ -1,0 +1,166 @@
+import { useEffect, useState } from "react";
+import PropTypes from "prop-types";
+import { Download, Save } from "lucide-react";
+import ModalCard from "../cards/ModalCard.jsx";
+import Button from "../ui/Button.jsx";
+import PageNotice from "../common/PageNotice.jsx";
+import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
+import { openableKind } from "../../lib/fileKinds.js";
+import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
+
+/**
+ * View images/videos or edit plaintext for a drive file.
+ *
+ * @param {{
+ *   driveId: string,
+ *   path: string,
+ *   onClose: () => void,
+ *   onSaved?: () => void,
+ * }} props
+ */
+export default function FileViewer({ driveId, path, onClose, onSaved }) {
+  const name = pathBasename(path) || path;
+  const kind = openableKind(name);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(kind === "text");
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState(/** @type {string|null} */ (null));
+
+  useEffect(() => {
+    if (kind !== "text") return undefined;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await apiFetch(contentHref(driveId, path));
+        if (!res.ok) throw new Error(`Could not open (${res.status})`);
+        const body = await res.text();
+        if (!cancelled) {
+          setText(body);
+          setDirty(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [driveId, path, kind]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      const blob = new Blob([text], { type: "text/plain" });
+      const file = new File([blob], name, { type: "text/plain" });
+      const form = new FormData();
+      form.append("path", folder);
+      form.append("file", file);
+      await postForm(
+        `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}`,
+        form,
+      );
+      setDirty(false);
+      onSaved?.();
+    } catch (err) {
+      setError(apiErrorMessage(err, "Couldn't save your changes. Try again."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const title =
+    kind === "image" ? name
+      : kind === "video" ? name
+        : kind === "text" ? `Edit ${name}`
+          : name;
+
+  return (
+    <ModalCard title={title} size="lg" onClose={onClose}>
+      {({ close }) => (
+        <>
+          {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
+
+          {kind === "image" && (
+            <div className="rounded-large-element bg-primary text-secondary p-2 flex items-center justify-center max-h-[70vh] overflow-auto">
+              <img
+                src={contentHref(driveId, path)}
+                alt={name}
+                className="max-w-full max-h-[65vh] object-contain"
+              />
+            </div>
+          )}
+
+          {kind === "video" && (
+            <div className="rounded-large-element bg-primary text-secondary p-2">
+              <video
+                controls
+                className="w-full max-h-[65vh] rounded-large-element"
+                src={contentHref(driveId, path)}
+              >
+                Your browser cannot play this video. Download it instead.
+              </video>
+            </div>
+          )}
+
+          {kind === "text" && (
+            loading ? (
+              <p className="text-primary text-sm">Opening…</p>
+            ) : (
+              <textarea
+                className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={text}
+                onChange={(e) => { setText(e.target.value); setDirty(true); }}
+                spellCheck={false}
+                aria-label={`Contents of ${name}`}
+              />
+            )
+          )}
+
+          {!kind && (
+            <p className="text-primary text-sm">
+              Luna cannot open this kind of file yet. You can download it instead.
+            </p>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            {kind === "text" && (
+              <Button
+                variant="accent"
+                surface="secondary"
+                loading={saving}
+                disabled={!dirty || loading}
+                onClick={() => void save()}
+              >
+                <Save size={14} aria-hidden="true" />
+                Save
+              </Button>
+            )}
+            <Button variant="outline" surface="secondary" asChild>
+              <a href={downloadHref(driveId, path)}>
+                <Download size={14} aria-hidden="true" />
+                Download
+              </a>
+            </Button>
+            <Button variant="outline" surface="secondary" onClick={close}>
+              Close
+            </Button>
+          </div>
+        </>
+      )}
+    </ModalCard>
+  );
+}
+
+FileViewer.propTypes = {
+  driveId: PropTypes.string.isRequired,
+  path: PropTypes.string.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSaved: PropTypes.func,
+};

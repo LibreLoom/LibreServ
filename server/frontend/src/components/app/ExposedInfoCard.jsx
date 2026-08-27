@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
-import { copyToClipboard as clipboardCopy } from "../../utils/clipboard";
+import { canUseClipboard, copyToClipboard as clipboardCopy } from "../../utils/clipboard";
 
 const GROUP_LABELS = {
   credentials: { label: "Credentials", icon: Lock },
@@ -61,12 +61,14 @@ export function ExposedInfoCard({ info }) {
   const [copied, setCopied] = useState({});
   const [hoverReveal, setHoverReveal] = useState({});
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const clipboardOk = canUseClipboard();
 
   const toggleReveal = (key) => {
     setRevealed((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const copyToClipboard = async (key, value) => {
+    if (!clipboardOk) return;
     await clipboardCopy(String(value), {
       onSuccess: () => {
         setCopied((prev) => ({ ...prev, [key]: true }));
@@ -84,7 +86,7 @@ export function ExposedInfoCard({ info }) {
 
     const handleMaskedValueClick = () => {
       if (window.matchMedia("(hover: hover)").matches) {
-        if (field.copyable && field.value) {
+        if (clipboardOk && field.copyable && field.value) {
           copyToClipboard(key, field.value);
         }
         return;
@@ -252,7 +254,7 @@ export function ExposedInfoCard({ info }) {
                     {revealed[key] ? <EyeOff size={16} /> : <Eye size={16} />}
                   </Button>
                 )}
-                {field.copyable && (
+                {field.copyable && clipboardOk && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -268,6 +270,12 @@ export function ExposedInfoCard({ info }) {
                   </Button>
                 )}
               </div>
+              {field.copyable && !clipboardOk && field.value ? (
+                <p className="text-xs text-primary w-full basis-full mt-1">
+                  Select the value above, then copy it. Automatic copy needs a secure
+                  connection, and this page does not have one yet.
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

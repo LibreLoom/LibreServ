@@ -1,11 +1,9 @@
-import { memo, useState } from "react";
-import { CheckCircle, ExternalLink, ArrowLeft, Copy, Check } from "lucide-react";
-import { copyWithFeedback } from "../../../utils/clipboard";
+import { memo } from "react";
+import { CheckCircle, ExternalLink, ArrowLeft } from "lucide-react";
 import Button from "../../ui/Button";
+import CopyableValue from "../../ui/CopyableValue";
 
 function CompleteStep({ app, instance, onDone }) {
-  const [copied, setCopied] = useState(false);
-
   const subdomain = instance?.subdomain;
   const domain = instance?.domain;
   // Prefer the backend-provided public URL (correct http/https scheme) over
@@ -13,10 +11,6 @@ function CompleteStep({ app, instance, onDone }) {
   // the install path, so it already reflects https when AutoHTTPS is on.
   const appUrl = instance?.url || instance?.backends?.[0]?.url || "";
   const generatedPassword = instance?.config?.admin_password || instance?.config?._generated_password;
-
-  const handleCopy = async (text) => {
-    await copyWithFeedback(text, setCopied);
-  };
 
   return (
     <div className="space-y-6" data-slot="complete-step">
@@ -52,26 +46,17 @@ function CompleteStep({ app, instance, onDone }) {
       )}
 
       {generatedPassword && (
-        <div className="max-w-md mx-auto p-4 rounded-large-element bg-secondary/10 border border-secondary/30">
-          <p className="font-mono text-sm text-secondary mb-2">
+        <div className="max-w-md mx-auto p-4 rounded-large-element bg-secondary text-primary border border-primary/20 space-y-3">
+          <p className="font-mono text-sm">
             Your temporary password:
           </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 px-3 py-2 bg-primary rounded-large-element font-mono text-sm text-secondary">
-              {generatedPassword}
-            </code>
-            <Button
-              variant="ghost"
-              size="icon"
-              surface="primary"
-              onClick={() => handleCopy(generatedPassword)}
-              aria-label="Copy password"
-            >
-              {copied ? <Check size={18} className="text-secondary" /> : <Copy size={18} />}
-            </Button>
-          </div>
-          <p className="text-xs text-secondary/70 mt-2">
-            Save this password. You'll need it to log in.
+          <CopyableValue
+            value={generatedPassword}
+            copyLabel="Copy password"
+            ariaLabel="Temporary password"
+          />
+          <p className="text-xs text-primary">
+            Save this password. You&apos;ll need it to log in.
           </p>
         </div>
       )}

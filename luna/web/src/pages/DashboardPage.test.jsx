@@ -36,6 +36,19 @@ function stubFetch({
   connect = { enabled: true, tunnel_active: true, domain: "luna.example" },
   jobs = [],
   access = [],
+  /** @type {Record<string, any>} */
+  summaries = {
+    d1: {
+      id: "d1",
+      mounted: true,
+      total_bytes: 64_000_000_000,
+      free_bytes: 12_000_000_000,
+      used_bytes: 52_000_000_000,
+      folders: 3,
+      files: 12,
+      shortcuts: ["Photos", "Documents"],
+    },
+  },
 } = {}) {
   vi.stubGlobal(
     "fetch",
@@ -52,6 +65,21 @@ function stubFetch({
       }
       if (u.endsWith("/api/v1/drives/detected")) return jsonResponse(detected);
       if (u.endsWith("/api/v1/drives")) return jsonResponse(drives);
+      const summaryMatch = u.match(/\/api\/v1\/drives\/([^/]+)\/summary$/);
+      if (summaryMatch) {
+        const id = summaryMatch[1];
+        if (summaries[id]) return jsonResponse(summaries[id]);
+        return jsonResponse({
+          id,
+          mounted: false,
+          total_bytes: null,
+          free_bytes: null,
+          used_bytes: null,
+          folders: null,
+          files: null,
+          shortcuts: [],
+        });
+      }
       if (u.includes("/api/v1/network/status")) {
         if (network === 403) return jsonResponse({ error: "nope" }, 403);
         return jsonResponse(network);
@@ -94,7 +122,7 @@ describe("DashboardPage", () => {
     expect(known).toBe(true);
     expect(await screen.findByText(/2 hours/i)).toBeInTheDocument();
     expect(screen.getByText("Family photos")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open files/i })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/drives/d1");
     expect(screen.getByText(/On this network/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Remote access on/i })).toHaveAttribute(
       "href",
@@ -141,5 +169,78 @@ describe("DashboardPage", () => {
       "/settings#remote",
     );
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows storage, top-level counts, and folder shortcuts on drive cards", async () => {
+    stubFetch();
+    renderPage();
+    expect(await screen.findByText(/12 GB free/i)).toBeInTheDocument();
+    expect(screen.getByText(/52 GB used/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 folders · 12 files at the top/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=Photos",
+    );
+    expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=Documents",
+    );
+    expect(screen.getByRole("progressbar", { name: /81% used/i })).toBeInTheDocument();
+  });
+
+  it("does not invent storage numbers for an unplugged drive", async () => {
+    stubFetch({
+      drives: [{ id: "d2", label: "Travel stick", state: "missing" }],
+      summaries: {},
+    });
+    renderPage();
+    expect(
+      await screen.findByText(/This drive is unplugged/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/GB free/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("shows detailed recent copy jobs with progress and destination", async () => {
+    stubFetch({
+      jobs: [
+        {
+          id: "j1",
+          kind: "move",
+          state: "running",
+          from_drive: "d1",
+          from_path: "Photos/vacation.jpg",
+          to_drive: "d1",
+          to_path: "Documents",
+          progress: 40,
+          total: 100,
+          error: "",
+        },
+        {
+          id: "j2",
+          kind: "copy",
+          state: "done",
+          from_drive: "d1",
+          from_path: "Music/song.mp3",
+          to_drive: "d1",
+          to_path: "Downloads",
+          progress: 1,
+          total: 1,
+          error: "",
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("Recent activity")).toBeInTheDocument();
+    expect(screen.getByText("1 active")).toBeInTheDocument();
+    expect(screen.getByText("Moving")).toBeInTheDocument();
+    expect(screen.getByText("vacation.jpg")).toBeInTheDocument();
+    expect(screen.getByText(/Family photos: vacation\.jpg → Documents/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /40% done/i })).toBeInTheDocument();
+    expect(screen.getByText("song.mp3")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open destination/i })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=Downloads",
+    );
   });
 });

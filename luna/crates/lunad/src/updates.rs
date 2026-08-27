@@ -1,13 +1,18 @@
 //! Software updates from Forgejo `luna-v*` releases.
 //!
 //! Tags look like `luna-v0.2.0`. LibreServ stays on `v*`. Assets:
-//! `lunad-linux-amd64`, `SHA256SUMS.txt`, and `SHA256SUMS.txt.minisig`.
-//! Apply is tap-to-update only — never silent. A missing or invalid minisign
-//! signature, or a checksum mismatch, refuses the install. Draft and
-//! prerelease tags are ignored.
+//! `lunad-linux-amd64`, optional `luna-os-x86_64.img` on OS cuts,
+//! `SHA256SUMS.txt`, and `SHA256SUMS.txt.minisig`.
+//!
+//! Apply is tap-to-update only — never silent. When the release includes an
+//! OS slot image whose SHA256 differs from the hash stored on LUNA_DATA,
+//! that image is applied automatically in the same Install update (inactive
+//! A/B slot + tryboot). The Settings UI does not differentiate OS vs software.
+//! Draft and prerelease tags are ignored.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -19,6 +24,11 @@ const DEFAULT_API: &str = "https://gt.plainskill.net/api/v1";
 const DEFAULT_OWNER: &str = "LibreLoom";
 const DEFAULT_REPO: &str = "LibreServ";
 const TAG_PREFIX: &str = "luna-v";
+const OS_IMAGE_NAME: &str = "luna-os-x86_64.img";
+const OS_HASH_FILE: &str = "os-image.sha256";
+/// OS slot images are streamed to disk, never held in RAM. Cap matches the
+/// 1280 MiB A/B slot plus a little headroom.
+const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
 /// Committed minisign public key (`keys/releases.minisign.pub`).
 const PINNED_PUB: &str = include_str!("../../../../keys/releases.minisign.pub");
@@ -50,6 +60,9 @@ pub struct UpdateInfo {
     pub url: String,
     pub checksum: String,
     pub binary_name: String,
+    /// True when applying will (or did) write an OS slot and reboot the box.
+    #[serde(default)]
+    pub reboot_required: bool,
 }
 
 pub trait HttpGet: Send + Sync {
@@ -83,11 +96,31 @@ pub trait HttpGet: Send + Sync {
 pub trait Installer: Send + Sync {
     fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError>;
 
-    /// Install from a file already written next to the running binary (streamed
-    /// download). Default reads into memory — production overrides this.
+    /// Install from a file already streamed to disk. Default reads into memory
+    /// — production overrides this so a 2 GiB box never holds the binary in RAM.
     fn install_lunad_file(&self, path: &Path) -> Result<(), UpdateError> {
         let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
         self.install_lunad(&bytes)
+    }
+
+    fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
+        let _ = bytes;
+        Err(UpdateError::Other(
+            "This Luna cannot apply an OS image update here.".into(),
+        ))
+    }
+
+    /// Stream an OS slot image from disk onto the inactive A/B partition.
+    fn install_os_image_file(&self, path: &Path) -> Result<(), UpdateError> {
+        let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
+        self.install_os_image(&bytes)
+    }
+
+    fn read_os_hash(&self) -> Option<String> {
+        None
+    }
+    fn write_os_hash(&self, _hash: &str) -> Result<(), UpdateError> {
+        Ok(())
     }
 }
 
@@ -163,12 +196,33 @@ impl HttpGet for UreqHttp {
     }
 }
 
-/// Replace the running lunad binary (same path OpenRC already supervises).
-pub struct BinaryInstaller;
+/// Install lunad under `$data_dir/bin/` (LUNA_DATA) and OS images into the
+/// inactive A/B slot. OpenRC's `luna-run` prefers the data-dir binary.
+pub struct DataDirInstaller {
+    pub data_dir: PathBuf,
+}
 
-impl Installer for BinaryInstaller {
+impl DataDirInstaller {
+    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            data_dir: data_dir.into(),
+        }
+    }
+
+    fn hash_path(&self) -> PathBuf {
+        self.data_dir.join(OS_HASH_FILE)
+    }
+
+    fn lunad_path(&self) -> PathBuf {
+        self.data_dir.join("bin").join("lunad")
+    }
+}
+
+impl Installer for DataDirInstaller {
     fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-        let exec = std::env::current_exe().map_err(|e| UpdateError::Other(e.to_string()))?;
+        let bin_dir = self.data_dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let exec = self.lunad_path();
         let tmp = exec.with_extension("update-tmp");
         {
             let mut f =
@@ -178,81 +232,279 @@ impl Installer for BinaryInstaller {
             f.sync_all()
                 .map_err(|e| UpdateError::Other(e.to_string()))?;
         }
-        finish_install(&exec, &tmp)
+        swap_exec(&exec, &tmp)
     }
 
-    fn install_lunad_file(&self, tmp: &Path) -> Result<(), UpdateError> {
-        let exec = std::env::current_exe().map_err(|e| UpdateError::Other(e.to_string()))?;
-        finish_install(&exec, tmp)
+    fn install_lunad_file(&self, src: &Path) -> Result<(), UpdateError> {
+        let bin_dir = self.data_dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let exec = self.lunad_path();
+        let staged = stage_beside(src, &exec)?;
+        swap_exec(&exec, &staged)
+    }
+
+    fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
+        let (part, inactive) = inactive_slot_device()?;
+        {
+            let mut f =
+                std::fs::File::create(&part).map_err(|e| UpdateError::Other(e.to_string()))?;
+            f.write_all(bytes)
+                .map_err(|e| UpdateError::Other(e.to_string()))?;
+            f.sync_all()
+                .map_err(|e| UpdateError::Other(e.to_string()))?;
+        }
+        finish_os_slot(&part, inactive)
+    }
+
+    fn install_os_image_file(&self, src: &Path) -> Result<(), UpdateError> {
+        let (part, inactive) = inactive_slot_device()?;
+        copy_file_streaming(src, &part)?;
+        finish_os_slot(&part, inactive)
+    }
+
+    fn read_os_hash(&self) -> Option<String> {
+        std::fs::read_to_string(self.hash_path())
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn write_os_hash(&self, hash: &str) -> Result<(), UpdateError> {
+        std::fs::create_dir_all(&self.data_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let path = self.hash_path();
+        let tmp = path.with_extension("sha256.tmp");
+        std::fs::write(&tmp, format!("{hash}\n")).map_err(|e| UpdateError::Other(e.to_string()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
+        Ok(())
     }
 }
 
-fn finish_install(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
+fn chmod_755(path: &Path) -> Result<(), UpdateError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(tmp)
+        let mut perms = std::fs::metadata(path)
             .map_err(|e| UpdateError::Other(e.to_string()))?
             .permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(tmp, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
+        std::fs::set_permissions(path, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
     }
+    Ok(())
+}
+
+/// Place `src` next to `dest` as `dest.update-tmp`, copying across devices
+/// when rename would fail.
+fn stage_beside(src: &Path, dest: &Path) -> Result<PathBuf, UpdateError> {
+    let staged = dest.with_extension("update-tmp");
+    if src == staged {
+        return Ok(staged);
+    }
+    if std::fs::rename(src, &staged).is_err() {
+        std::fs::copy(src, &staged).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let _ = std::fs::remove_file(src);
+    }
+    Ok(staged)
+}
+
+/// Swap `tmp` into `exec` with renameat2 when possible so a power cut cannot
+/// leave no binary at `exec`.
+fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
+    chmod_755(tmp)?;
     let backup = PathBuf::from(format!("{}.old", exec.display()));
-    // Swap tmp and exec in one atomic step so a power cut between the two
-    // renames of the old scheme can never leave no binary at `exec` (which
-    // would stop OpenRC from restarting lunad at all). After the exchange,
-    // `tmp` holds the previous binary and becomes the `.old` backup.
-    #[cfg(unix)]
-    {
-        use std::ffi::CString;
-        use std::os::unix::ffi::OsStrExt;
-        let to_c = |p: &Path| -> Result<CString, UpdateError> {
-            CString::new(p.as_os_str().as_bytes())
-                .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
-        };
-        let exec_c = to_c(exec)?;
-        let tmp_c = to_c(tmp)?;
-        // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
-        const RENAME_EXCHANGE: libc::c_uint = 2;
-        let rc = unsafe {
-            libc::syscall(
-                libc::SYS_renameat2,
-                libc::AT_FDCWD,
-                exec_c.as_ptr(),
-                libc::AT_FDCWD,
-                tmp_c.as_ptr(),
-                RENAME_EXCHANGE,
-            )
-        };
-        if rc == 0 {
-            // Old binary now lives at `tmp`; park it as the rollback copy.
-            let _ = std::fs::remove_file(&backup);
-            let _ = std::fs::rename(tmp, &backup);
-        } else {
-            // Kernel/filesystem without RENAME_EXCHANGE: fall back to the
-            // two-step rename, restoring on failure.
+    if exec.exists() {
+        #[cfg(unix)]
+        {
+            use std::ffi::CString;
+            use std::os::unix::ffi::OsStrExt;
+            let to_c = |p: &Path| -> Result<CString, UpdateError> {
+                CString::new(p.as_os_str().as_bytes())
+                    .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
+            };
+            let exec_c = to_c(exec)?;
+            let tmp_c = to_c(tmp)?;
+            // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
+            const RENAME_EXCHANGE: libc::c_uint = 2;
+            let rc = unsafe {
+                libc::syscall(
+                    libc::SYS_renameat2,
+                    libc::AT_FDCWD,
+                    exec_c.as_ptr(),
+                    libc::AT_FDCWD,
+                    tmp_c.as_ptr(),
+                    RENAME_EXCHANGE,
+                )
+            };
+            if rc == 0 {
+                let _ = std::fs::remove_file(&backup);
+                let _ = std::fs::rename(tmp, &backup);
+            } else {
+                std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
+                if let Err(e) = std::fs::rename(tmp, exec) {
+                    let _ = std::fs::rename(&backup, exec);
+                    return Err(UpdateError::Other(e.to_string()));
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
             std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
             if let Err(e) = std::fs::rename(tmp, exec) {
                 let _ = std::fs::rename(&backup, exec);
                 return Err(UpdateError::Other(e.to_string()));
             }
         }
+    } else {
+        std::fs::rename(tmp, exec).map_err(|e| UpdateError::Other(e.to_string()))?;
     }
-    #[cfg(not(unix))]
-    {
-        std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-        if let Err(e) = std::fs::rename(tmp, exec) {
-            let _ = std::fs::rename(&backup, exec);
-            return Err(UpdateError::Other(e.to_string()));
-        }
-    }
-    // Persist the directory entries themselves, not just the file data.
     if let Some(parent) = exec.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
         let _ = dir.sync_all();
     }
     Ok(())
+}
+
+fn copy_file_streaming(src: &Path, dest: &Path) -> Result<(), UpdateError> {
+    let mut input = std::fs::File::open(src).map_err(|e| UpdateError::Other(e.to_string()))?;
+    let mut output = std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = input
+            .read(&mut buf)
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        output
+            .write_all(&buf[..n])
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+    }
+    output
+        .sync_all()
+        .map_err(|e| UpdateError::Other(e.to_string()))?;
+    Ok(())
+}
+
+fn finish_os_slot(part: &Path, inactive: char) -> Result<(), UpdateError> {
+    let label = format!("LUNA_{inactive}");
+    let _ = Command::new("e2label").arg(part).arg(&label).status();
+    set_tryboot_slot(inactive)
+}
+
+fn active_slot_letter() -> char {
+    let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    if cmdline.split_whitespace().any(|t| t == "luna.slot=B") {
+        'B'
+    } else {
+        'A'
+    }
+}
+
+fn inactive_slot_device() -> Result<(PathBuf, char), UpdateError> {
+    let active = active_slot_letter();
+    let inactive = if active == 'A' { 'B' } else { 'A' };
+    let label = format!("LUNA_{inactive}");
+    let by_label = PathBuf::from(format!("/dev/disk/by-label/{label}"));
+    if by_label.exists() {
+        return Ok((by_label, inactive));
+    }
+    // findfs fallback
+    let out = Command::new("findfs")
+        .arg(format!("LABEL={label}"))
+        .output()
+        .map_err(|e| UpdateError::Other(e.to_string()))?;
+    if out.status.success() {
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Ok((PathBuf::from(path), inactive));
+        }
+    }
+    Err(UpdateError::Other(
+        "Luna couldn't find the spare OS slot to write the update.".into(),
+    ))
+}
+
+fn set_tryboot_slot(slot: char) -> Result<(), UpdateError> {
+    let esp = find_esp_mount_or_temp()?;
+    let env = esp.path.join("grub/grubenv");
+    if !env.exists() {
+        let _ = Command::new("grub-editenv")
+            .arg(&env)
+            .arg("create")
+            .status();
+    }
+    for (k, v) in [
+        ("luna_slot", slot.to_string()),
+        ("luna_boot_ok", "0".into()),
+        ("luna_tries", "3".into()),
+    ] {
+        let status = Command::new("grub-editenv")
+            .arg(&env)
+            .arg("set")
+            .arg(format!("{k}={v}"))
+            .status()
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        if !status.success() {
+            return Err(UpdateError::Other(
+                "Luna couldn't prepare the reboot into the new software.".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+struct EspGuard {
+    path: PathBuf,
+    tmp: bool,
+}
+
+impl Drop for EspGuard {
+    fn drop(&mut self) {
+        if self.tmp {
+            let _ = Command::new("umount").arg(&self.path).status();
+            let _ = std::fs::remove_dir(&self.path);
+        }
+    }
+}
+
+fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
+    for cand in ["/boot/efi", "/efi", "/boot"] {
+        let grubenv = Path::new(cand).join("grub/grubenv");
+        let grubcfg = Path::new(cand).join("grub/grub.cfg");
+        if grubenv.exists() || grubcfg.exists() {
+            return Ok(EspGuard {
+                path: PathBuf::from(cand),
+                tmp: false,
+            });
+        }
+    }
+    let out = Command::new("findfs")
+        .arg("LABEL=LUNAESP")
+        .output()
+        .map_err(|e| UpdateError::Other(e.to_string()))?;
+    if !out.status.success() {
+        return Err(UpdateError::Other(
+            "Luna couldn't find the boot partition for the update.".into(),
+        ));
+    }
+    let dev = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let tmp = std::env::temp_dir().join(format!("luna-esp-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
+    let status = Command::new("mount")
+        .args(["-o", "rw", &dev])
+        .arg(&tmp)
+        .status()
+        .map_err(|e| UpdateError::Other(e.to_string()))?;
+    if !status.success() {
+        let _ = std::fs::remove_dir(&tmp);
+        return Err(UpdateError::Other(
+            "Luna couldn't open the boot partition for the update.".into(),
+        ));
+    }
+    Ok(EspGuard {
+        path: tmp,
+        tmp: true,
+    })
 }
 
 pub struct UpdateService {
@@ -267,13 +519,13 @@ pub struct UpdateService {
 }
 
 impl UpdateService {
-    pub fn from_env() -> Self {
+    pub fn from_env(data_dir: &Path) -> Self {
         let api = std::env::var("LUNA_UPDATES_API").unwrap_or_else(|_| DEFAULT_API.into());
         let owner = std::env::var("LUNA_UPDATES_OWNER").unwrap_or_else(|_| DEFAULT_OWNER.into());
         let repo = std::env::var("LUNA_UPDATES_REPO").unwrap_or_else(|_| DEFAULT_REPO.into());
         Self::new(
             Box::new(UreqHttp),
-            Box::new(BinaryInstaller),
+            Box::new(DataDirInstaller::new(data_dir)),
             api,
             owner,
             repo,
@@ -354,30 +606,52 @@ impl UpdateService {
                 url: String::new(),
                 checksum: String::new(),
                 binary_name: binary,
+                reboot_required: false,
             };
             *self.cache.lock().unwrap() = Some((Instant::now(), info.clone()));
             return Ok(info);
         };
 
-        let checksum = self
-            .fetch_signed_checksum(&rel.tag_name, &binary)
+        let sums = self.fetch_signed_sums(&rel.tag_name).ok();
+        let checksum = sums
+            .as_ref()
+            .and_then(|s| checksum_for_name(s, &binary).ok())
             .unwrap_or_default();
         let latest_ver = strip_tag(&rel.tag_name);
-        let available = version_newer(&latest_ver, current_version);
+        let lunad_newer = version_newer(&latest_ver, current_version);
+        let os_needed = sums
+            .as_ref()
+            .map(|s| self.os_update_needed(s))
+            .unwrap_or(false);
         let info = UpdateInfo {
             current_version: current_version.to_string(),
             latest_version: rel.tag_name.clone(),
-            update_available: available,
+            update_available: lunad_newer || os_needed,
             release_notes: rel.body.clone(),
             url: rel.html_url.clone(),
             checksum,
             binary_name: binary,
+            reboot_required: os_needed,
         };
         *self.cache.lock().unwrap() = Some((Instant::now(), info.clone()));
         Ok(info)
     }
 
-    fn fetch_signed_checksum(&self, tag: &str, binary: &str) -> Result<String, UpdateError> {
+    fn os_update_needed(&self, sums: &[u8]) -> bool {
+        let Ok(remote) = checksum_for_name(sums, OS_IMAGE_NAME) else {
+            return false;
+        };
+        match self.installer.read_os_hash() {
+            Some(local) => local != remote,
+            // No recorded hash: treat presence of an OS asset as needing apply
+            // only when we have never stamped one — avoid surprising re-flash
+            // on daemon-only boxes without data hash by requiring a local hash
+            // file. Factory always writes the hash.
+            None => false,
+        }
+    }
+
+    fn fetch_signed_sums(&self, tag: &str) -> Result<Vec<u8>, UpdateError> {
         let sums_url = format!("{}/download/{tag}/SHA256SUMS.txt", self.download_base);
         let sig_url = format!(
             "{}/download/{tag}/SHA256SUMS.txt.minisig",
@@ -395,26 +669,68 @@ impl UpdateService {
             return Err(UpdateError::MissingSignature);
         }
         verify_sums_signature(&self.pinned_keys, &sums, &sig)?;
-        checksum_for_binary(&sums, binary)
+        Ok(sums)
     }
 
     pub fn apply(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
-        let info = self.check(current_version, true)?;
+        let mut info = self.check(current_version, true)?;
         if !info.update_available {
             return Err(UpdateError::NoneAvailable);
         }
-        let checksum = self.fetch_signed_checksum(&info.latest_version, &info.binary_name)?;
-        let url = format!(
-            "{}/download/{}/{}",
-            self.download_base, info.latest_version, info.binary_name
-        );
-        let max = crate::budget::limits().update_download_bytes;
+        let sums = self.fetch_signed_sums(&info.latest_version)?;
+        let lunad_newer = version_newer(&strip_tag(&info.latest_version), current_version);
+        let os_needed = self.os_update_needed(&sums);
+
+        if lunad_newer {
+            let checksum = checksum_for_name(&sums, &info.binary_name)?;
+            let max = crate::budget::limits().update_download_bytes;
+            let tmp =
+                self.download_verified(&info.latest_version, &info.binary_name, &checksum, max)?;
+            if let Err(e) = self.installer.install_lunad_file(&tmp) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
+            }
+            let _ = std::fs::remove_file(&tmp);
+            info.checksum = checksum;
+        }
+
+        if os_needed {
+            let checksum = checksum_for_name(&sums, OS_IMAGE_NAME)?;
+            let tmp = self.download_verified(
+                &info.latest_version,
+                OS_IMAGE_NAME,
+                &checksum,
+                OS_IMAGE_MAX_BYTES,
+            )?;
+            if let Err(e) = self.installer.install_os_image_file(&tmp) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
+            }
+            let _ = std::fs::remove_file(&tmp);
+            self.installer.write_os_hash(&checksum)?;
+            info.reboot_required = true;
+        } else {
+            info.reboot_required = false;
+        }
+
+        Ok(info)
+    }
+
+    /// Stream `name` from the release to a temp file, hashing while writing.
+    fn download_verified(
+        &self,
+        tag: &str,
+        name: &str,
+        checksum: &str,
+        max_bytes: u64,
+    ) -> Result<PathBuf, UpdateError> {
+        let url = format!("{}/download/{tag}/{name}", self.download_base);
         let tmp = std::env::temp_dir().join(format!(
-            "luna-update-{}-{}.bin",
+            "luna-update-{}-{}-{name}",
             std::process::id(),
-            info.latest_version
+            tag.replace(['/', '\\'], "_")
         ));
-        let (status, actual) = match self.http.get_to_file(&url, &tmp, max) {
+        let (status, actual) = match self.http.get_to_file(&url, &tmp, max_bytes) {
             Ok(v) => v,
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
@@ -429,25 +745,7 @@ impl UpdateService {
             let _ = std::fs::remove_file(&tmp);
             return Err(UpdateError::Checksum);
         }
-        // Move into place beside the running binary, then atomic-swap.
-        let exec = std::env::current_exe().map_err(|e| UpdateError::Other(e.to_string()))?;
-        let staged = exec.with_extension("update-tmp");
-        if let Err(e) = std::fs::rename(&tmp, &staged) {
-            // Cross-device temp dir: copy then remove.
-            if let Err(e2) = std::fs::copy(&tmp, &staged) {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(UpdateError::Other(e2.to_string()));
-            }
-            let _ = std::fs::remove_file(&tmp);
-            let _ = e;
-        }
-        match self.installer.install_lunad_file(&staged) {
-            Ok(()) => Ok(info),
-            Err(e) => {
-                let _ = std::fs::remove_file(&staged);
-                Err(e)
-            }
-        }
+        Ok(tmp)
     }
 }
 
@@ -473,13 +771,13 @@ fn verify_sums_signature(keys: &[String], sums: &[u8], sig: &[u8]) -> Result<(),
     Err(UpdateError::BadSignature)
 }
 
-fn checksum_for_binary(sums: &[u8], binary: &str) -> Result<String, UpdateError> {
+fn checksum_for_name(sums: &[u8], name: &str) -> Result<String, UpdateError> {
     let text = String::from_utf8_lossy(sums);
     for line in text.lines() {
         let mut parts = line.split_whitespace();
         let Some(sum) = parts.next() else { continue };
-        let Some(name) = parts.next() else { continue };
-        if name.contains(binary) {
+        let Some(file) = parts.next() else { continue };
+        if file == name || file.ends_with(name) || file.contains(name) {
             return Ok(sum.to_string());
         }
     }
@@ -568,11 +866,24 @@ mod tests {
 
     struct RecInstaller {
         got: Mutex<Vec<u8>>,
+        os_got: Mutex<Vec<u8>>,
+        os_hash: Mutex<Option<String>>,
     }
 
     impl Installer for RecInstaller {
         fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
             *self.got.lock().unwrap() = bytes.to_vec();
+            Ok(())
+        }
+        fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
+            *self.os_got.lock().unwrap() = bytes.to_vec();
+            Ok(())
+        }
+        fn read_os_hash(&self) -> Option<String> {
+            self.os_hash.lock().unwrap().clone()
+        }
+        fn write_os_hash(&self, hash: &str) -> Result<(), UpdateError> {
+            *self.os_hash.lock().unwrap() = Some(hash.to_string());
             Ok(())
         }
     }
@@ -649,6 +960,8 @@ mod tests {
             map,
             Box::new(RecInstaller {
                 got: Mutex::new(Vec::new()),
+                os_got: Mutex::new(Vec::new()),
+                os_hash: Mutex::new(None),
             }),
             pk,
         );
@@ -702,6 +1015,62 @@ mod tests {
     }
 
     #[test]
+    fn apply_os_when_hash_differs() {
+        let bin = binary_name();
+        let lunad = b"lunad-v2";
+        let os_img = b"os-slot-image-bytes";
+        let lunad_sum = {
+            let mut h = Sha256::new();
+            h.update(lunad);
+            hex_lower(&h.finalize())
+        };
+        let os_sum = {
+            let mut h = Sha256::new();
+            h.update(os_img);
+            hex_lower(&h.finalize())
+        };
+        let sums = format!("{lunad_sum}  {bin}\n{os_sum}  {OS_IMAGE_NAME}\n");
+        let (pk, sig) = ephemeral_sign(sums.as_bytes());
+        let installer = RecInstaller {
+            got: Mutex::new(Vec::new()),
+            os_got: Mutex::new(Vec::new()),
+            os_hash: Mutex::new(Some("old-os-hash".into())),
+        };
+        let mut map = HashMap::new();
+        map.insert(
+            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
+            (200, json_releases(&["luna-v0.2.0"])),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
+                .into(),
+            (200, sums.into_bytes()),
+        );
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt.minisig"
+                .into(),
+            (200, sig),
+        );
+        map.insert(
+            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
+            (200, lunad.to_vec()),
+        );
+        map.insert(
+            format!(
+                "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{OS_IMAGE_NAME}"
+            ),
+            (200, os_img.to_vec()),
+        );
+        let svc = svc_with(map, Box::new(installer), pk);
+        // Same lunad version but OS hash differs → still an update.
+        let info = svc.check("0.2.0", true).unwrap();
+        assert!(info.update_available);
+        assert!(info.reboot_required);
+        let applied = svc.apply("0.2.0").unwrap();
+        assert!(applied.reboot_required);
+    }
+
+    #[test]
     fn apply_rejects_bad_checksum() {
         let bin = binary_name();
         let sums = format!("deadbeef  {bin}\n");
@@ -729,6 +1098,8 @@ mod tests {
             map,
             Box::new(RecInstaller {
                 got: Mutex::new(Vec::new()),
+                os_got: Mutex::new(Vec::new()),
+                os_hash: Mutex::new(None),
             }),
             pk,
         );
@@ -752,6 +1123,8 @@ mod tests {
             map,
             Box::new(RecInstaller {
                 got: Mutex::new(Vec::new()),
+                os_got: Mutex::new(Vec::new()),
+                os_hash: Mutex::new(None),
             }),
             "RWnotarealkey".into(),
         );
@@ -786,6 +1159,8 @@ mod tests {
             map,
             Box::new(RecInstaller {
                 got: Mutex::new(Vec::new()),
+                os_got: Mutex::new(Vec::new()),
+                os_hash: Mutex::new(None),
             }),
             other,
         );
@@ -798,5 +1173,16 @@ mod tests {
         let releases: Vec<ForgejoRelease> = serde_json::from_slice(raw).unwrap();
         let latest = pick_latest_luna(&releases).unwrap();
         assert_eq!(latest.tag_name, "luna-v0.3.0");
+    }
+
+    #[test]
+    fn data_dir_installer_writes_lunad_under_bin() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = DataDirInstaller::new(dir.path());
+        inst.install_lunad(b"hello-lunad").unwrap();
+        let path = dir.path().join("bin/lunad");
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello-lunad");
+        inst.write_os_hash("abc123").unwrap();
+        assert_eq!(inst.read_os_hash().as_deref(), Some("abc123"));
     }
 }

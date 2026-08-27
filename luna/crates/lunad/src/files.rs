@@ -217,7 +217,9 @@ pub fn inline_safe(mime: &str) -> bool {
 /// download them — they are incomplete bytes, not user files.
 pub fn is_internal_temp(name: &str) -> bool {
     let base = name.rsplit('/').next().unwrap_or(name);
-    base.starts_with(".luna-upload.") || (base.starts_with('.') && base.ends_with(".part"))
+    base == crate::gallery::THUMBS_DIR_NAME
+        || base.starts_with(".luna-upload.")
+        || (base.starts_with('.') && base.ends_with(".part"))
 }
 
 /// Conservative Content-Disposition filename: no quotes, slashes, or control
@@ -287,6 +289,61 @@ fn install_no_overwrite(temp: &Path, dest: &Path) -> Result<(), FilesError> {
         },
         Err(e) => Err(FilesError::Io(e)),
     }
+}
+
+/// Try an atomic same-filesystem move that never overwrites `to`.
+///
+/// Returns `Ok(true)` when the rename succeeded. Returns `Ok(false)` when the
+/// kernel reports a cross-device move (EXDEV) so the caller can fall back to
+/// copy-then-trash. Other failures stay as errors (conflict, I/O, etc.).
+pub fn try_rename_move(from: &Path, to: &Path) -> Result<bool, FilesError> {
+    match rename_noreplace(from, to) {
+        Ok(()) => {
+            if let Some(parent) = to.parent()
+                && let Ok(dir) = std::fs::File::open(parent)
+            {
+                let _ = dir.sync_all();
+            }
+            if let Some(parent) = from.parent()
+                && let Ok(dir) = std::fs::File::open(parent)
+            {
+                let _ = dir.sync_all();
+            }
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
+        Err(e) if is_cross_device(&e) => Ok(false),
+        // Some USB/FUSE mounts reject renameat2(RENAME_NOREPLACE). Plain
+        // rename(2) still works for a real same-filesystem move when the
+        // destination does not exist (prepare already refused conflicts).
+        Err(e) if noreplace_unavailable(&e) => match to.symlink_metadata() {
+            Ok(_) => Err(FilesError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "destination exists",
+            ))),
+            Err(e2) if e2.kind() == std::io::ErrorKind::NotFound => {
+                match std::fs::rename(from, to) {
+                    Ok(()) => {
+                        if let Some(parent) = to.parent()
+                            && let Ok(dir) = std::fs::File::open(parent)
+                        {
+                            let _ = dir.sync_all();
+                        }
+                        Ok(true)
+                    }
+                    Err(e3) if is_cross_device(&e3) => Ok(false),
+                    Err(e3) => Err(FilesError::Io(e3)),
+                }
+            }
+            Err(e2) => Err(FilesError::Io(e2)),
+        },
+        Err(e) => Err(FilesError::Io(e)),
+    }
+}
+
+fn is_cross_device(err: &std::io::Error) -> bool {
+    matches!(err.kind(), std::io::ErrorKind::CrossesDevices)
+        || matches!(err.raw_os_error(), Some(libc::EXDEV))
 }
 
 fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -632,6 +689,7 @@ mod tests {
         assert!(is_internal_temp(".luna-upload.12.99"));
         assert!(is_internal_temp("folder/.luna-upload.1.2"));
         assert!(is_internal_temp(".luna-upload.1.2.part"));
+        assert!(is_internal_temp(".lunathumbs"));
         assert!(!is_internal_temp("photo.jpg"));
         assert!(!is_internal_temp("notes.part"));
     }

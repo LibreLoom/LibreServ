@@ -3,27 +3,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
 import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
 import { TermHint } from "../ui/Tooltip";
-import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 
-function PermissionLabel({ permission }) {
-  if (permission === "write") {
-    return (
-      <TermHint content="Can open files and save changes in this folder.">
-        Write
-      </TermHint>
-    );
-  }
-  return (
-    <TermHint content="Can open files in this folder, but cannot save changes.">
-      Read
-    </TermHint>
-  );
-}
+const PERMISSION_OPTIONS = [
+  { value: "read", label: "Read" },
+  { value: "write", label: "Write" },
+];
 
 function rememberedUrl(shareId) {
   try {
@@ -52,11 +43,11 @@ function grantCovers(grant, driveId, path) {
   return target === granted || target.startsWith(`${granted}/`);
 }
 
-export function AccessButton({ label, onClick }) {
+export function AccessButton({ label, onClick, surface = "secondary" }) {
   return (
     <Button
       variant="ghost"
-      surface="secondary"
+      surface={surface}
       size="iconSm"
       aria-label={`Sharing for ${label}`}
       onClick={onClick}
@@ -74,9 +65,8 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const [creatingLink, setCreatingLink] = useState(false);
   const [personId, setPersonId] = useState("");
   const [permission, setPermission] = useState("read");
-  const [targetDrive, setTargetDrive] = useState("");
+  const [updatingGrantId, setUpdatingGrantId] = useState(null);
 
-  const canProtect = isAdmin && kind !== "file";
   const objectPath = pathKey(path);
 
   const users = useQuery({
@@ -93,22 +83,11 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     queryKey: ["shares"],
     queryFn: () => getJson("/api/v1/shares"),
   });
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: canProtect });
-  const protections = useQuery({
-    queryKey: ["protections"],
-    queryFn: () => getJson("/api/v1/protections"),
-    enabled: canProtect,
-  });
 
   const matchingGrants = (grants.data || []).filter((g) => grantCovers(g, driveId, objectPath));
   const matchingShares = (shares.data || []).filter(
     (s) => s.drive_id === driveId && pathKey(s.path) === objectPath,
   );
-  const matchingProtections = (protections.data || []).filter(
-    (p) => p.source_drive === driveId && pathKey(p.source_path) === objectPath,
-  );
-  const driveList = drives.data || [];
-  const tooFewDrives = driveList.length < 2;
   const members = (users.data || []).filter((u) => u.role !== "admin");
 
   const grantMutation = useMutation({
@@ -120,6 +99,16 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
+  const updateGrant = useMutation({
+    mutationFn: ({ id, permission: next }) => patchJson(`/api/v1/grants/${id}`, { permission: next }),
+    onMutate: ({ id }) => setUpdatingGrantId(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["grants"] });
+      setError(null);
+    },
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't change that person's access. Try again.")),
+    onSettled: () => setUpdatingGrantId(null),
+  });
   const revokeGrant = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/grants/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["grants"] }),
@@ -130,37 +119,15 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shares"] }),
     onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that link.")),
   });
-  const createProtect = useMutation({
-    mutationFn: () =>
-      postJson("/api/v1/protections", {
-        source_drive_id: driveId,
-        source_path: objectPath,
-        target_drive_id: targetDrive,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["protections"] });
-      setError(null);
-      setTargetDrive("");
-    },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-  const runProtect = useMutation({
-    mutationFn: (id) => postJson(`/api/v1/protections/${id}/run`, {}),
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-  const stopProtect = useMutation({
-    mutationFn: (id) => deleteJson(`/api/v1/protections/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["protections"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
 
   function personName(userId) {
     const found = (users.data || []).find((u) => u.id === userId);
     return found?.display_name || found?.username || userId;
   }
 
-  function driveName(id) {
-    return driveList.find((d) => d.id === id)?.label || id;
+  function changePermission(grant, next) {
+    if (next === grant.permission) return;
+    updateGrant.mutate({ id: grant.id, permission: next });
   }
 
   if (creatingLink) {
@@ -185,17 +152,29 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
       {isAdmin && (
         <section className="space-y-2">
           <h3 className="text-primary text-sm font-semibold">Users</h3>
-          {matchingGrants.map((g) => (
-            <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
-              <span className="text-primary text-xs">
-                {personName(g.user_id)} · <PermissionLabel permission={g.permission} />
-                {pathKey(g.path) !== objectPath ? " (includes this folder)" : ""}
-              </span>
-              <Button size="iconSm" variant="danger" aria-label={`Remove access for ${personName(g.user_id)}`} onClick={() => revokeGrant.mutate(g.id)}>
-                <Trash2 size={12} />
-              </Button>
-            </div>
-          ))}
+          {matchingGrants.map((g) => {
+            const name = personName(g.user_id);
+            return (
+              <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <span className="text-primary text-xs truncate">
+                    {name}
+                    {pathKey(g.path) !== objectPath ? " (includes this folder)" : ""}
+                  </span>
+                  <Dropdown
+                    options={PERMISSION_OPTIONS}
+                    value={g.permission === "write" ? "write" : "read"}
+                    onChange={(next) => changePermission(g, next)}
+                    disabled={updatingGrantId === g.id}
+                    aria-label={`Access for ${name}`}
+                  />
+                </div>
+                <Button size="iconSm" variant="danger" aria-label={`Remove access for ${name}`} onClick={() => revokeGrant.mutate(g.id)}>
+                  <Trash2 size={12} />
+                </Button>
+              </div>
+            );
+          })}
           <Dropdown
             options={members.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
             value={personId}
@@ -204,10 +183,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
             fullWidth
           />
           <Dropdown
-            options={[
-              { value: "read", label: "Read" },
-              { value: "write", label: "Write" },
-            ]}
+            options={PERMISSION_OPTIONS}
             value={permission}
             onChange={setPermission}
             fullWidth
@@ -250,9 +226,12 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
                   {s.has_password ? "Password" : "Anyone with the link"} · {expiryLabel(s.expires_at)}
                 </p>
                 {url && (
-                  <Button size="sm" variant="outline" className="mt-2" onClick={() => navigator.clipboard.writeText(url)}>
-                    Copy address
-                  </Button>
+                  <CopyableValue
+                    className="mt-2"
+                    value={url}
+                    copyLabel="Copy address"
+                    ariaLabel="Share link address"
+                  />
                 )}
               </div>
               <Button size="iconSm" variant="danger" aria-label="Remove this link" onClick={() => revokeShare.mutate(s.id)}>
@@ -266,53 +245,6 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
         </Button>
       </section>
 
-      {canProtect && (
-        <section className="space-y-2 mt-5">
-          <h3 className="text-primary text-sm font-semibold">Protect</h3>
-          {tooFewDrives ? (
-            <p className="text-primary text-sm">Needs a second drive.</p>
-          ) : (
-            <>
-              {matchingProtections.map((p) => (
-                <div key={p.id} className="rounded-large-element border border-primary/20 p-3 space-y-2">
-                  <p className="text-primary text-xs">
-                    Copy on {driveName(p.target_drive)}
-                    {p.last_run ? ` · ${new Date(p.last_run * 1000).toLocaleString()}` : ""}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" loading={runProtect.isPending} onClick={() => runProtect.mutate(p.id)}>
-                      Refresh now
-                    </Button>
-                    <Button size="sm" variant="danger" loading={stopProtect.isPending} onClick={() => stopProtect.mutate(p.id)}>
-                      Stop
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {matchingProtections.length === 0 && (
-                <>
-                  <Dropdown
-                    options={driveList.filter((d) => d.id !== driveId).map((d) => ({ value: d.id, label: d.label }))}
-                    value={targetDrive}
-                    onChange={setTargetDrive}
-                    placeholder="Copy onto"
-                    fullWidth
-                  />
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    loading={createProtect.isPending}
-                    disabled={!targetDrive}
-                    onClick={() => createProtect.mutate()}
-                  >
-                    Protect
-                  </Button>
-                </>
-              )}
-            </>
-          )}
-        </section>
-      )}
     </ModalCard>
   );
 }

@@ -3,15 +3,76 @@
 //! Sessions survive daemon restarts (SQLite + a temp file on the destination
 //! drive). Clients PUT byte ranges in any order; completion verifies the file
 //! is exactly the promised size before atomically installing it.
+//!
+//! Progress rows are coalesced (every ~2 MiB or ~2s, and always on
+//! complete/cancel) so a multi-gigabyte upload does not issue one SQLite
+//! commit per chunk against the OS eMMC.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::db::{self, UploadRow};
 use crate::files::{self, FileEntry, FilesError};
+
+/// Flush upload progress to SQLite at least this often (bytes received).
+const PROGRESS_FLUSH_BYTES: u64 = 2 * 1024 * 1024;
+/// Flush upload progress to SQLite at least this often (wall clock).
+const PROGRESS_FLUSH_SECS: i64 = 2;
+
+struct PendingProgress {
+    received: u64,
+    size: u64,
+    chunks: Vec<(u64, u64)>,
+    last_flush_unix: i64,
+    last_flushed_received: u64,
+}
+
+fn pending_map() -> &'static Mutex<HashMap<String, PendingProgress>> {
+    static MAP: OnceLock<Mutex<HashMap<String, PendingProgress>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn flush_pending(conn: &Connection, id: &str) -> Result<(), UploadError> {
+    let pending = {
+        let mut map = pending_map().lock().map_err(|_| UploadError::NotFound)?;
+        map.remove(id)
+    };
+    let Some(pending) = pending else {
+        return Ok(());
+    };
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| UploadError::Db(e.into()))?;
+    db::update_upload_received(&tx, id, pending.received).map_err(UploadError::Db)?;
+    for (start, end) in pending.chunks {
+        db::upsert_upload_chunk(&tx, id, start, end).map_err(UploadError::Db)?;
+    }
+    tx.commit().map_err(|e| UploadError::Db(e.into()))?;
+    Ok(())
+}
+
+fn clear_pending(id: &str) {
+    if let Ok(mut map) = pending_map().lock() {
+        map.remove(id);
+    }
+}
+
+fn should_flush(p: &PendingProgress, now: i64) -> bool {
+    if p.received >= p.size {
+        return true;
+    }
+    if p.received.saturating_sub(p.last_flushed_received) >= PROGRESS_FLUSH_BYTES {
+        return true;
+    }
+    if now.saturating_sub(p.last_flush_unix) >= PROGRESS_FLUSH_SECS {
+        return true;
+    }
+    false
+}
 
 pub struct UploadManager;
 
@@ -118,29 +179,30 @@ fn temp_for(dir: &Path, id: &str) -> PathBuf {
 /// Write one chunk at `start` (seek + write + flush). Never fsyncs per chunk —
 /// the final `complete` call fsyncs once.
 ///
-/// File I/O runs **without** holding the DB mutex so a slow USB drive cannot
-/// stall every other API call for the duration of an 8 MiB write.
+/// The DB mutex is held only for session lookup and coalesced progress updates
+/// — not during the disk write — so browsing stays responsive while large
+/// uploads land. Progress is flushed every ~2 MiB / ~2s (and on complete).
 pub fn write_chunk(
     db: &Arc<Mutex<Connection>>,
     id: &str,
     start: u64,
     data: &[u8],
 ) -> Result<u64, UploadError> {
-    let (temp, size, received_was, drive_id) = {
+    let (temp, size, prev_received, drive_id) = {
         let conn = db.lock().map_err(|_| UploadError::NotFound)?;
         let upload = load(&conn, id)?;
         if upload.state_not_active(&conn)? {
             return Err(UploadError::NotActive);
         }
-        let end = start
-            .checked_add(data.len() as u64)
-            .filter(|end| *end <= upload.size)
-            .ok_or(UploadError::SizeMismatch)?;
-        let _ = end;
+        // Prefer in-memory received if we have unflushed progress.
+        let pending_received = pending_map()
+            .lock()
+            .ok()
+            .and_then(|m| m.get(id).map(|p| p.received));
         (
             upload.temp.clone(),
             upload.size,
-            upload.received,
+            pending_received.unwrap_or(upload.received),
             upload.drive_id.clone(),
         )
     };
@@ -149,7 +211,7 @@ pub fn write_chunk(
         .filter(|end| *end <= size)
         .ok_or(UploadError::SizeMismatch)?;
 
-    let write_result = (|| -> Result<(), std::io::Error> {
+    let write_err = (|| -> Result<(), std::io::Error> {
         let mut file = std::fs::OpenOptions::new().write(true).open(&temp)?;
         use std::io::{Seek, SeekFrom, Write};
         file.seek(SeekFrom::Start(start))?;
@@ -157,17 +219,35 @@ pub fn write_chunk(
         file.flush()?;
         Ok(())
     })();
-    if let Err(e) = write_result {
+    if let Err(e) = write_err {
         if let Ok(conn) = db.lock() {
             files::note_write_failure(&conn, &drive_id, &e.to_string());
         }
         return Err(UploadError::Io(e));
     }
 
-    let received = received_was.max(end);
-    let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-    db::update_upload_received(&conn, id, received).map_err(UploadError::Db)?;
-    db::upsert_upload_chunk(&conn, id, start, end).map_err(UploadError::Db)?;
+    let received = prev_received.max(end);
+    let now = db::now_unix();
+    let do_flush = {
+        let mut map = pending_map().lock().map_err(|_| UploadError::NotFound)?;
+        let entry = map
+            .entry(id.to_string())
+            .or_insert_with(|| PendingProgress {
+                received: prev_received,
+                size,
+                chunks: Vec::new(),
+                last_flush_unix: now,
+                last_flushed_received: prev_received,
+            });
+        entry.received = received;
+        entry.size = size;
+        entry.chunks.push((start, end));
+        should_flush(entry, now)
+    };
+    if do_flush {
+        let conn = db.lock().map_err(|_| UploadError::NotFound)?;
+        flush_pending(&conn, id)?;
+    }
     Ok(received)
 }
 
@@ -180,6 +260,7 @@ pub fn complete(
     expected_hash: Option<&str>,
 ) -> Result<FileEntry, UploadError> {
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
+    flush_pending(&conn, id)?;
     let upload = load(&conn, id)?;
     if upload.state_not_active(&conn)? {
         return Err(UploadError::NotActive);
@@ -264,6 +345,7 @@ fn blake3_hash_file(path: &Path) -> Result<String, std::io::Error> {
 
 /// Cancel and remove temp data.
 pub fn cancel(db: &Arc<Mutex<Connection>>, id: &str) -> Result<(), UploadError> {
+    clear_pending(id);
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
     let upload = load(&conn, id)?;
     let _ = std::fs::remove_file(&upload.temp);
@@ -363,8 +445,10 @@ mod tests {
         assert!(up.temp.exists());
         cancel(&db, &up.id).unwrap();
         assert!(!up.temp.exists());
-        assert!(db::get_upload(&db.lock().unwrap(), &up.id)
-            .unwrap()
-            .is_none());
+        assert!(
+            db::get_upload(&db.lock().unwrap(), &up.id)
+                .unwrap()
+                .is_none()
+        );
     }
 }

@@ -93,18 +93,20 @@ factory_peel_token_from_dir() {
 	return 0
 }
 
-# Write official setup code onto a mounted Luna root ($1).
+# Write official setup code onto the mounted LUNA_DATA volume ($1).
+# At runtime that volume is mounted at /var/lib/luna, so the token path is
+# $1/setup-token → /var/lib/luna/setup-token.
 factory_write_setup_token() {
 	_root="$1"
 	_tok="$2"
-	mkdir -p "$_root/var/lib/luna" || return 1
-	printf '%s\n' "$_tok" >"$_root/var/lib/luna/setup-token" || return 1
-	chmod 600 "$_root/var/lib/luna/setup-token" || return 1
+	mkdir -p "$_root" || return 1
+	printf '%s\n' "$_tok" >"$_root/setup-token" || return 1
+	chmod 600 "$_root/setup-token" || return 1
 	return 0
 }
 
 # Full post-flash path: peel from LUNAASSETS, else legacy setup-token paths, else TTY paste.
-# $1 = mounted Luna root. $2 = HERE (installer payload dir).
+# $1 = mounted LUNA_DATA volume. $2 = HERE (installer payload dir).
 # Returns 0 on success/skip; 1 on hard failure (e.g. mag rewrite failed).
 factory_apply_setup_token() {
 	_root="$1"
@@ -138,9 +140,9 @@ factory_apply_setup_token() {
 		fi
 	done
 	if [ -n "$_token_src" ]; then
-		mkdir -p "$_root/var/lib/luna" || return 1
-		cp "$_token_src" "$_root/var/lib/luna/setup-token" || return 1
-		chmod 600 "$_root/var/lib/luna/setup-token" || return 1
+		mkdir -p "$_root" || return 1
+		cp "$_token_src" "$_root/setup-token" || return 1
+		chmod 600 "$_root/setup-token" || return 1
 		echo "Official setup code saved from the installer USB."
 		return 0
 	fi

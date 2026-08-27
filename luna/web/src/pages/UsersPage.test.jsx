@@ -124,4 +124,41 @@ describe("UsersPage", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
+
+  it("enforces the 12+ letter/number password policy in Add a user", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
+
+    const password = within(dialog).getByPlaceholderText(/At least 12 characters/i);
+    const addBtn = within(dialog).getByRole("button", { name: /^Add user$/i });
+
+    await user.type(within(dialog).getByPlaceholderText(/Username/i), "jamie");
+    await user.type(password, "short1");
+    expect(within(dialog).getByText(/Passwords need at least 12 characters/i)).toBeTruthy();
+    expect(addBtn).toBeDisabled();
+
+    await user.clear(password);
+    await user.type(password, "abcdefghijkl");
+    expect(within(dialog).getByText(/Passwords need at least one letter and one number/i)).toBeTruthy();
+    expect(addBtn).toBeDisabled();
+
+    await user.clear(password);
+    await user.type(password, "hunter22hunter1");
+    expect(within(dialog).queryByText(/Passwords need at least/i)).toBeNull();
+    expect(addBtn).not.toBeDisabled();
+
+    await user.click(addBtn);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/users$/),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"password":"hunter22hunter1"'),
+      }),
+    );
+  });
 });

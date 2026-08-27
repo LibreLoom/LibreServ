@@ -266,6 +266,166 @@ pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
     Ok(total)
 }
 
+/// Like [`hash_drive`], but releases the DB mutex while hashing each file so
+/// interactive API traffic is not stalled for the whole walk.
+pub fn hash_drive_unlocked(
+    db: &std::sync::Mutex<Connection>,
+    drive_id: &str,
+    root: &Path,
+) -> anyhow::Result<ScrubReport> {
+    let mut report = ScrubReport {
+        files_checked: 0,
+        files_hashed: 0,
+        mismatches: 0,
+        bytes_hashed: 0,
+    };
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            if meta.is_dir() {
+                stack.push(entry.path());
+                continue;
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            let path_buf = entry.path();
+            let Some(rel) = path_buf.strip_prefix(root).ok().and_then(|p| p.to_str()) else {
+                continue;
+            };
+            let size = meta.len();
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            {
+                let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+                if let Ok(Some((s, m))) = get_hash(&conn, drive_id, rel)
+                    && s == size
+                    && m == mtime
+                {
+                    continue;
+                }
+            }
+            let Ok(hash) = hash_file(&entry.path()) else {
+                continue;
+            };
+            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+            let _ = upsert_hash(&conn, drive_id, rel, size, mtime, &hash);
+            report.files_hashed += 1;
+            report.bytes_hashed += size;
+        }
+    }
+    Ok(report)
+}
+
+/// Like [`scrub_drive`], hashing outside the mutex.
+pub fn scrub_drive_unlocked(
+    db: &std::sync::Mutex<Connection>,
+    drive_id: &str,
+    root: &Path,
+) -> anyhow::Result<ScrubReport> {
+    let rows: Vec<(String, u64, i64, String)> = {
+        let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        let mut stmt =
+            conn.prepare("SELECT path, size, mtime, hash FROM file_hashes WHERE drive_id = ?1")?;
+        let mapped = stmt.query_map(params![drive_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)? as u64,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        mapped.flatten().collect()
+    };
+
+    let mut report = ScrubReport {
+        files_checked: 0,
+        files_hashed: 0,
+        mismatches: 0,
+        bytes_hashed: 0,
+    };
+    for (rel, expected_size, expected_mtime, expected_hash) in rows {
+        let Ok(path) = luna_core::path::resolve_child(root, &rel) else {
+            continue;
+        };
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if meta.len() == expected_size && mtime == expected_mtime {
+            let Ok(actual) = hash_file(&path) else {
+                continue;
+            };
+            report.bytes_hashed += meta.len();
+            if actual != expected_hash {
+                report.mismatches += 1;
+            }
+            report.files_checked += 1;
+        } else {
+            let Ok(actual) = hash_file(&path) else {
+                continue;
+            };
+            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+            let _ = upsert_hash(&conn, drive_id, &rel, meta.len(), mtime, &actual);
+            report.files_hashed += 1;
+            report.bytes_hashed += meta.len();
+        }
+    }
+    Ok(report)
+}
+
+pub fn scrub_all_drives_unlocked(db: &std::sync::Mutex<Connection>) -> anyhow::Result<ScrubReport> {
+    let drives = {
+        let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        db::list_drives(&conn).unwrap_or_default()
+    };
+    let mut total = ScrubReport {
+        files_checked: 0,
+        files_hashed: 0,
+        mismatches: 0,
+        bytes_hashed: 0,
+    };
+    for drive in drives {
+        if drive.state != "as_is" || drive.mount_point.is_empty() {
+            continue;
+        }
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        if let Ok(report) = hash_drive_unlocked(db, &drive.id, &root) {
+            total.files_hashed += report.files_hashed;
+            total.bytes_hashed += report.bytes_hashed;
+        }
+        if let Ok(report) = scrub_drive_unlocked(db, &drive.id, &root) {
+            total.files_checked += report.files_checked;
+            total.mismatches += report.mismatches;
+        }
+    }
+    let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+    let _ = db::set_meta(
+        &conn,
+        "last_scrub_report",
+        &serde_json::to_string(&total).unwrap_or_default(),
+    );
+    Ok(total)
+}
+
 fn get_hash(conn: &Connection, drive_id: &str, path: &str) -> anyhow::Result<Option<(u64, i64)>> {
     let mut stmt =
         conn.prepare("SELECT size, mtime FROM file_hashes WHERE drive_id = ?1 AND path = ?2")?;

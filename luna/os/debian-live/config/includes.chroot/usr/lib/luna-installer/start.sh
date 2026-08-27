@@ -74,6 +74,27 @@ _attach_console() {
 
 _attach_console || true
 
+# QEMU / automation: allow overrides from the kernel command line.
+# Example: LUNA_TARGET=/dev/vda LUNA_INSTALL_MEDIA=/dev/sda LUNA_OVERRIDE_WAIT=1
+if [ -r /proc/cmdline ]; then
+	for _tok in $(cat /proc/cmdline); do
+		case "$_tok" in
+		LUNA_TARGET=*)
+			export LUNA_TARGET="${_tok#LUNA_TARGET=}"
+			;;
+		LUNA_INSTALL_MEDIA=*)
+			export LUNA_INSTALL_MEDIA="${_tok#LUNA_INSTALL_MEDIA=}"
+			;;
+		LUNA_OVERRIDE_WAIT=*)
+			export LUNA_OVERRIDE_WAIT="${_tok#LUNA_OVERRIDE_WAIT=}"
+			;;
+		LUNA_ROOTFS=*)
+			export LUNA_ROOTFS="${_tok#LUNA_ROOTFS=}"
+			;;
+		esac
+	done
+fi
+
 if ! _wait_medium; then
 	echo "Could not find Luna installer files on the USB stick." >&2
 	echo "Devices Luna can see:" >&2

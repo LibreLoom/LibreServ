@@ -83,6 +83,12 @@ export function mockInspectResult() {
     folders: 3,
     files: 12,
     unreadable: 0,
+    entries: [
+      { name: "Documents", kind: "folder" },
+      { name: "Photos", kind: "folder" },
+      { name: "Videos", kind: "folder" },
+      { name: "readme.txt", kind: "file" },
+    ],
     needs_erase: false,
     readable: true,
     writable: true,

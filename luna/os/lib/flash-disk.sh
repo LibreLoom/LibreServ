@@ -1,8 +1,9 @@
 #!/bin/sh
 # Write Luna OS onto a whole disk so it can start on ordinary x86_64 machines:
 # BIOS (mini PCs, older boxes) and UEFI (Wyse 3040, modern mini PCs).
-# GPT: 1 MiB bios_grub + ESP + ext4 root. GRUB is installed for i386-pc and
-# x86_64-efi (--removable, no NVRAM). At least one of those must succeed.
+# GPT: bios_grub + ESP + LUNA_A + LUNA_B + LUNA_DATA.
+# Both OS slots get the same rootfs at factory. GRUB tryboot picks the slot;
+# Luna state lives on LUNA_DATA mounted at /var/lib/luna.
 
 _wait_block() {
 	_path="$1"
@@ -31,56 +32,102 @@ _find_boot_images() {
 	printf '%s\n' "$_k" "$_i"
 }
 
-# Main GRUB menu on the Luna root partition (/boot/grub/grub.cfg).
+# Dual-slot GRUB menu with tryboot. Lives on the ESP so rewriting a slot
+# cannot erase the bootloader config. grubenv keys:
+#   luna_slot=A|B  luna_boot_ok=0|1  luna_tries=0|1|2|3
 _write_grub_cfg() {
-	_rootmnt="$1"
-	_root_uuid="$2"
-	_k="$3"
-	_i="$4"
+	_cfgpath="$1"
+	_uuid_a="$2"
+	_uuid_b="$3"
+	_k="$4"
+	_i="$5"
 
-	mkdir -p "$_rootmnt/boot/grub"
+	mkdir -p "$(dirname "$_cfgpath")"
 	{
 		echo 'set timeout=2'
 		echo 'set default=0'
+		echo 'insmod part_gpt'
+		echo 'insmod ext2'
+		echo 'insmod fat'
+		echo 'insmod search'
+		echo 'insmod search_fs_uuid'
+		echo 'insmod search_label'
+		echo 'insmod loadenv'
+		echo 'search --no-floppy --label LUNAESP --set=esp'
+		echo 'set envfile=($esp)/grub/grubenv'
+		echo 'load_env -f $envfile'
+		echo 'if [ -z "$luna_slot" ]; then set luna_slot=A; fi'
+		echo 'if [ -z "$luna_boot_ok" ]; then set luna_boot_ok=1; fi'
+		echo 'if [ -z "$luna_tries" ]; then set luna_tries=3; fi'
+		# Failed boot: count down tries, then flip to the other slot.
+		echo 'if [ "$luna_boot_ok" != "1" ]; then'
+		echo '  if [ "$luna_tries" = "0" ]; then'
+		echo '    if [ "$luna_slot" = "B" ]; then set luna_slot=A; else set luna_slot=B; fi'
+		echo '    set luna_boot_ok=1'
+		echo '    set luna_tries=3'
+		echo '    save_env -f $envfile luna_slot luna_boot_ok luna_tries'
+		echo '  elif [ "$luna_tries" = "1" ]; then'
+		echo '    set luna_tries=0'
+		echo '    save_env -f $envfile luna_tries'
+		echo '  elif [ "$luna_tries" = "2" ]; then'
+		echo '    set luna_tries=1'
+		echo '    save_env -f $envfile luna_tries'
+		echo '  else'
+		echo '    set luna_tries=2'
+		echo '    save_env -f $envfile luna_tries'
+		echo '  fi'
+		echo 'fi'
 		echo 'menuentry "Luna" {'
-		echo '    insmod part_gpt'
-		# GRUB's ext2.mod reads ext2/ext3/ext4; there is no separate ext4.mod.
-		echo '    insmod ext2'
-		echo '    insmod search'
-		echo '    insmod search_fs_uuid'
-		echo "    search --no-floppy --fs-uuid --set=root ${_root_uuid}"
-		echo "    linux /boot/${_k} root=UUID=${_root_uuid} modules=ext4 rootfstype=ext4 quiet"
+		echo '    if [ "$luna_slot" = "B" ]; then'
+		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime quiet"
+		echo '    else'
+		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime quiet"
+		echo '    fi'
 		echo "    initrd /boot/${_i}"
 		echo '}'
-	} >"$_rootmnt/boot/grub/grub.cfg"
+	} >"$_cfgpath"
 }
 
-# UEFI fallback loader on the ESP — chain-loads the root config by UUID.
+# UEFI fallback loader on the ESP — loads the shared grub.cfg next to grubenv.
 _write_efi_grub_cfg() {
 	_espmnt="$1"
-	_root_uuid="$2"
 
 	mkdir -p "$_espmnt/EFI/BOOT/grub"
 	{
 		echo 'insmod part_gpt'
 		echo 'insmod fat'
-		# ext2.mod covers ext4 on the Luna root partition.
-		echo 'insmod ext2'
 		echo 'insmod search'
-		echo 'insmod search_fs_uuid'
-		echo "search --no-floppy --fs-uuid --set=root ${_root_uuid}"
-		echo 'set prefix=($root)/boot/grub'
+		echo 'insmod search_label'
+		echo 'search --no-floppy --label LUNAESP --set=root'
+		echo 'set prefix=($root)/grub'
 		echo 'export prefix'
 		echo 'configfile $prefix/grub.cfg'
 	} >"$_espmnt/EFI/BOOT/grub/grub.cfg"
 }
 
+_write_grubenv() {
+	_espmnt="$1"
+	_slot="${2:-A}"
+	mkdir -p "$_espmnt/grub"
+	# grub-editenv creates a 1024-byte env block; fall back to a minimal file.
+	if command -v grub-editenv >/dev/null 2>&1; then
+		grub-editenv "$_espmnt/grub/grubenv" create
+		grub-editenv "$_espmnt/grub/grubenv" set "luna_slot=$_slot"
+		grub-editenv "$_espmnt/grub/grubenv" set "luna_boot_ok=1"
+		grub-editenv "$_espmnt/grub/grubenv" set "luna_tries=3"
+	else
+		# Placeholder; real media always has grub-editenv from the ISO.
+		printf '# GRUB Environment Block\nluna_slot=%s\nluna_boot_ok=1\nluna_tries=3\n' "$_slot" >"$_espmnt/grub/grubenv"
+	fi
+}
+
 # Debian live's grub-install puts BOOTX64.EFI on the ESP but often does not
 # populate ($root)/boot/grub/x86_64-efi/*.mod. The ESP chainloader sets
-# prefix=($root)/boot/grub, so insmod ext2 fails with "file not found".
-# Note: GRUB uses ext2.mod for ext4 filesystems — there is no ext4.mod.
+# prefix=($root)/grub, so modules must live under ESP/grub/<platform>/.
 _install_grub_modules() {
-	_rootmnt="$1"
+	_bootdir="$1"
 	_platform="$2"
 	_modsrc=""
 	case "$_platform" in
@@ -109,7 +156,7 @@ _install_grub_modules() {
 		echo "GRUB $_platform modules not found in the installer environment." >&2
 		return 1
 	fi
-	_destdir="$_rootmnt/boot/grub/$_platform"
+	_destdir="$_bootdir/$_platform"
 	mkdir -p "$_destdir"
 	cp -a "$_modsrc"/*.mod "$_destdir/" 2>/dev/null || true
 	cp -a "$_modsrc"/*.lst "$_destdir/" 2>/dev/null || true
@@ -118,9 +165,7 @@ _install_grub_modules() {
 		return 1
 	fi
 }
-# True when the device, any of its partitions, or an eMMC aux node of it is
-# currently mounted. Reads /proc/mounts directly so it works everywhere
-# busybox does, without depending on lsblk/findmnt being present.
+
 _disk_is_mounted() {
 	_base="$(block_name "$1")"
 	while read -r _src _rest; do
@@ -134,9 +179,6 @@ _disk_is_mounted() {
 	return 1
 }
 
-# Every pre-flight refusal, kept as one function so nothing destructive can
-# run until all of them pass. Tests drive this directly to pin the
-# refuse-before-wipe ordering.
 _flash_guards() {
 	_dev="$1"
 	_tarball="$2"
@@ -153,8 +195,6 @@ _flash_guards() {
 		echo "That disk is the USB stick this installer booted from. Luna will not erase it." >&2
 		return 2
 	fi
-	# Tests cannot create real block devices; LUNA_FAKE_BLOCK skips only the
-	# existence probe, never a safety check.
 	if [ ! -b "$_dev" ] && [ -z "${LUNA_FAKE_BLOCK:-}" ]; then
 		echo "No disk at $_dev." >&2
 		return 2
@@ -174,17 +214,46 @@ _flash_guards() {
 	return 0
 }
 
+# Extract rootfs onto a mounted slot and stamp fstab for LUNA_DATA.
+_populate_slot() {
+	_mnt="$1"
+	_tarball="$2"
+	_label="$3"
+	tar -xzf "$_tarball" -C "$_mnt"
+	# Ensure data mountpoint exists; fstab is completed by build-rootfs, but
+	# older tarballs may lack the LUNA_DATA line — append if missing.
+	mkdir -p "$_mnt/var/lib/luna"
+	if [ -f "$_mnt/etc/fstab" ] && ! grep -q 'LABEL=LUNA_DATA' "$_mnt/etc/fstab" 2>/dev/null; then
+		printf 'LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2\n' >>"$_mnt/etc/fstab"
+	fi
+	# Slot identity for operators (not a Settings split).
+	printf 'slot=%s\n' "$_label" >"$_mnt/etc/luna-slot"
+}
+
+# Record the OS image SHA256 onto the data partition so OTA can compare.
+_write_os_image_hash() {
+	_datamnt="$1"
+	_hash="$2"
+	mkdir -p "$_datamnt"
+	printf '%s\n' "$_hash" >"$_datamnt/os-image.sha256"
+	chmod 644 "$_datamnt/os-image.sha256"
+}
+
 flash_luna_disk() {
 	_dev="$1"
 	_tarball="$2"
+	# Optional third arg: path to luna-os-*.img (or its .sha256 companion via env).
+	_slot_img="${3:-${LUNA_OS_IMAGE:-}}"
 	_flash_guards "$_dev" "$_tarball" || return
 
 	_bios="$(partition_bios_grub "$_dev")"
 	_esp="$(partition_esp "$_dev")"
-	_root="$(partition_root "$_dev")"
+	_root_a="$(partition_root_a "$_dev")"
+	_root_b="$(partition_root_b "$_dev")"
+	_data="$(partition_data "$_dev")"
+	_slot_sectors=$((LUNA_SLOT_SIZE_MIB * 2048))
 
-	echo "==> partitioning $_dev (GPT, BIOS + UEFI)"
-	# bios_grub: GRUB's core.img on BIOS machines. ESP: UEFI. Root: Luna.
+	echo "==> partitioning $_dev (GPT, BIOS + UEFI, A/B + data)"
 	sfdisk --wipe always "$_dev" <<PART
 label: gpt
 unit: sectors
@@ -192,85 +261,135 @@ first-lba: 2048
 
 start=2048, size=2048, type=21686148-6449-6E6F-744E-656564454649, name=BIOSGRUB
 size=262144, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP, bootable
-type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=LUNA
+size=${_slot_sectors}, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=LUNA_A
+size=${_slot_sectors}, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=LUNA_B
+type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=LUNA_DATA
 PART
 	sleep 1
 	if command -v partprobe >/dev/null 2>&1; then
 		partprobe "$_dev" 2>/dev/null || true
 	fi
-	if ! _wait_block "$_bios" || ! _wait_block "$_esp" || ! _wait_block "$_root"; then
+	if ! _wait_block "$_bios" || ! _wait_block "$_esp" || ! _wait_block "$_root_a" \
+		|| ! _wait_block "$_root_b" || ! _wait_block "$_data"; then
 		echo "The new partitions never appeared. Stopped before erasing further." >&2
 		return 1
 	fi
 
-	echo "==> formatting EFI and Luna partitions"
+	echo "==> formatting EFI, OS slots, and data"
 	mkfs.vfat -F 32 -n LUNAESP "$_esp"
-	mkfs.ext4 -F -L LUNA "$_root"
-	_root_uuid="$(blkid -s UUID -o value "$_root")"
-	if [ -z "$_root_uuid" ]; then
-		echo "Could not read the Luna partition UUID for GRUB." >&2
+	if [ -n "$_slot_img" ] && [ -f "$_slot_img" ]; then
+		echo "==> writing OS image to slot A and slot B"
+		dd if="$_slot_img" of="$_root_a" bs=4M status=none conv=fsync
+		dd if="$_slot_img" of="$_root_b" bs=4M status=none conv=fsync
+		# Relabel in case the image carried a generic label.
+		e2label "$_root_a" LUNA_A 2>/dev/null || true
+		e2label "$_root_b" LUNA_B 2>/dev/null || true
+		_os_hash="$(sha256sum "$_slot_img" | awk '{print $1}')"
+	else
+		mkfs.ext4 -F -L LUNA_A "$_root_a"
+		mkfs.ext4 -F -L LUNA_B "$_root_b"
+		_os_hash=""
+	fi
+	mkfs.ext4 -F -L LUNA_DATA "$_data"
+	_uuid_a="$(blkid -s UUID -o value "$_root_a")"
+	_uuid_b="$(blkid -s UUID -o value "$_root_b")"
+	if [ -z "$_uuid_a" ] || [ -z "$_uuid_b" ]; then
+		echo "Could not read the Luna slot UUIDs for GRUB." >&2
 		return 1
 	fi
 
-	_mnt="$(mktemp -d /tmp/luna-root.XXXXXX)" || {
-		echo "Could not create a temporary mount point. Stopped before writing anything." >&2
+	_mnt_a="$(mktemp -d /tmp/luna-a.XXXXXX)" || return 1
+	_mnt_b="$(mktemp -d /tmp/luna-b.XXXXXX)" || {
+		rmdir "$_mnt_a" 2>/dev/null || true
 		return 1
 	}
 	_espmnt="$(mktemp -d /tmp/luna-esp.XXXXXX)" || {
-		rmdir "$_mnt" 2>/dev/null || true
-		echo "Could not create a temporary mount point. Stopped before writing anything." >&2
+		rmdir "$_mnt_a" "$_mnt_b" 2>/dev/null || true
 		return 1
 	}
-	# Check every mount: after the wipe above, extracting to a mount that
-	# silently failed would pour the rootfs into the installer's tmpfs.
-	if ! mount "$_root" "$_mnt"; then
-		echo "Mounting the new Luna partition failed. The disk is partitioned but empty — re-run to retry." >&2
-		rmdir "$_mnt" "$_espmnt" 2>/dev/null || true
+	_datamnt="$(mktemp -d /tmp/luna-data.XXXXXX)" || {
+		rmdir "$_mnt_a" "$_mnt_b" "$_espmnt" 2>/dev/null || true
+		return 1
+	}
+	# shellcheck disable=SC2064
+	trap 'umount "${_datamnt:-}" 2>/dev/null || true; umount "${_espmnt:-}" 2>/dev/null || true; umount "${_mnt_b:-}" 2>/dev/null || true; umount "${_mnt_a:-}" 2>/dev/null || true; rmdir "${_datamnt:-}" "${_espmnt:-}" "${_mnt_b:-}" "${_mnt_a:-}" 2>/dev/null || true; trap - EXIT INT' EXIT INT
+
+	if ! mount "$_root_a" "$_mnt_a"; then
+		echo "Mounting slot A failed." >&2
+		return 1
+	fi
+	if ! mount "$_root_b" "$_mnt_b"; then
+		echo "Mounting slot B failed." >&2
 		return 1
 	fi
 	if ! mount "$_esp" "$_espmnt"; then
-		echo "Mounting the new EFI partition failed. The disk is partitioned but empty — re-run to retry." >&2
-		umount "$_mnt" 2>/dev/null || true
-		rmdir "$_mnt" "$_espmnt" 2>/dev/null || true
+		echo "Mounting the EFI partition failed." >&2
 		return 1
 	fi
-	# shellcheck disable=SC2064
-	trap 'umount "${_espmnt:-}" 2>/dev/null || true; umount "${_mnt:-}" 2>/dev/null || true; rmdir "${_espmnt:-}" "${_mnt:-}" 2>/dev/null || true; trap - EXIT INT' EXIT INT
+	if ! mount "$_data" "$_datamnt"; then
+		echo "Mounting the data partition failed." >&2
+		return 1
+	fi
 
-	echo "==> extracting Luna OS"
-	tar -xzf "$_tarball" -C "$_mnt"
+	if [ -z "$_slot_img" ] || [ ! -f "$_slot_img" ]; then
+		echo "==> extracting Luna OS onto slot A and slot B"
+		_populate_slot "$_mnt_a" "$_tarball" A
+		_populate_slot "$_mnt_b" "$_tarball" B
+		# Hash of a deterministic stamp when no release image is present.
+		if [ -f "$_mnt_a/etc/apk-manifest.txt" ]; then
+			_os_hash="$(sha256sum "$_mnt_a/etc/apk-manifest.txt" | awk '{print $1}')"
+		fi
+	else
+		# Image already written; still ensure mountpoints/labels for GRUB probe.
+		mkdir -p "$_mnt_a/var/lib/luna" "$_mnt_b/var/lib/luna"
+		printf 'slot=A\n' >"$_mnt_a/etc/luna-slot"
+		printf 'slot=B\n' >"$_mnt_b/etc/luna-slot"
+	fi
 
-	echo "==> installing bootloader (BIOS and UEFI)"
-	mkdir -p "$_mnt/boot" "$_espmnt/EFI/BOOT"
-	if ! _boot_imgs="$(_find_boot_images "$_mnt")"; then
+	if [ -n "$_os_hash" ]; then
+		_write_os_image_hash "$_datamnt" "$_os_hash"
+	fi
+
+	echo "==> installing bootloader (BIOS and UEFI, A/B tryboot)"
+	mkdir -p "$_espmnt/EFI/BOOT" "$_espmnt/grub"
+	if ! _boot_imgs="$(_find_boot_images "$_mnt_a")"; then
 		return 1
 	fi
 	_k="$(printf '%s\n' "$_boot_imgs" | sed -n '1p')"
 	_i="$(printf '%s\n' "$_boot_imgs" | sed -n '2p')"
-	if ! _write_grub_cfg "$_mnt" "$_root_uuid" "$_k" "$_i"; then
-		return 1
-	fi
-	_write_efi_grub_cfg "$_espmnt" "$_root_uuid"
+	_write_grub_cfg "$_espmnt/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
+	# Mirror onto both slots so a BIOS boot-directory fallback still works.
+	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
+	_write_efi_grub_cfg "$_espmnt"
+	_write_grubenv "$_espmnt" A
 
 	_bios_ok=0
 	_efi_ok=0
-	if grub-install --target=i386-pc --boot-directory="$_mnt/boot" --root-directory="$_mnt" "$_dev"; then
+	# Prefer ESP as boot-directory so slot rewrites do not erase GRUB modules.
+	if grub-install --target=i386-pc --boot-directory="$_espmnt/grub" "$_dev"; then
+		_bios_ok=1
+	elif grub-install --target=i386-pc --boot-directory="$_mnt_a/boot" --root-directory="$_mnt_a" "$_dev"; then
 		_bios_ok=1
 	fi
 	if grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_mnt/boot" --root-directory="$_mnt" --removable --no-nvram "$_dev"; then
+		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev"; then
 		_efi_ok=1
 	fi
 	grub-install --target=i386-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_mnt/boot" --root-directory="$_mnt" --removable --no-nvram "$_dev" 2>/dev/null || true
+		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev" 2>/dev/null || true
 	if [ -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] || [ -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
 		_efi_ok=1
 	fi
-	if ! _install_grub_modules "$_mnt" x86_64-efi; then
-		echo "UEFI GRUB modules could not be installed on the Luna partition." >&2
-		return 1
+	if ! _install_grub_modules "$_espmnt/grub" x86_64-efi; then
+		# Fall back to modules on slot A (legacy path).
+		_install_grub_modules "$_mnt_a/boot/grub" x86_64-efi || {
+			echo "UEFI GRUB modules could not be installed." >&2
+			return 1
+		}
 	fi
-	_install_grub_modules "$_mnt" i386-pc 2>/dev/null || true
+	_install_grub_modules "$_espmnt/grub" i386-pc 2>/dev/null || true
+	_install_grub_modules "$_mnt_a/boot/grub" i386-pc 2>/dev/null || true
 	if [ "$_bios_ok" -eq 0 ] && [ "$_efi_ok" -eq 0 ]; then
 		echo "GRUB could not install a BIOS or UEFI bootloader. This computer would not start after reboot." >&2
 		return 1
@@ -278,8 +397,10 @@ PART
 
 	echo "==> syncing"
 	sync
+	umount "$_datamnt"
 	umount "$_espmnt"
-	umount "$_mnt"
-	rmdir "$_espmnt" "$_mnt" 2>/dev/null || true
+	umount "$_mnt_b"
+	umount "$_mnt_a"
+	rmdir "$_datamnt" "$_espmnt" "$_mnt_b" "$_mnt_a" 2>/dev/null || true
 	trap - EXIT INT
 }

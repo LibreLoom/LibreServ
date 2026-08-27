@@ -22,6 +22,9 @@ disk both boot in either firmware mode.
 ./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
 #    Or after a rootfs already exists:
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
+#    If live-build fails with "umount: chroot/proc: target is busy" (common when
+#    an IDE indexer holds fds under the repo), rebuild with:
+#    LUNA_LIVE_WORK=/var/tmp/luna-debian-live ./os/make-iso.sh
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
 #    GRUB should load Linux on its own. You should see "Luna rapidinstall"
@@ -44,13 +47,14 @@ disk both boot in either firmware mode.
 ./os/flash.sh /dev/sdX                # also /dev/nvme0n1 /dev/mmcblk0
 ```
 
-Installed layout (GPT): 1 MiB BIOS GRUB partition, EFI System partition,
-then Luna root (`LABEL=LUNA`). GRUB is installed for `i386-pc` and
-`x86_64-efi`.
+Installed layout (GPT): 1 MiB BIOS GRUB, EFI System partition (`LUNAESP`),
+OS slot A (`LUNA_A`), OS slot B (`LUNA_B`), and data (`LUNA_DATA` at
+`/var/lib/luna`). GRUB tryboot selects the slot; a failed boot rolls back.
+GRUB is installed for `i386-pc` and `x86_64-efi`.
 
 This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system. The
 rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
-support, then flashes the Alpine rootfs above.
+support, then flashes the Alpine OS slots above.
 
 Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem. Phone stays
 on home Wi-Fi. Open the address shown on Luna's screen, or try `luna.local`.
@@ -67,14 +71,15 @@ If you build a custom rootfs without those packages, HEIC files still appear in
 the gallery when they have EXIF, but previews stay empty until `heif-dec` is
 installed.
 
-## Software updates (no re-flash)
+## Software updates
 
 Lunad looks at Forgejo tags that start with `luna-v` (for example `luna-v0.2.0`)
 on `LibreLoom/LibreServ`. LibreServ releases stay on `v*` (for example `v0.0.13`)
 and are ignored by the Luna updater. Release assets:
 
-- `lunad-linux-amd64` (or `lunad-linux-arm64`)
-- `luna-rapidinstall-x86_64.iso` on OS cuts
+- `lunad-linux-amd64` (or `lunad-linux-arm64`) — always
+- `luna-os-x86_64.img` — OS cuts only (raw A/B slot image; no Luna state)
+- `luna-rapidinstall-x86_64.iso` — OS cuts only (factory / recovery USB)
 - `SHA256SUMS.txt` (required)
 - `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/releases.minisign.pub`)
 
@@ -85,6 +90,13 @@ minisign -Vm SHA256SUMS.txt -p keys/releases.minisign.pub
 sha256sum -c SHA256SUMS.txt
 ```
 
-An admin taps **Install update** in Settings. That downloads the lunad binary, checks the signature then the checksum, replaces `/usr/local/bin/lunad`, and exits so OpenRC restarts the daemon. A missing or wrong signature installs nothing. A new OS image is only needed for a full re-flash, not for ordinary lunad updates.
+An admin taps **Install update** in Settings. That downloads the lunad binary
+(when newer), checks the signature then the checksum, and installs it under
+`/var/lib/luna/bin/lunad` on the data partition. If the release includes
+`luna-os-x86_64.img` and its SHA256 differs from the hash stored on data, the
+same tap also writes that image to the inactive OS slot and reboots into it
+(GRUB tryboot; a bad boot falls back). Settings does not split “software” vs
+“system” — OS need and apply are automatic from the hash. A missing or wrong
+signature installs nothing.
 
 Env overrides: `LUNA_UPDATES_API`, `LUNA_UPDATES_OWNER`, `LUNA_UPDATES_REPO`.

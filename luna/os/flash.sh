@@ -3,7 +3,7 @@
 #
 # Workstation: pull a SATA/NVMe drive and pass /dev/sdX.
 # Thin client: boot the rapidinstall ISO instead — eMMC is /dev/mmcblk0
-# (UEFI GPT: ESP + root) and is not meant to be removed.
+# (UEFI GPT: ESP + LUNA_A + LUNA_B + LUNA_DATA) and is not meant to be removed.
 set -eu
 
 if [ "$#" -ne 1 ]; then
@@ -39,5 +39,10 @@ if [ "$CONFIRM" != "$DEV" ]; then
 	exit 1
 fi
 
-flash_luna_disk "$DEV" "$TARBALL"
+SLOT_IMG="$ROOT/os/dist/luna-os-$ARCH.img"
+if [ -f "$SLOT_IMG" ]; then
+	flash_luna_disk "$DEV" "$TARBALL" "$SLOT_IMG"
+else
+	flash_luna_disk "$DEV" "$TARBALL"
+fi
 echo "If this was a removable drive: power off, install it in the Luna, and boot."

@@ -1,10 +1,46 @@
 let refreshPromise = null;
 
+/** Module-level CSRF token so every mutating `api()` call can attach it. */
+let csrfTokenValue = /** @type {string | null} */ (null);
+
+/** @param {string | null | undefined} token */
+export function setCsrfToken(token) {
+  csrfTokenValue = token || null;
+}
+
+export function getCsrfToken() {
+  return csrfTokenValue;
+}
+
 export class AuthError extends Error {
   constructor(message) {
     super(message);
     this.name = "AuthError";
   }
+}
+
+function isNetworkFailureMessage(raw) {
+  return /networkerror|failed to fetch|load failed|network request failed|fetch failed|aborted|econnrefused|econnreset/i.test(
+    String(raw || ""),
+  );
+}
+
+/** Plain-language message for opaque browser/network failures. */
+export function apiErrorMessage(err, fallback = "Couldn't reach LibreServ. Check this device's connection and try again.") {
+  if (!err) return fallback;
+  const raw = String(err.message || err).replace(/^Error:\s*/i, "");
+  if (isNetworkFailureMessage(raw)) {
+    return "Couldn't reach LibreServ. Check this device's connection and try again.";
+  }
+  return raw || fallback;
+}
+
+function headerLookup(headers, name) {
+  const target = name.toLowerCase();
+  for (const key of Object.keys(headers || {})) {
+    if (key.toLowerCase() === target) return headers[key];
+  }
+  return undefined;
 }
 
 /** @param {string} path @param {{ [key: string]: any }} [options] @param {boolean} [retried] */
@@ -20,11 +56,26 @@ export default async function api(path, options = {}, retried = false) {
       headers["X-Setup-Token"] = setupToken;
     }
   }
-  const res = await fetch(url, {
-    credentials: "include",
-    ...fetchOptions,
-    headers,
-  });
+  const method = String(fetchOptions.method || "GET").toUpperCase();
+  const isWrite = method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
+  // Attach CSRF for cookie-authenticated mutations unless the caller already
+  // set the header (connect-api / settings-api still pass it explicitly).
+  if (isWrite && csrfTokenValue && !headerLookup(headers, "X-CSRF-Token")) {
+    headers["X-CSRF-Token"] = csrfTokenValue;
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      credentials: "include",
+      ...fetchOptions,
+      headers,
+    });
+  } catch (err) {
+    const wrapped = /** @type {any} */ (new Error(apiErrorMessage(err)));
+    wrapped.cause = { status: 0, network: true };
+    throw wrapped;
+  }
   if (
     res.status === 401 &&
     !(
@@ -79,6 +130,11 @@ export default async function api(path, options = {}, retried = false) {
       }
     } catch {
       // Response body wasn't JSON; fall back to status-only message
+    }
+    // Prefer plain language for CSRF denials that callers might otherwise
+    // surface as opaque failures.
+    if (res.status === 403 && /csrf/i.test(message)) {
+      message = "This page expired. Refresh LibreServ and try again.";
     }
     const err = /** @type {any} */ (new Error(message));
     err.cause = { status: res.status, response: res };

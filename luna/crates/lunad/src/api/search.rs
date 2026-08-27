@@ -54,17 +54,28 @@ async fn search(
         )
     })?;
     let mut out = Vec::new();
-    for (drive_id, parent, name) in rows {
-        let full = if parent.is_empty() {
-            name.clone()
+    for hit in rows {
+        let full = if hit.parent.is_empty() {
+            hit.name.clone()
         } else {
-            format!("{parent}/{name}")
+            format!("{}/{}", hit.parent, hit.name)
         };
         if full == ".luna-trash" || full.starts_with(".luna-trash/") {
             continue;
         }
-        if crate::auth::can_access(&user, &conn, &drive_id, &full, false) {
-            out.push(json!({ "drive_id": drive_id, "path": full, "name": name }));
+        if crate::protect::is_protected_store(&full) {
+            continue;
+        }
+        if crate::auth::can_access(&user, &conn, &hit.drive_id, &full, false) {
+            out.push(json!({
+                "drive_id": hit.drive_id,
+                "path": full,
+                "parent": hit.parent,
+                "name": hit.name,
+                "kind": hit.kind,
+                "size": hit.size,
+                "modified": hit.modified,
+            }));
         }
     }
     Ok(Json(out))
@@ -82,22 +93,18 @@ async fn reindex(
     }
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
-        let drives = {
+        let mounts: Vec<(String, String)> = {
             let conn = db.lock().unwrap();
-            crate::db::list_drives(&conn).unwrap_or_default()
+            crate::db::list_drives(&conn)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|drive| drive.state == "as_is" && !drive.mount_point.is_empty())
+                .map(|drive| (drive.id, drive.mount_point))
+                .collect()
         };
         let mut dirs = 0u64;
-        for drive in drives {
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
-                continue;
-            }
-            // index::scan_drive still needs the connection for writes, but we
-            // re-lock per drive so a long walk of one disk does not block the
-            // whole API for unrelated drives forever. (Gallery already unlocks
-            // per photo; file index is lighter and stays per-drive.)
-            let conn = db.lock().unwrap();
-            if let Ok(n) =
-                crate::index::scan_drive(&conn, &drive.id, std::path::Path::new(&drive.mount_point))
+        for (id, mount) in mounts {
+            if let Ok(n) = crate::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
             {
                 dirs += n;
             }
@@ -159,8 +166,7 @@ async fn start_scrub(
     let db = state.db.clone();
     let flag = state.scrub_running.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        let _ = crate::scrub::scrub_all_drives(&conn);
+        let _ = crate::scrub::scrub_all_drives_unlocked(&db);
         flag.store(false, std::sync::atomic::Ordering::SeqCst);
     });
     Ok(Json(

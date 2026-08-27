@@ -17,4 +17,4 @@ pub use path::{
     PathError, is_under_prefix, open_nofollow, resolve_child, resolve_child_nofollow,
     resolve_for_create_nofollow,
 };
-pub use scan::{TopLevelSummary, scan_top_level};
+pub use scan::{TopLevelEntry, TopLevelSummary, scan_top_level};

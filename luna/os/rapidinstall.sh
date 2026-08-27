@@ -18,6 +18,19 @@ HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 ARCH="${ARCH:-x86_64}"
 TARBALL="${LUNA_ROOTFS:-$HERE/luna-rootfs-$ARCH.tar.gz}"
 
+# QEMU / automation: allow overrides from the kernel command line.
+if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
+	for _tok in $(cat /proc/cmdline); do
+		case "$_tok" in
+		LUNA_TARGET=*) LUNA_TARGET="${_tok#LUNA_TARGET=}" ;;
+		LUNA_INSTALL_MEDIA=*) LUNA_INSTALL_MEDIA="${_tok#LUNA_INSTALL_MEDIA=}" ;;
+		LUNA_OVERRIDE_WAIT=*) LUNA_OVERRIDE_WAIT="${_tok#LUNA_OVERRIDE_WAIT=}" ;;
+		LUNA_ROOTFS=*) LUNA_ROOTFS="${_tok#LUNA_ROOTFS=}"; TARBALL="$LUNA_ROOTFS" ;;
+		esac
+	done
+	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_ROOTFS
+fi
+
 discover_install_disk() {
 	_src="${LUNA_INSTALL_MEDIA:-}"
 	if [ -z "$_src" ] && [ -f /proc/mounts ]; then
@@ -203,7 +216,15 @@ if skip_disk "$TARGET"; then
 fi
 
 echo "Erasing $TARGET and installing Luna."
-if ! flash_luna_disk "$TARGET" "$TARBALL"; then
+# Prefer a slot image next to the tarball when the ISO staged one (OS cuts).
+_slot_img=""
+for _cand in "$HERE/luna-os-x86_64.img" "$HERE/../luna-os-x86_64.img"; do
+	if [ -f "$_cand" ]; then
+		_slot_img="$_cand"
+		break
+	fi
+done
+if ! flash_luna_disk "$TARGET" "$TARBALL" "${_slot_img:-}"; then
 	echo
 	echo "Install failed. The disk may be half-written — do not reboot into it yet."
 	echo "Fix the error above, or re-run from the USB stick."
@@ -212,10 +233,10 @@ fi
 echo
 echo "Installation complete."
 
-# Official booklet code: peel TOKENS from LUNAASSETS, else legacy setup-token, else paste.
-_rootp="$(partition_root "$TARGET")"
+# Official booklet code + OS hash live on LUNA_DATA, not on an OS slot.
+_datap="$(partition_data "$TARGET")"
 _mnt="$(mktemp -d)"
-if mount "$_rootp" "$_mnt" 2>/dev/null; then
+if mount "$_datap" "$_mnt" 2>/dev/null; then
 	if ! factory_apply_setup_token "$_mnt" "$HERE"; then
 		umount "$_mnt" 2>/dev/null || true
 		rmdir "$_mnt" 2>/dev/null || true
@@ -223,6 +244,12 @@ if mount "$_rootp" "$_mnt" 2>/dev/null; then
 		echo "Install wrote the disk, but the official setup code step failed."
 		echo "Fix the TOKENS magazine on LUNAASSETS (or use setup-token), then re-run."
 		exit 1
+	fi
+	# If flash already wrote os-image.sha256, keep it; else copy from staged image.
+	if [ ! -f "$_mnt/os-image.sha256" ] && [ -n "$_slot_img" ] && [ -f "${_slot_img}.sha256" ]; then
+		cp "${_slot_img}.sha256" "$_mnt/os-image.sha256"
+	elif [ ! -f "$_mnt/os-image.sha256" ] && [ -n "$_slot_img" ]; then
+		sha256sum "$_slot_img" | awk '{print $1}' >"$_mnt/os-image.sha256"
 	fi
 	umount "$_mnt" 2>/dev/null || true
 fi

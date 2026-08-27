@@ -40,24 +40,31 @@ mkdir -p "$_tmp/boot"
 printf 'kernel\n' >"$_tmp/boot/vmlinuz-lts"
 printf 'initrd\n' >"$_tmp/boot/initramfs-lts"
 
-_write_grub_cfg "$_tmp" '11111111-2222-3333-4444-555555555555' vmlinuz-lts initramfs-lts
-assert_has "$_tmp/boot/grub/grub.cfg" 'menuentry "Luna"' "root grub.cfg needs Luna menuentry"
-assert_has "$_tmp/boot/grub/grub.cfg" 'search_fs_uuid' "root grub.cfg must search by UUID"
-assert_has "$_tmp/boot/grub/grub.cfg" 'root=UUID=11111111-2222-3333-4444-555555555555' "root grub.cfg must pass root UUID"
+mkdir -p "$_tmp/grub"
+_write_grub_cfg "$_tmp/grub/grub.cfg" \
+	'11111111-2222-3333-4444-555555555555' \
+	'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' \
+	vmlinuz-lts initramfs-lts
+assert_has "$_tmp/grub/grub.cfg" 'menuentry "Luna"' "grub.cfg needs Luna menuentry"
+assert_has "$_tmp/grub/grub.cfg" 'search_fs_uuid' "grub.cfg must search by UUID"
+assert_has "$_tmp/grub/grub.cfg" 'root=UUID=11111111-2222-3333-4444-555555555555' "grub.cfg must pass slot A UUID"
+assert_has "$_tmp/grub/grub.cfg" 'root=UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' "grub.cfg must pass slot B UUID"
+assert_has "$_tmp/grub/grub.cfg" 'rootflags=ro,noatime' "grub.cfg must mount OS slots read-only + noatime"
+assert_has "$_tmp/grub/grub.cfg" 'luna_slot' "grub.cfg must implement A/B tryboot via luna_slot"
+assert_has "$_tmp/grub/grub.cfg" 'luna_boot_ok' "grub.cfg must track luna_boot_ok for rollback"
 
 _esptmp="$(mktemp -d)"
-_write_efi_grub_cfg "$_esptmp" '11111111-2222-3333-4444-555555555555'
-assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'configfile $prefix/grub.cfg' "ESP grub.cfg must chain to root"
-assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" '11111111-2222-3333-4444-555555555555' "ESP grub.cfg must search root UUID"
+_write_efi_grub_cfg "$_esptmp"
+assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'configfile $prefix/grub.cfg' "ESP grub.cfg must chain to shared grub"
+assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'LUNAESP' "ESP grub.cfg must find the ESP by label"
 
 if [ -f /usr/lib/grub/x86_64-efi/ext2.mod ]; then
-	_install_grub_modules "$_tmp" x86_64-efi
-	[ -f "$_tmp/boot/grub/x86_64-efi/ext2.mod" ] || {
+	_install_grub_modules "$_tmp/grub" x86_64-efi
+	[ -f "$_tmp/grub/x86_64-efi/ext2.mod" ] || {
 		echo "FAIL must copy ext2.mod for UEFI" >&2
 		fail=$((fail + 1))
 	}
 fi
-
 assert_file_lacks() {
 	_file="$1"
 	_pat="$2"
@@ -67,7 +74,7 @@ assert_file_lacks() {
 		fail=$((fail + 1))
 	fi
 }
-assert_file_lacks "$_tmp/boot/grub/grub.cfg" 'insmod ext4' "grub.cfg must use ext2.mod, not ext4"
+assert_file_lacks "$_tmp/grub/grub.cfg" 'insmod ext4' "grub.cfg must use ext2.mod, not ext4"
 # Mounted-disk guard: flash_luna_disk refuses any device whose whole node or
 # partitions appear mounted. A full trigger needs a real block device (root),
 # so assert the classification the guard acts on via LUNA_PROC_MOUNTS.

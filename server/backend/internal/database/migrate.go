@@ -15,12 +15,35 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// legacyMigrationVersions are the old numbered migrations that were squashed
+// into 001_schema.sql. Existing databases may still have these recorded in
+// schema_migrations; we reconcile them so only 001 is required going forward.
+var legacyMigrationVersions = []string{
+	"002_api_tokens.sql",
+	"003_mfa.sql",
+	"004_invite_tokens.sql",
+	"005_oidc.sql",
+	"006_oidc_signing_key_unique.sql",
+	"007_path_state.sql",
+	"008_dns_rfc2136.sql",
+	"009_drop_legacy_support.sql",
+}
+
+const consolidatedMigrationVersion = "001_schema.sql"
+
 // Migrate applies pending database migrations.
 // SQL migrations run first (if any), then cleanup/legacy migrations always run.
 func (d *DB) Migrate() error {
 	// 1. Ensure schema_migrations table exists
 	if err := d.ensureMigrationTable(); err != nil {
 		return err
+	}
+
+	// 1b. Reconcile legacy multi-file migration versions → single 001.
+	// Databases that already applied 002–009 must not try to re-run those
+	// (files are gone) and must not re-exec the consolidated 001 destructively.
+	if err := d.reconcileMigrationVersions(); err != nil {
+		return fmt.Errorf("reconcile migration versions: %w", err)
 	}
 
 	// 2. Load all migration files from embedded FS
@@ -103,6 +126,45 @@ func (d *DB) Migrate() error {
 		slog.Warn("Schema reconciliation had issues (non-fatal)", "error", err)
 	}
 
+	return nil
+}
+
+// reconcileMigrationVersions updates schema_migrations after the 002–009
+// files were squashed into 001_schema.sql.
+//
+// If any legacy version row exists, the database already went through the
+// old multi-file path: mark 001 applied (so we never re-exec the
+// consolidated schema as a "pending" migration) and remove the legacy
+// version rows. Missing legacy files are ignored — we only look at what is
+// recorded in the DB, not at the embed FS.
+func (d *DB) reconcileMigrationVersions() error {
+	var hasLegacy bool
+	for _, v := range legacyMigrationVersions {
+		var exists bool
+		if err := d.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?)`, v).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			hasLegacy = true
+			break
+		}
+	}
+	if !hasLegacy {
+		return nil
+	}
+
+	if _, err := d.db.Exec(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)`, consolidatedMigrationVersion); err != nil {
+		return fmt.Errorf("mark %s applied: %w", consolidatedMigrationVersion, err)
+	}
+
+	for _, v := range legacyMigrationVersions {
+		if _, err := d.db.Exec(`DELETE FROM schema_migrations WHERE version = ?`, v); err != nil {
+			return fmt.Errorf("remove legacy version %s: %w", v, err)
+		}
+	}
+
+	slog.Info("Reconciled legacy schema_migrations versions into single consolidated migration",
+		"version", consolidatedMigrationVersion)
 	return nil
 }
 
@@ -189,7 +251,7 @@ func (d *DB) runMigration(filename string) error {
 // reconcileSchema brings an existing database up to the current 001_schema.sql
 // without creating a new migration file. It adds missing columns/tables and
 // drops deprecated ones. This handles the case where 001 was already applied
-// with an older version of the schema.
+// with an older version of the schema (including DBs that never ran 002–009).
 func (d *DB) reconcileSchema() error {
 	existingTables := d.getExistingTables()
 	existingColumns := d.getExistingColumns()
@@ -211,6 +273,106 @@ func (d *DB) reconcileSchema() error {
 				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
 			)`,
+		"api_tokens": `
+			CREATE TABLE IF NOT EXISTS api_tokens (
+				id           TEXT PRIMARY KEY,
+				user_id      TEXT NOT NULL,
+				name         TEXT NOT NULL,
+				token_hash   TEXT NOT NULL UNIQUE,
+				token_prefix TEXT NOT NULL,
+				created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				last_used_at TIMESTAMP,
+				revoked_at   TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		"mfa_methods": `
+			CREATE TABLE IF NOT EXISTS mfa_methods (
+				id           TEXT PRIMARY KEY,
+				user_id      TEXT NOT NULL,
+				type         TEXT NOT NULL CHECK(type IN ('totp','email','passkey','security_key')),
+				label        TEXT NOT NULL,
+				enabled      INTEGER NOT NULL DEFAULT 1,
+				created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				last_used_at TIMESTAMP,
+				data         TEXT,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		"mfa_recovery_codes": `
+			CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+				id         TEXT PRIMARY KEY,
+				user_id    TEXT NOT NULL,
+				code_hash  TEXT NOT NULL,
+				used_at    TIMESTAMP,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		"invite_tokens": `
+			CREATE TABLE IF NOT EXISTS invite_tokens (
+				id          TEXT PRIMARY KEY,
+				email       TEXT NOT NULL,
+				role        TEXT NOT NULL DEFAULT 'user',
+				inviter_id  TEXT NOT NULL,
+				token_hash  TEXT NOT NULL UNIQUE,
+				expires_at  TIMESTAMP NOT NULL,
+				redeemed_at TIMESTAMP,
+				created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		"oidc_clients": `
+			CREATE TABLE IF NOT EXISTS oidc_clients (
+				id            TEXT PRIMARY KEY,
+				instance_id   TEXT NOT NULL,
+				client_id     TEXT UNIQUE NOT NULL,
+				client_secret TEXT NOT NULL,
+				redirect_uris TEXT NOT NULL DEFAULT '[]',
+				scopes        TEXT NOT NULL DEFAULT 'openid profile email',
+				name          TEXT NOT NULL DEFAULT '',
+				created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+		"oidc_consent": `
+			CREATE TABLE IF NOT EXISTS oidc_consent (
+				id          TEXT PRIMARY KEY,
+				user_id     TEXT NOT NULL,
+				client_id   TEXT NOT NULL,
+				scopes      TEXT NOT NULL,
+				granted_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(user_id, client_id),
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		"app_access": `
+			CREATE TABLE IF NOT EXISTS app_access (
+				user_id     TEXT NOT NULL,
+				instance_id TEXT NOT NULL,
+				granted_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY(user_id, instance_id),
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		"oidc_signing_keys": `
+			CREATE TABLE IF NOT EXISTS oidc_signing_keys (
+				id           TEXT PRIMARY KEY,
+				key_pem      TEXT NOT NULL,
+				public_pem   TEXT NOT NULL,
+				algorithm    TEXT NOT NULL DEFAULT 'RS256',
+				created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				expires_at   TIMESTAMP,
+				is_current   INTEGER NOT NULL DEFAULT 1
+			)`,
+		"path_state": `
+			CREATE TABLE IF NOT EXISTS path_state (
+				id INTEGER PRIMARY KEY,
+				app_id TEXT NOT NULL,
+				path TEXT NOT NULL,
+				protocol TEXT NOT NULL DEFAULT '',
+				port INTEGER NOT NULL DEFAULT 0,
+				consecutive_failures INTEGER NOT NULL DEFAULT 0,
+				consecutive_successes INTEGER NOT NULL DEFAULT 0,
+				last_verified_at INTEGER,
+				last_failure_at INTEGER,
+				last_failure_reason TEXT,
+				updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+				UNIQUE (app_id, path, protocol, port)
+			)`,
 	}
 	for table, ddl := range missingTables {
 		if !existingTables[table] {
@@ -219,6 +381,10 @@ func (d *DB) reconcileSchema() error {
 			}
 		}
 	}
+
+	// Refresh after creating tables so column checks see new tables.
+	existingTables = d.getExistingTables()
+	existingColumns = d.getExistingColumns()
 
 	// Add missing columns
 	missingColumns := map[string]map[string]string{
@@ -243,6 +409,18 @@ func (d *DB) reconcileSchema() error {
 			"revocation_revoked_at":      `ALTER TABLE apps ADD COLUMN revocation_revoked_at TIMESTAMP`,
 			"revocation_acknowledged_at": `ALTER TABLE apps ADD COLUMN revocation_acknowledged_at TIMESTAMP`,
 		},
+		"users": {
+			"mfa_required": `ALTER TABLE users ADD COLUMN mfa_required INTEGER NOT NULL DEFAULT 0`,
+		},
+		"routes": {
+			"restricted_access": `ALTER TABLE routes ADD COLUMN restricted_access INTEGER NOT NULL DEFAULT 0`,
+		},
+		"dns_provider_configs": {
+			"nameserver":     `ALTER TABLE dns_provider_configs ADD COLUMN nameserver TEXT NOT NULL DEFAULT ''`,
+			"tsig_key_name":  `ALTER TABLE dns_provider_configs ADD COLUMN tsig_key_name TEXT NOT NULL DEFAULT ''`,
+			"tsig_secret":    `ALTER TABLE dns_provider_configs ADD COLUMN tsig_secret TEXT NOT NULL DEFAULT ''`,
+			"hmac_algorithm": `ALTER TABLE dns_provider_configs ADD COLUMN hmac_algorithm TEXT NOT NULL DEFAULT 'hmac-sha256'`,
+		},
 	}
 	for table, columns := range missingColumns {
 		for col, ddl := range columns {
@@ -258,6 +436,18 @@ func (d *DB) reconcileSchema() error {
 	missingIndexes := map[string]string{
 		"idx_backup_repositories_app":  `CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id)`,
 		"idx_backup_repositories_type": `CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type)`,
+		"idx_api_tokens_hash":          `CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)`,
+		"idx_api_tokens_user":          `CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)`,
+		"idx_mfa_methods_user":         `CREATE INDEX IF NOT EXISTS idx_mfa_methods_user ON mfa_methods(user_id)`,
+		"idx_mfa_methods_user_type":    `CREATE INDEX IF NOT EXISTS idx_mfa_methods_user_type ON mfa_methods(user_id, type)`,
+		"idx_mfa_recovery_codes_user":  `CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_user ON mfa_recovery_codes(user_id)`,
+		"idx_invite_tokens_hash":       `CREATE INDEX IF NOT EXISTS idx_invite_tokens_hash ON invite_tokens(token_hash)`,
+		"idx_invite_tokens_email":      `CREATE INDEX IF NOT EXISTS idx_invite_tokens_email ON invite_tokens(email)`,
+		"idx_oidc_clients_instance":    `CREATE INDEX IF NOT EXISTS idx_oidc_clients_instance ON oidc_clients(instance_id)`,
+		"idx_oidc_clients_client_id":   `CREATE INDEX IF NOT EXISTS idx_oidc_clients_client_id ON oidc_clients(client_id)`,
+		"idx_oidc_consent_user":        `CREATE INDEX IF NOT EXISTS idx_oidc_consent_user ON oidc_consent(user_id)`,
+		"idx_app_access_instance":      `CREATE INDEX IF NOT EXISTS idx_app_access_instance ON app_access(instance_id)`,
+		"idx_path_state_app":           `CREATE INDEX IF NOT EXISTS idx_path_state_app ON path_state(app_id)`,
 	}
 	for idx, ddl := range missingIndexes {
 		var exists bool
@@ -266,6 +456,15 @@ func (d *DB) reconcileSchema() error {
 			if _, err := d.db.Exec(ddl); err != nil {
 				slog.Warn("Failed to create missing index", "index", idx, "error", err)
 			}
+		}
+	}
+
+	// Partial unique index: at most one current OIDC signing key.
+	var oidcCurrentIdx bool
+	_ = d.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)`, "idx_oidc_signing_keys_single_current").Scan(&oidcCurrentIdx)
+	if !oidcCurrentIdx && existingTables["oidc_signing_keys"] {
+		if _, err := d.db.Exec(`CREATE UNIQUE INDEX idx_oidc_signing_keys_single_current ON oidc_signing_keys (is_current) WHERE is_current = 1`); err != nil {
+			slog.Warn("Failed to create OIDC signing key unique index", "error", err)
 		}
 	}
 
@@ -278,15 +477,6 @@ func (d *DB) reconcileSchema() error {
 		slog.Warn("Recreating revoked_tokens table to add UNIQUE constraint on token_jti")
 		if err := d.recreateRevokedTokensTable(); err != nil {
 			slog.Error("Failed to recreate revoked_tokens with UNIQUE constraint", "error", err)
-		}
-	}
-	for idx, ddl := range missingIndexes {
-		var exists bool
-		_ = d.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)`, idx).Scan(&exists)
-		if !exists {
-			if _, err := d.db.Exec(ddl); err != nil {
-				slog.Warn("Failed to create missing index", "index", idx, "error", err)
-			}
 		}
 	}
 
@@ -309,8 +499,10 @@ func (d *DB) reconcileSchema() error {
 		}
 	}
 
-	// Drop deprecated tables (data migrated or logged above)
-	deprecatedTables := []string{"cloud_backup_config", "cloud_backups"}
+	// Drop deprecated tables (data migrated or logged above).
+	// support_sessions / support_audit were never queried by Go code; DROP IF
+	// EXISTS is idempotent and safe (no re-run of destructive data transforms).
+	deprecatedTables := []string{"cloud_backup_config", "cloud_backups", "support_audit", "support_sessions"}
 	for _, table := range deprecatedTables {
 		if existingTables[table] {
 			slog.Warn("Dropping deprecated table", "table", table)
@@ -319,6 +511,8 @@ func (d *DB) reconcileSchema() error {
 			}
 		}
 	}
+	// Orphan index from legacy support_sessions (harmless if already gone).
+	_, _ = d.db.Exec(`DROP INDEX IF EXISTS idx_support_sessions_code_unique`)
 
 	return nil
 }

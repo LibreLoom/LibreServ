@@ -17,6 +17,13 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // Flash-friendly: never auto-relocate pages; checkpoint less often.
+    let _ = conn.pragma_update(None, "auto_vacuum", "NONE");
+    conn.pragma_update(None, "wal_autocheckpoint", 4000i64)?;
+    // Small appliance OS disks: keep the page cache warm without ballooning RAM.
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.pragma_update(None, "cache_size", -16384i64)?; // 16 MiB
+    conn.pragma_update(None, "mmap_size", 64i64 * 1024 * 1024)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
@@ -62,7 +69,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             total INTEGER NOT NULL DEFAULT 0,
             error TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            user_id TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -71,7 +79,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            token_version INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS grants (
             id TEXT PRIMARY KEY,
@@ -133,7 +142,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             token_hash TEXT NOT NULL UNIQUE,
             created_at INTEGER NOT NULL,
             last_used_at INTEGER NOT NULL DEFAULT 0,
-            revoked_at INTEGER
+            revoked_at INTEGER,
+            expires_at INTEGER
         );
         CREATE TABLE IF NOT EXISTS device_token_usage (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,9 +167,15 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             width INTEGER NOT NULL DEFAULT 0,
             height INTEGER NOT NULL DEFAULT 0,
             thumb TEXT NOT NULL DEFAULT '',
+            taken_at INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (drive_id, path)
-        );",
+        );
+        CREATE INDEX IF NOT EXISTS photos_timeline
+            ON photos(drive_id, taken_at DESC, mtime DESC);
+        CREATE INDEX IF NOT EXISTS index_entries_name
+            ON index_entries(name COLLATE NOCASE);",
     )?;
+    // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "photos", "taken_at", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
@@ -169,13 +185,20 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(
-        &conn,
-        "device_tokens",
-        "expires_at",
-        "INTEGER",
-    )?;
+    ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
     Ok(conn)
+}
+
+/// Compact the OS-disk DB during idle maintenance (not autovacuum).
+pub fn vacuum_if_possible(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch("VACUUM")?;
+    Ok(())
+}
+
+/// Passiveive WAL checkpoint — cheap when nothing is writing.
+pub fn wal_checkpoint_passive(conn: &Connection) -> anyhow::Result<()> {
+    conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))?;
+    Ok(())
 }
 
 /// A drive row as stored in the index.
@@ -633,6 +656,19 @@ pub fn delete_grant(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Update only the permission on an existing grant. Returns true if a row changed.
+pub fn update_grant_permission(
+    conn: &Connection,
+    id: &str,
+    permission: &str,
+) -> anyhow::Result<bool> {
+    let n = conn.execute(
+        "UPDATE grants SET permission = ?1 WHERE id = ?2",
+        params![permission, id],
+    )?;
+    Ok(n > 0)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareRow {
     pub id: String,
@@ -997,6 +1033,38 @@ pub fn touch_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Throttle last_used + usage-log writes so chatty API clients do not hammer eMMC.
+pub const DEVICE_TOKEN_TOUCH_MIN_SECS: i64 = 10 * 60;
+pub const DEVICE_TOKEN_USAGE_MIN_SECS: i64 = 60 * 60;
+pub const DEVICE_TOKEN_USAGE_KEEP: i64 = 50;
+
+pub fn note_device_token_activity(
+    conn: &Connection,
+    token_id: &str,
+    last_used_at: i64,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    if now.saturating_sub(last_used_at) >= DEVICE_TOKEN_TOUCH_MIN_SECS {
+        touch_device_token(conn, token_id)?;
+    }
+    let latest: Option<i64> = conn
+        .query_row(
+            "SELECT used_at FROM device_token_usage WHERE token_id = ?1
+             ORDER BY used_at DESC LIMIT 1",
+            params![token_id],
+            |row| row.get(0),
+        )
+        .ok();
+    if latest
+        .map(|t| now.saturating_sub(t) >= DEVICE_TOKEN_USAGE_MIN_SECS)
+        .unwrap_or(true)
+    {
+        insert_device_token_usage(conn, token_id, "auth", "api")?;
+        prune_device_token_usage(conn, token_id, DEVICE_TOKEN_USAGE_KEEP)?;
+    }
+    Ok(())
+}
+
 pub fn revoke_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
     conn.execute(
         "UPDATE device_tokens SET revoked_at = ?2 WHERE id = ?1",
@@ -1021,6 +1089,21 @@ pub fn insert_device_token_usage(
     conn.execute(
         "INSERT INTO device_token_usage (token_id, action, detail, used_at) VALUES (?1, ?2, ?3, ?4)",
         params![token_id, action, detail, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn prune_device_token_usage(
+    conn: &Connection,
+    token_id: &str,
+    keep: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM device_token_usage WHERE token_id = ?1 AND id NOT IN (
+            SELECT id FROM device_token_usage WHERE token_id = ?1
+            ORDER BY used_at DESC LIMIT ?2
+         )",
+        params![token_id, keep],
     )?;
     Ok(())
 }
@@ -1061,7 +1144,7 @@ pub fn rate_limit_allow(
             |row| {
                 count = row.get(0)?;
                 window_start = row.get(1)?;
-                Ok(row.get(2)?)
+                row.get(2)
             },
         )
         .unwrap_or(0);
@@ -1141,7 +1224,10 @@ pub fn share_auth_failure(conn: &Connection, key: &str, max_failures: u32) -> an
 }
 
 pub fn share_auth_clear(conn: &Connection, key: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM rate_limit_buckets WHERE key = ?1", params![key])?;
+    conn.execute(
+        "DELETE FROM rate_limit_buckets WHERE key = ?1",
+        params![key],
+    )?;
     Ok(())
 }
 
@@ -1204,5 +1290,23 @@ mod tests {
             .unwrap();
         assert_eq!(grants, 0);
         assert_eq!(shares, 0);
+    }
+
+    #[test]
+    fn update_grant_permission_swaps_read_and_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_grant(&conn, "g1", "u1", "d1", "photos", "read").unwrap();
+
+        assert!(update_grant_permission(&conn, "g1", "write").unwrap());
+        let grants = list_all_grants(&conn).unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].permission, "write");
+
+        assert!(update_grant_permission(&conn, "g1", "read").unwrap());
+        let grants = list_all_grants(&conn).unwrap();
+        assert_eq!(grants[0].permission, "read");
+
+        assert!(!update_grant_permission(&conn, "missing", "write").unwrap());
     }
 }

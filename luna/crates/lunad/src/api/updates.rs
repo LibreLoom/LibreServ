@@ -55,13 +55,21 @@ async fn apply(
             )
         })?
         .map_err(map_err)?;
-    tokio::spawn(async {
+    let reboot = info.reboot_required;
+    let latest = info.latest_version.clone();
+    tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        if reboot {
+            let _ = std::process::Command::new("reboot").status();
+            // If reboot is unavailable (dev), fall back to process exit.
+            std::process::exit(0);
+        }
         std::process::exit(0);
     });
     Ok(Json(json!({
         "ok": true,
-        "latest_version": info.latest_version,
+        "latest_version": latest,
+        "reboot_required": reboot,
         "message": "The new software is installed. Luna will restart in a moment — sign in again after it comes back.",
     })))
 }
