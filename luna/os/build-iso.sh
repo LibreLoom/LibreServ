@@ -32,5 +32,8 @@ fi
 echo "==> rootfs"
 "$ROOT/os/build-rootfs.sh"
 
+echo "==> OS slot image (OTA + factory)"
+"$ROOT/os/make-image.sh"
+
 echo "==> ISO"
 "$ROOT/os/make-iso.sh"

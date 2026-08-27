@@ -79,11 +79,21 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
+# Prefer a daemon-only OTA binary on the data partition over the image bake.
+cat > "$ROOTFS/usr/local/sbin/luna-run" <<'RUN'
+#!/bin/sh
+if [ -x /var/lib/luna/bin/lunad ]; then
+    exec /var/lib/luna/bin/lunad "$@"
+fi
+exec /usr/local/bin/lunad "$@"
+RUN
+chmod +x "$ROOTFS/usr/local/sbin/luna-run"
+
 # lunad init script
 cat > "$ROOTFS/etc/init.d/luna" <<'INIT'
 #!/sbin/openrc-run
 description="Luna file server"
-command="/usr/local/bin/lunad"
+command="/usr/local/sbin/luna-run"
 command_args=""
 command_background="yes"
 pidfile="/run/luna.pid"
@@ -103,10 +113,11 @@ printf 'rc_parallel="YES"\n' > "$ROOTFS/etc/rc.conf"
 mkdir -p "$ROOTFS/etc/chrony"
 cat > "$ROOTFS/etc/chrony/chrony.conf" <<'CHRONY'
 pool pool.ntp.org iburst
-driftfile /var/lib/chrony/drift
+driftfile /var/lib/luna/chrony/drift
 makestep 1.0 3
 rtcsync
 CHRONY
+mkdir -p "$ROOTFS/var/lib/luna/chrony"
 
 # Keyboard / HID bring-up for cold-plugged USB (and PS/2) keyboards.
 # Alpine's mdev hotplug loads modules on *new* uevents, so a keyboard
@@ -236,19 +247,50 @@ for svc in avahi-daemon luna crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
 
-# Keep syslog off the eMMC: /var/log is a small tmpfs (busybox syslog still
-# works; logs vanish on reboot, which is fine for an appliance OS disk).
+# Keep syslog off the eMMC OS slots: /var/log is tmpfs. Luna state lives on
+# the separate LUNA_DATA partition mounted at /var/lib/luna.
 cat > "$ROOTFS/etc/fstab" <<'FSTAB'
 tmpfs /var/log tmpfs rw,nosuid,nodev,noatime,size=32M,mode=0755 0 0
+LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2
 FSTAB
 
-# Remount root noatime even if an older install's cmdline lacked rootflags=.
-cat > "$ROOTFS/etc/local.d/luna-noatime.start" <<'NOATIME'
+# OS image identity for operators/logs (not shown as a Settings split).
+printf 'os_release=luna-os\n' > "$ROOTFS/etc/luna-os-release"
+
+# Remount root read-only + noatime after localmount (cmdline also passes ro,noatime).
+cat > "$ROOTFS/etc/local.d/luna-root-ro.start" <<'NORW'
 #!/bin/sh
-mount -o remount,noatime / 2>/dev/null || true
-NOATIME
-chmod +x "$ROOTFS/etc/local.d/luna-noatime.start"
+mount -o remount,ro,noatime / 2>/dev/null || mount -o remount,noatime / 2>/dev/null || true
+NORW
+chmod +x "$ROOTFS/etc/local.d/luna-root-ro.start"
 ln -sf /etc/init.d/local "$ROOTFS/etc/runlevels/default/local" 2>/dev/null || true
+
+# Mark tryboot success once lunad's OpenRC unit is up (best-effort).
+cat > "$ROOTFS/etc/local.d/luna-boot-ok.start" <<'BOOTOK'
+#!/bin/sh
+# Clear GRUB tryboot failure state after a successful boot into this slot.
+for _env in /boot/efi/grub/grubenv /efi/grub/grubenv; do
+    [ -f "$_env" ] || continue
+    if command -v grub-editenv >/dev/null 2>&1; then
+        grub-editenv "$_env" set luna_boot_ok=1 2>/dev/null || true
+        grub-editenv "$_env" set luna_tries=3 2>/dev/null || true
+    fi
+done
+# ESP is often at /boot/efi only after an extra mount; also try by label.
+if command -v grub-editenv >/dev/null 2>&1 && command -v findfs >/dev/null 2>&1; then
+    _esp="$(findfs LABEL=LUNAESP 2>/dev/null || true)"
+    if [ -n "$_esp" ]; then
+        _m="$(mktemp -d /tmp/luna-esp.XXXXXX 2>/dev/null || true)"
+        if [ -n "$_m" ] && mount -o rw "$_esp" "$_m" 2>/dev/null; then
+            grub-editenv "$_m/grub/grubenv" set luna_boot_ok=1 2>/dev/null || true
+            grub-editenv "$_m/grub/grubenv" set luna_tries=3 2>/dev/null || true
+            umount "$_m" 2>/dev/null || true
+        fi
+        rmdir "$_m" 2>/dev/null || true
+    fi
+fi
+BOOTOK
+chmod +x "$ROOTFS/etc/local.d/luna-boot-ok.start"
 
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"

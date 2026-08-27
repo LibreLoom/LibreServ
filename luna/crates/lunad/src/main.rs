@@ -198,10 +198,10 @@ async fn main() -> anyhow::Result<()> {
                         .and_then(|raw| raw.parse::<i64>().ok())
                         .unwrap_or(0);
                     // Compact at most monthly — VACUUM rewrites the whole file.
-                    if now.saturating_sub(last_vac) >= 30 * 24 * 60 * 60 {
-                        if lunad::db::vacuum_if_possible(&conn).is_ok() {
-                            let _ = lunad::db::set_meta(&conn, "last_vacuum_at", &now.to_string());
-                        }
+                    if now.saturating_sub(last_vac) >= 30 * 24 * 60 * 60
+                        && lunad::db::vacuum_if_possible(&conn).is_ok()
+                    {
+                        let _ = lunad::db::set_meta(&conn, "last_vacuum_at", &now.to_string());
                     }
                 }
                 flag.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -221,11 +221,7 @@ async fn main() -> anyhow::Result<()> {
                 .db
                 .lock()
                 .ok()
-                .and_then(|conn| {
-                    lunad::db::get_meta(&conn, "last_fstrim_at")
-                        .ok()
-                        .flatten()
-                })
+                .and_then(|conn| lunad::db::get_meta(&conn, "last_fstrim_at").ok().flatten())
                 .and_then(|raw| raw.parse::<i64>().ok());
             let last_activity = trim_state
                 .last_io_activity

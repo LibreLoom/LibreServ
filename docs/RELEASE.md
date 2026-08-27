@@ -11,7 +11,7 @@ The Forgejo **tag** and **release title** are the same string. Never prefix titl
 | Product | Tag / title | Stable? | Assets (only these) |
 |---------|-------------|---------|---------------------|
 | LibreServ | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | yes (unless `--pre-release`) | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
-| Luna | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` | yes (updater skips prereleases) | `lunad-linux-amd64`, `lunad-linux-arm64` when built, `luna-rapidinstall-x86_64.iso` when this is an OS cut, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
+| Luna | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` | yes (updater skips prereleases) | `lunad-linux-amd64`, `lunad-linux-arm64` when built, `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso` on OS cuts, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
 | Connect | `connect-vMAJOR.MINOR.PATCH` | separate module | Connect's own binaries |
 
 `SHA256SUMS.txt` uses GNU `sha256sum` lines: `<hash><two spaces><filename>`. `release.sh` signs that file with minisign (`SHA256SUMS.txt.minisig`). The public key is [`keys/releases.minisign.pub`](../keys/releases.minisign.pub), baked into lunad, LibreServ, and `install.sh`.
@@ -21,6 +21,11 @@ The secret key stays off-repo. `release.sh` uses `MINISIGN_SECRET_KEY` if set, o
 See [`keys/README.md`](../keys/README.md) for key locations and how to recreate the public file from a password-protected secret.
 
 LibreServ `install.sh` and the in-app updater only consume **`v*`** tags. Luna's updater only consumes **stable `luna-v*`** tags. Mixing assets across those tags breaks both.
+
+### Luna daemon cut vs OS cut
+
+- **Daemon cut** — ship `lunad-linux-*` (+ checksums). No `luna-os-*`, no ISO. Boxes install the binary under `/var/lib/luna/bin/`.
+- **OS cut** — ship `lunad-linux-*`, `luna-os-x86_64.img` (raw A/B slot image), and `luna-rapidinstall-x86_64.iso`. Boxes detect OS need when the release image SHA256 differs from `/var/lib/luna/os-image.sha256` and apply it automatically inside the same Install update (inactive slot + reboot). Factory flash records that hash on `LUNA_DATA`.
 
 ## Creating a Release
 
@@ -80,7 +85,7 @@ The script will guide you through:
 After creation, verify:
 - [ ] Tag equals the release title (`v0.0.13` or `luna-v0.0.13`)
 - [ ] LibreServ `v*`: `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
-- [ ] Luna `luna-v*`: `lunad-linux-*`, ISO when shipping OS, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
+- [ ] Luna `luna-v*`: `lunad-linux-*`, `luna-os-x86_64.img` + ISO when shipping OS, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
 - [ ] Release notes are formatted correctly
 
 ## Manual Token Creation

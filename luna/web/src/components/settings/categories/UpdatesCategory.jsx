@@ -30,6 +30,7 @@ export default function UpdatesCategory() {
   });
 
   const info = updates.data || {};
+  const applied = apply.data || {};
 
   return (
     <SettingsCard
@@ -59,7 +60,8 @@ export default function UpdatesCategory() {
       </div>
       {apply.isSuccess && (
         <p className="text-primary text-sm mt-3">
-          The new software is installed. Luna will restart in a moment — sign in again after it comes back.
+          {applied.message
+            || "The new software is installed. Luna will restart in a moment — sign in again after it comes back."}
         </p>
       )}
     </SettingsCard>
