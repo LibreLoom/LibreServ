@@ -423,7 +423,7 @@ export default function FileBrowser({
         <Card className="mb-3" padding>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-mono uppercase tracking-widest text-accent mb-1">
+              <p className="text-xs font-mono uppercase tracking-widest text-primary mb-1">
                 Current folder
               </p>
               <div
