@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import AccessSheet from "./AccessSheet";
 
-function stubAccessApi({ role = "admin", users = [], grants = [], shares = [], drives = [], protections = [], onPatch } = {}) {
+function stubAccessApi({ role = "admin", users = [], grants = [], shares = [], onPatch } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
     const method = (init.method || "GET").toUpperCase();
@@ -35,12 +35,6 @@ function stubAccessApi({ role = "admin", users = [], grants = [], shares = [], d
     if (u.endsWith("/shares")) {
       return new Response(JSON.stringify(shares), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (u.endsWith("/drives")) {
-      return new Response(JSON.stringify(drives), { status: 200, headers: { "Content-Type": "application/json" } });
-    }
-    if (u.endsWith("/protections")) {
-      return new Response(JSON.stringify(protections), { status: 200, headers: { "Content-Type": "application/json" } });
-    }
     return new Response("{}", { status: 500 });
   }));
 }
@@ -51,7 +45,7 @@ function renderSheet(props = {}) {
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <AccessSheet driveId="d1" path="photos" kind="folder" onClose={() => {}} {...props} />
+          <AccessSheet driveId="d1" path="photos" onClose={() => {}} {...props} />
         </AuthProvider>
       </QueryClientProvider>
     </MemoryRouter>,
@@ -59,7 +53,7 @@ function renderSheet(props = {}) {
 }
 
 describe("AccessSheet", () => {
-  it("lets an admin grant access, make a link, and protect a folder", async () => {
+  it("lets an admin grant access and make a link", async () => {
     stubAccessApi({
       users: [
         { id: "1", role: "admin", username: "admin", display_name: "Admin" },
@@ -67,11 +61,6 @@ describe("AccessSheet", () => {
       ],
       grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "photos", permission: "read" }],
       shares: [],
-      drives: [
-        { id: "d1", label: "Main" },
-        { id: "d2", label: "Backup" },
-      ],
-      protections: [],
     });
     renderSheet();
     expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
@@ -79,7 +68,8 @@ describe("AccessSheet", () => {
     expect(screen.getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New link" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Protect" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Protect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Protect" })).not.toBeInTheDocument();
   });
 
   it("lets an admin switch an existing grant between Read and Write", async () => {
@@ -92,11 +82,6 @@ describe("AccessSheet", () => {
       ],
       grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "photos", permission: "read" }],
       shares: [],
-      drives: [
-        { id: "d1", label: "Main" },
-        { id: "d2", label: "Backup" },
-      ],
-      protections: [],
       onPatch,
     });
     renderSheet();
@@ -108,7 +93,7 @@ describe("AccessSheet", () => {
     expect(JSON.parse(onPatch.mock.calls[0][1])).toEqual({ permission: "write" });
   });
 
-  it("hides people and protect from a household member", async () => {
+  it("hides people from a member", async () => {
     stubAccessApi({ role: "user", shares: [] });
     renderSheet();
     expect(await screen.findByRole("button", { name: "New link" })).toBeInTheDocument();

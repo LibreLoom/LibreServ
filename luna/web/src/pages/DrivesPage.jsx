@@ -10,6 +10,7 @@ import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
+import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
@@ -68,7 +69,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -110,6 +111,9 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }
         )}
         {onShare && (drive.state === "as_is" || drive.state === "readonly") && (
           <AccessButton label={drive.label} onClick={() => onShare(drive)} />
+        )}
+        {onProtect && (drive.state === "as_is" || drive.state === "readonly") && (
+          <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
         )}
       </div>
     </Card>
@@ -154,6 +158,7 @@ export default function DrivesPage() {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
+  const [protectingDrive, setProtectingDrive] = useState(null);
   /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
@@ -251,7 +256,6 @@ export default function DrivesPage() {
           <AccessSheet
             driveId={sharingDrive.id}
             path={sharingDrive.path}
-            kind={sharingDrive.kind}
             onClose={() => setSharingDrive(null)}
           />
         )}
@@ -281,6 +285,7 @@ export default function DrivesPage() {
               ejecting={eject.isPending}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
+              onProtect={(d) => setProtectingDrive({ id: d.id, path: "" })}
             />
           ))}
         </div>
@@ -316,8 +321,14 @@ export default function DrivesPage() {
         <AccessSheet
           driveId={sharingDrive.id}
           path={sharingDrive.path}
-          kind={sharingDrive.kind}
           onClose={() => setSharingDrive(null)}
+        />
+      )}
+      {protectingDrive && (
+        <ProtectSheet
+          driveId={protectingDrive.id}
+          path={protectingDrive.path}
+          onClose={() => setProtectingDrive(null)}
         />
       )}
 
