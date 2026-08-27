@@ -498,7 +498,7 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
                 })}
               </ul>
               {(Number(result.folders) + Number(result.files) > result.entries.length) && (
-                <p className="text-primary text-xs mt-2">
+                <p className="text-secondary text-xs mt-2">
                   Showing names at the top of the drive
                   {result.entries.length >= 24 ? " (first 24)" : ""}.
                   Add it to open folders and see everything.

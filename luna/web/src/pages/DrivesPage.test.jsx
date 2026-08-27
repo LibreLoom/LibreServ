@@ -391,4 +391,37 @@ describe("DrivesPage", () => {
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
   });
+
+  it("shows a visible truncated-list hint on the primary inspect panel", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sde", model: "Tiny Stick", size_bytes: 1000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sde/inspect")) {
+          return new Response(JSON.stringify({
+            device: "sde", model: "Tiny Stick", fs_type: "vfat",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
+            folders: 3, files: 12, unreadable: 0, needs_erase: false,
+            readable: true, writable: true,
+            entries: [
+              { name: "Videos", kind: "folder" },
+              { name: "readme.txt", kind: "file" },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    const hint = await screen.findByText(/Showing names at the top of the drive/i);
+    expect(hint).toHaveClass("text-secondary");
+    expect(hint).not.toHaveClass("text-primary");
+  });
 });
