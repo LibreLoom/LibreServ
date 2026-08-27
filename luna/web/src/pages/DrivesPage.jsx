@@ -14,7 +14,7 @@ import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
-import { withDevMockDetected } from "../lib/devMockDrives.js";
+import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 
 /** @param {number} n @param {string} one @param {string} many */
@@ -186,8 +186,16 @@ export default function DrivesPage() {
   });
 
   const inspect = useMutation({
-    mutationFn: (/** @type {any} */ drive) =>
-      postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
+    mutationFn: (/** @type {any} */ drive) => {
+      // Frontend-only review fixture: no real block device, so skip lunad.
+      if (
+        isMockUnknownDrive(drive?.name)
+        && !detected.data?.some((real) => real.name === drive.name)
+      ) {
+        return Promise.resolve(mockInspectResult());
+      }
+      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
+    },
   });
 
   const adopt = useMutation({

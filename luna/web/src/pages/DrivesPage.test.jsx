@@ -85,6 +85,20 @@ describe("DrivesPage", () => {
     expect(screen.queryByText(/Nothing new plugged in/i)).not.toBeInTheDocument();
   });
 
+  it("previews folder and file names when looking inside the mock PSSD", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi();
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    expect(await screen.findByText(/3 folders and 12 files/i)).toBeInTheDocument();
+    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("Photos")).toBeInTheDocument();
+    expect(screen.getByText("readme.txt")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add this drive/i })).toBeInTheDocument();
+  });
+
   it("uses a page heading for unknown drives, not a stacked title card", async () => {
     stubDrivesApi();
     renderPage();
