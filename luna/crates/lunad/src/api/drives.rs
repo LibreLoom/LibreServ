@@ -32,6 +32,13 @@ struct DetectedDriveJson {
 }
 
 #[derive(Serialize)]
+struct InspectEntryJson {
+    name: String,
+    /// `"folder"` or `"file"`.
+    kind: String,
+}
+
+#[derive(Serialize)]
 struct InspectionJson {
     device: String,
     model: String,
@@ -42,6 +49,8 @@ struct InspectionJson {
     folders: u64,
     files: u64,
     unreadable: u64,
+    /// Non-hidden top-level names (folders first), for the Look-inside preview.
+    entries: Vec<InspectEntryJson>,
     needs_erase: bool,
     readable: bool,
     writable: bool,
@@ -166,6 +175,15 @@ async fn inspect(
         folders: inspection.summary.folders,
         files: inspection.summary.files,
         unreadable: inspection.summary.unreadable,
+        entries: inspection
+            .summary
+            .entries
+            .into_iter()
+            .map(|e| InspectEntryJson {
+                name: e.name,
+                kind: e.kind,
+            })
+            .collect(),
         needs_erase: inspection.needs_erase,
         readable: inspection.readable,
         writable: inspection.writable,

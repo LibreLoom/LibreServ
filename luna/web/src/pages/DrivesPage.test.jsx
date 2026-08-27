@@ -3,12 +3,26 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import DrivesPage from "./DrivesPage";
+import DrivesPage, { inspectCountLine } from "./DrivesPage";
 
 afterEach(() => {
   window.history.replaceState({}, "", "/");
   window.localStorage.removeItem("luna.mockUnknownDrive");
   vi.unstubAllGlobals();
+});
+
+describe("inspectCountLine", () => {
+  it("uses singular folder and file when the count is 1", () => {
+    expect(inspectCountLine(1, 38)).toBe("We found 1 folder and 38 files on this drive.");
+    expect(inspectCountLine(1, 1)).toBe("We found 1 folder and 1 file on this drive.");
+    expect(inspectCountLine(0, 0)).toBe("We found 0 folders and 0 files on this drive.");
+  });
+
+  it("mentions unreadable items when present", () => {
+    expect(inspectCountLine(2, 3, 1)).toBe(
+      "We found 2 folders and 3 files on this drive (1 item could not be read).",
+    );
+  });
 });
 
 function stubDrivesApi(extra = {}) {
@@ -159,6 +173,11 @@ describe("DrivesPage", () => {
             mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
             folders: 12, files: 7, unreadable: 0, needs_erase: true,
             readable: true, writable: false,
+            entries: [
+              { name: "EFI", kind: "folder" },
+              { name: "boot", kind: "folder" },
+              { name: "luna.iso", kind: "file" },
+            ],
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return null;
@@ -168,6 +187,9 @@ describe("DrivesPage", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
     expect(await screen.findByText(/12 folders and 7 files/i)).toBeInTheDocument();
+    expect(screen.getByText("EFI")).toBeInTheDocument();
+    expect(screen.getByText("boot")).toBeInTheDocument();
+    expect(screen.getByText("luna.iso")).toBeInTheDocument();
     expect(screen.getByText(/still has the Luna installer/i)).toBeInTheDocument();
     expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Erase and add this drive/i }));
@@ -190,6 +212,11 @@ describe("DrivesPage", () => {
             mount_point: "/mnt", mounted_by_luna: false, has_marker: false,
             folders: 1, files: 2, unreadable: 0, needs_erase: false,
             readable: true, writable: false,
+            entries: [
+              { name: "Photos", kind: "folder" },
+              { name: "notes.txt", kind: "file" },
+              { name: "todo.txt", kind: "file" },
+            ],
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return null;
@@ -198,8 +225,34 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
-    expect(await screen.findByText(/will not accept new files/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 folder and 2 files/i)).toBeInTheDocument();
+    expect(screen.queryByText(/1 folders/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Photos")).toBeInTheDocument();
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    expect(screen.getByText(/will not accept new files/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
+  });
+
+  it("labels Browse files on adopted drives", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const browse = await screen.findByRole("link", { name: /Browse files/i });
+    expect(browse).toHaveAttribute("href", "/drives/d1");
+    expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
   });
 
   it("shows a confirm dialog before removing a drive", async () => {
