@@ -2,27 +2,27 @@
 //!
 //! If an admin forgets their password, they plug a USB keyboard into Luna,
 //! type `pwreset`, and press Enter. That signs into the local pwreset
-//! recovery session and starts the reset wizard on the screen plugged into
-//! the box (TTY / console). It never runs over the network.
+//! recovery session and starts the reset wizard. It works headless (no
+//! screen required); a screen just makes the prompts easier to follow.
+//! It never runs over the network.
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
 //! assert that). Keep this block as the source of truth for the printed
-//! card, booklet, and future docs. Spell out every Enter — users follow
-//! this without a second person watching:
+//! card, booklet, and future docs:
 //!
 //!   If you forget your password
 //!   1. Hold the power button until Luna is visibly off and silent.
 //!   2. Press the power button once to turn it back on.
 //!   3. Wait about 2 minutes (until Luna has finished starting).
-//!   4. Plug a screen into Luna if one is not already connected, so you
-//!      can read the prompts.
-//!   5. Plug a USB keyboard into Luna.
-//!   6. Type pwreset and press Enter.
-//!   7. When it asks for Username, type your admin username and press Enter.
-//!   8. When it asks for New password, type a new password (at least 12
-//!      characters, with letters and numbers) and press Enter.
-//!   9. Type logout and press Enter.
-//!  10. On your phone or computer, open the Luna web page and sign in
+//!   4. Plug a USB keyboard into Luna.
+//!      (Optional: plug in a screen too — it makes the prompts easier to
+//!      read, but you do not need one.)
+//!   5. Type pwreset and press Enter.
+//!   6. Type your admin username and press Enter.
+//!   7. Type a new password (at least 12 characters, with letters and
+//!      numbers) and press Enter.
+//!   8. Type logout and press Enter.
+//!   9. On your phone or computer, open the Luna web page and sign in
 //!      with that username and the new password.
 //!
 //! Typing pwreset once is enough — do not ask the user to type it twice.
@@ -53,11 +53,10 @@ pub const CARD_STEPS: &[&str] = &[
     "Hold the power button until Luna is visibly off and silent.",
     "Press the power button once to turn it back on.",
     "Wait about 2 minutes (until Luna has finished starting).",
-    "Plug a screen into Luna if one is not already connected, so you can read the prompts.",
-    "Plug a USB keyboard into Luna.",
+    "Plug a USB keyboard into Luna. A screen is optional — it makes the prompts easier to read, but you do not need one.",
     "Type pwreset and press Enter.",
-    "When it asks for Username, type your admin username and press Enter.",
-    "When it asks for New password, type a new password (at least 12 characters, with letters and numbers) and press Enter.",
+    "Type your admin username and press Enter.",
+    "Type a new password (at least 12 characters, with letters and numbers) and press Enter.",
     "Type logout and press Enter.",
     "On your phone or computer, open the Luna web page and sign in with that username and the new password.",
 ];
@@ -596,26 +595,20 @@ mod tests {
             CARD_STEPS.iter().all(|s| !s.to_lowercase().contains("root")),
             "printed card must not tell users to type root"
         );
-        assert!(CARD_STEPS.iter().any(|s| s.contains("Type pwreset and press Enter.")));
         assert!(
             CARD_STEPS
                 .iter()
                 .any(|s| s.contains("visibly off and silent")),
             "card must tell users how to confirm Luna is off"
         );
-        // Every console line the user types needs an explicit Enter.
-        assert!(CARD_STEPS.iter().any(|s| {
-            s == &"Type pwreset and press Enter."
-        }));
-        assert!(CARD_STEPS.iter().any(|s| {
-            s.contains("Username") && s.contains("press Enter")
-        }));
-        assert!(CARD_STEPS.iter().any(|s| {
-            s.contains("New password") && s.contains("press Enter")
-        }));
-        assert!(CARD_STEPS.iter().any(|s| {
-            s == &"Type logout and press Enter."
-        }));
+        assert!(
+            CARD_STEPS.iter().any(|s| s.contains("do not need one")),
+            "card must say a screen is optional"
+        );
+        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type pwreset")));
+        assert!(CARD_STEPS.iter().any(|s| s.contains("admin username")));
+        assert!(CARD_STEPS.iter().any(|s| s.contains("new password")));
+        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type logout")));
         assert_eq!(CARD_TITLE, "If you forget your password");
     }
 }
