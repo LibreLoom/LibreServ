@@ -65,7 +65,19 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: /Choose files/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Protect photo.jpg" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Share this folder/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a separate Protect button for folders", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByText(/album/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sharing for album" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Protect album" })).toBeInTheDocument();
   });
 
   it("opens a folder from the address bar and keeps the address in sync", async () => {

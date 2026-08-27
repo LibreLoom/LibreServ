@@ -24,6 +24,7 @@ import PageNotice from "../components/common/PageNotice";
 import FileSearch from "../components/files/FileSearch";
 import ComputerMountHelp from "../components/files/ComputerMountHelp";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
+import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import {
   apiErrorMessage,
   deleteJson,
@@ -84,8 +85,10 @@ export default function FilesPage() {
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(null);
   const [accessTarget, setAccessTarget] = useState(null);
+  const [protectTarget, setProtectTarget] = useState(null);
   const filePicker = useRef(null);
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
@@ -292,10 +295,18 @@ export default function FilesPage() {
             ))
           )}
           {!inTrash && (
-            <AccessButton
-              label={path || drive?.label || "this folder"}
-              onClick={() => setAccessTarget({ path, kind: path ? "folder" : "drive" })}
-            />
+            <>
+              <AccessButton
+                label={path || drive?.label || "this folder"}
+                onClick={() => setAccessTarget({ path, kind: path ? "folder" : "drive" })}
+              />
+              {isAdmin && (
+                <ProtectButton
+                  label={path || drive?.label || "this folder"}
+                  onClick={() => setProtectTarget({ path })}
+                />
+              )}
+            </>
           )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -389,6 +400,12 @@ export default function FilesPage() {
                       kind: entry.kind === "dir" ? "folder" : "file",
                     })}
                   />
+                  {isAdmin && entry.kind === "dir" && (
+                    <ProtectButton
+                      label={entry.name}
+                      onClick={() => setProtectTarget({ path: joinPath(path, entry.name) })}
+                    />
+                  )}
                   <Button
                     variant="ghost"
                     surface="secondary"
@@ -653,8 +670,14 @@ export default function FilesPage() {
         <AccessSheet
           driveId={id}
           path={accessTarget.path}
-          kind={accessTarget.kind}
           onClose={() => setAccessTarget(null)}
+        />
+      )}
+      {protectTarget && (
+        <ProtectSheet
+          driveId={id}
+          path={protectTarget.path}
+          onClose={() => setProtectTarget(null)}
         />
       )}
     </Page>
