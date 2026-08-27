@@ -3,17 +3,29 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::AppState;
 use crate::api::response::json_error;
 
 const SETUP_KEY: &str = "setup";
 
+const VALID_STEPS: &[&str] = &["welcome", "network", "account", "name", "done"];
+
+fn default_step() -> String {
+    "welcome".into()
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct SetupState {
     name: String,
     setup_completed: bool,
+    /// Wizard step to resume after a refresh or browser close.
+    #[serde(default = "default_step")]
+    current_step: String,
+    /// Non-secret flags/drafts for the wizard (e.g. network_connected).
+    #[serde(default)]
+    step_data: Map<String, Value>,
 }
 
 impl Default for SetupState {
@@ -21,6 +33,8 @@ impl Default for SetupState {
         Self {
             name: "Luna".into(),
             setup_completed: false,
+            current_step: default_step(),
+            step_data: Map::new(),
         }
     }
 }
@@ -29,6 +43,8 @@ impl Default for SetupState {
 struct SaveBody {
     name: Option<String>,
     setup_completed: Option<bool>,
+    current_step: Option<String>,
+    step_data: Option<Map<String, Value>>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -103,8 +119,25 @@ async fn save_setup(
         }
         setup.name = name;
     }
+    if let Some(step) = body.current_step {
+        if !VALID_STEPS.contains(&step.as_str()) {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                format!("That setup step isn't valid: {step}"),
+            ));
+        }
+        setup.current_step = step;
+    }
+    if let Some(data) = body.step_data {
+        setup.step_data = data;
+    }
     if let Some(done) = body.setup_completed {
         setup.setup_completed = done;
+        if done {
+            setup.current_step = "done".into();
+            // Keep name; drop mid-wizard drafts once setup is finished.
+            setup.step_data.clear();
+        }
     }
 
     let raw = serde_json::to_string(&setup).map_err(|_| {
@@ -120,12 +153,42 @@ async fn save_setup(
 
 #[cfg(test)]
 mod tests {
-    use super::SetupState;
+    use super::{SetupState, VALID_STEPS, default_step};
+    use serde_json::json;
 
     #[test]
     fn default_setup_is_plain() {
         let state = SetupState::default();
         assert_eq!(state.name, "Luna");
         assert!(!state.setup_completed);
+        assert_eq!(state.current_step, "welcome");
+        assert!(state.step_data.is_empty());
+    }
+
+    #[test]
+    fn legacy_meta_without_progress_fields_deserializes() {
+        let raw = r#"{"name":"Kitchen","setup_completed":false}"#;
+        let state: SetupState = serde_json::from_str(raw).expect("legacy setup json");
+        assert_eq!(state.name, "Kitchen");
+        assert_eq!(state.current_step, default_step());
+        assert!(state.step_data.is_empty());
+    }
+
+    #[test]
+    fn progress_round_trips() {
+        let mut state = SetupState::default();
+        state.current_step = "account".into();
+        state.step_data.insert("network_connected".into(), json!(true));
+        let raw = serde_json::to_string(&state).unwrap();
+        let back: SetupState = serde_json::from_str(&raw).unwrap();
+        assert_eq!(back.current_step, "account");
+        assert_eq!(back.step_data.get("network_connected"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn valid_steps_cover_wizard() {
+        for step in ["welcome", "network", "account", "name", "done"] {
+            assert!(VALID_STEPS.contains(&step), "missing {step}");
+        }
     }
 }

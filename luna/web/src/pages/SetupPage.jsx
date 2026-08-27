@@ -9,6 +9,7 @@ import { isPublicLunaHost } from "../lib/publicHost";
 import NetworkStep from "../components/setup/NetworkStep";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
+import useSetupProgress from "../hooks/useSetupProgress";
 import { StepTransitionContext } from "../components/setup/StepTransitionContext";
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import Button from "../components/ui/Button";
@@ -699,11 +700,17 @@ const STEP_ORDER = [
 export default function SetupPage() {
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const [step, setStep] = useState(STEP.WELCOME);
+  // null until saved progress is loaded — avoids flashing Welcome over a resume.
+  const [step, setStep] = useState(null);
   const [animationDirection, setAnimationDirection] = useState("right");
   const prevStepRef = useRef(null);
   const [hasAdmin, setHasAdmin] = useState(false);
   const [deviceName, setDeviceName] = useState("Luna");
+  const { saveProgress, flushProgress } = useSetupProgress();
+  const progressRef = useRef(/** @type {{ step?: string, stepData?: Record<string, unknown> }} */ ({}));
+  const savingRef = useRef(false);
+  const [saveError, setSaveError] = useState(null);
+  const [hydrated, setHydrated] = useState(false);
 
   // Whether an account already exists (decides if the account step creates or
   // signs in). Re-checked whenever the signed-in user changes.
@@ -714,6 +721,63 @@ export default function SetupPage() {
       .catch(() => { /* offline — the account step will surface the error */ });
     return () => { alive = false; };
   }, [user]);
+
+  // Restore wizard position from the device so a refresh mid-setup continues
+  // where the user left off (same behavior as LibreServ).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const setup = await getJson("/api/v1/setup");
+        if (!alive) return;
+        if (setup?.name) setDeviceName(setup.name);
+
+        if (setup?.setup_completed) {
+          navigate("/drives", { replace: true });
+          return;
+        }
+
+        const savedStep = setup?.current_step;
+        const savedData = setup?.step_data && typeof setup.step_data === "object"
+          ? setup.step_data
+          : {};
+        progressRef.current = {
+          step: savedStep || STEP.WELCOME,
+          stepData: savedData,
+        };
+
+        let next = STEP.WELCOME;
+        if (savedStep && STEP_ORDER.includes(savedStep) && savedStep !== STEP.WELCOME) {
+          next = savedStep;
+        }
+        // "done" is only shown after a successful finish in this session.
+        // A stale/partial record should resume at naming.
+        if (next === STEP.DONE) next = STEP.NAME;
+        // Account already exists but session is gone → land on sign-in gate.
+        if ((next === STEP.NAME || next === STEP.DONE) && !user) {
+          const status = await getJson("/api/v1/auth/status").catch(() => null);
+          if (!alive) return;
+          if (status?.has_admin) next = STEP.ACCOUNT;
+        }
+        // Skip account form if that step already finished.
+        if (next === STEP.ACCOUNT && savedData.account_completed) {
+          next = STEP.NAME;
+        }
+        setStep(next);
+      } catch {
+        // After the first account exists, setup reads are signed-in only. If an
+        // admin exists but this browser isn't signed in, land on the account
+        // step so they can sign in and finish — not Welcome.
+        const status = await getJson("/api/v1/auth/status").catch(() => null);
+        if (!alive) return;
+        setStep(status?.has_admin ? STEP.ACCOUNT : STEP.WELCOME);
+      } finally {
+        if (alive) setHydrated(true);
+      }
+    })();
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
+  }, [navigate]);
 
   // Derive the slide direction from the linear step order so the transition
   // matches travel direction: advancing slides the new step in from the right,
@@ -732,19 +796,70 @@ export default function SetupPage() {
     prevStepRef.current = step;
   }, [step]);
 
-  const handleBegin = useCallback(() => setStep(STEP.NETWORK), []);
-  const handleConnectionDone = useCallback(() => setStep(STEP.ACCOUNT), []);
-  const handleAccountContinue = useCallback(() => setStep(STEP.NAME), []);
+  useEffect(() => {
+    const handler = (e) => {
+      if (savingRef.current) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
+  const advanceStep = useCallback(async (nextStep, stepData) => {
+    const data = stepData || progressRef.current.stepData || {};
+    progressRef.current = { step: nextStep, stepData: data };
+    setSaveError(null);
+    savingRef.current = true;
+    try {
+      await saveProgress(nextStep, data);
+    } catch {
+      try {
+        await saveProgress(nextStep, data);
+      } catch {
+        setSaveError("Luna couldn't save your setup progress. Check your connection and try again.");
+        savingRef.current = false;
+        return;
+      }
+    } finally {
+      savingRef.current = false;
+    }
+    setStep(nextStep);
+  }, [saveProgress]);
+
+  const handleBegin = useCallback(() => advanceStep(STEP.NETWORK), [advanceStep]);
+  const handleConnectionDone = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), network_connected: true };
+    advanceStep(STEP.ACCOUNT, data);
+  }, [advanceStep]);
+  const handleAccountContinue = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), account_completed: true };
+    advanceStep(STEP.NAME, data);
+  }, [advanceStep]);
 
   const handleFinish = useCallback(async (name) => {
+    // Flush any in-flight progress save, then mark setup complete.
+    await flushProgress();
     // Throws on failure so NameStep keeps its input and stays on the step.
-    const saved = await postJson("/api/v1/setup", { name, setup_completed: true });
+    const saved = await postJson("/api/v1/setup", {
+      name,
+      setup_completed: true,
+      current_step: STEP.DONE,
+    });
     setDeviceName(saved?.name || name);
     // Refresh the auth context so RequireAuth sees setup_completed === true
     // and lets the post-setup navigation through.
     await refresh();
     setStep(STEP.DONE);
-  }, [refresh]);
+  }, [flushProgress, refresh]);
+
+  if (!hydrated || step == null) {
+    return (
+      <SetupShell>
+        <div className="w-full max-w-md bg-secondary text-primary rounded-large-element px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)]">
+          <p className="font-mono text-sm text-primary text-center">Loading setup…</p>
+        </div>
+      </SetupShell>
+    );
+  }
 
   let renderedStep;
   if (step === STEP.WELCOME) {
@@ -768,6 +883,12 @@ export default function SetupPage() {
     <StepTransitionProvider stepKey={step} direction={animationDirection}>
       <SetupShell>
         <SetupCard header={<StepDots current={step} />}>
+          {saveError && (
+            <div className="mb-6 flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
+              <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-primary">{saveError}</p>
+            </div>
+          )}
           {renderedStep}
         </SetupCard>
       </SetupShell>

@@ -1344,6 +1344,68 @@ mod guard_tests {
     }
 
     #[tokio::test]
+    async fn setup_progress_saves_and_resumes_before_account() {
+        let (_dir, app) = test_app();
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"current_step":"network","step_data":{"network_connected":false}}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "{}", text(res).await);
+
+        let get = call(&app, req(Method::GET, "/api/v1/setup", None, None)).await;
+        assert_eq!(get.status(), 200);
+        let body: serde_json::Value = serde_json::from_str(&text(get).await).unwrap();
+        assert_eq!(body["current_step"], "network");
+        assert_eq!(body["step_data"]["network_connected"], false);
+        assert_eq!(body["setup_completed"], false);
+    }
+
+    #[tokio::test]
+    async fn setup_progress_rejects_unknown_step() {
+        let (_dir, app) = test_app();
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"current_step":"smtp"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn completing_setup_clears_step_data() {
+        let (_dir, app) = test_app();
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(
+                    r#"{"current_step":"name","step_data":{"account_completed":true},"name":"Kitchen","setup_completed":true}"#,
+                ),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "{}", text(res).await);
+        let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert_eq!(body["setup_completed"], true);
+        assert_eq!(body["current_step"], "done");
+        assert_eq!(body["name"], "Kitchen");
+        assert!(body["step_data"].as_object().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn first_account_on_public_hostname_needs_setup_secret() {
         let (dir, _) = test_app();
         let connect =
