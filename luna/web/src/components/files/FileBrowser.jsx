@@ -575,7 +575,7 @@ export default function FileBrowser({
       <Card padding={false} noPopIn noHeightAnim className={`overflow-hidden ${listClassName}`.trim()}>
         {!isPicker && multiSelect && entries.length > 0 && (
           <div
-            className={`flex items-center gap-3 px-3 ${padY} border-b border-primary/20 ${
+            className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
               selectedCount > 0 ? "bg-accent/20" : ""
             }`}
             role={selectedCount > 0 ? "toolbar" : undefined}
@@ -588,11 +588,11 @@ export default function FileBrowser({
               surface="secondary"
             />
             {selectedCount > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-                <span className="font-mono text-xs text-primary shrink-0">
+              <div className="flex flex-nowrap items-center gap-2 flex-1 min-w-0 overflow-x-auto">
+                <span className="font-mono text-xs text-primary shrink-0 whitespace-nowrap">
                   {selectedCount} selected
                 </span>
-                <Button variant="outline" surface="secondary" size="sm" onClick={clearSelection}>
+                <Button variant="outline" surface="secondary" size="sm" className="shrink-0" onClick={clearSelection}>
                   Clear
                 </Button>
                 {selectedCount === 1 && onShare ? (
@@ -600,6 +600,7 @@ export default function FileBrowser({
                     variant="outline"
                     surface="secondary"
                     size="sm"
+                    className="shrink-0"
                     onClick={() => {
                       const fullPath = selectedPaths[0];
                       const name = fullPath.split("/").pop() || fullPath;
@@ -616,6 +617,7 @@ export default function FileBrowser({
                     variant="outline"
                     surface="secondary"
                     size="sm"
+                    className="shrink-0"
                     onClick={() => onCopy(selectedPaths)}
                   >
                     Copy
@@ -626,6 +628,7 @@ export default function FileBrowser({
                     variant="outline"
                     surface="secondary"
                     size="sm"
+                    className="shrink-0"
                     onClick={() => onMove(selectedPaths)}
                   >
                     Move
@@ -636,6 +639,7 @@ export default function FileBrowser({
                     variant="outline"
                     surface="secondary"
                     size="sm"
+                    className="shrink-0"
                     onClick={() => onDelete(selectedPaths)}
                   >
                     Trash
