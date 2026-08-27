@@ -654,9 +654,10 @@ export default function FileBrowser({
                 className={[
                   "flex items-center gap-2 px-3",
                   padY,
-                  "bg-secondary text-primary",
-                  isSelected ? "ring-2 ring-inset ring-accent" : "",
-                  isDrop ? "outline outline-2 outline-accent" : "",
+                  isSelected
+                    ? "bg-accent text-primary"
+                    : "bg-secondary text-primary",
+                  isDrop ? "outline outline-2 outline-accent -outline-offset-2" : "",
                   "border-b border-primary/15 last:border-b-0",
                   "motion-safe:transition-colors",
                 ].filter(Boolean).join(" ")}

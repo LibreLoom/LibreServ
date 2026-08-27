@@ -11,7 +11,6 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import EmptyState from "../common/EmptyState";
 import PageNotice from "../common/PageNotice";
@@ -139,23 +138,20 @@ export default function FileSearch() {
   });
 
   return (
-    <Card className="mb-6" padding>
+    <div className="mb-6" data-slot="file-search">
       <label className="block">
-        <span className="sr-only">Search files and folders</span>
-        <span className="flex items-center gap-3 rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 focus-within:ring-2 focus-within:ring-accent motion-safe:transition-shadow">
+        <span className="sr-only">Search for a file</span>
+        <span className="flex items-center gap-3 rounded-pill bg-secondary text-primary border-2 border-transparent px-4 py-2 focus-within:border-accent motion-safe:transition-colors">
           <Search size={16} className="text-accent shrink-0" aria-hidden="true" />
           <input
-            className="flex-1 min-w-0 bg-transparent text-secondary text-sm focus:outline-none"
-            placeholder="Search files, folders, and drive names"
+            className="file-search-input flex-1 min-w-0 appearance-none bg-transparent text-primary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:text-accent"
+            placeholder="Search for a file"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            aria-label="Search files, folders, and drive names"
+            aria-label="Search for a file"
           />
         </span>
       </label>
-      <p className="text-primary text-xs mt-2">
-        Type at least two letters. Luna looks through names, folders, and drives you can open.
-      </p>
 
       {actionError && (
         <PageNotice variant="error" className="mt-3">
@@ -170,7 +166,7 @@ export default function FileSearch() {
       )}
 
       {q.length >= 2 && results.isLoading && (
-        <p className="text-primary text-xs mt-3">Searching…</p>
+        <p className="text-secondary text-xs mt-3">Searching…</p>
       )}
 
       {q.length >= 2 && !results.isLoading && (results.data || []).length === 0 && (
@@ -188,7 +184,7 @@ export default function FileSearch() {
             const isDir = item.kind === "dir";
             return (
               <li key={`${item.drive_id}:${item.path}`}>
-                <div className="rounded-large-element bg-primary text-secondary px-3 py-2 motion-safe:transition-shadow hover:ring-2 hover:ring-accent">
+                <div className="rounded-large-element bg-secondary text-primary px-3 py-2 motion-safe:transition-shadow hover:ring-2 hover:ring-accent">
                   <div className="flex items-center gap-2 min-w-0">
                     {isDir ? (
                       <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
@@ -196,8 +192,8 @@ export default function FileSearch() {
                       <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="font-mono text-sm truncate text-secondary">{item.name}</p>
-                      <p className="text-xs truncate text-secondary">
+                      <p className="font-mono text-sm truncate text-primary">{item.name}</p>
+                      <p className="text-xs truncate text-primary">
                         {locationLabel(item, driveLabel)}
                         {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
                       </p>
@@ -205,7 +201,7 @@ export default function FileSearch() {
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
                         variant="ghost"
-                        surface="primary"
+                        surface="secondary"
                         size="iconSm"
                         asChild
                         aria-label={isDir ? `Open ${item.name}` : `Go to folder for ${item.name}`}
@@ -217,7 +213,7 @@ export default function FileSearch() {
                       {!isDir && (
                         <Button
                           variant="ghost"
-                          surface="primary"
+                          surface="secondary"
                           size="iconSm"
                           asChild
                           aria-label={`Download ${item.name}`}
@@ -229,7 +225,7 @@ export default function FileSearch() {
                       )}
                       <AccessButton
                         label={item.name}
-                        surface="primary"
+                        surface="secondary"
                         onClick={() =>
                           setAccessTarget({
                             driveId: item.drive_id,
@@ -240,7 +236,7 @@ export default function FileSearch() {
                       />
                       <Button
                         variant="ghost"
-                        surface="primary"
+                        surface="secondary"
                         size="iconSm"
                         aria-label={`Copy ${item.name}`}
                         onClick={() => {
@@ -253,7 +249,7 @@ export default function FileSearch() {
                       </Button>
                       <Button
                         variant="ghost"
-                        surface="primary"
+                        surface="secondary"
                         size="iconSm"
                         aria-label={`Move ${item.name}`}
                         onClick={() => {
@@ -266,7 +262,7 @@ export default function FileSearch() {
                       </Button>
                       <Button
                         variant="ghost"
-                        surface="primary"
+                        surface="secondary"
                         size="iconSm"
                         aria-label={`Move ${item.name} to trash`}
                         onClick={() => {
@@ -332,6 +328,6 @@ export default function FileSearch() {
           onClose={() => setAccessTarget(null)}
         />
       )}
-    </Card>
+    </div>
   );
 }
