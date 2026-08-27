@@ -21,6 +21,18 @@ const PREFERRED_FOLDERS: &[&str] = &[
     "Music",
     "Downloads",
     "Desktop",
+    "DCIM",
+];
+
+/// OS / vendor folders that are not useful home shortcuts.
+const SKIP_FOLDERS: &[&str] = &[
+    "System Volume Information",
+    "$RECYCLE.BIN",
+    "RECYCLER",
+    ".Spotlight-V100",
+    ".fseventsd",
+    ".TemporaryItems",
+    ".Trashes",
 ];
 
 const MAX_SHORTCUTS: usize = 6;
@@ -75,6 +87,12 @@ pub fn top_level_shortcuts(root: &Path) -> Vec<String> {
             continue;
         };
         if name.starts_with('.') {
+            continue;
+        }
+        if SKIP_FOLDERS
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(&name))
+        {
             continue;
         }
         names.push(name);
@@ -138,6 +156,7 @@ mod tests {
         fs::create_dir(root.join("Documents")).unwrap();
         fs::create_dir(root.join(".luna")).unwrap();
         fs::create_dir(root.join(".hidden")).unwrap();
+        fs::create_dir(root.join("System Volume Information")).unwrap();
         fs::write(root.join("readme.txt"), b"hi").unwrap();
 
         let names = top_level_shortcuts(&root);
