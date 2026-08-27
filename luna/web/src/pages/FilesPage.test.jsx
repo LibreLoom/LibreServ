@@ -171,5 +171,18 @@ describe("FilesPage", () => {
     expect(postJob).toBeTruthy();
     expect(postJob[1].headers["X-CSRF-Token"]).toBe("copy-tok");
   });
-});
 
+  it("opens the move dialog with plain relocate copy", async () => {
+    stubFilesApi({
+      "": [{ name: "Vase (XS).gcode", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByText(/Vase \(XS\)\.gcode/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Move Vase (XS).gcode" }));
+    expect(await screen.findByRole("heading", { name: "Move Vase (XS).gcode" })).toBeInTheDocument();
+    expect(screen.getByText("Luna will move it to the place you choose.")).toBeInTheDocument();
+    expect(screen.queryByText(/copy it first/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/trash/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
+  });
+});

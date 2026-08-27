@@ -576,7 +576,7 @@ export default function FilesPage() {
             <>
               <p className="text-primary text-sm mb-3">
                 {copyKind === "move"
-                  ? "Luna will copy it first, then put the original in trash."
+                  ? "Luna will move it to the place you choose."
                   : "The original stays where it is."}
               </p>
               <label className="block text-primary text-xs mb-1">Which drive?</label>
