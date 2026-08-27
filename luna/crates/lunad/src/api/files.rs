@@ -13,14 +13,12 @@ use crate::AppState;
 use crate::api::response::json_error;
 use crate::files::{self, FileEntry, FilesError};
 
-const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024 * 1024;
 // A destination folder path never needs to come close to this.
 const MAX_PATH_FIELD_BYTES: usize = 4 * 1024;
 
 /// Reads a multipart text field with a hard cap so an oversized field cannot
-/// exhaust memory before validation (the body itself may be up to
-/// MAX_UPLOAD_BYTES). A mid-stream read error, truncation, or invalid UTF-8
-/// fails the whole field rather than accepting a partial destination.
+/// exhaust memory before validation. A mid-stream read error, truncation, or
+/// invalid UTF-8 fails the whole field rather than accepting a partial destination.
 async fn read_bounded_text(
     field: &mut axum::extract::multipart::Field<'_>,
     max: usize,
@@ -83,6 +81,9 @@ struct PurgeBody {
 }
 
 pub fn router() -> Router<AppState> {
+    // Multipart is streamed to disk, but the body limit still bounds DoS.
+    // Sized from MemAvailable; floor matches the web client's 32 MiB switchover.
+    let multipart_max = crate::budget::limits().multipart_upload_bytes;
     Router::new()
         .route("/api/v1/drives/{id}/files", get(list).delete(delete_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
@@ -92,7 +93,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/files/content", get(content))
         .route(
             "/api/v1/drives/{id}/files/upload",
-            post(upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+            post(upload).layer(DefaultBodyLimit::max(multipart_max)),
         )
 }
 

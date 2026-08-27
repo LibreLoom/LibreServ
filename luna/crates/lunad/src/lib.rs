@@ -1,6 +1,7 @@
 pub mod api;
 pub mod at_rest;
 pub mod auth;
+pub mod budget;
 pub mod cloud_backup;
 pub mod config;
 pub mod connect;

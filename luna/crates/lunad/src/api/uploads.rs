@@ -11,7 +11,6 @@ use crate::api::files::parse_range;
 use crate::api::response::json_error;
 use crate::uploads::{self, UploadError};
 
-const MAX_CHUNK_BYTES: usize = 1024 * 1024 * 1024; // 1 GiB per chunk request
 const MAX_FILE_BYTES: u64 = 1024 * 1024 * 1024 * 1024; // 1 TiB
 
 #[derive(Deserialize)]
@@ -29,6 +28,9 @@ struct CompleteQuery {
 }
 
 pub fn router() -> Router<AppState> {
+    // Chunk bodies are fully buffered (`Bytes`). Size from MemAvailable so a
+    // 2 GiB Wyse never accepts a 1 GiB chunk into RAM. Floor matches the web UI.
+    let chunk_max = crate::budget::limits().upload_chunk_bytes;
     Router::new()
         .route(
             "/api/v1/uploads",
@@ -36,7 +38,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/uploads/{id}",
-            put(write_chunk).layer(DefaultBodyLimit::max(MAX_CHUNK_BYTES)),
+            put(write_chunk).layer(DefaultBodyLimit::max(chunk_max)),
         )
         .route("/api/v1/uploads/{id}/complete", post(complete))
         .route("/api/v1/uploads/{id}", delete(cancel))
@@ -104,6 +106,13 @@ async fn write_chunk(
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "The chunk size doesn't match its range.",
+        ));
+    }
+    let chunk_max = crate::budget::limits().upload_chunk_bytes;
+    if body.len() > chunk_max {
+        return Err(json_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
         ));
     }
 

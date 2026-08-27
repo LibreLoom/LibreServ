@@ -350,7 +350,9 @@ pub fn decode_heif_to_jpeg(src: &Path, jpeg_out: &Path) -> anyhow::Result<()> {
             .arg(&dest_tmp)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::piped());
+            // Discard stderr so a chatty heif-dec cannot fill a pipe and stall
+            // while holding RAM on a 2 GiB box.
+            .stderr(Stdio::null());
         match run_limited(cmd, Duration::from_secs(30)) {
             Ok(()) if dest_tmp.exists() => {
                 std::fs::rename(&dest_tmp, jpeg_out)?;

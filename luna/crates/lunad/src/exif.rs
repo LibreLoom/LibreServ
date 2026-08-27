@@ -13,6 +13,11 @@ use exif::{In, Reader, Tag, Value};
 /// DateTime. Falls back to `None` when the file has no usable EXIF date.
 pub fn capture_unix(path: &Path) -> Option<i64> {
     if crate::heif::is_heif(path) {
+        let max = crate::budget::limits().source_max_bytes;
+        let meta = std::fs::metadata(path).ok()?;
+        if meta.len() > max {
+            return None;
+        }
         if let Ok(bytes) = std::fs::read(path)
             && let Some(exif) = crate::heif::exif_tiff_from_heif(&bytes)
             && let Some(ts) = unix_from_tiff_bytes(&exif)

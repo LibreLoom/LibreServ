@@ -82,13 +82,20 @@ async fn reindex(
     }
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        let drives = crate::db::list_drives(&conn).unwrap_or_default();
+        let drives = {
+            let conn = db.lock().unwrap();
+            crate::db::list_drives(&conn).unwrap_or_default()
+        };
         let mut dirs = 0u64;
         for drive in drives {
             if drive.state != "as_is" || drive.mount_point.is_empty() {
                 continue;
             }
+            // index::scan_drive still needs the connection for writes, but we
+            // re-lock per drive so a long walk of one disk does not block the
+            // whole API for unrelated drives forever. (Gallery already unlocks
+            // per photo; file index is lighter and stays per-drive.)
+            let conn = db.lock().unwrap();
             if let Ok(n) =
                 crate::index::scan_drive(&conn, &drive.id, std::path::Path::new(&drive.mount_point))
             {
@@ -221,13 +228,12 @@ async fn factory_reset(
         )
     })?;
     drop(conn);
-    let new_secret =
-        crate::secrets::rotate_jwt_secret(&state.data_dir).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't finish the reset. Try again.",
-            )
-        })?;
+    let new_secret = crate::secrets::rotate_jwt_secret(&state.data_dir).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish the reset. Try again.",
+        )
+    })?;
     state.auth.reload_secret(new_secret);
     Ok(Json(
         json!({ "ok": true, "message": "Luna has been reset. Set it up again from the start." }),
@@ -265,7 +271,13 @@ mod tests {
             .with_state(state)
     }
 
-    fn req(method: Method, uri: &str, body: &str, cookie: Option<&str>, csrf: Option<&str>) -> HttpReq<Body> {
+    fn req(
+        method: Method,
+        uri: &str,
+        body: &str,
+        cookie: Option<&str>,
+        csrf: Option<&str>,
+    ) -> HttpReq<Body> {
         let mut builder = HttpReq::builder()
             .method(method)
             .uri(uri)

@@ -4,15 +4,14 @@
 //! Capture dates come from EXIF, not file mtime. Originals are never rewritten.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use image::{ImageFormat, ImageReader};
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::Serialize;
 
 const THUMB_MAX: u32 = 400;
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
-const MAX_IMAGE_DIM: u32 = 16_384;
-const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
@@ -48,8 +47,12 @@ pub fn thumb_path(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
 
 /// Walk one drive and refresh its photo rows + thumbnails. Blocking; callers
 /// run this on the background pool.
+///
+/// Heavy work (EXIF, decode, heif-dec) runs **without** holding `db`. Each
+/// photo takes a short lock only for the INSERT so login/listings stay responsive
+/// on a 2 GiB box during a long gallery scan.
 pub fn scan_drive(
-    conn: &Connection,
+    db: &Arc<Mutex<Connection>>,
     drive_id: &str,
     root: &Path,
     thumb_dir: &Path,
@@ -80,12 +83,23 @@ pub fn scan_drive(
                 continue;
             };
             let name = name.to_string();
+            let size = meta.len();
             let mtime = meta
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
+
+            // Budget check before any full-file read / decode.
+            let limits = crate::budget::limits();
+            if size > limits.source_max_bytes {
+                report.found += 1;
+                report.failed += 1;
+                upsert_photo(db, drive_id, rel, &name, size, mtime, mtime, 0, 0, "")?;
+                continue;
+            }
+
             let taken_at = crate::exif::capture_unix(&path_buf).unwrap_or(mtime);
 
             let mut width = 0;
@@ -110,34 +124,60 @@ pub fn scan_drive(
                 }
             }
 
-            conn.execute(
-                "INSERT INTO photos (drive_id, path, name, size, mtime, taken_at, width, height, thumb)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                 ON CONFLICT(drive_id, path) DO UPDATE SET
-                   size = excluded.size, mtime = excluded.mtime,
-                   taken_at = excluded.taken_at,
-                   width = excluded.width, height = excluded.height, thumb = excluded.thumb",
-                params![
-                    drive_id,
-                    rel,
-                    name,
-                    meta.len() as i64,
-                    mtime,
-                    taken_at,
-                    width as i64,
-                    height as i64,
-                    thumb
-                ],
+            upsert_photo(
+                db, drive_id, rel, &name, size, mtime, taken_at, width, height, &thumb,
             )?;
         }
     }
     Ok(report)
 }
 
+fn upsert_photo(
+    db: &Arc<Mutex<Connection>>,
+    drive_id: &str,
+    rel: &str,
+    name: &str,
+    size: u64,
+    mtime: i64,
+    taken_at: i64,
+    width: u32,
+    height: u32,
+    thumb: &str,
+) -> anyhow::Result<()> {
+    let conn = db
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Luna's index is busy"))?;
+    conn.execute(
+        "INSERT INTO photos (drive_id, path, name, size, mtime, taken_at, width, height, thumb)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(drive_id, path) DO UPDATE SET
+           size = excluded.size, mtime = excluded.mtime,
+           taken_at = excluded.taken_at,
+           width = excluded.width, height = excluded.height, thumb = excluded.thumb",
+        params![
+            drive_id,
+            rel,
+            name,
+            size as i64,
+            mtime,
+            taken_at,
+            width as i64,
+            height as i64,
+            thumb
+        ],
+    )?;
+    Ok(())
+}
+
 /// Generate a 400px JPEG thumbnail. Returns (width, height, was_created).
 pub fn ensure_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
     if dest.exists() {
         return Ok((0, 0, false));
+    }
+    let limits = crate::budget::limits();
+    let meta = std::fs::symlink_metadata(src)?;
+    if meta.len() > limits.source_max_bytes {
+        anyhow::bail!("photo is too large to preview with the free memory on this Luna");
     }
     if crate::heif::is_heif(src) {
         return ensure_heif_thumb(src, dest);
@@ -146,7 +186,8 @@ pub fn ensure_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)>
 }
 
 fn ensure_heif_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
-    let bytes = std::fs::read(src)?;
+    let limits = crate::budget::limits();
+    let bytes = read_capped(src, limits.source_max_bytes)?;
     if let Some(jpeg) = crate::heif::jpeg_item_from_heif(&bytes) {
         let work = dest.with_extension("src.jpg");
         std::fs::write(&work, jpeg)?;
@@ -154,20 +195,42 @@ fn ensure_heif_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)
         let _ = std::fs::remove_file(&work);
         return result;
     }
+    // Drop the HEIF bytes before spawning heif-dec so peak RSS is the child,
+    // not child + parent copy.
+    drop(bytes);
+    let _permit = crate::budget::acquire_heif_slot_blocking();
     let decoded = dest.with_extension("heic-src.jpg");
-    crate::heif::decode_heif_to_jpeg(src, &decoded)?;
-    let result = decode_and_save_thumb(&decoded, dest);
+    let result = (|| {
+        crate::heif::decode_heif_to_jpeg(src, &decoded)?;
+        decode_and_save_thumb(&decoded, dest)
+    })();
     let _ = std::fs::remove_file(&decoded);
+    let _ = std::fs::remove_file(decoded.with_extension("jpg.tmp"));
     result
 }
 
+fn read_capped(path: &Path, max: u64) -> anyhow::Result<Vec<u8>> {
+    let meta = std::fs::metadata(path)?;
+    if meta.len() > max {
+        anyhow::bail!("file exceeds memory budget ({max} bytes)");
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut buf = Vec::with_capacity(meta.len() as usize);
+    std::io::Read::read_to_end(&mut file, &mut buf)?;
+    if buf.len() as u64 > max {
+        anyhow::bail!("file exceeds memory budget ({max} bytes)");
+    }
+    Ok(buf)
+}
+
 fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(MAX_IMAGE_DIM);
-    limits.max_image_height = Some(MAX_IMAGE_DIM);
-    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    let limits = crate::budget::limits();
+    let mut img_limits = image::Limits::default();
+    img_limits.max_image_width = Some(limits.max_image_dim);
+    img_limits.max_image_height = Some(limits.max_image_dim);
+    img_limits.max_alloc = Some(limits.decode_max_bytes);
     let mut reader = ImageReader::open(src)?;
-    reader.limits(limits);
+    reader.limits(img_limits);
     let img = reader.decode()?;
     let (w, h) = (img.width(), img.height());
     let thumb = img.thumbnail(THUMB_MAX, THUMB_MAX);
@@ -302,17 +365,14 @@ mod tests {
         let png = image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]));
         png.save(&recent).unwrap();
 
-        let db = rusqlite::Connection::open_in_memory().unwrap();
-        db.execute_batch(
-            "CREATE TABLE photos (
-                drive_id TEXT, path TEXT, name TEXT, size INTEGER, mtime INTEGER,
-                taken_at INTEGER NOT NULL DEFAULT 0, width INTEGER, height INTEGER, thumb TEXT,
-                PRIMARY KEY (drive_id, path))",
-        )
-        .unwrap();
+        let db_path = dir.path().join("luna.db");
+        let conn = crate::db::open(&db_path).unwrap();
+        // photos table comes from migrations via db::open
+        drop(conn);
+        let db = Arc::new(Mutex::new(crate::db::open(&db_path).unwrap()));
         let thumbs = dir.path().join("thumbs");
         scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
-        let photos = list_photos(&db, Some("d1"), 10, 0).unwrap();
+        let photos = list_photos(&db.lock().unwrap(), Some("d1"), 10, 0).unwrap();
         assert_eq!(photos.len(), 2);
         assert_eq!(photos[0].name, "recent.png");
         assert_eq!(photos[1].name, "from-phone.jpg");
@@ -320,5 +380,18 @@ mod tests {
             photos[1].taken_at,
             crate::exif::parse_exif_datetime("2010:01:01 00:00:00").unwrap()
         );
+    }
+
+    #[test]
+    fn oversized_source_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("huge.bin.jpg");
+        // Pretend a huge file: write past source_max by temporarily... we can't
+        // easily fake MemAvailable, so just assert read_capped rejects.
+        let err = read_capped(&src, 10).unwrap_err();
+        let _ = err;
+        std::fs::write(&src, vec![0u8; 64]).unwrap();
+        assert!(read_capped(&src, 10).is_err());
+        assert!(read_capped(&src, 64).is_ok());
     }
 }
