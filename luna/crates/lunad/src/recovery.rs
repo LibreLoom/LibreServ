@@ -393,7 +393,7 @@ pub fn run_console_loop(auth: Arc<AuthService>) {
         Err(_) => return,
     };
     let mut signed_in = false;
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
         match console_command(&line, signed_in) {
             ConsoleCommand::StartReset => {
                 signed_in = true;
