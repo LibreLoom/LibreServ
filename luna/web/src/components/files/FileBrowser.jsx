@@ -173,7 +173,6 @@ export default function FileBrowser({
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
-  const pathLabel = path ? `${driveLabel} / ${segments.join(" / ")}` : driveLabel;
 
   function openFolder(folderPath) {
     setPath(folderPath);
@@ -427,18 +426,18 @@ export default function FileBrowser({
               <p className="text-xs font-mono uppercase tracking-widest text-accent mb-1">
                 Current folder
               </p>
-              <p className="font-mono text-sm text-primary break-all" aria-live="polite">
-                {pathLabel}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-xs text-primary">
+              <div
+                className="flex flex-wrap items-center gap-2 font-mono text-sm text-primary"
+                aria-live="polite"
+              >
                 {linkNavigation ? (
-                  <TextLink to={folderHref(driveId, "")} surface="secondary">
+                  <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all">
                     {driveLabel}
                   </TextLink>
                 ) : (
                   <button
                     type="button"
-                    className="text-accent hover:text-primary motion-safe:transition-colors"
+                    className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
                     onClick={() => openFolder("")}
                   >
                     {driveLabel}
@@ -446,17 +445,24 @@ export default function FileBrowser({
                 )}
                 {segments.map((segment, i) => {
                   const segPath = segments.slice(0, i + 1).join("/");
+                  const isLast = i === segments.length - 1;
                   return (
-                    <span key={`${segment}-${i}`} className="flex items-center gap-2">
+                    <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
                       <span className="text-accent" aria-hidden="true">/</span>
                       {linkNavigation ? (
-                        <TextLink to={folderHref(driveId, segPath)} surface="secondary">
+                        <TextLink
+                          to={folderHref(driveId, segPath)}
+                          surface="secondary"
+                          className={isLast ? "break-all" : "break-all text-accent"}
+                        >
                           {segment}
                         </TextLink>
                       ) : (
                         <button
                           type="button"
-                          className="text-accent hover:text-primary motion-safe:transition-colors"
+                          className={`motion-safe:transition-colors break-all text-left ${
+                            isLast ? "text-primary hover:text-accent" : "text-accent hover:text-primary"
+                          }`}
                           onClick={() => openFolder(segPath)}
                         >
                           {segment}

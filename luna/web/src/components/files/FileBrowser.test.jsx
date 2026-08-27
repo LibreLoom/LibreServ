@@ -66,7 +66,8 @@ describe("FileBrowser", () => {
     renderBrowser({ multiSelect: false });
     fireEvent.click(await screen.findByRole("button", { name: /album/i }));
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
-    expect(screen.getByText(/Photos \/ album/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Photos" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "album" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /↑ Up one folder/i }));
     expect(await screen.findByText("album")).toBeInTheDocument();
   });
