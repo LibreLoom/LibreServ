@@ -40,10 +40,15 @@ mkdir -p "$ROOTFS" "$OUT"
 # --privileged is required so mkinitfs can mount proc/sys/dev in the chroot
 # (rootless Podman otherwise returns "mount: permission denied").
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
+    # linux-lts depends on linux-firmware-any. The meta package
+    # linux-firmware pulls ~800 MiB of GPU/Wi-Fi blobs we never use
+    # (Luna is Ethernet-only). linux-firmware-none satisfies the dep;
+    # keep only common wired NIC firmware for mini PCs / thin clients.
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
         alpine-base openrc linux-lts kmod \
+        linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
         avahi \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux \
@@ -184,7 +189,7 @@ set -eu
 
 # ProDesk / Wyse: drivers are modules, not always autoloaded before we run.
 # Wired NICs only — Luna is Ethernet-only (no USB Wi-Fi dongle in the box).
-for mod in e1000e igc igb ixgbe r8169 atl1c; do
+for mod in e1000e igc igb ixgbe r8169 atl1c virtio_net virtio_pci; do
     modprobe "$mod" 2>/dev/null || true
 done
 

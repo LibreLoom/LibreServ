@@ -35,6 +35,16 @@ assert_file_has "$BUILD" 'evdev' "rootfs must load evdev for /dev/input/event*"
 assert_file_has "$BUILD" 'atkbd' "rootfs must load atkbd for PS/2 keyboards"
 assert_file_has "$BUILD" ' alpine-base openrc linux-lts kmod ' \
 	"rootfs must install kmod so gzipped .ko.gz modules load"
+assert_file_has "$BUILD" 'linux-firmware-none' \
+	"rootfs must use linux-firmware-none instead of the full firmware meta package"
+assert_file_has "$BUILD" 'virtio_net' \
+	"rootfs network bring-up must load virtio_net for QEMU / virt guests"
+
+# Only flag an apk install of the meta package, not comments mentioning it.
+if grep -E 'apk add' "$BUILD" | grep -qE '(^|[[:space:]])linux-firmware([[:space:]]|$)'; then
+	echo "FAIL: do not install the linux-firmware meta package (hundreds of MB of unused blobs)" >&2
+	exit 1
+fi
 
 if grep 'for svc in .*networking;' "$BUILD" >/dev/null 2>&1; then
 	echo "FAIL: stock Alpine networking must not stay in boot runlevel" >&2

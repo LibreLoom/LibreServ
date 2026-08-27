@@ -11,7 +11,9 @@ ARCH="${ARCH:-x86_64}"
 OUT="$ROOT/os/dist"
 ISO="$OUT/luna-rapidinstall-$ARCH.iso"
 TARBALL="$OUT/luna-rootfs-$ARCH.tar.gz"
-WORK="$ROOT/os/work/debian-live"
+# Prefer a path outside the git worktree when agents/IDEs hold open fds under
+# the repo (live-build then fails with "umount: chroot/proc: target is busy").
+WORK="${LUNA_LIVE_WORK:-$ROOT/os/work/debian-live}"
 BUILD="$ROOT/os/iso/build-debian-live.sh"
 STAMP="$OUT/.luna-rapidinstall-${ARCH}.stamp"
 
