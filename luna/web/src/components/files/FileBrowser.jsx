@@ -17,6 +17,7 @@ import PropTypes from "prop-types";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import TextLink from "../ui/TextLink.jsx";
+import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import { getJson } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
@@ -623,15 +624,14 @@ export default function FileBrowser({
         <p className="text-primary text-sm mb-3">Loading files…</p>
       )}
 
-      <Card padding={false} noPopIn noHeightAnim className={listClassName}>
+      <Card padding={false} noPopIn noHeightAnim className={`overflow-hidden ${listClassName}`.trim()}>
         {!isPicker && multiSelect && entries.length > 0 && (
           <div className={`flex items-center gap-3 px-3 ${padY} border-b border-primary/20`}>
-            <input
-              type="checkbox"
-              className="size-4 accent-[var(--accent)]"
+            <AnimatedCheckbox
               checked={allSelected}
-              onChange={() => (allSelected ? clearSelection() : selectAllVisible())}
+              onChange={(next) => (next ? selectAllVisible() : clearSelection())}
               aria-label="Select all in this folder"
+              surface="secondary"
             />
             <span className="font-mono text-xs text-primary">Name</span>
             <span className="ml-auto font-mono text-xs text-primary hidden sm:block w-20 text-right">
@@ -678,16 +678,25 @@ export default function FileBrowser({
                 }}
               >
                 {!isPicker && multiSelect ? (
-                  <input
-                    type="checkbox"
-                    className="size-4 shrink-0 accent-[var(--accent)]"
+                  <AnimatedCheckbox
                     checked={isSelected}
-                    onChange={(e) => toggleOne(ctx.fullPath, {
-                      additive: true,
-                      range: /** @type {MouseEvent} */ (e.nativeEvent).shiftKey,
-                    })}
-                    onClick={(e) => e.stopPropagation()}
+                    onChange={(next, e) => {
+                      const shift = Boolean(
+                        /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
+                      );
+                      if (shift) {
+                        toggleOne(ctx.fullPath, { additive: true, range: true });
+                        return;
+                      }
+                      setSelectedPaths(
+                        next
+                          ? [...new Set([...selectedPaths, ctx.fullPath])]
+                          : selectedPaths.filter((p) => p !== ctx.fullPath),
+                      );
+                      setLastClicked(ctx.fullPath);
+                    }}
                     aria-label={`Select ${entry.name}`}
+                    surface="secondary"
                   />
                 ) : null}
 
