@@ -43,10 +43,12 @@ async function request(path, options = {}) {
     const csrf = readCookie("luna_csrf");
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
+  // Spread options first, then force credentials + merged headers so
+  // postJson's Content-Type object cannot wipe X-CSRF-Token.
   const res = await fetch(path, {
+    ...options,
     credentials: "include",
     headers,
-    ...options,
   });
   if (!res.ok) {
     let message = "";
