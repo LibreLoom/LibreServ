@@ -409,6 +409,7 @@ export default function FileBrowser({
   const padY = dense ? "py-2" : "py-2.5";
   const allSelected = entryPaths.length > 0 && entryPaths.every((p) => selectedPaths.includes(p));
   const selectedCount = selectedPaths.length;
+  const listDropHighlight = Boolean(enableUploadDrop && !isPicker && dragOver && !dropTarget);
 
   return (
     <div
@@ -419,8 +420,14 @@ export default function FileBrowser({
         if (![...e.dataTransfer.types].includes("Files")) return;
         e.preventDefault();
         setDragOver(true);
+        setDropTarget(null);
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(e) => {
+        // Ignore leave events that stay within this browser (child→child).
+        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+        setDragOver(false);
+        setDropTarget(null);
+      }}
       onDrop={(e) => {
         if (!enableUploadDrop || isPicker) return;
         void handleOsDrop(e, path);
@@ -531,15 +538,8 @@ export default function FileBrowser({
         </Card>
       )}
 
-      {enableUploadDrop && !isPicker && dragOver && (
-        <div
-          className="mb-3 rounded-large-element border-2 border-dashed border-accent bg-secondary text-primary px-4 py-6 text-center"
-          role="status"
-        >
-          <UploadCloud size={20} className="text-accent mx-auto mb-2" aria-hidden="true" />
-          <p className="text-sm">Drop to upload into this folder</p>
-        </div>
-      )}
+      {/* Upload / move drop feedback uses the same accent/20 highlight as
+          multi-select — no separate dashed banner that jumps layout. */}
 
       {!isPicker && multiSelect && toolbarExtra && selectedCount === 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -575,11 +575,20 @@ export default function FileBrowser({
         </p>
       )}
 
-      <Card padding={false} className={listClassName} aria-busy={listBusy || undefined}>
+      <Card
+        padding={false}
+        className={[listClassName, listDropHighlight ? "bg-accent/20" : ""].filter(Boolean).join(" ")}
+        aria-busy={listBusy || undefined}
+      >
+        {listDropHighlight ? (
+          <span className="sr-only" role="status">
+            Drop to upload into this folder
+          </span>
+        ) : null}
         {!isPicker && multiSelect && entries.length > 0 && (
           <div
             className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
-              selectedCount > 0 ? "bg-accent/20" : ""
+              selectedCount > 0 || listDropHighlight ? "bg-accent/20" : ""
             }`}
             role={selectedCount > 0 ? "toolbar" : undefined}
             aria-label={selectedCount > 0 ? "Actions for selected files" : undefined}
@@ -685,8 +694,7 @@ export default function FileBrowser({
                     "flex items-center gap-2 px-3",
                     padY,
                     "bg-secondary text-primary",
-                    isSelected ? "bg-accent/20" : "",
-                    isDrop ? "outline outline-2 outline-accent -outline-offset-2" : "",
+                    isSelected || isDrop || listDropHighlight ? "bg-accent/20" : "",
                     "border-b border-primary/15 last:border-b-0",
                     "motion-safe:transition-colors",
                   ].filter(Boolean).join(" ")}
@@ -698,8 +706,10 @@ export default function FileBrowser({
                     e.preventDefault();
                     e.stopPropagation();
                     setDropTarget(ctx.fullPath);
+                    setDragOver(false);
                   }}
-                  onDragLeave={() => {
+                  onDragLeave={(e) => {
+                    if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
                     if (dropTarget === ctx.fullPath) setDropTarget(null);
                   }}
                   onDrop={(e) => {
