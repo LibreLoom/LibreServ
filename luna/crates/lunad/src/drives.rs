@@ -336,13 +336,22 @@ impl DriveManager {
     }
 
     /// Eject a drive that Luna knows about. Only unmounts Luna-owned mounts.
+    ///
+    /// Idempotent: already-ejected or already-unmounted drives succeed and
+    /// stay marked `ejected`.
     pub fn eject(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
+        if drive.state == "ejected" {
+            return Ok(());
+        }
         if !drive.mount_point.is_empty() && self.is_ours(Path::new(&drive.mount_point)) {
-            self.mounter.unmount(Path::new(&drive.mount_point))?;
-            let _ = std::fs::remove_dir(Path::new(&drive.mount_point));
+            let target = Path::new(&drive.mount_point);
+            self.mounter.unmount(target).map_err(|_| {
+                anyhow::anyhow!("Close any files open from this drive, then try again.")
+            })?;
+            let _ = std::fs::remove_dir(target);
         }
         db::set_drive_state(conn, id, "ejected")?;
         Ok(())
@@ -465,7 +474,9 @@ impl DriveManager {
     /// Reconcile the registry with reality.
     ///
     /// Adopted drives that disappeared become `missing`; drives that come back
-    /// become `as_is` again. Ejected drives stay ejected until they return.
+    /// become `as_is` again. Ejected drives stay ejected while still plugged in;
+    /// once unplugged they become `missing` so a re-plug can restore Ready.
+    /// If a Ready drive's Luna mount is already gone, mark it ejected.
     pub fn reconcile(&self, conn: &Connection, detected: &[DetectedDrive]) -> anyhow::Result<()> {
         for row in db::list_drives(conn)? {
             let present = detected.iter().any(|d| d.name == row.device);
@@ -473,12 +484,47 @@ impl DriveManager {
                 "as_is" | "readonly" if !present => {
                     db::set_drive_state(conn, &row.id, "missing")?;
                 }
-                "missing" | "ejected" if present => {
-                    db::set_drive_state(conn, &row.id, "as_is")?;
+                "as_is" | "readonly" if present && self.luna_mount_missing(&row) => {
+                    // Mount already gone (prior eject, crash, or forced umount)
+                    // but DB still said Ready — keep UI in sync.
+                    db::set_drive_state(conn, &row.id, "ejected")?;
                 }
+                "ejected" if !present => {
+                    db::set_drive_state(conn, &row.id, "missing")?;
+                }
+                "missing" if present => {
+                    db::set_drive_state(conn, &row.id, "as_is")?;
+                    let _ = self.ensure_mounted(&row);
+                }
+                // ejected + still plugged in → stay ejected until physically removed
                 _ => {}
             }
         }
+        Ok(())
+    }
+
+    /// True when this row claims a Luna-owned mount that is not live.
+    fn luna_mount_missing(&self, row: &db::DriveRow) -> bool {
+        if row.mount_point.is_empty() {
+            return false;
+        }
+        let path = Path::new(&row.mount_point);
+        self.is_ours(path) && !self.mounter.is_mounted(path)
+    }
+
+    /// Best-effort remount after a drive returns from `missing`.
+    fn ensure_mounted(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
+        if drive.mount_point.is_empty() || drive.device.is_empty() {
+            return Ok(());
+        }
+        let target = Path::new(&drive.mount_point);
+        if !self.is_ours(target) {
+            return Ok(());
+        }
+        if self.mounter.is_mounted(target) {
+            return Ok(());
+        }
+        let (_, _) = self.mount_for_remove(drive)?;
         Ok(())
     }
 
@@ -832,6 +878,77 @@ mod tests {
     }
 
     #[test]
+    fn eject_is_idempotent_when_already_unmounted() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+
+        mgr.eject(&conn, &row.id).unwrap();
+        let unmounts_after_first = mounter.unmounts.lock().unwrap().len();
+        // Second eject must succeed and keep ejected — no raw umount failure.
+        mgr.eject(&conn, &row.id).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "ejected"
+        );
+        assert_eq!(
+            mounter.unmounts.lock().unwrap().len(),
+            unmounts_after_first,
+            "already-ejected must not unmount again"
+        );
+    }
+
+    #[test]
+    fn reconcile_keeps_ejected_while_still_plugged_in() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        mgr.eject(&conn, &row.id).unwrap();
+
+        // Still plugged in — must stay ejected (the bug was flipping to Ready).
+        mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "ejected"
+        );
+    }
+
+    #[test]
+    fn reconcile_marks_ready_as_ejected_when_mount_already_gone() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        // Simulate a successful umount that left DB state as Ready.
+        mounter.unmount(Path::new(&row.mount_point)).unwrap();
+        let _ = std::fs::remove_dir(Path::new(&row.mount_point));
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "as_is"
+        );
+
+        mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "ejected"
+        );
+    }
+
+    #[test]
     fn reconcile_marks_missing_and_restores_on_return() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
@@ -850,6 +967,31 @@ mod tests {
         );
 
         // Drive back.
+        mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "as_is"
+        );
+    }
+
+    #[test]
+    fn ejected_becomes_missing_when_unplugged_then_ready_on_replug() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        mgr.eject(&conn, &row.id).unwrap();
+
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
+
         mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,

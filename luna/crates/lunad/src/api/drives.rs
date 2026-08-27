@@ -106,7 +106,8 @@ async fn detected(
     require_admin(user)?;
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     let drives = crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
-    // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is.
+    // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
+    // ejected stays ejected while still plugged in.
     let known_devices = with_db(&state.db, |conn| {
         state.drive_manager.reconcile(conn, &drives)?;
         let rows = crate::db::list_drives(conn)?;
@@ -225,12 +226,8 @@ async fn eject(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    with_db(&state.db, |conn| state.drive_manager.eject(conn, &id)).map_err(|e| {
-        json_error(
-            StatusCode::BAD_REQUEST,
-            format!("Luna couldn't eject this drive safely. {e}"),
-        )
-    })?;
+    with_db(&state.db, |conn| state.drive_manager.eject(conn, &id))
+        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -327,6 +324,25 @@ fn plain_adopt_error(err: &anyhow::Error) -> String {
     }
 }
 
+/// User-facing eject errors — never dump raw mount paths or UUIDs.
+fn plain_eject_error(err: &anyhow::Error) -> String {
+    let text = err.to_string();
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("doesn't know") {
+        "Luna doesn't know this drive.".into()
+    } else if lower.contains("close any files")
+        || lower.contains("target is busy")
+        || lower.contains("device is busy")
+        || lower.contains("busy")
+    {
+        "Luna couldn't eject this drive safely. Close any files open from it, then try again."
+            .into()
+    } else {
+        "Luna couldn't eject this drive safely. Unplug it, wait a moment, and plug it back in."
+            .into()
+    }
+}
+
 fn with_db<T>(
     db: &Arc<Mutex<Connection>>,
     f: impl FnOnce(&Connection) -> anyhow::Result<T>,
@@ -391,5 +407,22 @@ mod tests {
         assert!(other_plain.contains("Unplug"));
         assert!(!other_plain.to_ascii_lowercase().contains("installer"));
         assert!(!other_plain.contains("os error"));
+    }
+
+    #[test]
+    fn eject_errors_never_leak_paths_or_uuids() {
+        let busy = anyhow::anyhow!("Close any files open from this drive, then try again.");
+        let plain = super::plain_eject_error(&busy);
+        assert!(plain.contains("Close any files"));
+        assert!(!plain.contains("/var/lib"));
+
+        let raw = anyhow::anyhow!(
+            "unmount /var/lib/luna/mounts/drives/4b8d8abb-c7da-4d24-960a-7670030b96e5 failed: umount: no mount point specified."
+        );
+        let plain_raw = super::plain_eject_error(&raw);
+        assert!(plain_raw.starts_with("Luna couldn't eject"));
+        assert!(!plain_raw.contains("4b8d8abb"));
+        assert!(!plain_raw.contains("/var/lib"));
+        assert!(!plain_raw.contains("umount"));
     }
 }

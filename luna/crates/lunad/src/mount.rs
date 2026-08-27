@@ -12,8 +12,12 @@ use std::sync::Arc;
 pub trait Mounter: Send + Sync {
     /// Mount `device` at `target`. Implementations create `target`.
     fn mount(&self, device: &str, target: &Path, read_only: bool) -> anyhow::Result<()>;
-    /// Unmount `target` if mounted.
+    /// Unmount `target` if mounted. Already-unmounted paths are success (idempotent).
     fn unmount(&self, target: &Path) -> anyhow::Result<()>;
+    /// True when `target` is currently a live mount.
+    fn is_mounted(&self, target: &Path) -> bool {
+        path_is_mount_point(target)
+    }
     /// Remount an already-mounted path read-only or read-write.
     fn remount(&self, target: &Path, read_only: bool) -> anyhow::Result<()> {
         let _ = (target, read_only);
@@ -32,6 +36,36 @@ pub trait Mounter: Send + Sync {
     }
 }
 
+/// True when `/proc/mounts` lists `target` as a mount point.
+pub fn path_is_mount_point(target: &Path) -> bool {
+    let Ok(canon) = std::fs::canonicalize(target) else {
+        return false;
+    };
+    let Ok(mounts) = std::fs::read_to_string("/proc/mounts") else {
+        return false;
+    };
+    for line in mounts.lines() {
+        let mut fields = line.split_whitespace();
+        let _device = fields.next();
+        let Some(point) = fields.next() else {
+            continue;
+        };
+        let point = point.replace("\\040", " ");
+        if Path::new(&point) == canon.as_path() {
+            return true;
+        }
+    }
+    false
+}
+
+fn already_unmounted_stderr(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("not mounted")
+        || lower.contains("no mount point")
+        || lower.contains("not found")
+        || lower.contains("no such file")
+}
+
 #[derive(Clone, Default)]
 pub struct CommandMounter;
 
@@ -41,13 +75,17 @@ impl Mounter for CommandMounter {
     }
 
     fn unmount(&self, target: &Path) -> anyhow::Result<()> {
+        // Idempotent: nothing to do when the path is already gone / not mounted.
+        if !self.is_mounted(target) {
+            return Ok(());
+        }
         let out = Command::new("umount").arg(target).output()?;
         if !out.status.success() {
-            return Err(anyhow::anyhow!(
-                "unmount {} failed: {}",
-                target.display(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if already_unmounted_stderr(&stderr) {
+                return Ok(());
+            }
+            return Err(anyhow::anyhow!("unmount failed: {}", stderr.trim()));
         }
         Ok(())
     }
@@ -140,6 +178,8 @@ pub struct MockMounter {
     pub unmounts: std::sync::Mutex<Vec<PathBuf>>,
     pub remounts: std::sync::Mutex<Vec<(PathBuf, bool)>>,
     pub fail_mount: std::sync::Mutex<bool>,
+    /// Paths currently considered mounted (updated by mount/unmount).
+    active: std::sync::Mutex<std::collections::HashSet<PathBuf>>,
     shadows: std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>>,
 }
 
@@ -179,11 +219,21 @@ impl Mounter for MockMounter {
             .lock()
             .unwrap()
             .push((device.to_string(), target.to_path_buf(), read_only));
+        self.active.lock().unwrap().insert(target.to_path_buf());
         Ok(())
     }
 
+    fn is_mounted(&self, target: &Path) -> bool {
+        self.active.lock().unwrap().contains(target)
+    }
+
     fn unmount(&self, target: &Path) -> anyhow::Result<()> {
+        // Match production: already-unmounted is success.
+        if !self.is_mounted(target) {
+            return Ok(());
+        }
         self.unmounts.lock().unwrap().push(target.to_path_buf());
+        self.active.lock().unwrap().remove(target);
         if target.is_dir() {
             let shadow = shadow_path_for(target);
             let _ = std::fs::remove_dir_all(&shadow);
