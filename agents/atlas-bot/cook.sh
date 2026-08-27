@@ -553,7 +553,7 @@ echo "==> context $(wc -c < "${CTX}") bytes"
 PROMPT_FILE="${ATLAS_PROMPT_FILE:-${HERE}/prompt.md}"
 if [[ ${assigned} -eq 1 && ${mentioned} -eq 0 ]]; then
   if [[ "${IS_PULL}" == "1" ]]; then
-    DEFAULT_TASK="You were assigned this PR. Work this PR in place. Do not open a second PR unless this one cannot be used."
+    DEFAULT_TASK="You were assigned this PR. Run a deep code review of the diff against the base branch. Set Forgejo review state with fj pr review create ${INDEX} --approve|--request-changes|--comment --body."
   else
     DEFAULT_TASK="You were assigned this issue. Implement a fix on branch atlas-bot/<short-slug> and open a PR that resolves it. PR body must include Fixes #${INDEX}. Do not merge unless asked."
   fi
