@@ -183,7 +183,7 @@ export default function AccessCategory() {
                         loading={revokeOne.isPending}
                         onClick={() => revokeOne.mutate(t.id)}
                       >
-                        Stop this app
+                        Revoke token
                       </Button>
                     </div>
                   </div>

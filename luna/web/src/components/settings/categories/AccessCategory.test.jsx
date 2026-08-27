@@ -56,11 +56,11 @@ describe("AccessCategory", () => {
     expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
   });
 
-  it("lists existing tokens with stop-this-app action", async () => {
+  it("lists existing tokens with revoke-token action", async () => {
     stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
     renderAccess();
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Stop this app/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Revoke token/i })).toBeTruthy();
   });
 
   it("shows create wizard above existing token list", async () => {
