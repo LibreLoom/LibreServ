@@ -5,13 +5,22 @@
 //! recovery session and starts the reset wizard on the screen plugged into
 //! the box (TTY / console). It never runs over the network.
 //!
-//! Printed card (booklet and docs — not shown in the Luna UI):
+//! These steps are **not** shown in the Luna web UI (Settings/Login tests
+//! assert that). Keep this block as the source of truth for the printed
+//! card, booklet, and future docs:
 //!
 //!   If you forget your password
-//!   1. Turn Luna off (hold power), then on; wait about 2 minutes.
-//!   2. Plug a USB keyboard, type pwreset, Enter.
-//!   3. Follow the prompts (username, new password).
-//!   4. Type logout, Enter, then sign in on the web.
+//!   1. Hold the power button until Luna is visibly off and silent.
+//!   2. Press the power button once to turn it back on.
+//!   3. Wait about 2 minutes.
+//!   4. Plug a USB keyboard into Luna.
+//!   5. Type pwreset and press Enter.
+//!   6. Type your username, then your new password (at least 12 characters,
+//!      with letters and numbers).
+//!   7. Type logout and press Enter.
+//!   8. Sign in again on the Luna web page.
+//!
+//! Typing pwreset once is enough — do not ask the user to type it twice.
 
 use std::io::{BufRead, Read, Write};
 use std::path::Path;
@@ -31,12 +40,17 @@ pub const KEY_U: u16 = 22;
 /// Esc, then L U N A, then Enter.
 pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 
+/// Friendly copy for the printed recovery card / booklet / future docs.
+/// Not rendered in the Luna web UI — keep in sync with the module comment above.
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
-    "Turn Luna off: hold the power button until the light goes out, then press it once and wait about 2 minutes.",
+    "Hold the power button until Luna is visibly off and silent.",
+    "Press the power button once to turn it back on.",
+    "Wait about 2 minutes.",
     "Plug a USB keyboard into Luna.",
     "Type pwreset and press Enter.",
-    "Type your username, then your new password, then logout.",
+    "Type your username, then your new password (at least 12 characters, with letters and numbers).",
+    "Type logout and press Enter.",
     "Sign in again on the Luna web page.",
 ];
 
@@ -575,5 +589,12 @@ mod tests {
             "printed card must not tell users to type root"
         );
         assert!(CARD_STEPS.iter().any(|s| s.contains("Type pwreset and press Enter.")));
+        assert!(
+            CARD_STEPS
+                .iter()
+                .any(|s| s.contains("visibly off and silent")),
+            "card must tell users how to confirm Luna is off"
+        );
+        assert_eq!(CARD_TITLE, "If you forget your password");
     }
 }
