@@ -469,27 +469,33 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
             {describeInspectSummary(result)}
           </p>
           {Array.isArray(result.entries) && result.entries.length > 0 && (
-            <div className="mt-3">
+            <div className="mt-3 rounded-large-element bg-primary text-secondary p-3">
+              <p className="text-xs font-mono uppercase tracking-widest text-accent mb-2">
+                On this drive
+              </p>
               <ul
-                className="max-h-48 overflow-y-auto rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 space-y-1 motion-safe:transition-colors"
+                className="grid gap-1.5 max-h-40 overflow-y-auto"
                 aria-label="What's on this drive"
               >
-                {result.entries.map((entry) => (
-                  <li
-                    key={`${entry.kind}:${entry.name}`}
-                    className="flex items-center gap-2 text-sm font-mono min-w-0"
-                  >
-                    {entry.kind === "folder" ? (
-                      <Folder size={14} className="shrink-0" aria-hidden="true" />
-                    ) : (
-                      <FileIcon size={14} className="shrink-0" aria-hidden="true" />
-                    )}
-                    <span className="truncate">{entry.name}</span>
-                    <span className="sr-only">
-                      {entry.kind === "folder" ? "folder" : "file"}
-                    </span>
-                  </li>
-                ))}
+                {result.entries.map((entry) => {
+                  const isFolder = entry.kind === "folder" || entry.kind === "dir";
+                  return (
+                    <li
+                      key={`${entry.kind}:${entry.name}`}
+                      className="flex items-center gap-2 text-sm font-mono min-w-0"
+                    >
+                      {isFolder ? (
+                        <Folder size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      ) : (
+                        <FileIcon size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="truncate">{entry.name}</span>
+                      <span className="text-xs text-accent shrink-0">
+                        {isFolder ? "folder" : "file"}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
               {(Number(result.folders) + Number(result.files) > result.entries.length) && (
                 <p className="text-primary text-xs mt-2">
