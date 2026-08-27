@@ -116,13 +116,14 @@ impl Installer for BinaryInstaller {
             };
             let exec_c = to_c(&exec)?;
             let tmp_c = to_c(&tmp)?;
-            const AT_FDCWD: i32 = -100;
+            // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
             const RENAME_EXCHANGE: libc::c_uint = 2;
             let rc = unsafe {
-                libc::renameat2(
-                    AT_FDCWD,
+                libc::syscall(
+                    libc::SYS_renameat2,
+                    libc::AT_FDCWD,
                     exec_c.as_ptr(),
-                    AT_FDCWD,
+                    libc::AT_FDCWD,
                     tmp_c.as_ptr(),
                     RENAME_EXCHANGE,
                 )
