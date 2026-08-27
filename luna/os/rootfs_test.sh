@@ -49,14 +49,26 @@ assert_file_has "$BUILD" 'makestep 1.0 3' \
 	"chrony must step the clock quickly after DHCP for TLS"
 assert_file_has "$BUILD" 'tmpfs /var/log' \
 	"syslog must land on tmpfs so messages do not wear the eMMC"
-assert_file_has "$BUILD" 'luna-noatime.start' \
-	"rootfs must remount root noatime to avoid atime dirties"
+assert_file_has "$BUILD" 'LABEL=LUNA_DATA /var/lib/luna' \
+	"rootfs must mount the data partition at /var/lib/luna"
+assert_file_has "$BUILD" 'luna-root-ro.start' \
+	"rootfs must remount root read-only + noatime"
+assert_file_has "$BUILD" 'luna-run' \
+	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"
 assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
-assert_file_has "$FLASH" 'rootflags=noatime' \
-	"installed kernel cmdline must mount root with noatime"
+assert_file_has "$FLASH" 'rootflags=ro,noatime' \
+	"installed kernel cmdline must mount OS slots read-only with noatime"
+assert_file_has "$FLASH" 'LUNA_A' \
+	"flash must create OS slot A"
+assert_file_has "$FLASH" 'LUNA_B' \
+	"flash must create OS slot B"
+assert_file_has "$FLASH" 'LUNA_DATA' \
+	"flash must create the data partition"
+assert_file_has "$FLASH" 'luna_boot_ok' \
+	"flash GRUB must implement tryboot rollback"
 
 # Only flag an apk install of the meta package, not comments mentioning it.
 if grep -E 'apk add' "$BUILD" | grep -qE '(^|[[:space:]])linux-firmware([[:space:]]|$)'; then

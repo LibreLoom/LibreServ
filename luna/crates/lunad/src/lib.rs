@@ -14,8 +14,8 @@ pub mod dhcp;
 pub mod drives;
 pub mod exif;
 pub mod files;
-pub mod fstrim;
 pub mod fsprobe;
+pub mod fstrim;
 pub mod gallery;
 pub mod heif;
 pub mod hotspot;
@@ -107,7 +107,7 @@ impl AppState {
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
-            updates: Arc::new(crate::updates::UpdateService::from_env()),
+            updates: Arc::new(crate::updates::UpdateService::from_env(data_dir)),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }

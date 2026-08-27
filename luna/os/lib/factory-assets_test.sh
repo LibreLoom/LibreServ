@@ -71,10 +71,10 @@ assert_false factory_peel_token_from_dir "$WORK/assets"
 rm -f "$WORK/assets/TOKENS"
 assert_false factory_peel_token_from_dir "$WORK/assets"
 
-# Write setup-token onto a fake root.
+# Write setup-token onto a fake LUNA_DATA volume (contents of /var/lib/luna).
 mkdir -p "$WORK/root"
 assert_true factory_write_setup_token "$WORK/root" "ZZZZ-YYYY-XXXX-WWWW-VVVV"
-assert_eq "$(cat "$WORK/root/var/lib/luna/setup-token")" "ZZZZ-YYYY-XXXX-WWWW-VVVV" "setup-token contents"
+assert_eq "$(cat "$WORK/root/setup-token")" "ZZZZ-YYYY-XXXX-WWWW-VVVV" "setup-token contents"
 
 # Legacy one-shot setup-token when LUNAASSETS is absent (no blkid label).
 mkdir -p "$WORK/payload" "$WORK/root2"
@@ -82,7 +82,7 @@ printf '%s\n' 'LEGACY-TOKEN-AAAA-BBBB-CCCC' >"$WORK/payload/setup-token"
 # Override device lookup so apply does not try a real mount.
 factory_assets_device() { printf ''; }
 assert_true factory_apply_setup_token "$WORK/root2" "$WORK/payload" >/dev/null
-assert_eq "$(cat "$WORK/root2/var/lib/luna/setup-token")" "LEGACY-TOKEN-AAAA-BBBB-CCCC" "legacy setup-token fallback"
+assert_eq "$(cat "$WORK/root2/setup-token")" "LEGACY-TOKEN-AAAA-BBBB-CCCC" "legacy setup-token fallback"
 
 # CR-stripped Windows line endings.
 printf 'CRLF-TOKEN-1111-2222-3333\r\nNEXT-TOKEN-4444-5555-6666\r\n' >"$WORK/crlf"

@@ -1,7 +1,11 @@
 #!/bin/sh
 # Whole-disk helpers for Luna's flash tools.
-# GPT layout (x86_64 BIOS + UEFI): bios_grub (1) + ESP (2) + root (3).
+# GPT layout (x86_64 BIOS + UEFI):
+#   1 BIOSGRUB + 2 ESP + 3 LUNA_A + 4 LUNA_B + 5 LUNA_DATA
 # USB install media must never be the flash target.
+
+# Fixed OS slot size (MiB). Both A and B match luna-os-*.img from make-image.sh.
+LUNA_SLOT_SIZE_MIB="${LUNA_SLOT_SIZE_MIB:-1280}"
 
 # True for a whole disk we are willing to consider flashing. Two-letter SCSI
 # suffixes (sdaa) and double-digit controllers/namespaces (nvme10n1,
@@ -16,7 +20,7 @@ is_whole_disk() {
 	esac
 }
 
-# Partition node: $2 is the index (1 = BIOS GRUB, 2 = ESP, 3 = root).
+# Partition node: $2 is the GPT index.
 partition_node() {
 	_idx="${2:-1}"
 	case "$1" in
@@ -33,8 +37,21 @@ partition_esp() {
 	partition_node "$1" 2
 }
 
-partition_root() {
+# Active OS slot A (factory default). Kept as partition_root for older callers.
+partition_root_a() {
 	partition_node "$1" 3
+}
+
+partition_root_b() {
+	partition_node "$1" 4
+}
+
+partition_root() {
+	partition_root_a "$1"
+}
+
+partition_data() {
+	partition_node "$1" 5
 }
 
 block_name() {

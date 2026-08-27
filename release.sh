@@ -391,9 +391,17 @@ build_binaries() {
         fi
         cp "$LUNAD_MUSL" "$BUILD_DIR/lunad-linux-amd64"
 
+        OS_IMG="luna/os/dist/luna-os-x86_64.img"
+        if [ ! -f "$OS_IMG" ]; then
+            log_error "missing OS slot image at $OS_IMG (build-iso must run make-image.sh)"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$OS_IMG" "$BUILD_DIR/luna-os-x86_64.img"
+
         log_info "Generating SHA256 checksums..."
         cd "$BUILD_DIR"
-        sha256sum lunad-linux-amd64 luna-rapidinstall-x86_64.iso > SHA256SUMS.txt
+        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso > SHA256SUMS.txt
         cd ..
         sign_checksums "$BUILD_DIR"
         log_info "Luna assets built successfully"
@@ -714,7 +722,7 @@ upload_assets() {
     echo ""
     
     if [ "$LUNA_RELEASE" = true ]; then
-        REQUIRED_ASSETS=(lunad-linux-amd64 luna-rapidinstall-x86_64.iso SHA256SUMS.txt SHA256SUMS.txt.minisig)
+        REQUIRED_ASSETS=(lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso SHA256SUMS.txt SHA256SUMS.txt.minisig)
     else
         REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt SHA256SUMS.txt.minisig)
     fi
