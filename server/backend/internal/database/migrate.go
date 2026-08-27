@@ -416,10 +416,10 @@ func (d *DB) reconcileSchema() error {
 			"restricted_access": `ALTER TABLE routes ADD COLUMN restricted_access INTEGER NOT NULL DEFAULT 0`,
 		},
 		"dns_provider_configs": {
-			"nameserver":      `ALTER TABLE dns_provider_configs ADD COLUMN nameserver TEXT NOT NULL DEFAULT ''`,
-			"tsig_key_name":   `ALTER TABLE dns_provider_configs ADD COLUMN tsig_key_name TEXT NOT NULL DEFAULT ''`,
-			"tsig_secret":     `ALTER TABLE dns_provider_configs ADD COLUMN tsig_secret TEXT NOT NULL DEFAULT ''`,
-			"hmac_algorithm":  `ALTER TABLE dns_provider_configs ADD COLUMN hmac_algorithm TEXT NOT NULL DEFAULT 'hmac-sha256'`,
+			"nameserver":     `ALTER TABLE dns_provider_configs ADD COLUMN nameserver TEXT NOT NULL DEFAULT ''`,
+			"tsig_key_name":  `ALTER TABLE dns_provider_configs ADD COLUMN tsig_key_name TEXT NOT NULL DEFAULT ''`,
+			"tsig_secret":    `ALTER TABLE dns_provider_configs ADD COLUMN tsig_secret TEXT NOT NULL DEFAULT ''`,
+			"hmac_algorithm": `ALTER TABLE dns_provider_configs ADD COLUMN hmac_algorithm TEXT NOT NULL DEFAULT 'hmac-sha256'`,
 		},
 	}
 	for table, columns := range missingColumns {

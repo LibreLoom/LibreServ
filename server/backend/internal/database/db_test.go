@@ -89,12 +89,12 @@ func TestFreshMigrationCreatesConsolidatedSchema(t *testing.T) {
 
 	columns := db.getExistingColumns()
 	checks := map[string][]string{
-		"backups":              {"format", "data_added"},
-		"updates":              {"backup_id"},
+		"backups":                {"format", "data_added"},
+		"updates":                {"backup_id"},
 		"user_security_settings": {"use_12_hour_time", "notify_on_app_updates", "notify_on_user_management"},
-		"users":                {"mfa_required"},
-		"routes":               {"restricted_access"},
-		"dns_provider_configs": {"nameserver", "tsig_key_name", "tsig_secret", "hmac_algorithm"},
+		"users":                  {"mfa_required"},
+		"routes":                 {"restricted_access"},
+		"dns_provider_configs":   {"nameserver", "tsig_key_name", "tsig_secret", "hmac_algorithm"},
 	}
 	for table, cols := range checks {
 		for _, col := range cols {
