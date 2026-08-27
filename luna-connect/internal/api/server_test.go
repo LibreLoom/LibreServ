@@ -99,3 +99,42 @@ func TestCSRFRejectsCookiePOSTWithoutToken(t *testing.T) {
 		t.Fatalf("csrf ok %d %s", orec.Code, orec.Body.String())
 	}
 }
+
+func TestSessionAndCSRFCookiesUseSevenDayMaxAge(t *testing.T) {
+	h := testServer(t)
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	grec := httptest.NewRecorder()
+	h.ServeHTTP(grec, get)
+	var csrf string
+	var csrfMax int
+	for _, c := range grec.Result().Cookies() {
+		if c.Name == "luna_connect_csrf" {
+			csrf = c.Value
+			csrfMax = c.MaxAge
+		}
+	}
+	if csrf == "" {
+		t.Fatal("expected csrf cookie on GET")
+	}
+	want := int(handlers.SessionTTL.Seconds())
+	if csrfMax != want {
+		t.Fatalf("csrf MaxAge %d want %d", csrfMax, want)
+	}
+	ok := httptest.NewRequest(http.MethodPost, "/api/v1/account/register", strings.NewReader(`{"email":"ttl@b.co","password":"password1234"}`))
+	ok.AddCookie(&http.Cookie{Name: "luna_connect_csrf", Value: csrf})
+	ok.Header.Set("X-CSRF-Token", csrf)
+	orec := httptest.NewRecorder()
+	h.ServeHTTP(orec, ok)
+	if orec.Code != http.StatusCreated {
+		t.Fatalf("register %d %s", orec.Code, orec.Body.String())
+	}
+	var sessionMax int
+	for _, c := range orec.Result().Cookies() {
+		if c.Name == "luna_connect_session" {
+			sessionMax = c.MaxAge
+		}
+	}
+	if sessionMax != want {
+		t.Fatalf("session MaxAge %d want %d", sessionMax, want)
+	}
+}

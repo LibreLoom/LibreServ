@@ -22,6 +22,10 @@ type AccountHandler struct {
 const authAttemptMax = 10
 const authAttemptWindow = 15 * 60
 
+// SessionTTL is how long a signed-in Luna Connect browser session lasts.
+// Matches lunad's 7-day session cap so a stolen cookie does not live a month.
+const SessionTTL = 7 * 24 * time.Hour
+
 func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -243,7 +247,7 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 func (h AccountHandler) setSession(w http.ResponseWriter, accountID string) {
 	tok := security.RandomHex(24)
 	_, _ = h.DB.Exec(`INSERT INTO sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)`,
-		security.HashToken(tok), accountID, time.Now().Add(30*24*time.Hour).Unix())
+		security.HashToken(tok), accountID, time.Now().Add(SessionTTL).Unix())
 	http.SetCookie(w, &http.Cookie{
 		Name:     "luna_connect_session",
 		Value:    tok,
@@ -251,7 +255,7 @@ func (h AccountHandler) setSession(w http.ResponseWriter, accountID string) {
 		HttpOnly: true,
 		Secure:   config.CookieSecure(),
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 3600,
+		MaxAge:   int(SessionTTL.Seconds()),
 	})
 }
 
