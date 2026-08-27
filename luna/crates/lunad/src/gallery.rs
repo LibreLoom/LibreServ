@@ -4,6 +4,7 @@
 //! Capture dates come from EXIF, not file mtime. Originals are never rewritten.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use image::{ImageFormat, ImageReader};
 use rusqlite::{Connection, params};
@@ -51,8 +52,11 @@ pub fn thumb_path(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
 ///
 /// Unchanged files (same size + mtime, thumb still on disk) are skipped so a
 /// re-scan of a large library does not re-decode every HEIC.
+///
+/// The DB mutex is released while decoding/thumbnailing so uploads and list
+/// APIs stay responsive during a gallery rebuild.
 pub fn scan_drive(
-    conn: &Connection,
+    db: &Mutex<Connection>,
     drive_id: &str,
     root: &Path,
     thumb_dir: &Path,
@@ -92,19 +96,22 @@ pub fn scan_drive(
                 .unwrap_or(0);
 
             let dest = thumb_path(thumb_dir, drive_id, rel);
-            if let Ok(Some((old_size, old_mtime, old_thumb))) =
-                photo_cache_row(conn, drive_id, rel)
-                && old_size == size
-                && old_mtime == mtime
-                && !old_thumb.is_empty()
-                && dest.exists()
             {
-                report.found += 1;
-                continue;
+                let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+                if let Ok(Some((old_size, old_mtime, old_thumb))) =
+                    photo_cache_row(&conn, drive_id, rel)
+                    && old_size == size
+                    && old_mtime == mtime
+                    && !old_thumb.is_empty()
+                    && dest.exists()
+                {
+                    report.found += 1;
+                    continue;
+                }
             }
 
+            // Decode / EXIF / heif-dec outside the mutex.
             let taken_at = crate::exif::capture_unix(&path_buf).unwrap_or(mtime);
-
             let mut width = 0;
             let mut height = 0;
             let mut thumb = String::new();
@@ -127,6 +134,7 @@ pub fn scan_drive(
                 }
             }
 
+            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
             conn.execute(
                 "INSERT INTO photos (drive_id, path, name, size, mtime, taken_at, width, height, thumb)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -328,7 +336,7 @@ mod tests {
         let png = image::RgbaImage::from_pixel(16, 16, image::Rgba([9, 9, 9, 255]));
         png.save(&src).unwrap();
 
-        let db = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let db = std::sync::Mutex::new(crate::db::open(&dir.path().join("luna.db")).unwrap());
         let thumbs = dir.path().join("thumbs");
         let first = scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
         assert_eq!(first.found, 1);
@@ -357,17 +365,10 @@ mod tests {
         let png = image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]));
         png.save(&recent).unwrap();
 
-        let db = rusqlite::Connection::open_in_memory().unwrap();
-        db.execute_batch(
-            "CREATE TABLE photos (
-                drive_id TEXT, path TEXT, name TEXT, size INTEGER, mtime INTEGER,
-                taken_at INTEGER NOT NULL DEFAULT 0, width INTEGER, height INTEGER, thumb TEXT,
-                PRIMARY KEY (drive_id, path))",
-        )
-        .unwrap();
+        let db = std::sync::Mutex::new(crate::db::open(&dir.path().join("luna.db")).unwrap());
         let thumbs = dir.path().join("thumbs");
         scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
-        let photos = list_photos(&db, Some("d1"), 10, 0).unwrap();
+        let photos = list_photos(&db.lock().unwrap(), Some("d1"), 10, 0).unwrap();
         assert_eq!(photos.len(), 2);
         assert_eq!(photos[0].name, "recent.png");
         assert_eq!(photos[1].name, "from-phone.jpg");

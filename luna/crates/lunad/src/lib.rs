@@ -33,6 +33,9 @@ pub mod staticweb;
 pub mod updates;
 pub mod uploads;
 
+#[cfg(test)]
+mod runtime_perf;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

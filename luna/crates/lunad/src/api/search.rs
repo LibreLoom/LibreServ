@@ -93,8 +93,9 @@ async fn reindex(
         };
         let mut dirs = 0u64;
         for (id, mount) in mounts {
-            let conn = db.lock().unwrap();
-            if let Ok(n) = crate::index::scan_drive(&conn, &id, std::path::Path::new(&mount)) {
+            if let Ok(n) =
+                crate::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
+            {
                 dirs += n;
             }
         }
@@ -155,8 +156,7 @@ async fn start_scrub(
     let db = state.db.clone();
     let flag = state.scrub_running.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        let _ = crate::scrub::scrub_all_drives(&conn);
+        let _ = crate::scrub::scrub_all_drives_unlocked(&db);
         flag.store(false, std::sync::atomic::Ordering::SeqCst);
     });
     Ok(Json(

@@ -130,9 +130,11 @@ async fn main() -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
-            if let Ok(conn) = protect_db.lock() {
-                let _ = lunad::protect::sync_all(&conn);
-            }
+            let db = protect_db.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = lunad::protect::sync_all(&db);
+            })
+            .await;
         }
     });
 
@@ -148,9 +150,7 @@ async fn main() -> anyhow::Result<()> {
             let connect = backup_state.connect.clone();
             let db = backup_state.db.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(conn) = db.lock() {
-                    lunad::cloud_backup::tick(&connect, last, now, &conn);
-                }
+                lunad::cloud_backup::tick(&connect, last, now, &db);
             })
             .await;
         }
@@ -191,8 +191,8 @@ async fn main() -> anyhow::Result<()> {
             let db = scrub_state.db.clone();
             let flag = scrub_state.scrub_running.clone();
             let _ = tokio::task::spawn_blocking(move || {
+                let _ = lunad::scrub::scrub_all_drives_unlocked(&db);
                 if let Ok(conn) = db.lock() {
-                    let _ = lunad::scrub::scrub_all_drives(&conn);
                     let _ = lunad::db::set_meta(&conn, "last_periodic_scrub_at", &now.to_string());
                 }
                 flag.store(false, std::sync::atomic::Ordering::SeqCst);

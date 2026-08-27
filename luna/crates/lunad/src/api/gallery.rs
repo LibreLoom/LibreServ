@@ -126,9 +126,8 @@ async fn scan(
                 .collect()
         };
         for (id, mount) in mounts {
-            let conn = db.lock().unwrap();
             let _ = crate::gallery::scan_drive(
-                &conn,
+                &db,
                 &id,
                 std::path::Path::new(&mount),
                 &thumb_dir,

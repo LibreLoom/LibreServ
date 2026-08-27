@@ -132,6 +132,37 @@ pub fn scan_drive(
     Ok(dirs)
 }
 
+/// Like [`scan_drive`], but releases the DB mutex between directories so
+/// listings and search stay responsive during a full reindex.
+pub fn scan_drive_unlocked(
+    db: &std::sync::Mutex<Connection>,
+    drive_id: &str,
+    root: &std::path::Path,
+) -> anyhow::Result<u64> {
+    let mut dirs = 0u64;
+    let mut stack = vec![(String::new(), root.to_path_buf())];
+    while let Some((rel, dir)) = stack.pop() {
+        let meta = std::fs::metadata(&dir)?;
+        let mtime = mtime(&meta);
+        let entries = crate::files::read_dir_entries(&dir)?;
+        for entry in &entries {
+            if entry.kind == "dir" {
+                let child_rel = if rel.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{rel}/{}", entry.name)
+                };
+                stack.push((child_rel, dir.join(&entry.name)));
+            }
+        }
+        let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        replace_dir(&conn, drive_id, &rel, mtime, &entries)?;
+        drop(conn);
+        dirs += 1;
+    }
+    Ok(dirs)
+}
+
 fn mtime(meta: &std::fs::Metadata) -> i64 {
     meta.modified()
         .ok()

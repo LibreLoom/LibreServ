@@ -9,15 +9,28 @@ use crate::db::{self, DriveRow};
 
 const MAX_FILES_PER_TICK: u64 = 50_000;
 
-pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &rusqlite::Connection) {
+pub fn tick(
+    connect: &ConnectService,
+    last_io_unix: i64,
+    now_unix: i64,
+    db: &std::sync::Mutex<rusqlite::Connection>,
+) {
     if !connect::is_idle(last_io_unix, now_unix) {
         return;
     }
     if !connect.backup_unlocked() {
         return;
     }
-    let drives = db::list_drives(db).unwrap_or_default();
-    for source in connect.backup_sources() {
+    let (drives, sources) = {
+        let Ok(conn) = db.lock() else {
+            return;
+        };
+        (
+            db::list_drives(&conn).unwrap_or_default(),
+            connect.backup_sources(),
+        )
+    };
+    for source in sources {
         let kind = source.get("kind").and_then(|v| v.as_str()).unwrap_or("");
         match kind {
             "folder" => {
@@ -29,12 +42,22 @@ pub fn tick(connect: &ConnectService, last_io_unix: i64, now_unix: i64, db: &rus
                 }
             }
             "drive" => {
-                if let Some(id) = source.get("drive_id").and_then(|v| v.as_str())
-                    && let Ok(Some(drive)) = db::get_drive(db, id)
-                    && !drive.mount_point.is_empty()
-                {
-                    let prefix = drive.label.replace('/', "_");
-                    sync_tree(connect, Path::new(&drive.mount_point), &prefix);
+                if let Some(id) = source.get("drive_id").and_then(|v| v.as_str()) {
+                    let mount = drives
+                        .iter()
+                        .find(|d| d.id == id)
+                        .map(|d| d.mount_point.clone())
+                        .unwrap_or_default();
+                    let label = drives
+                        .iter()
+                        .find(|d| d.id == id)
+                        .map(|d| d.label.clone())
+                        .unwrap_or_default();
+                    if mount.is_empty() {
+                        continue;
+                    }
+                    let prefix = label.replace('/', "_");
+                    sync_tree(connect, Path::new(&mount), &prefix);
                 }
             }
             _ => {}
