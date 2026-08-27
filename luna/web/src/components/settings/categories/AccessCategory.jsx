@@ -61,6 +61,8 @@ export default function AccessCategory() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const tokenList = tokens.data || [];
+
   return (
     <div className="space-y-4">
       {error && <PageNotice variant="error">{error}</PageNotice>}
@@ -94,41 +96,9 @@ export default function AccessCategory() {
           token as the password — never your Luna password. Only an admin can mount the
           whole drive as a folder.
         </p>
-        <ul className="mt-3 space-y-2">
-          {(tokens.data || []).map((t) => (
-            <li key={t.id} className="rounded-large-element bg-primary text-secondary p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-primary text-sm font-mono truncate">{t.name}</span>
-                <div className="flex gap-2 shrink-0">
-                  <Button size="sm" variant="outline" onClick={() => setUsageFor(usageFor === t.id ? null : t.id)}>
-                    {usageFor === t.id ? "Hide log" : "Usage log"}
-                  </Button>
-                  <Button size="sm" variant="outline" loading={revokeOne.isPending} onClick={() => revokeOne.mutate(t.id)}>
-                    Stop this app
-                  </Button>
-                </div>
-              </div>
-              <p className="text-primary text-xs">
-                Last used: {formatWhen(t.last_used_at)}
-                {t.expires_at ? ` · Expires ${formatWhen(t.expires_at)}` : ""}
-              </p>
-              {usageFor === t.id && (
-                <ul className="text-primary text-xs space-y-1 border-t border-secondary/30 pt-2">
-                  {(usage.data || []).length === 0 && <li>No recent activity yet.</li>}
-                  {(usage.data || []).map((row, i) => (
-                    <li key={`${row.used_at}-${i}`}>
-                      {row.action}{row.detail ? ` — ${row.detail}` : ""} · {formatWhen(row.used_at)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-        {(tokens.data || []).length === 0 && (
-          <p className="text-primary text-sm mt-2">No apps or access tokens are set up yet.</p>
-        )}
+
         <div className="mt-4 flex flex-col gap-2">
+          <p className="text-primary text-sm font-mono">Add a new access token</p>
           <label className="text-primary text-sm" htmlFor="token-name">
             Name this app so you can recognize it later
           </label>
@@ -160,6 +130,7 @@ export default function AccessCategory() {
             Create access token
           </Button>
         </div>
+
         {newToken?.token && (
           <div className="mt-4 rounded-large-element bg-primary text-secondary p-4">
             <p className="text-sm">
@@ -169,7 +140,8 @@ export default function AccessCategory() {
             <p className="mt-2 text-sm font-mono break-all">{newToken.token}</p>
             <Button
               size="sm"
-              variant="primary"
+              variant="secondary"
+              surface="primary"
               className="mt-3"
               onClick={async () => {
                 try {
@@ -184,6 +156,56 @@ export default function AccessCategory() {
             </Button>
           </div>
         )}
+
+        <div className="mt-6 space-y-2">
+          <p className="text-primary text-sm font-mono">Your access tokens</p>
+          {tokenList.length === 0 ? (
+            <p className="text-primary text-sm">No apps or access tokens are set up yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {tokenList.map((t) => (
+                <li key={t.id} className="rounded-large-element bg-primary text-secondary p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-mono truncate">{t.name}</span>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        surface="primary"
+                        onClick={() => setUsageFor(usageFor === t.id ? null : t.id)}
+                      >
+                        {usageFor === t.id ? "Hide log" : "Usage log"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        surface="primary"
+                        loading={revokeOne.isPending}
+                        onClick={() => revokeOne.mutate(t.id)}
+                      >
+                        Revoke token
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-xs">
+                    Last used: {formatWhen(t.last_used_at)}
+                    {t.expires_at ? ` · Expires ${formatWhen(t.expires_at)}` : ""}
+                  </p>
+                  {usageFor === t.id && (
+                    <ul className="text-xs space-y-1 border-t border-secondary/30 pt-2">
+                      {(usage.data || []).length === 0 && <li>No recent activity yet.</li>}
+                      {(usage.data || []).map((row, i) => (
+                        <li key={`${row.used_at}-${i}`}>
+                          {row.action}{row.detail ? ` — ${row.detail}` : ""} · {formatWhen(row.used_at)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </SettingsCard>
     </div>
   );
