@@ -503,28 +503,10 @@ mod tests {
         let conn = db::open(&dir_a.path().join("luna.db")).ok()?;
         let root_a = dir_a.path().join("a");
         std::fs::create_dir_all(&root_a).ok()?;
-        db::upsert_drive(
-            &conn,
-            "a",
-            "A",
-            "as_is",
-            "ext4",
-            "sda",
-            root_a.to_str()?,
-        )
-        .ok()?;
+        db::upsert_drive(&conn, "a", "A", "as_is", "ext4", "sda", root_a.to_str()?).ok()?;
         let root_b = dir_b.path().join("b");
         std::fs::create_dir_all(&root_b).ok()?;
-        db::upsert_drive(
-            &conn,
-            "b",
-            "B",
-            "as_is",
-            "ext4",
-            "sdb",
-            root_b.to_str()?,
-        )
-        .ok()?;
+        db::upsert_drive(&conn, "b", "B", "as_is", "ext4", "sdb", root_b.to_str()?).ok()?;
         Some((dir_a, dir_b, Arc::new(Mutex::new(conn))))
     }
 
