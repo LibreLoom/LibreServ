@@ -175,6 +175,7 @@ async fn thumb(
         tokio::task::spawn_blocking(move || -> Result<(), ()> {
             let src = luna_core::path::resolve_child(&root2, &path).map_err(|_| ())?;
             let dest = crate::gallery::thumb_path(&root2, &drive_id, &path);
+            // Decode runs without the DB lock so other requests stay responsive.
             crate::gallery::ensure_thumb(&src, &dest).map_err(|_| ())?;
             Ok(())
         })

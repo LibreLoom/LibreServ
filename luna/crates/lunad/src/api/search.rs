@@ -104,8 +104,7 @@ async fn reindex(
         };
         let mut dirs = 0u64;
         for (id, mount) in mounts {
-            if let Ok(n) =
-                crate::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
+            if let Ok(n) = crate::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
             {
                 dirs += n;
             }

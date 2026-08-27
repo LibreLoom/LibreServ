@@ -26,6 +26,9 @@ const DEFAULT_REPO: &str = "LibreServ";
 const TAG_PREFIX: &str = "luna-v";
 const OS_IMAGE_NAME: &str = "luna-os-x86_64.img";
 const OS_HASH_FILE: &str = "os-image.sha256";
+/// OS slot images are streamed to disk, never held in RAM. Cap matches the
+/// 1280 MiB A/B slot plus a little headroom.
+const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
 /// Committed minisign public key (`keys/releases.minisign.pub`).
 const PINNED_PUB: &str = include_str!("../../../../keys/releases.minisign.pub");
@@ -64,16 +67,55 @@ pub struct UpdateInfo {
 
 pub trait HttpGet: Send + Sync {
     fn get(&self, url: &str) -> Result<(u16, Vec<u8>), UpdateError>;
+
+    /// Download into `dest`, hashing while writing. Refuses bodies over `max_bytes`
+    /// so an update can never fill RAM on a 2 GiB box.
+    fn get_to_file(
+        &self,
+        url: &str,
+        dest: &Path,
+        max_bytes: u64,
+    ) -> Result<(u16, String), UpdateError> {
+        let (status, bytes) = self.get(url)?;
+        if (bytes.len() as u64) > max_bytes {
+            return Err(UpdateError::Other(
+                "That update file is too large for the free memory on this Luna.".into(),
+            ));
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let mut f = std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
+        f.write_all(&bytes)
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        f.sync_all()
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        Ok((status, hex_lower(&hasher.finalize())))
+    }
 }
 
 pub trait Installer: Send + Sync {
     fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError>;
+
+    /// Install from a file already streamed to disk. Default reads into memory
+    /// — production overrides this so a 2 GiB box never holds the binary in RAM.
+    fn install_lunad_file(&self, path: &Path) -> Result<(), UpdateError> {
+        let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
+        self.install_lunad(&bytes)
+    }
+
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let _ = bytes;
         Err(UpdateError::Other(
             "This Luna cannot apply an OS image update here.".into(),
         ))
     }
+
+    /// Stream an OS slot image from disk onto the inactive A/B partition.
+    fn install_os_image_file(&self, path: &Path) -> Result<(), UpdateError> {
+        let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
+        self.install_os_image(&bytes)
+    }
+
     fn read_os_hash(&self) -> Option<String> {
         None
     }
@@ -86,16 +128,71 @@ pub struct UreqHttp;
 
 impl HttpGet for UreqHttp {
     fn get(&self, url: &str) -> Result<(u16, Vec<u8>), UpdateError> {
+        let max = crate::budget::limits().update_download_bytes;
         let resp = ureq::get(url)
             .call()
             .map_err(|_| UpdateError::Unreachable)?;
         let status = resp.status().as_u16();
         let mut body = Vec::new();
-        resp.into_body()
-            .into_reader()
-            .read_to_end(&mut body)
-            .map_err(|_| UpdateError::Unreachable)?;
+        let mut reader = resp.into_body().into_reader();
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .map_err(|_| UpdateError::Unreachable)?;
+            if n == 0 {
+                break;
+            }
+            if (body.len() as u64) + (n as u64) > max {
+                return Err(UpdateError::Other(
+                    "That update file is too large for the free memory on this Luna.".into(),
+                ));
+            }
+            body.extend_from_slice(&buf[..n]);
+        }
         Ok((status, body))
+    }
+
+    fn get_to_file(
+        &self,
+        url: &str,
+        dest: &Path,
+        max_bytes: u64,
+    ) -> Result<(u16, String), UpdateError> {
+        let resp = ureq::get(url)
+            .call()
+            .map_err(|_| UpdateError::Unreachable)?;
+        let status = resp.status().as_u16();
+        let mut reader = resp.into_body().into_reader();
+        let mut file =
+            std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let mut hasher = Sha256::new();
+        let mut buf = [0u8; 64 * 1024];
+        let mut written: u64 = 0;
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .map_err(|_| UpdateError::Unreachable)?;
+            if n == 0 {
+                break;
+            }
+            written = written
+                .checked_add(n as u64)
+                .filter(|w| *w <= max_bytes)
+                .ok_or_else(|| {
+                    let _ = std::fs::remove_file(dest);
+                    UpdateError::Other(
+                        "That update file is too large for the free memory on this Luna.".into(),
+                    )
+                })?;
+            hasher.update(&buf[..n]);
+            file.write_all(&buf[..n])
+                .map_err(|e| UpdateError::Other(e.to_string()))?;
+        }
+        file.sync_all()
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        let _ = written;
+        Ok((status, hex_lower(&hasher.finalize())))
     }
 }
 
@@ -135,65 +232,15 @@ impl Installer for DataDirInstaller {
             f.sync_all()
                 .map_err(|e| UpdateError::Other(e.to_string()))?;
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&tmp)
-                .map_err(|e| UpdateError::Other(e.to_string()))?
-                .permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&tmp, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
-        }
-        let backup = PathBuf::from(format!("{}.old", exec.display()));
-        if exec.exists() {
-            #[cfg(unix)]
-            {
-                use std::ffi::CString;
-                use std::os::unix::ffi::OsStrExt;
-                let to_c = |p: &Path| -> Result<CString, UpdateError> {
-                    CString::new(p.as_os_str().as_bytes())
-                        .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
-                };
-                let exec_c = to_c(&exec)?;
-                let tmp_c = to_c(&tmp)?;
-                const RENAME_EXCHANGE: libc::c_uint = 2;
-                let rc = unsafe {
-                    libc::syscall(
-                        libc::SYS_renameat2,
-                        libc::AT_FDCWD,
-                        exec_c.as_ptr(),
-                        libc::AT_FDCWD,
-                        tmp_c.as_ptr(),
-                        RENAME_EXCHANGE,
-                    )
-                };
-                if rc == 0 {
-                    let _ = std::fs::remove_file(&backup);
-                    let _ = std::fs::rename(&tmp, &backup);
-                } else {
-                    std::fs::rename(&exec, &backup)
-                        .map_err(|e| UpdateError::Other(e.to_string()))?;
-                    if let Err(e) = std::fs::rename(&tmp, &exec) {
-                        let _ = std::fs::rename(&backup, &exec);
-                        return Err(UpdateError::Other(e.to_string()));
-                    }
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                std::fs::rename(&exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-                if let Err(e) = std::fs::rename(&tmp, &exec) {
-                    let _ = std::fs::rename(&backup, &exec);
-                    return Err(UpdateError::Other(e.to_string()));
-                }
-            }
-        } else {
-            std::fs::rename(&tmp, &exec).map_err(|e| UpdateError::Other(e.to_string()))?;
-        }
-        if let Ok(dir) = std::fs::File::open(&bin_dir) {
-            let _ = dir.sync_all();
-        }
-        Ok(())
+        swap_exec(&exec, &tmp)
+    }
+
+    fn install_lunad_file(&self, src: &Path) -> Result<(), UpdateError> {
+        let bin_dir = self.data_dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let exec = self.lunad_path();
+        let staged = stage_beside(src, &exec)?;
+        swap_exec(&exec, &staged)
     }
 
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
@@ -206,10 +253,13 @@ impl Installer for DataDirInstaller {
             f.sync_all()
                 .map_err(|e| UpdateError::Other(e.to_string()))?;
         }
-        let label = format!("LUNA_{inactive}");
-        let _ = Command::new("e2label").arg(&part).arg(&label).status();
-        set_tryboot_slot(inactive)?;
-        Ok(())
+        finish_os_slot(&part, inactive)
+    }
+
+    fn install_os_image_file(&self, src: &Path) -> Result<(), UpdateError> {
+        let (part, inactive) = inactive_slot_device()?;
+        copy_file_streaming(src, &part)?;
+        finish_os_slot(&part, inactive)
     }
 
     fn read_os_hash(&self) -> Option<String> {
@@ -227,6 +277,118 @@ impl Installer for DataDirInstaller {
         std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
         Ok(())
     }
+}
+
+fn chmod_755(path: &Path) -> Result<(), UpdateError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path)
+            .map_err(|e| UpdateError::Other(e.to_string()))?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Place `src` next to `dest` as `dest.update-tmp`, copying across devices
+/// when rename would fail.
+fn stage_beside(src: &Path, dest: &Path) -> Result<PathBuf, UpdateError> {
+    let staged = dest.with_extension("update-tmp");
+    if src == staged {
+        return Ok(staged);
+    }
+    if std::fs::rename(src, &staged).is_err() {
+        std::fs::copy(src, &staged).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let _ = std::fs::remove_file(src);
+    }
+    Ok(staged)
+}
+
+/// Swap `tmp` into `exec` with renameat2 when possible so a power cut cannot
+/// leave no binary at `exec`.
+fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
+    chmod_755(tmp)?;
+    let backup = PathBuf::from(format!("{}.old", exec.display()));
+    if exec.exists() {
+        #[cfg(unix)]
+        {
+            use std::ffi::CString;
+            use std::os::unix::ffi::OsStrExt;
+            let to_c = |p: &Path| -> Result<CString, UpdateError> {
+                CString::new(p.as_os_str().as_bytes())
+                    .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
+            };
+            let exec_c = to_c(exec)?;
+            let tmp_c = to_c(tmp)?;
+            // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
+            const RENAME_EXCHANGE: libc::c_uint = 2;
+            let rc = unsafe {
+                libc::syscall(
+                    libc::SYS_renameat2,
+                    libc::AT_FDCWD,
+                    exec_c.as_ptr(),
+                    libc::AT_FDCWD,
+                    tmp_c.as_ptr(),
+                    RENAME_EXCHANGE,
+                )
+            };
+            if rc == 0 {
+                let _ = std::fs::remove_file(&backup);
+                let _ = std::fs::rename(tmp, &backup);
+            } else {
+                std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
+                if let Err(e) = std::fs::rename(tmp, exec) {
+                    let _ = std::fs::rename(&backup, exec);
+                    return Err(UpdateError::Other(e.to_string()));
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
+            if let Err(e) = std::fs::rename(tmp, exec) {
+                let _ = std::fs::rename(&backup, exec);
+                return Err(UpdateError::Other(e.to_string()));
+            }
+        }
+    } else {
+        std::fs::rename(tmp, exec).map_err(|e| UpdateError::Other(e.to_string()))?;
+    }
+    if let Some(parent) = exec.parent()
+        && let Ok(dir) = std::fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+fn copy_file_streaming(src: &Path, dest: &Path) -> Result<(), UpdateError> {
+    let mut input = std::fs::File::open(src).map_err(|e| UpdateError::Other(e.to_string()))?;
+    let mut output = std::fs::File::create(dest).map_err(|e| UpdateError::Other(e.to_string()))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = input
+            .read(&mut buf)
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        output
+            .write_all(&buf[..n])
+            .map_err(|e| UpdateError::Other(e.to_string()))?;
+    }
+    output
+        .sync_all()
+        .map_err(|e| UpdateError::Other(e.to_string()))?;
+    Ok(())
+}
+
+fn finish_os_slot(part: &Path, inactive: char) -> Result<(), UpdateError> {
+    let label = format!("LUNA_{inactive}");
+    let _ = Command::new("e2label").arg(part).arg(&label).status();
+    set_tryboot_slot(inactive)
 }
 
 fn active_slot_letter() -> char {
@@ -521,41 +683,30 @@ impl UpdateService {
 
         if lunad_newer {
             let checksum = checksum_for_name(&sums, &info.binary_name)?;
-            let url = format!(
-                "{}/download/{}/{}",
-                self.download_base, info.latest_version, info.binary_name
-            );
-            let (status, bytes) = self.http.get(&url)?;
-            if status != 200 {
-                return Err(UpdateError::Unreachable);
+            let max = crate::budget::limits().update_download_bytes;
+            let tmp =
+                self.download_verified(&info.latest_version, &info.binary_name, &checksum, max)?;
+            if let Err(e) = self.installer.install_lunad_file(&tmp) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
             }
-            let mut hasher = Sha256::new();
-            hasher.update(&bytes);
-            let actual = hex_lower(&hasher.finalize());
-            if actual != checksum {
-                return Err(UpdateError::Checksum);
-            }
-            self.installer.install_lunad(&bytes)?;
+            let _ = std::fs::remove_file(&tmp);
             info.checksum = checksum;
         }
 
         if os_needed {
             let checksum = checksum_for_name(&sums, OS_IMAGE_NAME)?;
-            let url = format!(
-                "{}/download/{}/{}",
-                self.download_base, info.latest_version, OS_IMAGE_NAME
-            );
-            let (status, bytes) = self.http.get(&url)?;
-            if status != 200 {
-                return Err(UpdateError::Unreachable);
+            let tmp = self.download_verified(
+                &info.latest_version,
+                OS_IMAGE_NAME,
+                &checksum,
+                OS_IMAGE_MAX_BYTES,
+            )?;
+            if let Err(e) = self.installer.install_os_image_file(&tmp) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
             }
-            let mut hasher = Sha256::new();
-            hasher.update(&bytes);
-            let actual = hex_lower(&hasher.finalize());
-            if actual != checksum {
-                return Err(UpdateError::Checksum);
-            }
-            self.installer.install_os_image(&bytes)?;
+            let _ = std::fs::remove_file(&tmp);
             self.installer.write_os_hash(&checksum)?;
             info.reboot_required = true;
         } else {
@@ -563,6 +714,38 @@ impl UpdateService {
         }
 
         Ok(info)
+    }
+
+    /// Stream `name` from the release to a temp file, hashing while writing.
+    fn download_verified(
+        &self,
+        tag: &str,
+        name: &str,
+        checksum: &str,
+        max_bytes: u64,
+    ) -> Result<PathBuf, UpdateError> {
+        let url = format!("{}/download/{tag}/{name}", self.download_base);
+        let tmp = std::env::temp_dir().join(format!(
+            "luna-update-{}-{}-{name}",
+            std::process::id(),
+            tag.replace(['/', '\\'], "_")
+        ));
+        let (status, actual) = match self.http.get_to_file(&url, &tmp, max_bytes) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
+            }
+        };
+        if status != 200 {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(UpdateError::Unreachable);
+        }
+        if actual != checksum {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(UpdateError::Checksum);
+        }
+        Ok(tmp)
     }
 }
 

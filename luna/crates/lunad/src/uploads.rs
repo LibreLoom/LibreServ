@@ -230,13 +230,15 @@ pub fn write_chunk(
     let now = db::now_unix();
     let do_flush = {
         let mut map = pending_map().lock().map_err(|_| UploadError::NotFound)?;
-        let entry = map.entry(id.to_string()).or_insert_with(|| PendingProgress {
-            received: prev_received,
-            size,
-            chunks: Vec::new(),
-            last_flush_unix: now,
-            last_flushed_received: prev_received,
-        });
+        let entry = map
+            .entry(id.to_string())
+            .or_insert_with(|| PendingProgress {
+                received: prev_received,
+                size,
+                chunks: Vec::new(),
+                last_flush_unix: now,
+                last_flushed_received: prev_received,
+            });
         entry.received = received;
         entry.size = size;
         entry.chunks.push((start, end));
