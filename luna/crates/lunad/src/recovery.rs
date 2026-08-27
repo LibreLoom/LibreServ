@@ -3,7 +3,8 @@
 //! If an admin forgets their password, they plug a USB keyboard into Luna,
 //! type `pwreset`, and press Enter. That signs into the local pwreset
 //! recovery session and starts the reset wizard. It works headless (no
-//! screen required); a screen just makes the prompts easier to follow.
+//! screen required); a screen lets you read the on-screen prompts, but
+//! this process is designed to work without a screen.
 //! It never runs over the network.
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
@@ -15,8 +16,8 @@
 //!   2. Press the power button once to turn it back on.
 //!   3. Wait about 2 minutes (until Luna has finished starting).
 //!   4. Plug a USB keyboard into Luna.
-//!      (Optional: plug in a screen too — it makes the prompts easier to
-//!      read, but you do not need one.)
+//!      (Optional: plug in a screen too — it lets you read the on-screen
+//!      prompts, but this process is designed to work without a screen.)
 //!   5. Type pwreset and press Enter.
 //!   6. Type your admin username and press Enter.
 //!   7. Type a new password (at least 12 characters, with letters and
@@ -53,7 +54,7 @@ pub const CARD_STEPS: &[&str] = &[
     "Hold the power button until Luna is visibly off and silent.",
     "Press the power button once to turn it back on.",
     "Wait about 2 minutes (until Luna has finished starting).",
-    "Plug a USB keyboard into Luna. A screen is optional — it makes the prompts easier to read, but you do not need one.",
+    "Plug a USB keyboard into Luna. A screen is optional — it lets you read the on-screen prompts, but this process is designed to work without a screen.",
     "Type pwreset and press Enter.",
     "Type your admin username and press Enter.",
     "Type a new password (at least 12 characters, with letters and numbers) and press Enter.",
@@ -602,8 +603,10 @@ mod tests {
             "card must tell users how to confirm Luna is off"
         );
         assert!(
-            CARD_STEPS.iter().any(|s| s.contains("do not need one")),
-            "card must say a screen is optional"
+            CARD_STEPS
+                .iter()
+                .any(|s| s.contains("designed to work without a screen")),
+            "card must say recovery is designed to work without a screen"
         );
         assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type pwreset")));
         assert!(CARD_STEPS.iter().any(|s| s.contains("admin username")));
