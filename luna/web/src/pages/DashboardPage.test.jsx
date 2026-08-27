@@ -200,4 +200,47 @@ describe("DashboardPage", () => {
     expect(screen.queryByText(/GB free/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
+
+  it("shows detailed recent copy jobs with progress and destination", async () => {
+    stubFetch({
+      jobs: [
+        {
+          id: "j1",
+          kind: "move",
+          state: "running",
+          from_drive: "d1",
+          from_path: "Photos/vacation.jpg",
+          to_drive: "d1",
+          to_path: "Documents",
+          progress: 40,
+          total: 100,
+          error: "",
+        },
+        {
+          id: "j2",
+          kind: "copy",
+          state: "done",
+          from_drive: "d1",
+          from_path: "Music/song.mp3",
+          to_drive: "d1",
+          to_path: "Downloads",
+          progress: 1,
+          total: 1,
+          error: "",
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("Recent copies")).toBeInTheDocument();
+    expect(screen.getByText("1 active")).toBeInTheDocument();
+    expect(screen.getByText("Moving")).toBeInTheDocument();
+    expect(screen.getByText("vacation.jpg")).toBeInTheDocument();
+    expect(screen.getByText(/Family photos: vacation\.jpg → Documents/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /40% done/i })).toBeInTheDocument();
+    expect(screen.getByText("song.mp3")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open destination/i })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=Downloads",
+    );
+  });
 });
