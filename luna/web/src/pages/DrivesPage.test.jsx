@@ -64,6 +64,14 @@ describe("DrivesPage", () => {
     expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
+  it("shows universal search above the drive list", async () => {
+    stubDrivesApi();
+    renderPage();
+    const search = await screen.findByLabelText("Search files, folders, and drive names");
+    expect(search).toBeInTheDocument();
+    expect(screen.getByText(/Type at least two letters/i)).toBeInTheDocument();
+  });
+
   it("shows a mock 64GB PSSD when opted in for review", async () => {
     window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
     stubDrivesApi();
