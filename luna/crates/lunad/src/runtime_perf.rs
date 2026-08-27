@@ -103,7 +103,6 @@ fn runtime_perf_numbers() {
     let photos = dir.path().join("photos");
     let files = dir.path().join("files");
     let tree = dir.path().join("tree");
-    let thumbs = dir.path().join("thumbs");
     write_pngs(&photos, 120);
     // ~40 MiB of binaries so a locked blake3 walk is visibly multi-hundred-ms.
     write_binaries(&files, 80, 512 * 1024);
@@ -132,12 +131,16 @@ fn runtime_perf_numbers() {
 
     // --- Gallery ---
     let t0 = Instant::now();
-    let first = gallery::scan_drive(&db, "d1", &photos, &thumbs).unwrap();
+    let first = gallery::scan_drive(&db, "d1", &photos).unwrap();
     let first_ms = t0.elapsed().as_millis();
     assert_eq!(first.found, 120);
+    assert!(
+        gallery::thumbs_dir(&photos).read_dir().unwrap().next().is_some(),
+        "thumbs must be on the photo drive"
+    );
 
     let t1 = Instant::now();
-    let second = gallery::scan_drive(&db, "d1", &photos, &thumbs).unwrap();
+    let second = gallery::scan_drive(&db, "d1", &photos).unwrap();
     let second_ms = t1.elapsed().as_millis();
     assert_eq!(second.thumbnailed, 0);
 
@@ -302,6 +305,84 @@ fn runtime_perf_numbers() {
         (scrub_locked_max as f64) / (scrub_unlocked_max.max(1) as f64)
     );
 
+    // --- eMMC write budget: thumbs must not land under OS data_dir ---
+    let os_data = dir.path().join("os-data");
+    std::fs::create_dir_all(&os_data).unwrap();
+    let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos));
+    let thumb_bytes_on_os = dir_byte_size(&os_data.join("thumbs"));
+    eprintln!("PERF emmc_thumb_bytes_on_photo_drive={thumb_bytes_on_drive}");
+    eprintln!("PERF emmc_thumb_bytes_under_os_data_dir={thumb_bytes_on_os}");
+    assert_eq!(
+        thumb_bytes_on_os, 0,
+        "gallery thumbs must not write under the OS data dir"
+    );
+    assert!(
+        thumb_bytes_on_drive > 0,
+        "gallery thumbs must land under .lunathumbs on the photo drive"
+    );
+
+    // Device-token: 20 rapid notes must not create 20 usage rows.
+    {
+        let conn = db.lock().unwrap();
+        crate::db::insert_user(
+            &conn,
+            "u1",
+            "admin",
+            "Admin",
+            "hash",
+            "admin",
+        )
+        .unwrap();
+        crate::db::insert_device_token(
+            &conn,
+            "dt1",
+            "u1",
+            "phone",
+            "deadbeef",
+            None,
+        )
+        .unwrap();
+        for _ in 0..20 {
+            crate::db::note_device_token_activity(&conn, "dt1", 0).unwrap();
+        }
+        let usage_n = crate::db::list_device_token_usage(&conn, "dt1", 100)
+            .unwrap()
+            .len();
+        eprintln!("PERF device_token_usage_rows_after_20_notes={usage_n}");
+        assert!(
+            usage_n <= 2,
+            "device token usage must be throttled (got {usage_n} rows)"
+        );
+    }
+
+    // Upload coalesce: 8 × 256 KiB < 2 MiB flush threshold → 0 mid-flight DB
+    // chunk rows until complete flushes.
+    {
+        let conn = db.lock().unwrap();
+        let up = uploads::create(&conn, "d1", "", "coalesce.bin", 2 * 1024 * 1024).unwrap();
+        drop(conn);
+        let piece = vec![1u8; 256 * 1024];
+        for i in 0..7 {
+            uploads::write_chunk(&db, &up.id, i * piece.len() as u64, &piece).unwrap();
+        }
+        let mid_chunks: i64 = {
+            let conn = db.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM upload_chunks WHERE upload_id = ?1",
+                rusqlite::params![up.id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        eprintln!("PERF upload_chunk_rows_before_flush_threshold={mid_chunks}");
+        assert_eq!(
+            mid_chunks, 0,
+            "upload progress must coalesce below the flush threshold"
+        );
+        uploads::write_chunk(&db, &up.id, 7 * piece.len() as u64, &piece).unwrap();
+        uploads::complete(&db, &up.id, false, None).unwrap();
+    }
+
     assert!(
         second_ms * 3 < first_ms || second_ms < 80,
         "rescan must be much cheaper than first scan: first={first_ms}ms second={second_ms}ms"
@@ -322,4 +403,21 @@ fn runtime_perf_numbers() {
         synthetic >= 150,
         "sanity: holding the mutex 200ms must delay list_photos (got {synthetic}ms)"
     );
+}
+
+fn dir_byte_size(path: &Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(rd) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    for ent in rd.flatten() {
+        if let Ok(meta) = ent.metadata() {
+            if meta.is_file() {
+                total += meta.len();
+            } else if meta.is_dir() {
+                total += dir_byte_size(&ent.path());
+            }
+        }
+    }
+    total
 }

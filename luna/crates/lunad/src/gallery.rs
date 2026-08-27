@@ -14,6 +14,8 @@ const THUMB_MAX: u32 = 400;
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
 const MAX_IMAGE_DIM: u32 = 16_384;
 const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
+/// Per-drive thumbnail directory on the photo's own mount (not the OS eMMC).
+pub const THUMBS_DIR_NAME: &str = ".lunathumbs";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
@@ -41,14 +43,22 @@ pub fn is_image(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-pub fn thumb_path(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
+/// `{drive_root}/.lunathumbs` — thumbs live on the same drive as the photos.
+pub fn thumbs_dir(drive_root: &Path) -> PathBuf {
+    drive_root.join(THUMBS_DIR_NAME)
+}
+
+pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> PathBuf {
     let key = format!("{drive_id}:{rel}");
     let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
-    thumb_dir.join(format!("{hash}.jpg"))
+    thumbs_dir(drive_root).join(format!("{hash}.jpg"))
 }
 
 /// Walk one drive and refresh its photo rows + thumbnails. Blocking; callers
 /// run this on the background pool.
+///
+/// Thumbnails are written under `{root}/.lunathumbs/` on the data drive so the
+/// OS eMMC is not filled with JPEG previews.
 ///
 /// Unchanged files (same size + mtime, thumb still on disk) are skipped so a
 /// re-scan of a large library does not re-decode every HEIC.
@@ -59,9 +69,9 @@ pub fn scan_drive(
     db: &Mutex<Connection>,
     drive_id: &str,
     root: &Path,
-    thumb_dir: &Path,
 ) -> anyhow::Result<ScanReport> {
-    std::fs::create_dir_all(thumb_dir)?;
+    let thumb_dir = thumbs_dir(root);
+    std::fs::create_dir_all(&thumb_dir)?;
     let mut report = ScanReport::default();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -72,6 +82,12 @@ pub fn scan_drive(
                 continue;
             }
             if meta.is_dir() {
+                let name = entry.file_name();
+                if name.to_str() == Some(THUMBS_DIR_NAME)
+                    || name.to_str() == Some(".luna-trash")
+                {
+                    continue;
+                }
                 stack.push(entry.path());
                 continue;
             }
@@ -95,7 +111,7 @@ pub fn scan_drive(
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
 
-            let dest = thumb_path(thumb_dir, drive_id, rel);
+            let dest = thumb_path(root, drive_id, rel);
             {
                 let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
                 if let Ok(Some((old_size, old_mtime, old_thumb))) =
@@ -337,12 +353,15 @@ mod tests {
         png.save(&src).unwrap();
 
         let db = std::sync::Mutex::new(crate::db::open(&dir.path().join("luna.db")).unwrap());
-        let thumbs = dir.path().join("thumbs");
-        let first = scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
+        let first = scan_drive(&db, "d1", &photos_dir).unwrap();
         assert_eq!(first.found, 1);
         assert_eq!(first.thumbnailed, 1);
+        assert!(
+            thumbs_dir(&photos_dir).read_dir().unwrap().next().is_some(),
+            "thumbs must land under the photo drive's .lunathumbs"
+        );
 
-        let second = scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
+        let second = scan_drive(&db, "d1", &photos_dir).unwrap();
         assert_eq!(second.found, 1);
         assert_eq!(
             second.thumbnailed, 0,
@@ -366,8 +385,7 @@ mod tests {
         png.save(&recent).unwrap();
 
         let db = std::sync::Mutex::new(crate::db::open(&dir.path().join("luna.db")).unwrap());
-        let thumbs = dir.path().join("thumbs");
-        scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
+        scan_drive(&db, "d1", &photos_dir).unwrap();
         let photos = list_photos(&db.lock().unwrap(), Some("d1"), 10, 0).unwrap();
         assert_eq!(photos.len(), 2);
         assert_eq!(photos[0].name, "recent.png");

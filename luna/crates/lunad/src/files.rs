@@ -217,7 +217,9 @@ pub fn inline_safe(mime: &str) -> bool {
 /// download them — they are incomplete bytes, not user files.
 pub fn is_internal_temp(name: &str) -> bool {
     let base = name.rsplit('/').next().unwrap_or(name);
-    base.starts_with(".luna-upload.") || (base.starts_with('.') && base.ends_with(".part"))
+    base == crate::gallery::THUMBS_DIR_NAME
+        || base.starts_with(".luna-upload.")
+        || (base.starts_with('.') && base.ends_with(".part"))
 }
 
 /// Conservative Content-Disposition filename: no quotes, slashes, or control
@@ -632,6 +634,7 @@ mod tests {
         assert!(is_internal_temp(".luna-upload.12.99"));
         assert!(is_internal_temp("folder/.luna-upload.1.2"));
         assert!(is_internal_temp(".luna-upload.1.2.part"));
+        assert!(is_internal_temp(".lunathumbs"));
         assert!(!is_internal_temp("photo.jpg"));
         assert!(!is_internal_temp("notes.part"));
     }

@@ -236,18 +236,19 @@ for svc in avahi-daemon luna crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
 
-# Rotate busybox syslog output so the small OS disk never fills up.
-cat > "$ROOTFS/etc/logrotate.d/luna" <<'LOGROT'
-/var/log/messages {
-    weekly
-    rotate 4
-    compress
-    missingok
-    notifempty
-    copytruncate
-}
-LOGROT
-chmod 644 "$ROOTFS/etc/logrotate.d/luna"
+# Keep syslog off the eMMC: /var/log is a small tmpfs (busybox syslog still
+# works; logs vanish on reboot, which is fine for an appliance OS disk).
+cat > "$ROOTFS/etc/fstab" <<'FSTAB'
+tmpfs /var/log tmpfs rw,nosuid,nodev,noatime,size=32M,mode=0755 0 0
+FSTAB
+
+# Remount root noatime even if an older install's cmdline lacked rootflags=.
+cat > "$ROOTFS/etc/local.d/luna-noatime.start" <<'NOATIME'
+#!/bin/sh
+mount -o remount,noatime / 2>/dev/null || true
+NOATIME
+chmod +x "$ROOTFS/etc/local.d/luna-noatime.start"
+ln -sf /etc/init.d/local "$ROOTFS/etc/runlevels/default/local" 2>/dev/null || true
 
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"

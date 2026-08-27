@@ -14,6 +14,7 @@ pub mod dhcp;
 pub mod drives;
 pub mod exif;
 pub mod files;
+pub mod fstrim;
 pub mod fsprobe;
 pub mod gallery;
 pub mod heif;
@@ -58,7 +59,6 @@ pub struct AppState {
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
-    pub thumb_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::updates::UpdateService>,
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -102,7 +102,6 @@ impl AppState {
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
-            thumb_dir: data_dir.join("thumbs"),
             updates: Arc::new(crate::updates::UpdateService::from_env()),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -111,11 +110,6 @@ impl AppState {
 
     pub fn with_connect(mut self, connect: Arc<crate::connect::ConnectService>) -> Self {
         self.connect = connect;
-        self
-    }
-
-    pub fn with_thumb_dir(mut self, thumb_dir: std::path::PathBuf) -> Self {
-        self.thumb_dir = thumb_dir;
         self
     }
 
