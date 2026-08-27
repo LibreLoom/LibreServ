@@ -128,7 +128,7 @@ describe("FilesPage", () => {
   });
 
   it("starts a copy with CSRF and plain-language network errors", async () => {
-    document.cookie = "luna_csrf=copy-tok; Path=/";
+    document.cookie = "luna_csrf=copy-tok";
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       if (u.endsWith("/drives")) {
@@ -141,7 +141,6 @@ describe("FilesPage", () => {
         return new Response(JSON.stringify({ setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (u.includes("/api/v1/jobs") && (init.method || "GET").toUpperCase() === "POST") {
-        expect(init.headers["X-CSRF-Token"]).toBe("copy-tok");
         throw new TypeError("NetworkError when attempting to fetch resource.");
       }
       if (u.includes("/api/v1/jobs")) {
@@ -163,8 +162,14 @@ describe("FilesPage", () => {
     expect(await screen.findByRole("heading", { name: /Copy 4zjwE5no1WM.stl/i })).toBeInTheDocument();
     expect(screen.getByText(/The original stays where it is/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Start copying" }));
-    expect(await screen.findByText(/couldn't be reached/i)).toBeInTheDocument();
+    // uploadError can render in more than one notice while the modal is open
+    expect((await screen.findAllByText(/Couldn't reach Luna/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/NetworkError/i)).not.toBeInTheDocument();
+    const postJob = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).includes("/api/v1/jobs") && (init?.method || "GET").toUpperCase() === "POST"
+    );
+    expect(postJob).toBeTruthy();
+    expect(postJob[1].headers["X-CSRF-Token"]).toBe("copy-tok");
   });
 });
 
