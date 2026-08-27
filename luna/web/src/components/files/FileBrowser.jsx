@@ -720,7 +720,7 @@ export default function FileBrowser({
                     linkNavigation ? (
                       <Link
                         to={folderHref(driveId, ctx.fullPath)}
-                        className="flex items-center gap-2 min-w-0 text-primary hover:text-accent"
+                        className="flex items-center gap-2 min-w-0 text-primary hover:underline"
                       >
                         <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sm truncate">{entry.name}</span>
@@ -728,7 +728,7 @@ export default function FileBrowser({
                     ) : (
                       <button
                         type="button"
-                        className="flex items-center gap-2 min-w-0 text-left text-primary hover:text-accent"
+                        className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
                         onClick={() => openEntry(ctx)}
                       >
                         <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
@@ -738,7 +738,7 @@ export default function FileBrowser({
                   ) : openable ? (
                     <button
                       type="button"
-                      className="flex items-center gap-2 min-w-0 text-left text-primary hover:text-accent"
+                      className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
                       onClick={() => openEntry(ctx)}
                     >
                       <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
