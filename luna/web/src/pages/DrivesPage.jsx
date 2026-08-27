@@ -256,7 +256,6 @@ export default function DrivesPage() {
           <AccessSheet
             driveId={sharingDrive.id}
             path={sharingDrive.path}
-            kind={sharingDrive.kind}
             onClose={() => setSharingDrive(null)}
           />
         )}
