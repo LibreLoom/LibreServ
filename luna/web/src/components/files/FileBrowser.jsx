@@ -431,7 +431,7 @@ export default function FileBrowser({
                 aria-live="polite"
               >
                 {linkNavigation ? (
-                  <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all">
+                  <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all text-primary">
                     {driveLabel}
                   </TextLink>
                 ) : (
@@ -445,24 +445,21 @@ export default function FileBrowser({
                 )}
                 {segments.map((segment, i) => {
                   const segPath = segments.slice(0, i + 1).join("/");
-                  const isLast = i === segments.length - 1;
                   return (
                     <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
-                      <span className="text-accent" aria-hidden="true">/</span>
+                      <span className="text-primary" aria-hidden="true">/</span>
                       {linkNavigation ? (
                         <TextLink
                           to={folderHref(driveId, segPath)}
                           surface="secondary"
-                          className={isLast ? "break-all" : "break-all text-accent"}
+                          className="break-all text-primary"
                         >
                           {segment}
                         </TextLink>
                       ) : (
                         <button
                           type="button"
-                          className={`motion-safe:transition-colors break-all text-left ${
-                            isLast ? "text-primary hover:text-accent" : "text-accent hover:text-primary"
-                          }`}
+                          className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
                           onClick={() => openFolder(segPath)}
                         >
                           {segment}
