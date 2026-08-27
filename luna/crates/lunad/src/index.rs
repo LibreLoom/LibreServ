@@ -118,6 +118,11 @@ pub fn scan_drive(
         let entries = crate::files::read_dir_entries(&dir)?;
         for entry in &entries {
             if entry.kind == "dir" {
+                // Luna-managed stores — not user folders. Skip so search/browse
+                // index does not walk trash or protected copies.
+                if entry.name == ".luna-trash" || entry.name == crate::protect::PROTECTED_DIR {
+                    continue;
+                }
                 let child_rel = if rel.is_empty() {
                     entry.name.clone()
                 } else {

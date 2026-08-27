@@ -65,6 +65,11 @@ pub fn scan_drive(
                 continue;
             }
             if meta.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == ".luna-trash" || name == crate::protect::PROTECTED_DIR {
+                    continue;
+                }
                 stack.push(entry.path());
                 continue;
             }
