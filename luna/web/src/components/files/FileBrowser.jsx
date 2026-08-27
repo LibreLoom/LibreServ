@@ -569,7 +569,7 @@ export default function FileBrowser({
         <p className="text-primary text-sm mb-3">Loading files…</p>
       )}
 
-      <Card padding={false} noPopIn noHeightAnim className={`overflow-hidden ${listClassName}`.trim()}>
+      <Card padding={false} className={listClassName}>
         {!isPicker && multiSelect && entries.length > 0 && (
           <div
             className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
