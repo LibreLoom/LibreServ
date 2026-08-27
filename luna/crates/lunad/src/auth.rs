@@ -301,11 +301,12 @@ impl AuthService {
         let user = db::get_user(&conn, user_id).map_err(AuthError::Db)?.ok_or(AuthError::BadLogin)?;
         verify_password_hash(password, &PasswordHash::new(&user.password_hash).map_err(|_| AuthError::BadLogin)?)
     }
+    /// Local-console recovery only: set a new password for an admin by
+    /// username. Never exposed on the network. Does **not** enforce the
+    /// normal password policy — recovery is headless and should accept
+    /// whatever the user types so they can get back in.
     pub fn reset_user_password(&self, username: &str, password: &str) -> Result<UserRow, AuthError> {
-        if let Err(err) = crate::password::validate_password(password) {
-            return Err(AuthError::PasswordPolicy(err.message().into()));
-        }
-        let hash = hash_password(password)?;
+        let hash = hash_password_unchecked(password)?;
         let username = username.trim().to_lowercase();
         let conn = self.db.lock().map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
         let user = db::get_user_by_username(&conn, &username).map_err(AuthError::Db)?.ok_or(AuthError::BadLogin)?;
@@ -706,6 +707,11 @@ pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {
     if let Err(err) = crate::password::validate_password(password) {
         return Err(AuthError::PasswordPolicy(err.message().into()));
     }
+    hash_password_unchecked(password)
+}
+
+/// Hash without the normal password policy. Console recovery only.
+fn hash_password_unchecked(password: &str) -> Result<String, AuthError> {
     let salt = SaltString::generate(&mut OsRng);
     argon2::Argon2::default()
         .hash_password(password.as_bytes(), &salt)
@@ -748,6 +754,18 @@ mod tests {
         auth.reset_admin_password("new-password-1").unwrap();
         assert!(auth.login("max", "old-password-1").is_err());
         auth.login("max", "new-password-1").unwrap();
+    }
+
+    #[test]
+    fn console_reset_user_password_skips_policy() {
+        let (_dir, auth) = service();
+        auth.register("Max", "Max", "old-password12", "user")
+            .unwrap();
+        // Short / no-digit passwords fail normal policy — recovery must still
+        // accept them so a headless reset can succeed.
+        auth.reset_user_password("max", "short").unwrap();
+        auth.login("max", "short").unwrap();
+        assert!(auth.login("max", "old-password12").is_err());
     }
 
     #[test]

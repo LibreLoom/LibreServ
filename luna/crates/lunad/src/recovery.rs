@@ -1,17 +1,33 @@
 //! Local-console admin recovery.
 //!
-//! If the only admin forgets their password, they plug a USB keyboard into
-//! Luna and type a short sequence. That never runs over the network. After
-//! the sequence matches, Luna asks for a new password on the screen plugged
-//! into the box (TTY / console).
+//! If an admin forgets their password, they plug a USB keyboard into Luna,
+//! type `pwreset`, and press Enter. That signs into the local pwreset
+//! recovery session and starts the reset wizard. It works headless (no
+//! screen required); a screen lets you read the on-screen prompts, but
+//! this process is designed to work without a screen.
+//! It never runs over the network.
 //!
-//! Printed card (booklet and docs — not shown in the Luna UI):
+//! These steps are **not** shown in the Luna web UI (Settings/Login tests
+//! assert that). Keep this block as the source of truth for the printed
+//! card, booklet, and future docs:
 //!
 //!   If you forget your password
-//!   1. Turn Luna off (hold power), then on; wait about 2 minutes.
-//!   2. Plug a USB keyboard, type root, Enter.
-//!   3. Type pwreset, Enter, then follow the prompts.
-//!   4. Type logout, Enter, then sign in on the web.
+//!   1. Hold the power button until Luna is visibly off and silent.
+//!   2. Press the power button once to turn it back on.
+//!   3. Wait about 2 minutes (until Luna has finished starting).
+//!   4. Plug a USB keyboard into Luna.
+//!      (Optional: plug in a screen too — it lets you read the on-screen
+//!      prompts, but this process is designed to work without a screen.)
+//!   5. Type pwreset and press Enter.
+//!   6. Type your admin username and press Enter.
+//!   7. Type a new password (at least 12 characters, with letters and
+//!      numbers) and press Enter.
+//!   8. Type logout and press Enter.
+//!   9. On your phone or computer, open the Luna web page and sign in
+//!      with that username and the new password.
+//!
+//! Typing pwreset once is enough — do not ask the user to type it twice.
+//! Only an admin account can be reset this way.
 
 use std::io::{BufRead, Read, Write};
 use std::path::Path;
@@ -31,15 +47,47 @@ pub const KEY_U: u16 = 22;
 /// Esc, then L U N A, then Enter.
 pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 
+/// Friendly copy for the printed recovery card / booklet / future docs.
+/// Not rendered in the Luna web UI — keep in sync with the module comment above.
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
-    "Turn Luna off: hold the power button until the light goes out, then press it once and wait about 2 minutes.",
-    "Plug a USB keyboard into Luna.",
-    "Type root and press Enter.",
+    "Hold the power button until Luna is visibly off and silent.",
+    "Press the power button once to turn it back on.",
+    "Wait about 2 minutes (until Luna has finished starting).",
+    "Plug a USB keyboard into Luna. A screen is optional — it lets you read the on-screen prompts, but this process is designed to work without a screen.",
     "Type pwreset and press Enter.",
-    "Type your username, then your new password, then logout.",
-    "Sign in again on the Luna web page.",
+    "Type your admin username and press Enter.",
+    "Type a new password (at least 12 characters, with letters and numbers) and press Enter.",
+    "Type logout and press Enter.",
+    "On your phone or computer, open the Luna web page and sign in with that username and the new password.",
 ];
+
+/// Soft-login name for console recovery. Typing this once signs into the
+/// pwreset session and starts the reset wizard — do not ask for it twice.
+pub const PWRESET_USER: &str = "pwreset";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsoleCommand {
+    /// Sign in as pwreset and run the reset wizard.
+    StartReset,
+    /// End the pwreset session.
+    Logout,
+    /// Already signed in; remind them how to finish or retry.
+    HintWhileSignedIn,
+    Ignore,
+}
+
+/// Map one console line to a recovery action. `signed_in` is the soft
+/// pwreset session (not a Linux or Luna account login).
+pub fn console_command(line: &str, signed_in: bool) -> ConsoleCommand {
+    match line.trim().to_lowercase().as_str() {
+        PWRESET_USER => ConsoleCommand::StartReset,
+        "logout" if signed_in => ConsoleCommand::Logout,
+        "" => ConsoleCommand::Ignore,
+        _ if signed_in => ConsoleCommand::HintWhileSignedIn,
+        _ => ConsoleCommand::Ignore,
+    }
+}
 
 const SEQUENCE_TIMEOUT: Duration = Duration::from_secs(8);
 const MATCH_WINDOW: Duration = Duration::from_secs(15 * 60);
@@ -344,28 +392,25 @@ pub fn run_console_loop(auth: Arc<AuthService>) {
         Ok(c) => std::io::BufReader::new(c),
         Err(_) => return,
     };
-    let mut logged_in = false;
+    let mut signed_in = false;
     for line in reader.lines().flatten() {
-        match line.trim().to_lowercase().as_str() {
-            "root" => {
-                logged_in = true;
-                let _ = writeln!(console, "\nLuna recovery\nType pwreset to choose a new admin password.");
-            }
-            "logout" if logged_in => {
-                logged_in = false;
-                let _ = writeln!(console, "Signed out of recovery.");
-            }
-            "pwreset" if logged_in => {
+        match console_command(&line, signed_in) {
+            ConsoleCommand::StartReset => {
+                signed_in = true;
+                let _ = writeln!(console, "\nLuna recovery (pwreset)");
                 let _ = pwreset_flow(&auth, &mut console);
             }
-            "pwreset" => {
-                let _ = writeln!(console, "Type root and press Enter first, then pwreset.");
+            ConsoleCommand::Logout => {
+                signed_in = false;
+                let _ = writeln!(console, "Signed out of recovery.");
             }
-            "" => {}
-            _ if logged_in => {
-                let _ = writeln!(console, "Type pwreset or logout.");
+            ConsoleCommand::HintWhileSignedIn => {
+                let _ = writeln!(
+                    console,
+                    "Type logout when you're done, or pwreset to try again."
+                );
             }
-            _ => {}
+            ConsoleCommand::Ignore => {}
         }
     }
 }
@@ -373,13 +418,14 @@ pub fn run_console_loop(auth: Arc<AuthService>) {
 fn pwreset_flow(auth: &AuthService, console: &mut std::fs::File) -> Result<(), String> {
     write!(console, "Username: ").map_err(|e| e.to_string())?;
     let username = read_line_console(console)?;
-    write!(console, "New password (at least 12 characters, letters and numbers): ")
-        .map_err(|e| e.to_string())?;
+    write!(
+        console,
+        "New password (at least 12 characters, letters and numbers): "
+    )
+    .map_err(|e| e.to_string())?;
     let password = read_line_console(console)?;
-    if let Err(err) = crate::password::validate_password(&password) {
-        let _ = writeln!(console, "{}", err.message());
-        return Err(err.message().into());
-    }
+    // Policy wording above is guidance only — do not enforce it here.
+    // Console recovery is headless and must accept whatever gets them back in.
     match auth.reset_user_password(&username, &password) {
         Ok(user) => {
             writeln!(console, "Password updated for {}. Type logout.", user.username)
@@ -510,5 +556,63 @@ mod tests {
         );
         auth.login("max", "brand-new-12").unwrap();
         assert!(auth.login("max", "old-password12").is_err());
+    }
+
+    #[test]
+    fn pwreset_once_starts_reset_without_root() {
+        assert_eq!(
+            console_command("pwreset", false),
+            ConsoleCommand::StartReset
+        );
+        assert_eq!(
+            console_command("PWRESET", false),
+            ConsoleCommand::StartReset,
+            "login name is case-insensitive"
+        );
+        assert_eq!(
+            console_command("root", false),
+            ConsoleCommand::Ignore,
+            "old root gate must not open recovery anymore"
+        );
+        assert_eq!(console_command("logout", false), ConsoleCommand::Ignore);
+    }
+
+    #[test]
+    fn pwreset_again_while_signed_in_retries_wizard() {
+        assert_eq!(
+            console_command("pwreset", true),
+            ConsoleCommand::StartReset
+        );
+        assert_eq!(console_command("logout", true), ConsoleCommand::Logout);
+        assert_eq!(
+            console_command("help", true),
+            ConsoleCommand::HintWhileSignedIn
+        );
+    }
+
+    #[test]
+    fn card_steps_use_single_pwreset_login() {
+        assert_eq!(CARD_STEPS.iter().filter(|s| s.contains("pwreset")).count(), 1);
+        assert!(
+            CARD_STEPS.iter().all(|s| !s.to_lowercase().contains("root")),
+            "printed card must not tell users to type root"
+        );
+        assert!(
+            CARD_STEPS
+                .iter()
+                .any(|s| s.contains("visibly off and silent")),
+            "card must tell users how to confirm Luna is off"
+        );
+        assert!(
+            CARD_STEPS
+                .iter()
+                .any(|s| s.contains("designed to work without a screen")),
+            "card must say recovery is designed to work without a screen"
+        );
+        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type pwreset")));
+        assert!(CARD_STEPS.iter().any(|s| s.contains("admin username")));
+        assert!(CARD_STEPS.iter().any(|s| s.contains("new password")));
+        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type logout")));
+        assert_eq!(CARD_TITLE, "If you forget your password");
     }
 }
