@@ -16,8 +16,7 @@ export function describeDriveHealth(health) {
     return {
       pill: "muted",
       title: "No health report",
-      detail:
-        "This drive doesn't tell Luna its temperature. That's common and doesn't mean anything is wrong.",
+      detail: "",
     };
   }
 
