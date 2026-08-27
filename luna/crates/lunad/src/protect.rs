@@ -3,6 +3,9 @@
 //! Copies are append-only syncs — deleting a file from the source never
 //! deletes the protected copy, because this feature exists to survive
 //! accidents, not to mirror them.
+//!
+//! Layout on the **target** drive root:
+//! `<drive-root>/.lunaprotected/<source-drive-id>/<source-path>/...`
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -12,6 +15,25 @@ use uuid::Uuid;
 
 use crate::db::{self, ProtectionRow};
 use crate::files;
+
+/// Directory name at the target drive root that holds protected copies.
+pub const PROTECTED_DIR: &str = ".lunaprotected";
+
+/// True when `rel` is the protected-copy store (or a path inside it).
+pub fn is_protected_store(rel: &str) -> bool {
+    rel == PROTECTED_DIR || rel.starts_with(&format!("{PROTECTED_DIR}/"))
+}
+
+/// Relative path under the target drive for a protected copy of
+/// `(source_drive, source_path)`.
+pub fn target_rel_path(source_drive: &str, source_path: &str) -> String {
+    let source_path = source_path.trim_matches('/');
+    if source_path.is_empty() {
+        format!("{PROTECTED_DIR}/{source_drive}")
+    } else {
+        format!("{PROTECTED_DIR}/{source_drive}/{source_path}")
+    }
+}
 
 pub fn create(
     conn: &Connection,
@@ -27,7 +49,7 @@ pub fn create(
         anyhow::bail!("Protect a folder, not a single file.");
     }
     let _ = files::dest_dir(conn, target_drive, "")?;
-    let target_path = format!(".luna-protected/{source_drive}/{source_path}");
+    let target_path = target_rel_path(source_drive, source_path);
     let id = Uuid::new_v4().to_string();
     db::insert_protection(
         conn,
@@ -165,6 +187,27 @@ mod tests {
     }
 
     #[test]
+    fn target_path_lives_under_lunaprotected_on_drive_root() {
+        assert_eq!(
+            target_rel_path("drv-a", "family/photos"),
+            ".lunaprotected/drv-a/family/photos"
+        );
+        assert_eq!(
+            target_rel_path("drv-a", "family"),
+            ".lunaprotected/drv-a/family"
+        );
+        assert_eq!(
+            target_rel_path("drv-a", "/family/"),
+            ".lunaprotected/drv-a/family"
+        );
+        assert_eq!(target_rel_path("drv-a", ""), ".lunaprotected/drv-a");
+        assert!(is_protected_store(".lunaprotected"));
+        assert!(is_protected_store(".lunaprotected/drv-a/family"));
+        assert!(!is_protected_store("family"));
+        assert!(!is_protected_store(".luna-trash"));
+    }
+
+    #[test]
     fn protects_folder_and_keeps_deleted_files() {
         let (_dir, conn) = setup();
         let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
@@ -172,13 +215,19 @@ mod tests {
         std::fs::write(format!("{src}/family/photo.txt"), b"original").unwrap();
 
         let row = create(&conn, "a", "family", "b").unwrap();
+        assert_eq!(
+            row.target_path, ".lunaprotected/a/family",
+            "protected copies must live under .lunaprotected on the target drive"
+        );
         assert_eq!(sync(&conn, &row).unwrap(), 1);
 
         let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
-        assert_eq!(
-            std::fs::read(format!("{dst}/{}/photo.txt", row.target_path)).unwrap(),
-            b"original"
+        let on_disk = Path::new(&dst).join(&row.target_path).join("photo.txt");
+        assert!(
+            on_disk.starts_with(Path::new(&dst).join(PROTECTED_DIR)),
+            "synced file must be under <drive-root>/.lunaprotected/"
         );
+        assert_eq!(std::fs::read(&on_disk).unwrap(), b"original");
 
         std::fs::write(format!("{src}/family/photo.txt"), b"changed").unwrap();
         assert_eq!(sync(&conn, &row).unwrap(), 1);
@@ -189,7 +238,7 @@ mod tests {
             0,
             "append-only protection never deletes"
         );
-        assert!(Path::new(&format!("{dst}/{}/photo.txt", row.target_path)).exists());
+        assert!(on_disk.exists());
     }
 
     #[cfg(unix)]

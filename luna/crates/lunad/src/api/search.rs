@@ -63,6 +63,9 @@ async fn search(
         if full == ".luna-trash" || full.starts_with(".luna-trash/") {
             continue;
         }
+        if crate::protect::is_protected_store(&full) {
+            continue;
+        }
         if crate::auth::can_access(&user, &conn, &drive_id, &full, false) {
             out.push(json!({ "drive_id": drive_id, "path": full, "name": name }));
         }
