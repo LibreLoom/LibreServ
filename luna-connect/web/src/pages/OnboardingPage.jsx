@@ -74,7 +74,7 @@ export default function OnboardingPage() {
             {step === "code" && "Type the device code."}
             {step === "account" && "Create your Luna Connect account."}
             {step === "card" && "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
-            {step === "name" && "Pick a name people will type in a browser."}
+            {step === "name" && "This name is the address you type to open Luna when you are not at home."}
             {step === "copies" && "Optional cloud backup."}
             {step === "done" && "You can open Luna from away."}
           </CardDescription>
@@ -136,7 +136,8 @@ export default function OnboardingPage() {
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 12 characters, with a letter and a number" />
+              <p className="text-sm text-muted-foreground">At least 12 characters, including a letter and a number. That is so a stolen password list is less likely to open this account.</p>
               <Button type="submit" className="w-full" loading={loading}>Create account</Button>
               <p className="text-sm text-muted-foreground">Already have an account? <Link className="underline" to="/login">Sign in</Link></p>
             </form>
@@ -192,9 +193,10 @@ export default function OnboardingPage() {
                 }
               }}
             >
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">Name for this Luna</Label>
               <Input id="name" className="font-mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="kitchen" />
-              <p className="text-sm font-mono">{name ? `${name.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
+              <p className="text-sm text-muted-foreground">People will open Luna at this address on phones and computers away from home. Use letters and numbers, at least 3 characters.</p>
+              <p className="text-sm font-mono">{name ? `${name.toLowerCase()}.luna.servers.libreloom.org` : "kitchen.luna.servers.libreloom.org"}</p>
               {waitMsg && <p className="text-sm">{waitMsg}</p>}
               <Button type="submit" className="w-full" loading={loading} disabled={name.trim().length < 3}>Use this name</Button>
             </form>
