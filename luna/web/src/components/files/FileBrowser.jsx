@@ -534,12 +534,62 @@ export default function FileBrowser({
         </div>
       )}
 
-      {!isPicker && multiSelect && (selectedCount > 0 || toolbarExtra) && (
+      {!isPicker && multiSelect && toolbarExtra && selectedCount === 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {toolbarExtra}
+        </div>
+      )}
+
+      {isPicker && pickerMode === "folder" && (
         <Card className="mb-3" padding>
           <div className="flex flex-wrap items-center gap-2">
+            <p className="text-primary text-sm flex-1 min-w-0">
+              Choose a folder, or use the one you are in now.
+            </p>
+            <Button
+              variant={selectedPath === path ? "primary" : "accent"}
+              surface="secondary"
+              size="sm"
+              onClick={() => onSelect?.({
+                entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
+                path: parentPath(path) || "",
+                fullPath: path,
+              })}
+            >
+              {selectedPath === path ? "Using this folder" : "Use this folder"}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {listing.isError && (
+        <p className="text-error text-sm mb-3" role="alert">
+          {String(listing.error?.message || "Luna couldn't open this folder. Try again.")}
+        </p>
+      )}
+
+      {listing.isLoading && (
+        <p className="text-primary text-sm mb-3">Loading files…</p>
+      )}
+
+      <Card padding={false} noPopIn noHeightAnim className={`overflow-hidden ${listClassName}`.trim()}>
+        {!isPicker && multiSelect && entries.length > 0 && (
+          <div
+            className={`flex items-center gap-3 px-3 ${padY} border-b border-primary/20 ${
+              selectedCount > 0 ? "bg-accent/20" : ""
+            }`}
+            role={selectedCount > 0 ? "toolbar" : undefined}
+            aria-label={selectedCount > 0 ? "Actions for selected files" : undefined}
+          >
+            <AnimatedCheckbox
+              checked={allSelected}
+              onChange={(next) => (next ? selectAllVisible() : clearSelection())}
+              aria-label="Select all in this folder"
+              surface="secondary"
+            />
             {selectedCount > 0 ? (
-              <>
-                <span className="font-mono text-xs text-primary">
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                <span className="font-mono text-xs text-primary shrink-0">
                   {selectedCount} selected
                 </span>
                 <Button variant="outline" surface="secondary" size="sm" onClick={clearSelection}>
@@ -591,59 +641,17 @@ export default function FileBrowser({
                     Trash
                   </Button>
                 ) : null}
+                {toolbarExtra}
+              </div>
+            ) : (
+              <>
+                <span className="font-mono text-xs text-primary">Name</span>
+                <span className="ml-auto font-mono text-xs text-primary hidden sm:block w-20 text-right">
+                  Size
+                </span>
+                <span className="w-28 shrink-0" aria-hidden="true" />
               </>
-            ) : null}
-            {toolbarExtra}
-          </div>
-        </Card>
-      )}
-
-      {isPicker && pickerMode === "folder" && (
-        <Card className="mb-3" padding>
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-primary text-sm flex-1 min-w-0">
-              Choose a folder, or use the one you are in now.
-            </p>
-            <Button
-              variant={selectedPath === path ? "primary" : "accent"}
-              surface="secondary"
-              size="sm"
-              onClick={() => onSelect?.({
-                entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
-                path: parentPath(path) || "",
-                fullPath: path,
-              })}
-            >
-              {selectedPath === path ? "Using this folder" : "Use this folder"}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {listing.isError && (
-        <p className="text-error text-sm mb-3" role="alert">
-          {String(listing.error?.message || "Luna couldn't open this folder. Try again.")}
-        </p>
-      )}
-
-      {listing.isLoading && (
-        <p className="text-primary text-sm mb-3">Loading files…</p>
-      )}
-
-      <Card padding={false} noPopIn noHeightAnim className={`overflow-hidden ${listClassName}`.trim()}>
-        {!isPicker && multiSelect && entries.length > 0 && (
-          <div className={`flex items-center gap-3 px-3 ${padY} border-b border-primary/20`}>
-            <AnimatedCheckbox
-              checked={allSelected}
-              onChange={(next) => (next ? selectAllVisible() : clearSelection())}
-              aria-label="Select all in this folder"
-              surface="secondary"
-            />
-            <span className="font-mono text-xs text-primary">Name</span>
-            <span className="ml-auto font-mono text-xs text-primary hidden sm:block w-20 text-right">
-              Size
-            </span>
-            <span className="w-28 shrink-0" aria-hidden="true" />
+            )}
           </div>
         )}
 
