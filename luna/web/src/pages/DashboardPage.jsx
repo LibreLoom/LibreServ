@@ -336,7 +336,7 @@ export default function DashboardPage() {
                 <p className="text-primary text-sm">Open this drive to see your files.</p>
                 <div className="mt-3">
                   <Button size="sm" variant="primary" asChild>
-                    <Link to={`/drives/${drive.id}`}>Open files</Link>
+                    <Link to={`/drives/${drive.id}`}>Browse files</Link>
                   </Button>
                 </div>
               </Card>

@@ -94,7 +94,7 @@ describe("DashboardPage", () => {
     expect(known).toBe(true);
     expect(await screen.findByText(/2 hours/i)).toBeInTheDocument();
     expect(screen.getByText("Family photos")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open files/i })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/drives/d1");
     expect(screen.getByText(/On this network/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Remote access on/i })).toHaveAttribute(
       "href",

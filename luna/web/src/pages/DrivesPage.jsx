@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { File, Folder, FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
@@ -15,8 +16,29 @@ import FileSearch from "../components/files/FileSearch";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
-import { withDevMockDetected } from "../lib/devMockDrives.js";
+import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
+
+/** @param {number} n @param {string} one @param {string} many */
+function pluralCount(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Plain-language count line for Look-inside (singular/plural).
+ * @param {number} folders
+ * @param {number} files
+ * @param {number} [unreadable]
+ */
+export function inspectCountLine(folders, files, unreadable = 0) {
+  const folderBit = pluralCount(folders, "folder", "folders");
+  const fileBit = pluralCount(files, "file", "files");
+  let line = `We found ${folderBit} and ${fileBit} on this drive`;
+  if (unreadable > 0) {
+    line += ` (${pluralCount(unreadable, "item", "items")} could not be read)`;
+  }
+  return `${line}.`;
+}
 
 const STATE_PILLS = {
   as_is: "success",
@@ -97,7 +119,7 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {(drive.state === "as_is" || drive.state === "readonly") && (
           <Button size="sm" variant="primary" asChild>
-            <a href={`/drives/${drive.id}`}>Open files</a>
+            <Link to={`/drives/${drive.id}`}>Browse files</Link>
           </Button>
         )}
         {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
@@ -177,8 +199,16 @@ export default function DrivesPage() {
   });
 
   const inspect = useMutation({
-    mutationFn: (/** @type {any} */ drive) =>
-      postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
+    mutationFn: (/** @type {any} */ drive) => {
+      // Frontend-only review fixture: no real block device, so skip lunad.
+      if (
+        isMockUnknownDrive(drive?.name)
+        && !detected.data?.some((real) => real.name === drive.name)
+      ) {
+        return Promise.resolve(mockInspectResult());
+      }
+      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
+    },
   });
 
   const adopt = useMutation({
@@ -408,9 +438,40 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
       {result && (
         <>
           <p className="text-primary text-sm">
-            We found {result.folders} folders and {result.files} files on this
-            drive{result.unreadable > 0 ? ` (${result.unreadable} could not be read)` : ""}.
+            {inspectCountLine(result.folders, result.files, result.unreadable)}
           </p>
+          {Array.isArray(result.entries) && result.entries.length > 0 && (
+            <div className="mt-3">
+              <ul
+                className="max-h-48 overflow-y-auto rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 space-y-1 motion-safe:transition-colors"
+                aria-label="What's on this drive"
+              >
+                {result.entries.map((entry) => (
+                  <li
+                    key={`${entry.kind}:${entry.name}`}
+                    className="flex items-center gap-2 text-sm font-mono min-w-0"
+                  >
+                    {entry.kind === "folder" ? (
+                      <Folder size={14} className="shrink-0" aria-hidden="true" />
+                    ) : (
+                      <File size={14} className="shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="truncate">{entry.name}</span>
+                    <span className="sr-only">
+                      {entry.kind === "folder" ? "folder" : "file"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {(Number(result.folders) + Number(result.files) > result.entries.length) && (
+                <p className="text-primary text-xs mt-2">
+                  Showing names at the top of the drive
+                  {result.entries.length >= 24 ? " (first 24)" : ""}.
+                  Add it to open folders and see everything.
+                </p>
+              )}
+            </div>
+          )}
           {needsErase ? (
             <div className="mt-4 flex items-center gap-3">
               <TriangleAlert size={18} className="text-warning shrink-0" />
