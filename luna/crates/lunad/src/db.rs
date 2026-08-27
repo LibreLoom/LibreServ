@@ -17,6 +17,10 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // Small appliance OS disks: keep the page cache warm without ballooning RAM.
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.pragma_update(None, "cache_size", -16384i64)?; // 16 MiB
+    conn.pragma_update(None, "mmap_size", 64i64 * 1024 * 1024)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
@@ -162,6 +166,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "photos", "taken_at", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS photos_timeline
+            ON photos(drive_id, taken_at DESC, mtime DESC);
+         CREATE INDEX IF NOT EXISTS index_entries_name
+            ON index_entries(name COLLATE NOCASE);",
+    )?;
     ensure_column(
         &conn,
         "users",

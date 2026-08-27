@@ -39,6 +39,14 @@ assert_file_has "$BUILD" 'linux-firmware-none' \
 	"rootfs must use linux-firmware-none instead of the full firmware meta package"
 assert_file_has "$BUILD" 'virtio_net' \
 	"rootfs network bring-up must load virtio_net for QEMU / virt guests"
+assert_file_has "$BUILD" 'rc_parallel="YES"' \
+	"OpenRC must start services in parallel for faster boot"
+assert_file_has "$BUILD" 'udhcpc -i "$iface" -q -n -t 3' \
+	"boot DHCP must use a short retry budget so OpenRC is not blocked"
+assert_file_has "$BUILD" 'after luna-network' \
+	"lunad must not wait on avahi before binding HTTP"
+assert_file_has "$BUILD" 'makestep 1.0 3' \
+	"chrony must step the clock quickly after DHCP for TLS"
 
 # Only flag an apk install of the meta package, not comments mentioning it.
 if grep -E 'apk add' "$BUILD" | grep -qE '(^|[[:space:]])linux-firmware([[:space:]]|$)'; then

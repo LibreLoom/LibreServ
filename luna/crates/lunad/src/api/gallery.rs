@@ -110,18 +110,27 @@ async fn scan(
     let db = state.db.clone();
     let thumb_dir = state.thumb_dir.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        for drive_id in drive_ids {
-            let Some(drive) = crate::db::get_drive(&conn, &drive_id).unwrap_or(None) else {
-                continue;
-            };
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
-                continue;
-            }
+        // Resolve mounts under a short lock, then scan one drive at a time so
+        // other API handlers can use the DB between drives.
+        let mounts: Vec<(String, String)> = {
+            let conn = db.lock().unwrap();
+            drive_ids
+                .into_iter()
+                .filter_map(|drive_id| {
+                    let drive = crate::db::get_drive(&conn, &drive_id).ok().flatten()?;
+                    if drive.state != "as_is" || drive.mount_point.is_empty() {
+                        return None;
+                    }
+                    Some((drive.id, drive.mount_point))
+                })
+                .collect()
+        };
+        for (id, mount) in mounts {
+            let conn = db.lock().unwrap();
             let _ = crate::gallery::scan_drive(
                 &conn,
-                &drive.id,
-                std::path::Path::new(&drive.mount_point),
+                &id,
+                std::path::Path::new(&mount),
                 &thumb_dir,
             );
         }
@@ -155,13 +164,15 @@ async fn thumb(
         let (db, thumb_dir) = (state.db.clone(), state.thumb_dir.clone());
         let (drive_id, path) = (query.drive_id.clone(), query.path.clone());
         tokio::task::spawn_blocking(move || -> Result<(), ()> {
-            let conn = db.lock().map_err(|_| ())?;
-            let drive = crate::db::get_drive(&conn, &drive_id)
-                .map_err(|_| ())?
-                .ok_or(())?;
-            let src =
-                luna_core::path::resolve_child(std::path::Path::new(&drive.mount_point), &path)
-                    .map_err(|_| ())?;
+            let mount = {
+                let conn = db.lock().map_err(|_| ())?;
+                crate::db::get_drive(&conn, &drive_id)
+                    .map_err(|_| ())?
+                    .ok_or(())?
+                    .mount_point
+            };
+            let src = luna_core::path::resolve_child(std::path::Path::new(&mount), &path)
+                .map_err(|_| ())?;
             let dest = crate::gallery::thumb_path(&thumb_dir, &drive_id, &path);
             crate::gallery::ensure_thumb(&src, &dest).map_err(|_| ())?;
             Ok(())

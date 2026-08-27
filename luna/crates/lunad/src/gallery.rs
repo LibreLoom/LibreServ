@@ -48,6 +48,9 @@ pub fn thumb_path(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
 
 /// Walk one drive and refresh its photo rows + thumbnails. Blocking; callers
 /// run this on the background pool.
+///
+/// Unchanged files (same size + mtime, thumb still on disk) are skipped so a
+/// re-scan of a large library does not re-decode every HEIC.
 pub fn scan_drive(
     conn: &Connection,
     drive_id: &str,
@@ -80,18 +83,32 @@ pub fn scan_drive(
                 continue;
             };
             let name = name.to_string();
+            let size = meta.len() as i64;
             let mtime = meta
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
+
+            let dest = thumb_path(thumb_dir, drive_id, rel);
+            if let Ok(Some((old_size, old_mtime, old_thumb))) =
+                photo_cache_row(conn, drive_id, rel)
+                && old_size == size
+                && old_mtime == mtime
+                && !old_thumb.is_empty()
+                && dest.exists()
+            {
+                report.found += 1;
+                continue;
+            }
+
             let taken_at = crate::exif::capture_unix(&path_buf).unwrap_or(mtime);
 
             let mut width = 0;
             let mut height = 0;
             let mut thumb = String::new();
-            match ensure_thumb(&entry.path(), &thumb_path(thumb_dir, drive_id, rel)) {
+            match ensure_thumb(&entry.path(), &dest) {
                 Ok((w, h, made)) => {
                     width = w;
                     height = h;
@@ -121,7 +138,7 @@ pub fn scan_drive(
                     drive_id,
                     rel,
                     name,
-                    meta.len() as i64,
+                    size,
                     mtime,
                     taken_at,
                     width as i64,
@@ -132,6 +149,21 @@ pub fn scan_drive(
         }
     }
     Ok(report)
+}
+
+fn photo_cache_row(
+    conn: &Connection,
+    drive_id: &str,
+    rel: &str,
+) -> anyhow::Result<Option<(i64, i64, String)>> {
+    let mut stmt =
+        conn.prepare("SELECT size, mtime, thumb FROM photos WHERE drive_id = ?1 AND path = ?2")?;
+    let mut rows = stmt.query(params![drive_id, rel])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Generate a 400px JPEG thumbnail. Returns (width, height, was_created).
@@ -285,6 +317,29 @@ mod tests {
         let one = list_photos(&conn, Some("drive-b"), 10, 0).unwrap();
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].drive_id, "drive-b");
+    }
+
+    #[test]
+    fn scan_skips_unchanged_photos() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let src = photos_dir.join("same.png");
+        let png = image::RgbaImage::from_pixel(16, 16, image::Rgba([9, 9, 9, 255]));
+        png.save(&src).unwrap();
+
+        let db = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let thumbs = dir.path().join("thumbs");
+        let first = scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
+        assert_eq!(first.found, 1);
+        assert_eq!(first.thumbnailed, 1);
+
+        let second = scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
+        assert_eq!(second.found, 1);
+        assert_eq!(
+            second.thumbnailed, 0,
+            "unchanged photos must not be re-thumbnailed"
+        );
     }
 
     #[test]

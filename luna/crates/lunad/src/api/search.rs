@@ -82,16 +82,19 @@ async fn reindex(
     }
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        let drives = crate::db::list_drives(&conn).unwrap_or_default();
+        let mounts: Vec<(String, String)> = {
+            let conn = db.lock().unwrap();
+            crate::db::list_drives(&conn)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|drive| drive.state == "as_is" && !drive.mount_point.is_empty())
+                .map(|drive| (drive.id, drive.mount_point))
+                .collect()
+        };
         let mut dirs = 0u64;
-        for drive in drives {
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
-                continue;
-            }
-            if let Ok(n) =
-                crate::index::scan_drive(&conn, &drive.id, std::path::Path::new(&drive.mount_point))
-            {
+        for (id, mount) in mounts {
+            let conn = db.lock().unwrap();
+            if let Ok(n) = crate::index::scan_drive(&conn, &id, std::path::Path::new(&mount)) {
                 dirs += n;
             }
         }

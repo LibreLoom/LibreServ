@@ -117,41 +117,50 @@ fn temp_for(dir: &Path, id: &str) -> PathBuf {
 
 /// Write one chunk at `start` (seek + write + flush). Never fsyncs per chunk —
 /// the final `complete` call fsyncs once.
+///
+/// The DB mutex is held only for session lookup and progress update — not during
+/// the disk write — so browsing stays responsive while large uploads land.
 pub fn write_chunk(
     db: &Arc<Mutex<Connection>>,
     id: &str,
     start: u64,
     data: &[u8],
 ) -> Result<u64, UploadError> {
-    let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-    let upload = load(&conn, id)?;
-    if upload.state_not_active(&conn)? {
-        return Err(UploadError::NotActive);
-    }
+    let (temp, size, prev_received, drive_id) = {
+        let conn = db.lock().map_err(|_| UploadError::NotFound)?;
+        let upload = load(&conn, id)?;
+        if upload.state_not_active(&conn)? {
+            return Err(UploadError::NotActive);
+        }
+        (
+            upload.temp.clone(),
+            upload.size,
+            upload.received,
+            upload.drive_id.clone(),
+        )
+    };
     let end = start
         .checked_add(data.len() as u64)
-        .filter(|end| *end <= upload.size)
+        .filter(|end| *end <= size)
         .ok_or(UploadError::SizeMismatch)?;
 
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(&upload.temp)
-        .map_err(UploadError::Io)?;
-    use std::io::{Seek, SeekFrom, Write};
-    if let Err(e) = file.seek(SeekFrom::Start(start)) {
-        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
-        return Err(UploadError::Io(e));
-    }
-    if let Err(e) = file.write_all(data) {
-        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
-        return Err(UploadError::Io(e));
-    }
-    if let Err(e) = file.flush() {
-        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
+    let write_err = (|| -> Result<(), std::io::Error> {
+        let mut file = std::fs::OpenOptions::new().write(true).open(&temp)?;
+        use std::io::{Seek, SeekFrom, Write};
+        file.seek(SeekFrom::Start(start))?;
+        file.write_all(data)?;
+        file.flush()?;
+        Ok(())
+    })();
+    if let Err(e) = write_err {
+        if let Ok(conn) = db.lock() {
+            files::note_write_failure(&conn, &drive_id, &e.to_string());
+        }
         return Err(UploadError::Io(e));
     }
 
-    let received = upload.received.max(end);
+    let received = prev_received.max(end);
+    let conn = db.lock().map_err(|_| UploadError::NotFound)?;
     db::update_upload_received(&conn, id, received).map_err(UploadError::Db)?;
     db::upsert_upload_chunk(&conn, id, start, end).map_err(UploadError::Db)?;
     Ok(received)
