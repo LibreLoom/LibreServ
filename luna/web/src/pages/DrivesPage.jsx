@@ -87,7 +87,9 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare }
       {copy && (
         <div className="mt-3">
           <Pill variant={copy.pill}>{copy.title}</Pill>
-          <p className="text-primary text-xs mt-2">{copy.detail}</p>
+          {copy.detail ? (
+            <p className="text-primary text-xs mt-2">{copy.detail}</p>
+          ) : null}
         </div>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
