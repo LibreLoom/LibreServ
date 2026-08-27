@@ -3,6 +3,11 @@
  * consistent copied-state reset window, so the ~10 copy sites across the app
  * can't drift apart. Prefer this over calling navigator.clipboard directly.
  *
+ * The Clipboard API requires a secure context (HTTPS / localhost). On plain
+ * HTTP (LAN IP) it is unavailable — use {@link canUseClipboard} and prefer
+ * {@link CopyableValue} so the UI shows selectable text instead of a broken
+ * Copy button that pretends to succeed.
+ *
  * Fires a `success` haptic on copy (the ascending double-tap). When a toast
  * follows, pass `suppressHaptic: true` — the toast itself fires the outcome
  * haptic via ToastContext, so we avoid a double-buzz.
@@ -12,47 +17,33 @@ import { haptic } from "./haptics";
 const COPIED_RESET_MS = 2000;
 
 /**
- * Legacy fallback for insecure contexts (plain HTTP on a LAN IP), where the
- * Clipboard API isn't exposed. Uses a hidden textarea + execCommand("copy").
- * @param {string} text
- * @returns {Promise<void>} resolves on success, rejects on failure
+ * True when one-click clipboard write is available.
+ * @returns {boolean}
  */
-function legacyWriteText(text) {
-  return new Promise((resolve, reject) => {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    try {
-      if (document.execCommand("copy")) {
-        resolve();
-      } else {
-        reject(new Error("execCommand('copy') returned false"));
-      }
-    } catch (err) {
-      reject(err);
-    } finally {
-      document.body.removeChild(textarea);
-    }
-  });
+export function canUseClipboard() {
+  if (typeof window === "undefined") return false;
+  if (!window.isSecureContext) return false;
+  return typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
 }
 
 /**
  * Write text to the clipboard with haptic feedback.
+ * Returns false (and calls onError) when the page is not secure or the write fails.
+ * Does not use silent execCommand fallbacks — insecure pages should show
+ * selectable text via CopyableValue instead of pretending Copy worked.
+ *
  * @param {string} text
  * @param {{ onSuccess?: () => void, onError?: () => void, suppressHaptic?: boolean }} [options]
  * @returns {Promise<boolean>} true if copied successfully
  */
 export async function copyToClipboard(text, { onSuccess, onError, suppressHaptic = false } = {}) {
+  if (!canUseClipboard() || text == null) {
+    if (!suppressHaptic) haptic("error");
+    onError?.();
+    return false;
+  }
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      await legacyWriteText(text);
-    }
+    await navigator.clipboard.writeText(String(text));
     if (!suppressHaptic) haptic("success");
     onSuccess?.();
     return true;
@@ -69,7 +60,7 @@ export async function copyToClipboard(text, { onSuccess, onError, suppressHaptic
  *
  * @param {string} text
  * @param {(copied: boolean) => void} setCopied - state setter
- * @param {{ suppressHaptic?: boolean }} [options]
+ * @param {{ suppressHaptic?: boolean, onError?: () => void }} [options]
  * @returns {Promise<boolean>}
  */
 export async function copyWithFeedback(text, setCopied, options = {}) {

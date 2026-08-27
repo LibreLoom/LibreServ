@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import { postJson, apiErrorMessage } from "../../lib/api";
 
@@ -15,7 +16,6 @@ export default function CreateShareModal({
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
   const [result, setResult] = useState(null);
-  const [copied, setCopied] = useState(false);
   const mutation = useMutation({
     mutationFn: (/** @type {any} */ body) => postJson("/api/v1/shares", body),
     onSuccess: (data) => {
@@ -30,32 +30,16 @@ export default function CreateShareModal({
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
-  async function copyLink() {
-    if (!result?.fullUrl) return;
-    try {
-      await navigator.clipboard.writeText(result.fullUrl);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   if (result) {
     return (
       <ModalCard title="Link ready" onClose={onDone}>
         {({ close }) => (
           <>
-            <div className="flex items-center gap-2">
-              <input
-                readOnly
-                className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-                value={result.fullUrl}
-                onFocus={(e) => e.target.select()}
-              />
-              <Button size="sm" variant="primary" onClick={copyLink}>
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
+            <CopyableValue
+              value={result.fullUrl}
+              copyLabel="Copy"
+              ariaLabel="Share link"
+            />
             <div className="mt-4 flex gap-3">
               <Button variant="outline" onClick={close}>Done</Button>
             </div>
