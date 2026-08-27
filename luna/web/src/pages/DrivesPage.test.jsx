@@ -295,8 +295,7 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    const browse = await screen.findByRole("link", { name: /Browse files/i });
-    expect(browse).toHaveAttribute("href", "/drives/d1");
+    expect(await screen.findByRole("button", { name: /Browse files/i })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
   });
 
@@ -325,5 +324,71 @@ describe("DrivesPage", () => {
     await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
+  });
+
+  it("offers Browse files and opens the shared file browser", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/files?")) {
+          return new Response(JSON.stringify([
+            { name: "Vacation", kind: "dir", size: 0, hidden: false },
+            { name: "notes.txt", kind: "file", size: 12, hidden: false },
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Browse files/i }));
+    expect(await screen.findByRole("heading", { name: /Browse Photos Drive/i })).toBeInTheDocument();
+    expect(await screen.findByText("Vacation")).toBeInTheDocument();
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open full files page/i })).toHaveAttribute("href", "/drives/d1");
+  });
+
+  it("shows singular grammar and named entries when looking inside", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sde", model: "Tiny Stick", size_bytes: 1000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sde/inspect")) {
+          return new Response(JSON.stringify({
+            device: "sde", model: "Tiny Stick", fs_type: "vfat",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
+            folders: 1, files: 1, unreadable: 0, needs_erase: false,
+            readable: true, writable: true,
+            entries: [
+              { name: "Photos", kind: "dir" },
+              { name: "readme.txt", kind: "file" },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    expect(await screen.findByText(/We found 1 folder and 1 file on this drive/i)).toBeInTheDocument();
+    expect(screen.getByText("On this drive")).toBeInTheDocument();
+    expect(screen.getByText("Photos")).toBeInTheDocument();
+    expect(screen.getByText("readme.txt")).toBeInTheDocument();
   });
 });
