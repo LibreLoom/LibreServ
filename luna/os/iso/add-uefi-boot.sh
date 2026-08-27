@@ -107,7 +107,16 @@ mcopy -i "$EFI_IMG" "$WORK/efi/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 # EFI image still show a menu (prefix may differ; ISO path remains primary).
 mcopy -i "$EFI_IMG" "$ROOT/boot/grub/grub.cfg" ::/EFI/BOOT/grub.cfg
 
-echo "==> writing BIOS+UEFI hybrid ISO"
+# Writable factory FAT (LUNAASSETS): TOKENS magazine + later device photos.
+# ISO9660 is read-only after dd; this appended partition is mountable rw.
+echo "==> building empty LUNAASSETS partition (256 MiB FAT)"
+ASSETS_IMG="$WORK/lunaassets.img"
+rm -f "$ASSETS_IMG"
+truncate -s 256M "$ASSETS_IMG"
+mkfs.vfat -F 32 -n LUNAASSETS "$ASSETS_IMG" >/dev/null \
+	|| die "mkfs.vfat LUNAASSETS failed"
+
+echo "==> writing BIOS+UEFI hybrid ISO (+ LUNAASSETS)"
 TMP_OUT="$WORK/out.iso"
 xorriso -as mkisofs \
 	-r -J -joliet-long \
@@ -124,6 +133,7 @@ xorriso -as mkisofs \
 	-e boot/grub/efi.img \
 	-no-emul-boot \
 	-isohybrid-gpt-basdat \
+	-append_partition 3 0x0c "$ASSETS_IMG" \
 	-o "$TMP_OUT" \
 	"$ROOT" \
 	|| die "xorriso remaster failed"
@@ -135,4 +145,4 @@ xorriso -indev "$TMP_OUT" -find / -name 'efi.img' 2>&1 | grep -q efi.img \
 	|| die "remastered ISO missing /boot/grub/efi.img"
 
 cp "$TMP_OUT" "$OUT"
-printf 'UEFI+BIOS hybrid written to %s\n' "$OUT"
+printf 'UEFI+BIOS hybrid (+ LUNAASSETS) written to %s\n' "$OUT"

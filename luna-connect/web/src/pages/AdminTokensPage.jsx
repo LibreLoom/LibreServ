@@ -19,7 +19,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Lost booklet code</CardTitle>
           <CardDescription>
-            We need a way to mint a new official booklet token for a device that no longer has the old one. For now: the owner should contact support and refer to their order id. Support/provisioning then issues a replacement official token (same admin New token flow) and they paste it on Luna or put setup-token on the installer USB.
+            We need a way to mint a new official booklet token for a device that no longer has the old one. For now: the owner should contact support and refer to their order id. Support/provisioning then issues a replacement official token (same admin New token flow). Paste it on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition (factory magazine), or use a one-shot setup-token file next to the ISO payload.
           </CardDescription>
         </CardHeader>
       </Card>
