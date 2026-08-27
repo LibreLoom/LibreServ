@@ -628,6 +628,19 @@ pub fn delete_grant(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Update only the permission on an existing grant. Returns true if a row changed.
+pub fn update_grant_permission(
+    conn: &Connection,
+    id: &str,
+    permission: &str,
+) -> anyhow::Result<bool> {
+    let n = conn.execute(
+        "UPDATE grants SET permission = ?1 WHERE id = ?2",
+        params![permission, id],
+    )?;
+    Ok(n > 0)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareRow {
     pub id: String,
@@ -1202,5 +1215,23 @@ mod tests {
             .unwrap();
         assert_eq!(grants, 0);
         assert_eq!(shares, 0);
+    }
+
+    #[test]
+    fn update_grant_permission_swaps_read_and_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_grant(&conn, "g1", "u1", "d1", "photos", "read").unwrap();
+
+        assert!(update_grant_permission(&conn, "g1", "write").unwrap());
+        let grants = list_all_grants(&conn).unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].permission, "write");
+
+        assert!(update_grant_permission(&conn, "g1", "read").unwrap());
+        let grants = list_all_grants(&conn).unwrap();
+        assert_eq!(grants[0].permission, "read");
+
+        assert!(!update_grant_permission(&conn, "missing", "write").unwrap());
     }
 }

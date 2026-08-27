@@ -87,6 +87,15 @@ export async function putBinary(path, body, options = {}) {
   });
 }
 
+export async function patchJson(path, body, options = {}) {
+  return request(path, {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function deleteJson(path, options = {}) {
   return request(path, { ...options, method: "DELETE" });
 }
