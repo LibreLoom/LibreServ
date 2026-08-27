@@ -36,6 +36,19 @@ function stubFetch({
   connect = { enabled: true, tunnel_active: true, domain: "luna.example" },
   jobs = [],
   access = [],
+  /** @type {Record<string, any>} */
+  summaries = {
+    d1: {
+      id: "d1",
+      mounted: true,
+      total_bytes: 64_000_000_000,
+      free_bytes: 12_000_000_000,
+      used_bytes: 52_000_000_000,
+      folders: 3,
+      files: 12,
+      shortcuts: ["Photos", "Documents"],
+    },
+  },
 } = {}) {
   vi.stubGlobal(
     "fetch",
@@ -52,6 +65,21 @@ function stubFetch({
       }
       if (u.endsWith("/api/v1/drives/detected")) return jsonResponse(detected);
       if (u.endsWith("/api/v1/drives")) return jsonResponse(drives);
+      const summaryMatch = u.match(/\/api\/v1\/drives\/([^/]+)\/summary$/);
+      if (summaryMatch) {
+        const id = summaryMatch[1];
+        if (summaries[id]) return jsonResponse(summaries[id]);
+        return jsonResponse({
+          id,
+          mounted: false,
+          total_bytes: null,
+          free_bytes: null,
+          used_bytes: null,
+          folders: null,
+          files: null,
+          shortcuts: [],
+        });
+      }
       if (u.includes("/api/v1/network/status")) {
         if (network === 403) return jsonResponse({ error: "nope" }, 403);
         return jsonResponse(network);
@@ -141,5 +169,35 @@ describe("DashboardPage", () => {
       "/settings#remote",
     );
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows storage, top-level counts, and folder shortcuts on drive cards", async () => {
+    stubFetch();
+    renderPage();
+    expect(await screen.findByText(/12 GB free/i)).toBeInTheDocument();
+    expect(screen.getByText(/52 GB used/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 folders · 12 files at the top/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=Photos",
+    );
+    expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=Documents",
+    );
+    expect(screen.getByRole("progressbar", { name: /81% used/i })).toBeInTheDocument();
+  });
+
+  it("does not invent storage numbers for an unplugged drive", async () => {
+    stubFetch({
+      drives: [{ id: "d2", label: "Travel stick", state: "missing" }],
+      summaries: {},
+    });
+    renderPage();
+    expect(
+      await screen.findByText(/This drive is unplugged/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/GB free/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 });

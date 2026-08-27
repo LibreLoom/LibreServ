@@ -30,6 +30,7 @@ pub mod scrub;
 pub mod secrets;
 pub mod smart;
 pub mod staticweb;
+pub mod summary;
 pub mod updates;
 pub mod uploads;
 
