@@ -159,12 +159,12 @@ echo "==> job ${OWNER}/${REPO}#${INDEX} action=${ACTION} sender=${SENDER} mentio
 owners_rc=0
 "${OWNERS}" "${SENDER}" || owners_rc=$?
 if [[ ${owners_rc} -eq 1 ]]; then
-  echo "cook.sh: ${SENDER} is not on ${ORG} Owners; refusing" >&2
+  echo "cook.sh: ${SENDER} is not on ${ORG} Owners or atlas-bot; refusing" >&2
   if [[ ${assigned} -eq 1 ]]; then
     fj_unassign "${OWNER}" "${REPO}" "${INDEX}" "${BOT_LOGIN}" || true
   fi
   fj_comment "${OWNER}" "${REPO}" "${INDEX}" \
-    "Cute. I only cook for LibreLoom **Owners** — live team list, not a guestbook. Get someone on it to ping me." \
+    "Cute. I only cook for LibreLoom **Owners** or the **atlas-bot** team. Get on one of those and ping me." \
     >/dev/null || true
   exit 0
 elif [[ ${owners_rc} -ne 0 ]]; then
