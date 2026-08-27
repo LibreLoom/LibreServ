@@ -62,4 +62,29 @@ describe("AccessCategory", () => {
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Stop this app/i })).toBeTruthy();
   });
+
+  it("shows create wizard above existing token list", async () => {
+    stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
+    renderAccess();
+    expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
+
+    const wizardHeading = screen.getByText("Add a new access token");
+    const listHeading = screen.getByText("Your access tokens");
+    const tokenName = screen.getByText("Kitchen Mac");
+
+    expect(wizardHeading.compareDocumentPosition(listHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(listHeading.compareDocumentPosition(tokenName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("token list items use contrasting text on primary surface", async () => {
+    stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
+    const { container } = renderAccess();
+    expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
+
+    const item = container.querySelector("li.bg-primary.text-secondary");
+    expect(item).toBeTruthy();
+    // Children must inherit text-secondary — text-primary on bg-primary is invisible in dark mode.
+    expect(item.querySelector(".text-primary")).toBeNull();
+    expect(screen.getByText("Kitchen Mac").className).not.toMatch(/text-primary/);
+  });
 });
