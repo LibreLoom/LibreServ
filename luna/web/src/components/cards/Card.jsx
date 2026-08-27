@@ -84,6 +84,12 @@ function Card({
   // rounded-large-element curves plus overflow-hidden paint dark crescent
   // bites at the corners, worse when className margins inset the fill.
   //
+  // Surface paint MUST live on this clip too. Height animates on the clip while
+  // the fill snaps to the new content size; when the clip is taller than the
+  // fill, a transparent clip shows the page behind a square fill → 90° corners
+  // until the heights match again. Painting the clip keeps the rounded card
+  // continuous through the resize.
+  //
   // pop-in MUST live on this clip, not the fill. The fill is a square; if it
   // scales inside a rounded overflow box, corners look 90° until the
   // animation ends and the clip radius shows through.
@@ -94,6 +100,7 @@ function Card({
       className={cn(
         "overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
         !hasCustomRadius && "rounded-large-element",
+        surfaceClasses,
         animationClass,
         className,
       )}
@@ -104,7 +111,6 @@ function Card({
         ref={innerRef}
         data-slot="card"
         data-surface={surface}
-        className={surfaceClasses}
         {...rest}
       >
         {hasHeader && (

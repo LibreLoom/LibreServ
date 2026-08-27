@@ -148,6 +148,28 @@ describe("FileBrowser", () => {
     );
   });
 
+  it("shows loading inside the list while a folder fetch is in flight", async () => {
+    let resolveListing;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveListing = resolve;
+          }),
+      ),
+    );
+    renderBrowser({ multiSelect: false });
+    expect(await screen.findByRole("status")).toHaveTextContent(/Loading files/i);
+    resolveListing(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
+  });
+
   it("shows an empty state when the folder has nothing", async () => {
     stubListing({ "": [] });
     renderBrowser({ multiSelect: false });

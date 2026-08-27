@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Check,
   Copy,
@@ -147,7 +147,13 @@ export default function FileBrowser({
     queryFn: () =>
       getJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(path)}`),
     enabled: !!driveId,
+    // Keep the previous folder visible while the next listing loads so the list
+    // card does not collapse empty and pop back in.
+    placeholderData: keepPreviousData,
   });
+
+  const listBusy = listing.isLoading || Boolean(listing.isPlaceholderData);
+  const showingStaleListing = Boolean(listing.isPlaceholderData);
 
   const entries = useMemo(
     () => (listing.data || []).filter((e) => !(hideHidden && e.hidden)),
@@ -565,12 +571,17 @@ export default function FileBrowser({
         </p>
       )}
 
-      {listing.isLoading && (
-        <p className="text-primary text-sm mb-3">Loading files…</p>
-      )}
+      <Card padding={false} className={listClassName} aria-busy={listBusy || undefined}>
+        {listBusy && entries.length > 0 && (
+          <div
+            className="h-11 flex items-center px-3 border-b border-primary/20 text-sm text-primary"
+            role="status"
+          >
+            Loading files…
+          </div>
+        )}
 
-      <Card padding={false} className={listClassName}>
-        {!isPicker && multiSelect && entries.length > 0 && (
+        {!isPicker && multiSelect && entries.length > 0 && !listBusy && (
           <div
             className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
               selectedCount > 0 ? "bg-accent/20" : ""
@@ -656,116 +667,128 @@ export default function FileBrowser({
           </div>
         )}
 
-        <ul className="m-0 p-0 list-none" aria-label="Files and folders">
-          {entries.map((entry) => {
-            const ctx = rowContext(entry);
-            const isSelected = selectedPaths.includes(ctx.fullPath);
-            const isDrop = dropTarget === ctx.fullPath;
-            const openable = entry.kind === "file" && openableKind(entry.name);
+        {listBusy && entries.length === 0 ? (
+          <div className="px-3 py-10 text-sm text-primary text-center" role="status">
+            Loading files…
+          </div>
+        ) : (
+          <ul
+            className={["m-0 p-0 list-none", showingStaleListing ? "pointer-events-none" : ""]
+              .filter(Boolean)
+              .join(" ")}
+            aria-label="Files and folders"
+            {...(showingStaleListing ? { inert: true } : {})}
+          >
+            {entries.map((entry) => {
+              const ctx = rowContext(entry);
+              const isSelected = selectedPaths.includes(ctx.fullPath);
+              const isDrop = dropTarget === ctx.fullPath;
+              const openable = entry.kind === "file" && openableKind(entry.name);
 
-            return (
-              <li
-                key={entry.name}
-                className={[
-                  "flex items-center gap-2 px-3",
-                  padY,
-                  "bg-secondary text-primary",
-                  isSelected ? "bg-accent/20" : "",
-                  isDrop ? "outline outline-2 outline-accent -outline-offset-2" : "",
-                  "border-b border-primary/15 last:border-b-0",
-                  "motion-safe:transition-colors",
-                ].filter(Boolean).join(" ")}
-                draggable={!isPicker && Boolean(onInternalMove)}
-                onDragStart={(e) => onRowDragStart(ctx, e)}
-                onDragOver={(e) => {
-                  if (entry.kind !== "dir") return;
-                  if (!onInternalMove && !onUploadFiles) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDropTarget(ctx.fullPath);
-                }}
-                onDragLeave={() => {
-                  if (dropTarget === ctx.fullPath) setDropTarget(null);
-                }}
-                onDrop={(e) => {
-                  if (entry.kind !== "dir") return;
-                  void onFolderDrop(ctx.fullPath, e);
-                }}
-              >
-                {!isPicker && multiSelect ? (
-                  <AnimatedCheckbox
-                    checked={isSelected}
-                    onChange={(next, e) => {
-                      const shift = Boolean(
-                        /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
-                      );
-                      if (shift) {
-                        toggleOne(ctx.fullPath, { additive: true, range: true });
-                        return;
-                      }
-                      setSelectedPaths(
-                        next
-                          ? [...new Set([...selectedPaths, ctx.fullPath])]
-                          : selectedPaths.filter((p) => p !== ctx.fullPath),
-                      );
-                      setLastClicked(ctx.fullPath);
-                    }}
-                    aria-label={`Select ${entry.name}`}
-                    surface="secondary"
-                  />
-                ) : null}
+              return (
+                <li
+                  key={entry.name}
+                  className={[
+                    "flex items-center gap-2 px-3",
+                    padY,
+                    "bg-secondary text-primary",
+                    isSelected ? "bg-accent/20" : "",
+                    isDrop ? "outline outline-2 outline-accent -outline-offset-2" : "",
+                    "border-b border-primary/15 last:border-b-0",
+                    "motion-safe:transition-colors",
+                  ].filter(Boolean).join(" ")}
+                  draggable={!isPicker && Boolean(onInternalMove)}
+                  onDragStart={(e) => onRowDragStart(ctx, e)}
+                  onDragOver={(e) => {
+                    if (entry.kind !== "dir") return;
+                    if (!onInternalMove && !onUploadFiles) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDropTarget(ctx.fullPath);
+                  }}
+                  onDragLeave={() => {
+                    if (dropTarget === ctx.fullPath) setDropTarget(null);
+                  }}
+                  onDrop={(e) => {
+                    if (entry.kind !== "dir") return;
+                    void onFolderDrop(ctx.fullPath, e);
+                  }}
+                >
+                  {!isPicker && multiSelect ? (
+                    <AnimatedCheckbox
+                      checked={isSelected}
+                      onChange={(next, e) => {
+                        const shift = Boolean(
+                          /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
+                        );
+                        if (shift) {
+                          toggleOne(ctx.fullPath, { additive: true, range: true });
+                          return;
+                        }
+                        setSelectedPaths(
+                          next
+                            ? [...new Set([...selectedPaths, ctx.fullPath])]
+                            : selectedPaths.filter((p) => p !== ctx.fullPath),
+                        );
+                        setLastClicked(ctx.fullPath);
+                      }}
+                      aria-label={`Select ${entry.name}`}
+                      surface="secondary"
+                    />
+                  ) : null}
 
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {entry.kind === "dir" ? (
-                    linkNavigation ? (
-                      <Link
-                        to={folderHref(driveId, ctx.fullPath)}
-                        className="flex items-center gap-2 min-w-0 text-primary hover:underline"
-                      >
-                        <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
-                        <span className="font-mono text-sm truncate">{entry.name}</span>
-                      </Link>
-                    ) : (
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {entry.kind === "dir" ? (
+                      linkNavigation ? (
+                        <Link
+                          to={folderHref(driveId, ctx.fullPath)}
+                          className="flex items-center gap-2 min-w-0 text-primary hover:underline"
+                        >
+                          <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
+                          onClick={() => openEntry(ctx)}
+                        >
+                          <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                        </button>
+                      )
+                    ) : openable ? (
                       <button
                         type="button"
                         className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
                         onClick={() => openEntry(ctx)}
                       >
-                        <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sm truncate">{entry.name}</span>
                       </button>
-                    )
-                  ) : openable ? (
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
-                      onClick={() => openEntry(ctx)}
-                    >
-                      <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
-                      <span className="font-mono text-sm truncate">{entry.name}</span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2 min-w-0 text-primary">
-                      <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
-                      <span className="font-mono text-sm truncate">{entry.name}</span>
-                    </div>
-                  )}
-                </div>
+                    ) : (
+                      <div className="flex items-center gap-2 min-w-0 text-primary">
+                        <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <span className="font-mono text-sm truncate">{entry.name}</span>
+                      </div>
+                    )}
+                  </div>
 
-                <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary">
-                  {fmtSize(entry.size)}
-                </span>
+                  <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary">
+                    {fmtSize(entry.size)}
+                  </span>
 
-                <div className="shrink-0 max-w-[40%] sm:max-w-none">
-                  {rowActions(ctx)}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  <div className="shrink-0 max-w-[40%] sm:max-w-none">
+                    {rowActions(ctx)}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Card>
 
-      {!listing.isLoading && !listing.isError && entries.length === 0 && (
+      {!listBusy && !listing.isError && entries.length === 0 && (
         <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} />
       )}
     </div>
