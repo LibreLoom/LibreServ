@@ -9,7 +9,9 @@ import FolderPickerModal from "./FolderPickerModal.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
+import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
+import Spinner from "../ui/Spinner.jsx";
 import PageNotice from "../common/PageNotice.jsx";
 import {
   apiErrorMessage,
@@ -23,6 +25,64 @@ import { folderHref as defaultFolderHref, fmtSize, joinPath, pathBasename } from
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
+
+/**
+ * Compact upload progress — drive-card language, small footprint for modal + page.
+ *
+ * @param {{ name: string, received: number, size: number }} props
+ */
+function UploadProgress({ name, received, size }) {
+  const total = Number(size) || 0;
+  const done = Math.min(total, Math.max(0, Number(received) || 0));
+  const pct = total > 0 ? Math.min(100, Math.round((100 * done) / total)) : null;
+  const barWidth = pct != null ? Math.max(pct, done > 0 ? 2 : 8) : 8;
+  const sizeLine = total > 0
+    ? `${fmtSize(done)} of ${fmtSize(total)}`
+    : "Starting…";
+
+  return (
+    <Card className="mb-3" padding={false} noPopIn>
+      <div className="px-3 py-2.5 space-y-2" role="status" aria-live="polite">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+            aria-hidden="true"
+          />
+          <span className="text-xs font-mono uppercase tracking-widest text-accent shrink-0">
+            Uploading
+          </span>
+          <Spinner size="sm" decorative className="text-primary shrink-0" />
+          <span className="font-mono text-sm text-primary truncate min-w-0 flex-1">
+            {name}
+          </span>
+          <span className="font-mono text-xs text-primary shrink-0 tabular-nums">
+            {pct != null ? `${pct}%` : "…"}
+          </span>
+        </div>
+        <p className="text-xs text-primary font-mono">{sizeLine}</p>
+        <div
+          className="h-1.5 rounded-pill bg-primary overflow-hidden"
+          role="progressbar"
+          aria-valuenow={pct ?? 0}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={pct != null ? `Uploading ${name}, ${pct}% done` : `Uploading ${name}`}
+        >
+          <div
+            className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-300"
+            style={{ width: `${barWidth}%` }}
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+UploadProgress.propTypes = {
+  name: PropTypes.string.isRequired,
+  received: PropTypes.number.isRequired,
+  size: PropTypes.number.isRequired,
+};
 
 /**
  * Full file explorer used by the Files page and the Drives browse modal.
@@ -208,9 +268,11 @@ export default function DriveFileExplorer({
         <PageNotice variant="error" className="mb-3">{actionError}</PageNotice>
       )}
       {uploading && (
-        <p className="text-primary text-xs mb-3 font-mono" role="status">
-          Saving {uploading.name}… {fmtSize(uploading.received)} of {fmtSize(uploading.size)}
-        </p>
+        <UploadProgress
+          name={uploading.name}
+          received={uploading.received}
+          size={uploading.size}
+        />
       )}
 
       <FileBrowser
