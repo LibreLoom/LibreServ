@@ -83,7 +83,7 @@ describe("DrivesPage", () => {
     renderPage();
     const search = await screen.findByLabelText("Search for a file");
     expect(search).toBeInTheDocument();
-    expect(screen.getByText(/Type at least two letters/i)).toBeInTheDocument();
+    expect(search).toHaveAttribute("placeholder", "Search for a file");
   });
 
   it("shows a mock 64GB PSSD when opted in for review", async () => {
