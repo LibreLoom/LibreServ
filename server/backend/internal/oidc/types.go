@@ -13,7 +13,7 @@ import (
 )
 
 // ============================================================================
-// DB row structs (mapped to 005_oidc.sql tables)
+// DB row structs (mapped to OIDC tables in 001_schema.sql)
 // ============================================================================
 
 // Client represents an OIDC client registration (oidc_clients table).

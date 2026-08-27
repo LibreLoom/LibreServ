@@ -16,10 +16,10 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 )
 
-// newTestMFAHandler builds a real auth.Service (in-memory DB, migrated incl.
-// 003_mfa.sql) with a test user + a wired webauthn.Verifier, and returns a
-// ready MFAHandler. It exercises the true seam: handler -> auth.Service ->
-// webauthn.Verifier (no mocks).
+// newTestMFAHandler builds a real auth.Service (temp DB, fully migrated) with
+// a test user + a wired webauthn.Verifier, and returns a ready MFAHandler.
+// It exercises the true seam: handler -> auth.Service -> webauthn.Verifier
+// (no mocks).
 func newTestMFAHandler(t *testing.T, withVerifier bool) (*MFAHandler, *auth.Service, string) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
