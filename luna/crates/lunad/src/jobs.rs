@@ -2,9 +2,13 @@
 //!
 //! Jobs run on the blocking thread pool so the HTTP server never waits on
 //! spinning disks. Progress is persisted to SQLite, and a cancellation flag is
-//! checked between chunks. Moves are copy-then-trash: the source is only
-//! removed after every byte is verified at the destination, and even then it
-//! goes to `.luna-trash`, never straight to deletion.
+//! checked between chunks.
+//!
+//! Moves prefer a real same-filesystem rename when the kernel allows it. Only
+//! when rename fails with EXDEV (cross-device / different mount) does Luna fall
+//! back to copy-then-trash: the source is removed only after every byte is
+//! verified at the destination, and even then it goes to `.luna-trash`, never
+//! straight to deletion.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -244,11 +248,61 @@ struct CopyState {
 }
 
 fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<AtomicBool>) {
+    // Same-filesystem moves: rename in place. Never invent a destination we
+    // would later roll back — rename either lands the whole tree or fails.
+    if prepared.row.kind == "move" {
+        match files::try_rename_move(&prepared.src, &prepared.dest) {
+            Ok(true) => {
+                if let Ok(conn) = db.lock() {
+                    let _ = db::update_job_progress(
+                        &conn,
+                        &prepared.row.id,
+                        prepared.total,
+                        prepared.total,
+                    );
+                    let _ = db::set_job_state(&conn, &prepared.row.id, "done", "");
+                }
+                return;
+            }
+            Ok(false) => {
+                // Cross-device: fall through to copy-then-trash.
+            }
+            Err(FilesError::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if let Ok(conn) = db.lock() {
+                    let _ = db::set_job_state(
+                        &conn,
+                        &prepared.row.id,
+                        "error",
+                        &plain_job_error(&JobError::Conflict),
+                    );
+                }
+                return;
+            }
+            Err(e) => {
+                if let Ok(conn) = db.lock() {
+                    let _ = db::set_job_state(
+                        &conn,
+                        &prepared.row.id,
+                        "error",
+                        &plain_job_error(&JobError::from(e)),
+                    );
+                }
+                return;
+            }
+        }
+    }
+
     let mut st = CopyState {
         done: 0,
         owned_dest: false,
     };
     let result = (|| -> Result<(), JobError> {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(JobError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled",
+            )));
+        }
         copy_node(
             &db,
             &prepared.src,
@@ -280,8 +334,8 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
         let _ = db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
     }
     // A cancelled or failed job may have a partial destination; remove it so a
-    // retry isn't blocked by a torn tree (for a move, the source is only
-    // trashed after a full copy, so nothing is lost by cleaning up).
+    // retry isn't blocked by a torn tree (for a cross-device move, the source is
+    // only trashed after a full copy, so nothing is lost by cleaning up).
     if (state == "cancelled" || state == "error") && st.owned_dest {
         let _ = std::fs::remove_file(&prepared.dest);
         let _ = std::fs::remove_dir_all(&prepared.dest);
@@ -433,6 +487,156 @@ mod tests {
         )
         .unwrap();
         (dir, Arc::new(Mutex::new(conn)), "a".into())
+    }
+
+    /// Drive B on `/dev/shm` (tmpfs) so rename hits EXDEV against drive A on disk.
+    fn setup_cross_fs() -> Option<(tempfile::TempDir, tempfile::TempDir, Arc<Mutex<Connection>>)> {
+        use std::os::unix::fs::MetadataExt;
+        let shm = PathBuf::from("/dev/shm");
+        if std::fs::metadata(&shm).ok()?.dev()
+            == std::fs::metadata(std::env::temp_dir()).ok()?.dev()
+        {
+            return None;
+        }
+        let dir_a = tempfile::tempdir().ok()?;
+        let dir_b = tempfile::TempDir::new_in(&shm).ok()?;
+        let conn = db::open(&dir_a.path().join("luna.db")).ok()?;
+        let root_a = dir_a.path().join("a");
+        std::fs::create_dir_all(&root_a).ok()?;
+        db::upsert_drive(&conn, "a", "A", "as_is", "ext4", "sda", root_a.to_str()?).ok()?;
+        let root_b = dir_b.path().join("b");
+        std::fs::create_dir_all(&root_b).ok()?;
+        db::upsert_drive(&conn, "b", "B", "as_is", "ext4", "sdb", root_b.to_str()?).ok()?;
+        Some((dir_a, dir_b, Arc::new(Mutex::new(conn))))
+    }
+
+    #[tokio::test]
+    async fn same_drive_move_renames_without_trash() {
+        let (dir, db, _a) = setup();
+        {
+            let conn = db.lock().unwrap();
+            let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+            std::fs::create_dir_all(format!("{root}/inbox")).unwrap();
+            std::fs::write(format!("{root}/note.txt"), b"stay put once").unwrap();
+        }
+        let manager = JobManager::new(db.clone());
+        let job = manager
+            .enqueue("move", "a", "note.txt", "a", "inbox", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+
+        let root = dir.path().join("a");
+        assert!(!root.join("note.txt").exists());
+        assert_eq!(
+            std::fs::read(root.join("inbox/note.txt")).unwrap(),
+            b"stay put once"
+        );
+        let trash = root.join(".luna-trash");
+        assert!(
+            !trash.exists() || std::fs::read_dir(&trash).unwrap().next().is_none(),
+            "same-drive move must not leave a trash copy"
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_filesystem_move_copies_then_trashes_source() {
+        let Some((_dir_a, _dir_b, db)) = setup_cross_fs() else {
+            eprintln!("skip: no distinct /dev/shm filesystem for EXDEV test");
+            return;
+        };
+        {
+            let conn = db.lock().unwrap();
+            let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+            std::fs::write(format!("{root}/ship.txt"), b"cross device").unwrap();
+        }
+        let manager = JobManager::new(db.clone());
+        let job = manager
+            .enqueue("move", "a", "ship.txt", "b", "", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+
+        let conn = db.lock().unwrap();
+        let root_a = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        let root_b = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        assert_eq!(
+            std::fs::read(format!("{root_b}/ship.txt")).unwrap(),
+            b"cross device"
+        );
+        assert!(!PathBuf::from(&root_a).join("ship.txt").exists());
+        let trash_entries: Vec<_> = std::fs::read_dir(format!("{root_a}/.luna-trash"))
+            .unwrap()
+            .collect();
+        assert_eq!(trash_entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn same_fs_cross_drive_move_still_renames() {
+        // Two Luna drives on the same filesystem should rename, not copy+trash.
+        let (dir, db, _a) = setup();
+        {
+            let conn = db.lock().unwrap();
+            let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+            std::fs::write(format!("{root}/samefs.txt"), b"rename across drives").unwrap();
+        }
+        let manager = JobManager::new(db.clone());
+        let job = manager
+            .enqueue("move", "a", "samefs.txt", "b", "", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        assert!(!dir.path().join("a/samefs.txt").exists());
+        assert_eq!(
+            std::fs::read(dir.path().join("b/samefs.txt")).unwrap(),
+            b"rename across drives"
+        );
+        let trash = dir.path().join("a/.luna-trash");
+        assert!(
+            !trash.exists() || std::fs::read_dir(&trash).unwrap().next().is_none(),
+            "same-filesystem move must not trash the source"
+        );
+    }
+
+    #[tokio::test]
+    async fn same_drive_folder_move_renames_tree() {
+        let (dir, db, _a) = setup();
+        {
+            let conn = db.lock().unwrap();
+            let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+            std::fs::create_dir_all(format!("{root}/album/day")).unwrap();
+            std::fs::write(format!("{root}/album/day/pic.jpg"), b"jpeg").unwrap();
+            std::fs::create_dir_all(format!("{root}/archive")).unwrap();
+        }
+        let manager = JobManager::new(db.clone());
+        let job = manager
+            .enqueue("move", "a", "album", "a", "archive", "user-1")
+            .await
+            .unwrap();
+        wait_done(&manager, &job.id);
+        let done = manager.get(&job.id).unwrap().unwrap();
+        assert_eq!(done.state, "done", "{}", done.error);
+        let root = dir.path().join("a");
+        assert!(!root.join("album").exists());
+        assert_eq!(
+            std::fs::read(root.join("archive/album/day/pic.jpg")).unwrap(),
+            b"jpeg"
+        );
+    }
+
+    fn wait_done(manager: &JobManager, id: &str) {
+        for _ in 0..100 {
+            if manager.get(id).unwrap().unwrap().state != "running" {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[tokio::test]
