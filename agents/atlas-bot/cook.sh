@@ -135,8 +135,12 @@ if [[ "${lc_comment}" == *"@${BOT_LOGIN}"* ]]; then mentioned=1; fi
 if [[ -z "${COMMENT_BODY// }" && "${lc_body}" == *"@${BOT_LOGIN}"* && "${ACTION}" =~ ^(opened|created)$ ]]; then
   mentioned=1
 fi
+on_ticket=0
+if [[ " ${ASSIGNEES} " == *" ${BOT_LOGIN} "* ]]; then
+  on_ticket=1
+fi
 if [[ "${ACTION}" == "assigned" ]]; then
-  if [[ "${ASSIGNEE}" == "${BOT_LOGIN}" || " ${ASSIGNEES} " == *" ${BOT_LOGIN} "* ]]; then
+  if [[ "${ASSIGNEE}" == "${BOT_LOGIN}" || ${on_ticket} -eq 1 ]]; then
     assigned=1
   fi
 fi
@@ -551,14 +555,23 @@ python3 "${HERE}/build_context.py" "${EVENT_PATH}" "${CTX}"
 echo "==> context $(wc -c < "${CTX}") bytes"
 
 PROMPT_FILE="${ATLAS_PROMPT_FILE:-${HERE}/prompt.md}"
-if [[ ${assigned} -eq 1 && ${mentioned} -eq 0 ]]; then
+ASSIGN_PR="Run a deep code review of the diff against the base branch. Set Forgejo review state with fj pr review create ${INDEX} --approve|--request-changes|--comment --body."
+ASSIGN_ISSUE="Implement a fix on branch atlas-bot/<short-slug> and open a PR that resolves it. PR body must include Fixes #${INDEX}. Do not merge unless asked."
+MENTION="Follow @${SENDER}'s mention. That is the instruction."
+if [[ ${mentioned} -eq 1 && ${on_ticket} -eq 1 ]]; then
   if [[ "${IS_PULL}" == "1" ]]; then
-    DEFAULT_TASK="You were assigned this PR. Run a deep code review of the diff against the base branch. Set Forgejo review state with fj pr review create ${INDEX} --approve|--request-changes|--comment --body."
+    DEFAULT_TASK="You are assigned this PR and @mentioned. Do both: ${ASSIGN_PR} Also ${MENTION}"
   else
-    DEFAULT_TASK="You were assigned this issue. Implement a fix on branch atlas-bot/<short-slug> and open a PR that resolves it. PR body must include Fixes #${INDEX}. Do not merge unless asked."
+    DEFAULT_TASK="You are assigned this issue and @mentioned. Do both: ${ASSIGN_ISSUE} Also ${MENTION}"
+  fi
+elif [[ ${assigned} -eq 1 && ${mentioned} -eq 0 ]]; then
+  if [[ "${IS_PULL}" == "1" ]]; then
+    DEFAULT_TASK="You were assigned this PR. ${ASSIGN_PR}"
+  else
+    DEFAULT_TASK="You were assigned this issue. ${ASSIGN_ISSUE}"
   fi
 else
-  DEFAULT_TASK="Follow @${SENDER}'s mention. That is the instruction."
+  DEFAULT_TASK="${MENTION}"
 fi
 if [[ "${IS_PULL}" == "1" ]]; then KIND=PR; else KIND=issue; fi
 TASK="$(cat "${PROMPT_FILE}")
