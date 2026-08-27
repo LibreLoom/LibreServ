@@ -428,8 +428,12 @@ fn pwreset_flow(auth: &AuthService, console: &mut std::fs::File) -> Result<(), S
     // Console recovery is headless and must accept whatever gets them back in.
     match auth.reset_user_password(&username, &password) {
         Ok(user) => {
-            writeln!(console, "Password updated for {}. Type logout.", user.username)
-                .map_err(|e| e.to_string())?;
+            writeln!(
+                console,
+                "Password updated for {}. Type logout.",
+                user.username
+            )
+            .map_err(|e| e.to_string())?;
             Ok(())
         }
         Err(e) => {
@@ -579,10 +583,7 @@ mod tests {
 
     #[test]
     fn pwreset_again_while_signed_in_retries_wizard() {
-        assert_eq!(
-            console_command("pwreset", true),
-            ConsoleCommand::StartReset
-        );
+        assert_eq!(console_command("pwreset", true), ConsoleCommand::StartReset);
         assert_eq!(console_command("logout", true), ConsoleCommand::Logout);
         assert_eq!(
             console_command("help", true),
@@ -592,9 +593,14 @@ mod tests {
 
     #[test]
     fn card_steps_use_single_pwreset_login() {
-        assert_eq!(CARD_STEPS.iter().filter(|s| s.contains("pwreset")).count(), 1);
+        assert_eq!(
+            CARD_STEPS.iter().filter(|s| s.contains("pwreset")).count(),
+            1
+        );
         assert!(
-            CARD_STEPS.iter().all(|s| !s.to_lowercase().contains("root")),
+            CARD_STEPS
+                .iter()
+                .all(|s| !s.to_lowercase().contains("root")),
             "printed card must not tell users to type root"
         );
         assert!(
