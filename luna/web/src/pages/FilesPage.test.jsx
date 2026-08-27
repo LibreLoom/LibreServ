@@ -56,14 +56,14 @@ function renderFiles(path = "/drives/d1") {
 }
 
 describe("FilesPage", () => {
-  it("shows the drop zone and empty folder", async () => {
+  it("shows upload control and folder contents", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
     });
     renderFiles();
-    expect(screen.getAllByText(/Drop files here/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /Choose files/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    expect(screen.getByText("Current folder")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Protect photo.jpg" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
@@ -172,10 +172,9 @@ describe("FilesPage", () => {
     expect(await screen.findByText(/4zjwE5no1WM.stl/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Copy 4zjwE5no1WM.stl" }));
     expect(await screen.findByRole("heading", { name: /Copy 4zjwE5no1WM.stl/i })).toBeInTheDocument();
-    expect(screen.getByText(/The original stays where it is/i)).toBeInTheDocument();
+    expect(screen.getByText(/Choose a folder, or use the one you are in now/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Start copying" }));
-    // uploadError can render in more than one notice while the modal is open
-    expect((await screen.findAllByText(/Couldn't reach Luna/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Couldn't reach Luna|Couldn't start that transfer/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/NetworkError/i)).not.toBeInTheDocument();
     const postJob = fetchMock.mock.calls.find(([url, init]) =>
       String(url).includes("/api/v1/jobs") && (init?.method || "GET").toUpperCase() === "POST"
@@ -184,7 +183,7 @@ describe("FilesPage", () => {
     expect(postJob[1].headers["X-CSRF-Token"]).toBe("copy-tok");
   });
 
-  it("opens the move dialog with plain relocate copy", async () => {
+  it("opens the move dialog with a folder picker", async () => {
     stubFilesApi({
       "": [{ name: "Vase (XS).gcode", kind: "file", size: 1000, modified: 0, hidden: false }],
     });
@@ -192,9 +191,9 @@ describe("FilesPage", () => {
     expect(await screen.findByText(/Vase \(XS\)\.gcode/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Move Vase (XS).gcode" }));
     expect(await screen.findByRole("heading", { name: "Move Vase (XS).gcode" })).toBeInTheDocument();
-    expect(screen.getByText("Luna will move it to the place you choose.")).toBeInTheDocument();
+    expect(screen.getByText(/Choose a folder, or use the one you are in now/i)).toBeInTheDocument();
     expect(screen.queryByText(/copy it first/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/put the original in trash/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Leave blank for the top of the drive/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
   });
 });

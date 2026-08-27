@@ -38,7 +38,7 @@ function renderBrowser(props = {}) {
 }
 
 describe("FileBrowser", () => {
-  it("lists folders and files with breadcrumbs", async () => {
+  it("lists folders and files with a current-path label and zebra rows", async () => {
     stubListing({
       "": [
         { name: "album", kind: "dir", size: 0, hidden: false },
@@ -46,11 +46,12 @@ describe("FileBrowser", () => {
         { name: ".secret", kind: "file", size: 1, hidden: true },
       ],
     });
-    renderBrowser();
+    renderBrowser({ multiSelect: false, enableDownload: true });
     expect(await screen.findByText("album")).toBeInTheDocument();
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
     expect(screen.queryByText(".secret")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Photos" })).toBeInTheDocument();
+    expect(screen.getByText("Current folder")).toBeInTheDocument();
+    expect(screen.getAllByText("Photos").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /Download readme.txt/i })).toHaveAttribute(
       "href",
       expect.stringContaining("readme.txt"),
@@ -62,9 +63,10 @@ describe("FileBrowser", () => {
       "": [{ name: "album", kind: "dir", size: 0, hidden: false }],
       album: [{ name: "beach.jpg", kind: "file", size: 2000, hidden: false }],
     });
-    renderBrowser();
+    renderBrowser({ multiSelect: false });
     fireEvent.click(await screen.findByRole("button", { name: /album/i }));
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    expect(screen.getByText(/Photos \/ album/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /↑ Up one folder/i }));
     expect(await screen.findByText("album")).toBeInTheDocument();
   });
@@ -73,7 +75,7 @@ describe("FileBrowser", () => {
     stubListing({
       "": [{ name: "album", kind: "dir", size: 0, hidden: false }],
     });
-    renderBrowser({ linkNavigation: true });
+    renderBrowser({ linkNavigation: true, multiSelect: false });
     expect(await screen.findByRole("link", { name: "album" })).toHaveAttribute(
       "href",
       "/drives/d1?path=album",
@@ -81,7 +83,7 @@ describe("FileBrowser", () => {
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/drives/d1");
   });
 
-  it("supports folder selection mode for pickers", async () => {
+  it("supports folder picker mode", async () => {
     const onSelect = vi.fn();
     stubListing({
       "": [
@@ -90,12 +92,14 @@ describe("FileBrowser", () => {
       ],
     });
     renderBrowser({
-      selectionMode: "folder",
+      pickerMode: "folder",
       selectedPath: null,
       onSelect,
+      multiSelect: false,
     });
     expect(await screen.findByRole("button", { name: /Select album/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Select note.txt/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Use this folder/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Select album/i }));
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -105,21 +109,47 @@ describe("FileBrowser", () => {
     );
   });
 
-  it("calls parent action callbacks", async () => {
+  it("multi-selects rows and fires bulk copy", async () => {
+    const onCopy = vi.fn();
+    stubListing({
+      "": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+        { name: "b.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ onCopy, multiSelect: true, enableDownload: false });
+    expect(await screen.findByLabelText("Select a.txt")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Select a.txt"));
+    fireEvent.click(screen.getByLabelText("Select b.txt"));
+    fireEvent.click(screen.getByRole("button", { name: /^Copy$/i }));
+    expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"]);
+  });
+
+  it("calls parent action callbacks for a single row", async () => {
     const onCopy = vi.fn();
     stubListing({
       "": [{ name: "note.txt", kind: "file", size: 10, hidden: false }],
     });
-    renderBrowser({ onCopy });
+    renderBrowser({ onCopy, multiSelect: false });
     fireEvent.click(await screen.findByRole("button", { name: /Copy note.txt/i }));
-    expect(onCopy).toHaveBeenCalledWith(
+    expect(onCopy).toHaveBeenCalledWith(["note.txt"]);
+  });
+
+  it("opens openable files via onOpenFile", async () => {
+    const onOpenFile = vi.fn();
+    stubListing({
+      "": [{ name: "note.txt", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({ onOpenFile, multiSelect: false, enableDownload: false });
+    fireEvent.click(await screen.findByRole("button", { name: /note\.txt/i }));
+    expect(onOpenFile).toHaveBeenCalledWith(
       expect.objectContaining({ fullPath: "note.txt" }),
     );
   });
 
   it("shows an empty state when the folder has nothing", async () => {
     stubListing({ "": [] });
-    renderBrowser();
+    renderBrowser({ multiSelect: false });
     expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
   });
 });
