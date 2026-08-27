@@ -22,7 +22,7 @@ Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1
 
 ## Official booklet codes
 
-Official units that lost their setup file cannot start on their own. There is no public “I lost my code” form. The owner contacts support and refers to their order id. Support then issues a replacement official token (admin New token page) and they paste it on Luna or put `setup-token` on the installer USB.
+Official units that lost their setup file cannot start on their own. There is no public “I lost my code” form. The owner contacts support and refers to their order id. Support then issues a replacement official token (admin New token page). Put it on Luna, or add it as a line in `TOKENS` on the installer USB’s **LUNAASSETS** partition (factory magazine: each flash peels the first line). A one-shot `setup-token` file next to the ISO payload still works for a single unit.
 
 ## Deploy (ZDU)
 

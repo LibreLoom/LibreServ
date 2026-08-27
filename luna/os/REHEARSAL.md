@@ -6,7 +6,7 @@ support call later.
 
 ## 0. Materials (per unit)
 - 1× x86_64 PC to flash (mini PC, Wyse 3040, or similar) + its PSU
-- 1× USB stick for the rapidinstall ISO (8 GB is plenty)
+- 1× USB stick for the rapidinstall ISO (8 GB is plenty; includes LUNAASSETS)
 - Ethernet patch cable (in the box)
 - Printed booklet with the official setup code
 
@@ -14,6 +14,7 @@ support call later.
 - [ ] `os/build-rootfs.sh` produced `os/dist/luna-rootfs-x86_64.tar.gz`
 - [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
 - [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the target disk
+- [ ] Factory stick: mount `LUNAASSETS`, put booklet codes in `TOKENS` (one per line); each flash peels the first line
 - [ ] PC boots the USB (BIOS or UEFI; Secure Boot off)
 - [ ] Installer shows built-in storage (`/dev/sda`, `/dev/nvme0n1`, or `/dev/mmcblk0`)
 - [ ] Waited 5s (or pressed a number to pick another disk); installer finished; USB removed; reboot from internal disk

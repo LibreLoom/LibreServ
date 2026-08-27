@@ -11,7 +11,8 @@ describe("AdminTokensPage", () => {
     render(<AdminTokensPage />);
     expect(screen.getByTestId("official-token-recovery")).toBeTruthy();
     expect(screen.getByText(/contact support and refer to their order id/i)).toBeTruthy();
-    expect(screen.getByText(/setup-token on the installer USB/i)).toBeTruthy();
+    expect(screen.getByText(/TOKENS on the LUNAASSETS partition/i)).toBeTruthy();
+    expect(screen.getByText(/one-shot setup-token file/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /New token/i })).toBeTruthy();
   });
 });
