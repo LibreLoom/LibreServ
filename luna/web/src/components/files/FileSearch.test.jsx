@@ -55,7 +55,7 @@ function renderSearch(hits) {
 describe("FileSearch", () => {
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
-    fireEvent.change(screen.getByLabelText("Search files, folders, and drive names"), {
+    fireEvent.change(screen.getByLabelText("Search for a file"), {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search files, folders, and drive names"), {
+    fireEvent.change(screen.getByLabelText("Search for a file"), {
       target: { value: "beach" },
     });
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search files, folders, and drive names"), {
+    fireEvent.change(screen.getByLabelText("Search for a file"), {
       target: { value: "alb" },
     });
     const open = await screen.findByRole("link", { name: /Open album/i });
@@ -127,7 +127,7 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search files, folders, and drive names"), {
+    fireEvent.change(screen.getByLabelText("Search for a file"), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Move notes.txt to trash/i }));

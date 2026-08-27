@@ -13,7 +13,7 @@ import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
-import FileBrowser from "../components/files/FileBrowser";
+import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
@@ -380,20 +380,19 @@ export default function DrivesPage() {
           onClose={() => setBrowsingDrive(null)}
         >
           {({ close }) => (
-            <>
-              <FileBrowser
-                driveId={browsingDrive.id}
-                driveLabel={browsingDrive.label}
-                enableDownload
-                headerExtra={
-                  <Button variant="outline" surface="secondary" size="sm" asChild>
-                    <Link to={`/drives/${browsingDrive.id}`} onClick={close}>
-                      Open full files page
-                    </Link>
-                  </Button>
-                }
-              />
-            </>
+            <DriveFileExplorer
+              driveId={browsingDrive.id}
+              driveLabel={browsingDrive.label}
+              isAdmin={isAdmin}
+              dense
+              headerExtra={
+                <Button variant="outline" surface="secondary" size="sm" asChild>
+                  <Link to={`/drives/${browsingDrive.id}`} onClick={close}>
+                    Open full files page
+                  </Link>
+                </Button>
+              }
+            />
           )}
         </ModalCard>
       )}

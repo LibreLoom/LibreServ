@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { Activity, ChevronRight, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
@@ -9,10 +9,12 @@ import Button from "../components/ui/Button.jsx";
 import Pill from "../components/common/Pill.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
 import TextLink from "../components/ui/TextLink.jsx";
+import Spinner from "../components/ui/Spinner.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
+import { folderHref as driveFolderHref, pathBasename } from "../lib/paths.js";
 
 const STATE_PILLS = {
   as_is: "success",
@@ -46,8 +48,7 @@ function formatBytes(bytes) {
 }
 
 function folderHref(driveId, folderPath) {
-  if (!folderPath) return `/drives/${driveId}`;
-  return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
+  return driveFolderHref(driveId, folderPath);
 }
 
 function shortcutLabel(path) {
@@ -355,11 +356,161 @@ function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain }) {
   );
 }
 
-function jobLabel(job) {
+function jobBusy(job) {
+  const state = String(job?.state || "");
+  return state === "running" || state === "queued";
+}
+
+function jobKindLabel(job) {
   const kind = String(job.kind || "").toLowerCase();
-  if (kind.includes("move")) return "Moving files";
-  if (kind.includes("copy")) return "Copying files";
-  return "Working on files";
+  if (kind.includes("move")) return "Moving";
+  if (kind.includes("copy")) return "Copying";
+  return "Working";
+}
+
+function jobStatusMeta(job) {
+  const state = String(job?.state || "");
+  if (state === "done") return { label: "Finished", variant: "success" };
+  if (state === "failed" || state === "error") return { label: "Stopped", variant: "error" };
+  if (state === "cancelled") return { label: "Cancelled", variant: "warning" };
+  if (jobBusy(job)) return { label: "In progress", variant: "info" };
+  return { label: "Waiting", variant: "info" };
+}
+
+function jobProgressPct(job) {
+  const total = Number(job?.total) || 0;
+  const progress = Number(job?.progress) || 0;
+  if (total <= 0) return null;
+  return Math.min(100, Math.round((100 * progress) / total));
+}
+
+function jobItemName(job) {
+  return pathBasename(job.from_path) || "Files";
+}
+
+function driveName(drives, id) {
+  if (!id) return "Drive";
+  return drives.find((d) => d.id === id)?.label || "Drive";
+}
+
+function jobLocationLine(drives, job) {
+  const fromDrive = driveName(drives, job.from_drive);
+  const toDrive = driveName(drives, job.to_drive);
+  const fromPath = job.from_path ? pathBasename(job.from_path) : "top of drive";
+  const toPath = job.to_path ? pathBasename(job.to_path) : "top of drive";
+  if (job.from_drive === job.to_drive) {
+    return `${fromDrive}: ${fromPath} → ${toPath}`;
+  }
+  return `${fromDrive} → ${toDrive}: ${toPath}`;
+}
+
+/**
+ * Recent copy/move jobs — layered like drive cards: eyebrow, mono name,
+ * path line, progress, status pill.
+ *
+ * @param {{
+ *   jobs: Array<Record<string, any>>,
+ *   drives: Array<{ id: string, label?: string }>,
+ * }} props
+ */
+function RecentJobsCard({ jobs, drives }) {
+  const activeCount = jobs.filter(jobBusy).length;
+
+  return (
+    <Card
+      icon={Activity}
+      title="Recent activity"
+      headerActions={
+        activeCount > 0 ? (
+          <Pill variant="info">
+            {activeCount} active
+          </Pill>
+        ) : null
+      }
+    >
+      <ul className="space-y-3">
+        {jobs.map((job) => {
+          const busy = jobBusy(job);
+          const status = jobStatusMeta(job);
+          const pct = jobProgressPct(job);
+          const name = jobItemName(job);
+          const destHref = job.to_drive
+            ? folderHref(job.to_drive, job.to_path || "")
+            : null;
+
+          return (
+            <li
+              key={job.id}
+              className="rounded-large-element bg-primary text-secondary p-4 space-y-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className="inline-block h-2 w-2 rounded-full bg-secondary shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="text-xs font-mono uppercase tracking-widest text-accent">
+                      {jobKindLabel(job)}
+                    </span>
+                    {busy ? (
+                      <Spinner size="sm" decorative className="text-secondary" />
+                    ) : null}
+                  </div>
+                  <div className="text-xl font-mono font-normal leading-tight text-secondary truncate">
+                    {name}
+                  </div>
+                  <p className="text-secondary text-sm mt-1 break-words">
+                    {jobLocationLine(drives, job)}
+                  </p>
+                </div>
+                <Pill variant={status.variant} className="shrink-0">
+                  {status.label}
+                </Pill>
+              </div>
+
+              {busy ? (
+                <div>
+                  <p className="text-secondary text-sm font-mono mb-2">
+                    {pct != null ? `${pct}% done` : "Starting…"}
+                  </p>
+                  <div
+                    className="h-2 rounded-pill bg-secondary overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={pct ?? 0}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={pct != null ? `${pct}% done` : "Starting"}
+                  >
+                    <div
+                      className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-500"
+                      style={{ width: `${pct != null ? pct : 8}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {job.error ? (
+                <p className="text-error text-sm" role="alert">
+                  {String(job.error)}
+                </p>
+              ) : null}
+
+              {destHref && (job.state === "done" || busy) ? (
+                <div>
+                  <Button size="sm" variant="outline" surface="primary" asChild>
+                    <Link to={destHref}>
+                      {job.state === "done" ? "Open destination" : "Open folder"}
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
 }
 
 export default function DashboardPage() {
@@ -391,6 +542,10 @@ export default function DashboardPage() {
   const jobs = useQuery({
     queryKey: ["jobs-recent"],
     queryFn: () => getJsonSkipForbidden("/api/v1/jobs?limit=5"),
+    refetchInterval: (q) => {
+      const list = Array.isArray(q.state.data) ? q.state.data : [];
+      return list.some(jobBusy) ? 2000 : false;
+    },
   });
   const access = useQuery({
     queryKey: ["my-access"],
@@ -472,22 +627,7 @@ export default function DashboardPage() {
             remoteDomain={remoteDomain}
           />
           {recentJobs.length > 0 && (
-            <Card title="Recent copies">
-              <ul className="space-y-3">
-                {recentJobs.map((job) => (
-                  <li key={job.id} className="flex items-center justify-between gap-3">
-                    <span className="text-primary text-sm">{jobLabel(job)}</span>
-                    <Pill variant={job.state === "failed" ? "error" : "info"}>
-                      {job.state === "done"
-                        ? "Finished"
-                        : job.state === "failed"
-                          ? "Stopped"
-                          : "In progress"}
-                    </Pill>
-                  </li>
-                ))}
-              </ul>
-            </Card>
+            <RecentJobsCard jobs={recentJobs} drives={adopted} />
           )}
         </div>
 

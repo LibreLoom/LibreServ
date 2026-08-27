@@ -29,3 +29,15 @@ export function fmtSize(bytes) {
 export function downloadHref(driveId, filePath) {
   return `/api/v1/drives/${driveId}/files/content?path=${encodeURIComponent(filePath)}&download=1`;
 }
+
+/** Inline content URL (images, video, plain text). Luna forces download for unsafe types. */
+export function contentHref(driveId, filePath) {
+  return `/api/v1/drives/${driveId}/files/content?path=${encodeURIComponent(filePath)}`;
+}
+
+/** Last segment of a relative path. */
+export function pathBasename(path) {
+  if (!path) return "";
+  const idx = path.lastIndexOf("/");
+  return idx < 0 ? path : path.slice(idx + 1);
+}

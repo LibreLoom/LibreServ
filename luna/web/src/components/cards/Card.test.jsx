@@ -16,6 +16,9 @@ describe("Card", () => {
     expect(clip.className).toMatch(/overflow-hidden/);
     expect(clip.className).toMatch(/rounded-large-element/);
     expect(clip.className).toMatch(/pop-in/);
+    // Surface paint stays on the clip so height resize never flashes square
+    // corners through a transparent wrapper.
+    expect(clip.className).toMatch(/bg-secondary/);
     expect(fill.className).not.toMatch(/rounded-large-element/);
     expect(fill.className).not.toMatch(/pop-in/);
     expect(fill.className).not.toMatch(/mt-10/);
