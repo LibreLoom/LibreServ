@@ -147,7 +147,12 @@ export default function DrivesPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  const drives = useQuery({
+    queryKey: ["drives"],
+    queryFn: getDrives,
+    // Keep pace with detected reconcile so Ejected sticks after umount/reconcile.
+    refetchInterval: 5000,
+  });
   const detected = useQuery({
     queryKey: ["drives-detected"],
     queryFn: () => getJson("/api/v1/drives/detected"),
