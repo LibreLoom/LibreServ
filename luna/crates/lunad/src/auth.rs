@@ -1149,15 +1149,6 @@ mod guard_tests {
         (session, csrf)
     }
 
-    fn session_cookie(res: &axum::response::Response) -> String {
-        let (session, _) = auth_cookies(res);
-        assert!(
-            session.starts_with("luna_session="),
-            "missing session cookie"
-        );
-        session
-    }
-
     fn cookie_header(session: &str, csrf: &str) -> String {
         if csrf.is_empty() {
             session.to_string()
@@ -1210,7 +1201,7 @@ mod guard_tests {
         )
         .await;
         assert_eq!(res.status(), 200, "login failed: {}", text(res).await);
-        let (session, csrf) = auth_cookies(&res);
+        let (session, _csrf) = auth_cookies(&res);
         assert!(
             session.starts_with("luna_session="),
             "login must set session cookie, got {:?}",
@@ -1220,7 +1211,6 @@ mod guard_tests {
                 .map(|v| v.to_str().unwrap_or(""))
                 .collect::<Vec<_>>()
         );
-        let cookie = cookie_header(&session, &csrf);
 
         // The session must be visible to /auth/me — this is what keeps the
         // web UI signed in after setup and across page reloads.
@@ -1403,15 +1393,19 @@ mod guard_tests {
         )
         .await;
         assert_eq!(res.status(), 200);
-        let cookie = session_cookie(&res);
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = cookie_header(&session, &csrf);
 
+        // The CSRF guard (added after this test was written) requires the
+        // double-submit token on cookie-authenticated mutations — pass it.
         let res = call(
             &app,
-            req(
+            req_with_csrf(
                 Method::POST,
                 "/api/v1/setup",
                 Some(r#"{"setup_completed":true}"#),
                 Some(&cookie),
+                Some(&csrf),
             ),
         )
         .await;

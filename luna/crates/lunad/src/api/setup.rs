@@ -176,8 +176,10 @@ mod tests {
 
     #[test]
     fn progress_round_trips() {
-        let mut state = SetupState::default();
-        state.current_step = "account".into();
+        let mut state = SetupState {
+            current_step: "account".into(),
+            ..Default::default()
+        };
         state
             .step_data
             .insert("network_connected".into(), json!(true));

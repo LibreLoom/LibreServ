@@ -345,7 +345,7 @@ pub fn run_console_loop(auth: Arc<AuthService>) {
         Err(_) => return,
     };
     let mut logged_in = false;
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
         match line.trim().to_lowercase().as_str() {
             "root" => {
                 logged_in = true;

@@ -1056,7 +1056,7 @@ pub fn rate_limit_allow(
             |row| {
                 count = row.get(0)?;
                 window_start = row.get(1)?;
-                Ok(row.get(2)?)
+                row.get(2)
             },
         )
         .unwrap_or(0);

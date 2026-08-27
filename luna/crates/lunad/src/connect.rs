@@ -492,12 +492,11 @@ impl ConnectService {
         let Some(bytes) = std::fs::read(&self.state_path).ok() else {
             return json!({ "base_url": self.base_url });
         };
-        if crate::at_rest::is_encrypted_blob(&bytes) {
-            if let Ok(text) = std::str::from_utf8(&bytes) {
-                if let Ok(value) = crate::at_rest::decrypt_json(&self.device_key, text) {
-                    return value;
-                }
-            }
+        if crate::at_rest::is_encrypted_blob(&bytes)
+            && let Ok(text) = std::str::from_utf8(&bytes)
+            && let Ok(value) = crate::at_rest::decrypt_json(&self.device_key, text)
+        {
+            return value;
         }
         serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({ "base_url": self.base_url }))
     }

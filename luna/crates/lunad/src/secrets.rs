@@ -47,7 +47,7 @@ fn random_bytes(n: usize) -> Vec<u8> {
 pub fn ensure_jwt_secret(data_dir: &Path, conn: &Connection) -> anyhow::Result<Vec<u8>> {
     let path = data_dir.join(JWT_FILE);
     if path.exists() {
-        return Ok(read_secret_file(&path)?);
+        return read_secret_file(&path);
     }
     if let Some(existing) = db::get_meta(conn, "jwt_secret")?
         && !existing.is_empty()
