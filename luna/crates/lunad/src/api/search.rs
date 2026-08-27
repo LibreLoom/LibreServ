@@ -221,13 +221,12 @@ async fn factory_reset(
         )
     })?;
     drop(conn);
-    let new_secret =
-        crate::secrets::rotate_jwt_secret(&state.data_dir).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't finish the reset. Try again.",
-            )
-        })?;
+    let new_secret = crate::secrets::rotate_jwt_secret(&state.data_dir).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish the reset. Try again.",
+        )
+    })?;
     state.auth.reload_secret(new_secret);
     Ok(Json(
         json!({ "ok": true, "message": "Luna has been reset. Set it up again from the start." }),
@@ -265,7 +264,13 @@ mod tests {
             .with_state(state)
     }
 
-    fn req(method: Method, uri: &str, body: &str, cookie: Option<&str>, csrf: Option<&str>) -> HttpReq<Body> {
+    fn req(
+        method: Method,
+        uri: &str,
+        body: &str,
+        cookie: Option<&str>,
+        csrf: Option<&str>,
+    ) -> HttpReq<Body> {
         let mut builder = HttpReq::builder()
             .method(method)
             .uri(uri)

@@ -169,12 +169,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(
-        &conn,
-        "device_tokens",
-        "expires_at",
-        "INTEGER",
-    )?;
+    ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
     Ok(conn)
 }
 
@@ -1141,7 +1136,10 @@ pub fn share_auth_failure(conn: &Connection, key: &str, max_failures: u32) -> an
 }
 
 pub fn share_auth_clear(conn: &Connection, key: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM rate_limit_buckets WHERE key = ?1", params![key])?;
+    conn.execute(
+        "DELETE FROM rate_limit_buckets WHERE key = ?1",
+        params![key],
+    )?;
     Ok(())
 }
 

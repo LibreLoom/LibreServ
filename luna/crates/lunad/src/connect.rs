@@ -499,8 +499,7 @@ impl ConnectService {
                 }
             }
         }
-        serde_json::from_slice(&bytes)
-            .unwrap_or_else(|_| json!({ "base_url": self.base_url }))
+        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({ "base_url": self.base_url }))
     }
 
     pub(crate) fn save(&self, state: &Value) -> Result<(), ConnectError> {
