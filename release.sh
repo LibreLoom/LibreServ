@@ -690,6 +690,15 @@ EOF
 ## Upgrade Notes
 
 TEMPLATE
+    if [ "$LUNA_RELEASE" = true ]; then
+        cat >> "$TMP_NOTES" << 'LUNA_HINT'
+
+<!-- Luna upgrade notes: see docs/RELEASE.md. Rapidinstall does NOT use "install luna".
+     In-app: Settings → Software updates → Install update.
+     Factory USB: write ISO to stick, boot (Secure Boot off), countdown auto-installs
+     to smallest built-in disk (press a key during countdown to pick another disk). -->
+LUNA_HINT
+    fi
     
     echo "" >> "$TMP_NOTES"
     echo "## Commits Since Last Release" >> "$TMP_NOTES"
