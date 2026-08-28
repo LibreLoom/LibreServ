@@ -21,9 +21,9 @@ SERVICE_NAME="libreserv"
 NO_SYSTEMD=false
 RESTIC_VERSION="0.19.1"
 
-# Baked-in minisign public key (keys/releases.minisign.pub). Do not fetch this from Forgejo.
-RELEASE_MINISIGN_PUB='untrusted comment: minisign public key 7AA9417DBF891F5E
-RWReH4m/fUGpes/VUuaGXFDFDjWMUTSJAELn6FI7hTkBBEyWyxFqfpnm'
+# Baked-in LibreServ minisign public key (keys/libreserv.minisign.pub). Do not fetch this from Forgejo.
+RELEASE_MINISIGN_PUB='untrusted comment: minisign public key 48EB64CB69EA36CD
+RWTNNuppy2TrSN0svaVDgtJ4spfWLS9ZMvu6r103YVewyX4HAKfq3Rkt'
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

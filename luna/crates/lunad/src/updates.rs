@@ -31,8 +31,9 @@ const OS_HASH_FILE: &str = "os-image.sha256";
 /// 1280 MiB A/B slot plus a little headroom.
 const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
-/// Committed minisign public key (`keys/releases.minisign.pub`).
-const PINNED_PUB: &str = include_str!("../../../../keys/releases.minisign.pub");
+/// Committed Luna minisign public key (`keys/lsluna.minisign.pub`).
+/// This is Luna’s production trust root (separate from LibreServ).
+const PINNED_PUB: &str = include_str!("../../../../keys/lsluna.minisign.pub");
 
 /// Meta-table key for the persisted update-source settings.
 const SETTINGS_META_KEY: &str = "updates_config";
@@ -1125,7 +1126,7 @@ mod tests {
     fn pinned_pub_parses() {
         assert!(
             !parse_minisign_pub(PINNED_PUB).is_empty(),
-            "keys/releases.minisign.pub must contain an RW public key line"
+			"keys/lsluna.minisign.pub must contain an RW public key line"
         );
     }
 

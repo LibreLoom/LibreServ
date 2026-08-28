@@ -42,7 +42,7 @@ export default function UpdatesCategory() {
     <>
       <SettingsCard
         icon={Download}
-        title="Software updates"
+        title="Updates"
         headerActions={
           info.update_available ? <Pill variant="warning">New</Pill> : <Pill variant="success">Current</Pill>
         }
@@ -226,7 +226,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
       {({ close }) => (
       <div className="space-y-4">
         <p className="text-primary text-sm">
-          Where Luna gets its own updates from — the Luna software on this box,
+          Where Luna gets its own updates from — the software running on this Luna,
           not your files or backups.
         </p>
 

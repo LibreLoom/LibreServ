@@ -8,7 +8,7 @@ import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
 import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
-import { TermHint } from "../ui/Tooltip";
+import { TermHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 
 const PERMISSION_OPTIONS = [
@@ -45,15 +45,17 @@ function grantCovers(grant, driveId, path) {
 
 export function AccessButton({ label, onClick, surface = "secondary" }) {
   return (
-    <Button
-      variant="ghost"
-      surface={surface}
-      size="iconSm"
-      aria-label={`Sharing for ${label}`}
-      onClick={onClick}
-    >
-      <Users size={14} />
-    </Button>
+    <Tooltip content="Share">
+      <Button
+        variant="ghost"
+        surface={surface}
+        size="iconSm"
+        aria-label={`Sharing for ${label}`}
+        onClick={onClick}
+      >
+        <Users size={14} />
+      </Button>
+    </Tooltip>
   );
 }
 

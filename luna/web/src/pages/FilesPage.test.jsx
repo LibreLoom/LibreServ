@@ -193,7 +193,7 @@ describe("FilesPage", () => {
     expect(await screen.findByRole("heading", { name: "Move Vase (XS).gcode" })).toBeInTheDocument();
     expect(screen.getByText(/Choose a folder, or use the one you are in now/i)).toBeInTheDocument();
     expect(screen.queryByText(/copy it first/i)).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/Leave blank for the top of the drive/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Leave blank for the (top|root) of the drive/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe2, Smartphone } from "lucide-react";
 import Button from "../../ui/Button";
@@ -7,11 +8,82 @@ import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
 import PageNotice from "../../common/PageNotice";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 
 function formatWhen(unix) {
   if (!unix) return "Never";
   return new Date(unix * 1000).toLocaleString();
 }
+
+/**
+ * Token row with measured-height animation so Usage log expand/collapse
+ * resizes smoothly (CSS cannot transition height: auto).
+ */
+function AccessTokenItem({ token, usageFor, usageRows, revokePending, onToggleUsage, onRevoke }) {
+  const { outerRef, innerRef } = useAnimatedHeight();
+  const expanded = usageFor === token.id;
+
+  return (
+    <li
+      ref={outerRef}
+      className="overflow-hidden rounded-large-element bg-primary text-secondary transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+    >
+      <div ref={innerRef} className="p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-mono truncate">{token.name}</span>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              surface="primary"
+              onClick={onToggleUsage}
+            >
+              {expanded ? "Hide log" : "Usage log"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              surface="primary"
+              loading={revokePending}
+              onClick={onRevoke}
+            >
+              Revoke token
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs">
+          Last used: {formatWhen(token.last_used_at)}
+          {token.expires_at ? ` · Expires ${formatWhen(token.expires_at)}` : ""}
+        </p>
+        {expanded && (
+          <ul className="text-xs space-y-1 border-t border-secondary/30 pt-2">
+            {usageRows.length === 0 && <li>No recent activity yet.</li>}
+            {usageRows.map((row, i) => (
+              <li key={`${row.used_at}-${i}`}>
+                {row.action}{row.detail ? ` — ${row.detail}` : ""} · {formatWhen(row.used_at)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
+  );
+}
+
+AccessTokenItem.propTypes = {
+  token: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    name: PropTypes.string,
+    last_used_at: PropTypes.number,
+    expires_at: PropTypes.number,
+  }).isRequired,
+  usageFor: PropTypes.string,
+  usageRows: PropTypes.arrayOf(PropTypes.object).isRequired,
+  revokePending: PropTypes.bool,
+  onToggleUsage: PropTypes.func.isRequired,
+  onRevoke: PropTypes.func.isRequired,
+};
 
 export default function AccessCategory() {
   const queryClient = useQueryClient();
@@ -154,44 +226,15 @@ export default function AccessCategory() {
           ) : (
             <ul className="space-y-2">
               {tokenList.map((t) => (
-                <li key={t.id} className="rounded-large-element bg-primary text-secondary p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-mono truncate">{t.name}</span>
-                    <div className="flex gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        surface="primary"
-                        onClick={() => setUsageFor(usageFor === t.id ? null : t.id)}
-                      >
-                        {usageFor === t.id ? "Hide log" : "Usage log"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        surface="primary"
-                        loading={revokeOne.isPending}
-                        onClick={() => revokeOne.mutate(t.id)}
-                      >
-                        Revoke token
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="text-xs">
-                    Last used: {formatWhen(t.last_used_at)}
-                    {t.expires_at ? ` · Expires ${formatWhen(t.expires_at)}` : ""}
-                  </p>
-                  {usageFor === t.id && (
-                    <ul className="text-xs space-y-1 border-t border-secondary/30 pt-2">
-                      {(usage.data || []).length === 0 && <li>No recent activity yet.</li>}
-                      {(usage.data || []).map((row, i) => (
-                        <li key={`${row.used_at}-${i}`}>
-                          {row.action}{row.detail ? ` — ${row.detail}` : ""} · {formatWhen(row.used_at)}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
+                <AccessTokenItem
+                  key={t.id}
+                  token={t}
+                  usageFor={usageFor}
+                  usageRows={usageFor === t.id ? (usage.data || []) : []}
+                  revokePending={revokeOne.isPending}
+                  onToggleUsage={() => setUsageFor(usageFor === t.id ? null : t.id)}
+                  onRevoke={() => revokeOne.mutate(t.id)}
+                />
               ))}
             </ul>
           )}

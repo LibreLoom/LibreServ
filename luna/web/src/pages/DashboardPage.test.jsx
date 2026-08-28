@@ -126,7 +126,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/On this network/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Remote access on/i })).toHaveAttribute(
       "href",
-      "/settings#remote",
+      "/settings#external_services",
     );
     expect(screen.getByText("luna.example")).toBeInTheDocument();
     expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
@@ -166,17 +166,19 @@ describe("DashboardPage", () => {
     renderPage();
     expect(await screen.findByRole("link", { name: /Remote access off/i })).toHaveAttribute(
       "href",
-      "/settings#remote",
+      "/settings#external_services",
     );
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
   });
 
-  it("shows storage, top-level counts, and folder shortcuts on drive cards", async () => {
+  it("shows storage, root-level counts, and folder shortcuts on drive cards", async () => {
     stubFetch();
     renderPage();
     expect(await screen.findByText(/12 GB free/i)).toBeInTheDocument();
     expect(screen.getByText(/52 GB used/i)).toBeInTheDocument();
-    expect(screen.getByText(/3 folders · 12 files at the top/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 folders · 12 files at the/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^root$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/at the top/i)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
       "/drives/d1?path=Photos",

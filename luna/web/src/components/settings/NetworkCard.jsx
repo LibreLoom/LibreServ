@@ -23,7 +23,7 @@ export default function NetworkCard() {
     ethernet && (netStatus.data?.has_default_route || ipv4.length > 0);
 
   return (
-    <Card icon={Cable} title="Home network">
+    <Card icon={Cable} title="Local Network">
       <p className="text-primary text-sm">
         Plug Luna into your{" "}
         <TermHint content="The box that brings internet into the house. Often labeled WAN, Internet, or LAN on the back.">
@@ -34,13 +34,13 @@ export default function NetworkCard() {
           RJ45
         </TermHint>
         {" "}(ethernet) cable. Phones and computers reach Luna on this network
-        while they stay on home Wi-Fi.
+        while they stay on home internet.
       </p>
       <ul className="mt-4 space-y-2 text-sm text-primary">
         <li className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-2">
             <Cable size={16} aria-hidden="true" />
-            Cable
+            Ethernet
           </span>
           <Pill variant={ethernet ? "success" : "muted"}>
             {ethernet

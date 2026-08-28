@@ -1,7 +1,7 @@
 # Luna hardware qualification — Ethernet (BOM lock)
 
 Batch 1 ships with a patch cable. There is no USB Wi-Fi dongle.
-The phone stays on home Wi-Fi.
+The phone stays on home internet.
 
 ## Requirements
 - Wired Ethernet to a LAN port on the home router or modem.

@@ -57,7 +57,7 @@ rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
 support, then flashes the Alpine OS slots above.
 
 Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem. Phone stays
-on home Wi-Fi. Open the address shown on Luna's screen, or try `luna.local`.
+on home internet. Open the address shown on Luna's screen, or try `luna.local`.
 
 ## Photo previews (HEIC)
 
@@ -81,12 +81,12 @@ and are ignored by the Luna updater. Release assets:
 - `luna-os-x86_64.img` — OS cuts only (raw A/B slot image; no Luna state)
 - `luna-rapidinstall-x86_64.iso` — OS cuts only (factory / recovery USB)
 - `SHA256SUMS.txt` (required)
-- `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/releases.minisign.pub`)
+- `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/lsluna.minisign.pub`)
 
 Before you `dd` an ISO, verify the checksums file:
 
 ```sh
-minisign -Vm SHA256SUMS.txt -p keys/releases.minisign.pub
+minisign -Vm SHA256SUMS.txt -p keys/lsluna.minisign.pub
 sha256sum -c SHA256SUMS.txt
 ```
 
@@ -101,7 +101,7 @@ signature installs nothing.
 
 Env overrides: `LUNA_UPDATES_API`, `LUNA_UPDATES_OWNER`, `LUNA_UPDATES_REPO`
 seed the defaults. An admin can instead point Luna at a different Forgejo
-instance/repo from Settings → Software updates → Advanced, and that choice is
+instance/repo from Settings → About → Advanced, and that choice is
 stored in Luna's database, survives reboots, and wins over the env vars. The
 same panel swaps the minisign public keys the updater trusts. Changing those
 keys without a matching signer breaks updates — the updater refuses a release

@@ -1,8 +1,10 @@
 /**
  * Turn SMART-ish API fields into plain drive-health copy.
  * Never expose smartctl jargon.
+ * Returns null when the drive has no health report — callers should omit the pill.
  *
  * @param {null | { available?: boolean, overall?: string, temperature_c?: number | null, reallocated_sectors?: number | null }} health
+ * @returns {null | { pill: string, title: string, detail: string }}
  */
 export function describeDriveHealth(health) {
   if (!health) {
@@ -13,11 +15,7 @@ export function describeDriveHealth(health) {
     };
   }
   if (!health.available) {
-    return {
-      pill: "muted",
-      title: "No health report",
-      detail: "",
-    };
+    return null;
   }
 
   const temp =

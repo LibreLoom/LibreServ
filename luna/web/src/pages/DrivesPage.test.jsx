@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -52,6 +52,18 @@ function stubDrivesApi(extra = {}) {
     }
     if (u.endsWith("/drives/detected")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/summary")) {
+      return new Response(JSON.stringify({
+        id: "d1",
+        mounted: true,
+        total_bytes: 64_000_000_000,
+        free_bytes: 50_000_000_000,
+        used_bytes: 14_000_000_000,
+        folders: 2,
+        files: 10,
+        shortcuts: [],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response("{}", { status: 500 });
   }));
@@ -108,6 +120,87 @@ describe("DrivesPage", () => {
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Add this drive/i })).toBeInTheDocument();
+  });
+
+  it("keeps Look-inside loading copy short while inspect is pending", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    let finishInspect;
+    const inspectGate = new Promise((resolve) => {
+      finishInspect = resolve;
+    });
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "64GB PSSD", size_bytes: 64000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "exfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdb/inspect")) {
+          return inspectGate.then(() => new Response(JSON.stringify({
+            device: "sdb", model: "64GB PSSD", fs_type: "exfat",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
+            folders: 1, files: 1, unreadable: 0, needs_erase: false,
+            readable: true, writable: true,
+            entries: [{ name: "Photos", kind: "folder" }, { name: "notes.txt", kind: "file" }],
+          }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Looking…$/);
+    expect(screen.queryByText(/read-only mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/changes nothing until you add it/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /What looking inside does/i })).toBeInTheDocument();
+    finishInspect();
+    expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
+  });
+
+  it("uses an info icon for the .luna marker note and softens the name-field focus ring", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi();
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    const note = await screen.findByText(/marker file/i);
+    const row = note.closest("div");
+    expect(row?.querySelector(".text-accent")).toBeTruthy();
+    expect(row?.querySelector(".text-warning")).toBeNull();
+    const input = screen.getByDisplayValue("64GB PSSD");
+    expect(input.className).toMatch(/no-focus-outline/);
+    expect(input.className).not.toMatch(/focus:ring/);
+  });
+
+  it("animates Look-inside out when Add this drive succeeds", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const { waitFor } = await import("@testing-library/react");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.includes("/adopt")) {
+          return new Response(JSON.stringify({ id: "d-new", label: "64GB PSSD" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /Add this drive/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+        .toHaveClass("animate-out");
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 
   it("uses a page heading for unknown drives, not a stacked title card", async () => {
@@ -180,6 +273,62 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/^Healthy$/i)).toBeInTheDocument();
     expect(screen.getByText(/31°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
+    // Device connection lives inside collapsed Drive details, not as a status line.
+    expect(screen.getByRole("button", { name: /Drive details/i })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("hides Connected as behind collapsible Drive details", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "64GB PSSD!", state: "as_is", fs_type: "exfat", device: "sdmock",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/summary")) {
+          return new Response(JSON.stringify({
+            id: "d1",
+            mounted: true,
+            total_bytes: 64_000_000_000,
+            free_bytes: 50_000_000_000,
+            used_bytes: 14_000_000_000,
+            folders: 1,
+            files: 2,
+            shortcuts: [],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    // Storage bar is always visible (dashboard-style), outside Drive details.
+    expect(await screen.findByText(/50 GB free/i)).toBeInTheDocument();
+    expect(screen.getByText(/14 GB used · 64 GB total/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /22% used/i })).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=drive-storage-bar]")).toBeTruthy();
+
+    const toggle = await screen.findByRole("button", { name: /Drive details/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const panel = document.getElementById(toggle.getAttribute("aria-controls"));
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(panel).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connected as sdmock/i)).toBeInTheDocument();
+    expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
+    // Card-style collapsible + ValueDisplay rows (storage is outside)
+    expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
+    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {
@@ -295,7 +444,8 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("button", { name: /Browse files/i })).toBeInTheDocument();
+    const browse = await screen.findByRole("link", { name: /Browse files/i });
+    expect(browse).toHaveAttribute("href", "/drives/d1");
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
   });
 
@@ -317,17 +467,17 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByText(/No health report/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't mean anything is wrong/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't tell Luna its temperature/i)).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
   });
 
-  it("offers Browse files and opens the shared file browser", async () => {
-    const { default: userEvent } = await import("@testing-library/user-event");
+  it("offers Browse files linking to the full files page", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives")) {
@@ -340,22 +490,12 @@ describe("DrivesPage", () => {
             available: false, overall: "unknown",
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (u.includes("/files?")) {
-          return new Response(JSON.stringify([
-            { name: "Vacation", kind: "dir", size: 0, hidden: false },
-            { name: "notes.txt", kind: "file", size: 12, hidden: false },
-          ]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
         return null;
       },
     });
     renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Browse files/i }));
-    expect(await screen.findByRole("heading", { name: /Browse Photos Drive/i })).toBeInTheDocument();
-    expect(await screen.findByText("Vacation")).toBeInTheDocument();
-    expect(screen.getByText("notes.txt")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open full files page/i })).toHaveAttribute("href", "/drives/d1");
+    expect(await screen.findByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.queryByRole("heading", { name: /Browse Photos Drive/i })).not.toBeInTheDocument();
   });
 
   it("shows singular grammar and named entries when looking inside", async () => {
@@ -420,8 +560,13 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
-    const hint = await screen.findByText(/Showing names at the top of the drive/i);
+    const hint = await screen.findByText((_content, el) =>
+      el?.tagName === "P" &&
+      /Showing names at the root of the drive/i.test(el.textContent || ""),
+    );
     expect(hint).toHaveClass("text-secondary");
     expect(hint).not.toHaveClass("text-primary");
+    expect(within(hint).getByRole("button", { name: /^root$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/at the top of the drive/i)).not.toBeInTheDocument();
   });
 });
