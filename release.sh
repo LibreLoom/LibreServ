@@ -659,7 +659,9 @@ None.
 
 ## Upgrade Notes
 
-Flash \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the mini PC with Secure Boot off, and type \`install luna\` when the installer names the built-in disk.
+**Already running Luna:** Settings → Software updates → Install update. Luna applies the new \`lunad\` binary and, when this release includes a newer OS slot image, writes it to the inactive slot and reboots.
+
+**Factory install or recovery USB:** Write \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
 
 ## Commits Since Last Release
 
@@ -688,6 +690,15 @@ EOF
 ## Upgrade Notes
 
 TEMPLATE
+    if [ "$LUNA_RELEASE" = true ]; then
+        cat >> "$TMP_NOTES" << 'LUNA_HINT'
+
+<!-- Luna upgrade notes: see docs/RELEASE.md. Rapidinstall does NOT use "install luna".
+     In-app: Settings → Software updates → Install update.
+     Factory USB: write ISO to stick, boot (Secure Boot off), countdown auto-installs
+     to smallest built-in disk (press a key during countdown to pick another disk). -->
+LUNA_HINT
+    fi
     
     echo "" >> "$TMP_NOTES"
     echo "## Commits Since Last Release" >> "$TMP_NOTES"

@@ -152,6 +152,31 @@ The script provides a template with these sections:
 - Thank contributors by name
 - Keep it user-focused (what changed for them, not technical details)
 
+### Luna upgrade notes (keep in sync with `luna/os/README.md`)
+
+The rapidinstall installer **does not** ask you to type `install luna`. It auto-picks
+the smallest built-in (non-USB) disk and starts after a short countdown; press any
+key during the countdown to choose a different disk from a numbered list.
+
+Use this wording in Luna release **Upgrade Notes**:
+
+```markdown
+## Upgrade Notes
+
+**Already running Luna:** Settings → Software updates → Install update. Luna applies
+the new `lunad` binary and, when this release includes a newer OS slot image, writes
+it to the inactive slot and reboots.
+
+**Factory install or recovery USB:** Write `luna-rapidinstall-x86_64.iso` to a USB
+stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the
+smallest built-in disk and starts installing after a short countdown — press any key
+during the countdown to choose a different disk.
+```
+
+`./release.sh --yes --luna` embeds the same text in its auto-generated notes. If the
+installer flow changes, update **both** `luna/os/README.md` and the `Upgrade Notes`
+block in `release.sh` — stale template text is how bad upgrade notes reach Forgejo.
+
 ## Draft vs Published
 
 Releases are created as **drafts** first. This allows you to:
