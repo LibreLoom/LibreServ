@@ -64,10 +64,11 @@ fn gps_from_exif(exif: &exif::Exif) -> (Option<f64>, Option<f64>) {
 }
 
 fn gps_coord(exif: &exif::Exif, coord: Tag, reference: Tag) -> Option<f64> {
-    let field = exif.get_field(coord, In::PRIMARY)?;
+    let field = exif.fields().find(|f| f.tag == coord)?;
     let deg = dms_to_decimal(&field.value)?;
     let refer = exif
-        .get_field(reference, In::PRIMARY)
+        .fields()
+        .find(|f| f.tag == reference)
         .map(|f| value_as_ascii(&f.value))
         .unwrap_or_default();
     let refer = refer.trim().chars().next().unwrap_or('N');
@@ -208,6 +209,19 @@ mod tests {
         );
         assert_eq!(parse_exif_datetime("not a date"), None);
         assert_eq!(parse_exif_datetime(""), None);
+    }
+
+    #[test]
+    fn fixture_jpeg_gps_from_mock_pssd() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mock-pssd");
+        let sample = root.join("Photos/Vacation - Yosemite/2022-yosemite-01.jpg");
+        if !sample.is_file() {
+            eprintln!("mock PSSD fixtures missing — run: make mock-pssd-photos");
+            return;
+        }
+        let meta = capture_meta(&sample).expect("read fixture exif");
+        assert!(meta.0.is_some(), "DateTimeOriginal missing");
+        assert!(meta.1.is_some() && meta.2.is_some(), "GPS missing: {meta:?}");
     }
 
     #[test]
