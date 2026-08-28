@@ -5,7 +5,7 @@ import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
-import { InfoHint } from "../ui/Tooltip";
+import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 function pathKey(value) {
@@ -14,15 +14,17 @@ function pathKey(value) {
 
 export function ProtectButton({ label, onClick }) {
   return (
-    <Button
-      variant="ghost"
-      surface="secondary"
-      size="iconSm"
-      aria-label={`Protect ${label}`}
-      onClick={onClick}
-    >
-      <Shield size={14} />
-    </Button>
+    <Tooltip content="Protect">
+      <Button
+        variant="ghost"
+        surface="secondary"
+        size="iconSm"
+        aria-label={`Protect ${label}`}
+        onClick={onClick}
+      >
+        <Shield size={14} />
+      </Button>
+    </Tooltip>
   );
 }
 
