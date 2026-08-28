@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::db::{self, JobRow};
 use crate::files::{self, FilesError};
+use crate::gallery_indexer::GalleryIndexer;
 
 const COPY_BUF: usize = 1024 * 1024;
 
@@ -52,6 +53,7 @@ impl From<FilesError> for JobError {
 pub struct JobManager {
     db: Arc<Mutex<Connection>>,
     cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    gallery: Arc<GalleryIndexer>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,10 +65,11 @@ struct PreparedJob {
 }
 
 impl JobManager {
-    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
+    pub fn new(db: Arc<Mutex<Connection>>, gallery: Arc<GalleryIndexer>) -> Self {
         Self {
             db,
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            gallery,
         }
     }
 
@@ -114,13 +117,12 @@ impl JobManager {
             .insert(prepared.row.id.clone(), cancel.clone());
 
         let db = self.db.clone();
+        let gallery = self.gallery.clone();
         let job = prepared.clone();
         let job_id = prepared.row.id.clone();
         let cancels = self.cancels.clone();
         tokio::task::spawn_blocking(move || {
-            run_job(db, job, cancel);
-            // Drop the flag once the job reached a terminal state so the map
-            // cannot grow without bound over the daemon's lifetime.
+            run_job(db, gallery, job, cancel);
             cancels.lock().unwrap().remove(&job_id);
         });
 
@@ -247,7 +249,12 @@ struct CopyState {
     owned_dest: bool,
 }
 
-fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<AtomicBool>) {
+fn run_job(
+    db: Arc<Mutex<Connection>>,
+    gallery: Arc<GalleryIndexer>,
+    prepared: PreparedJob,
+    cancel: Arc<AtomicBool>,
+) {
     // Same-filesystem moves: rename in place. Never invent a destination we
     // would later roll back — rename either lands the whole tree or fails.
     if prepared.row.kind == "move" {
@@ -262,6 +269,7 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
                     );
                     let _ = db::set_job_state(&conn, &prepared.row.id, "done", "");
                 }
+                notify_job_gallery(&gallery, &prepared, true);
                 return;
             }
             Ok(false) => {
@@ -324,7 +332,6 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
     let (state, error) = match result {
         Ok(()) => ("done".to_string(), String::new()),
         Err(JobError::Io(e)) if e.kind() == std::io::ErrorKind::Interrupted => {
-            // Cancellation is reported separately below.
             ("cancelled".to_string(), String::new())
         }
         Err(e) => ("error".to_string(), plain_job_error(&e)),
@@ -333,12 +340,19 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
         let _ = db::set_job_state(&conn, &prepared.row.id, &state, &error);
         let _ = db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
     }
-    // A cancelled or failed job may have a partial destination; remove it so a
-    // retry isn't blocked by a torn tree (for a cross-device move, the source is
-    // only trashed after a full copy, so nothing is lost by cleaning up).
     if (state == "cancelled" || state == "error") && st.owned_dest {
         let _ = std::fs::remove_file(&prepared.dest);
         let _ = std::fs::remove_dir_all(&prepared.dest);
+    }
+    if state == "done" {
+        notify_job_gallery(&gallery, &prepared, prepared.row.kind == "move");
+    }
+}
+
+fn notify_job_gallery(gallery: &GalleryIndexer, prepared: &PreparedJob, moved: bool) {
+    gallery.rescan(&prepared.row.to_drive);
+    if moved {
+        gallery.rescan(&prepared.row.from_drive);
     }
 }
 
@@ -519,7 +533,7 @@ mod tests {
             std::fs::create_dir_all(format!("{root}/inbox")).unwrap();
             std::fs::write(format!("{root}/note.txt"), b"stay put once").unwrap();
         }
-        let manager = JobManager::new(db.clone());
+        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("move", "a", "note.txt", "a", "inbox", "user-1")
             .await
@@ -552,7 +566,7 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/ship.txt"), b"cross device").unwrap();
         }
-        let manager = JobManager::new(db.clone());
+        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("move", "a", "ship.txt", "b", "", "user-1")
             .await
@@ -584,7 +598,7 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/samefs.txt"), b"rename across drives").unwrap();
         }
-        let manager = JobManager::new(db.clone());
+        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("move", "a", "samefs.txt", "b", "", "user-1")
             .await
@@ -614,7 +628,7 @@ mod tests {
             std::fs::write(format!("{root}/album/day/pic.jpg"), b"jpeg").unwrap();
             std::fs::create_dir_all(format!("{root}/archive")).unwrap();
         }
-        let manager = JobManager::new(db.clone());
+        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("move", "a", "album", "a", "archive", "user-1")
             .await
@@ -647,7 +661,7 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/note.txt"), b"hello cross-drive").unwrap();
         }
-        let manager = JobManager::new(db.clone());
+        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("copy", "a", "note.txt", "b", "", "user-1")
             .await
@@ -680,7 +694,7 @@ mod tests {
             let root2 = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root2}/x.txt"), b"x").unwrap();
         }
-        let manager = JobManager::new(db);
+        let manager = JobManager::new(db, crate::gallery_indexer::GalleryIndexer::start());
         assert!(matches!(
             manager
                 .enqueue("copy", "a", "x.txt", "b", "", "user-1")
@@ -697,7 +711,7 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/note.txt"), b"hello").unwrap();
         }
-        let manager = JobManager::new(db);
+        let manager = JobManager::new(db, crate::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("copy", "a", "note.txt", "b", "", "sam")
             .await

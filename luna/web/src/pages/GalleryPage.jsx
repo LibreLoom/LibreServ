@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
@@ -72,7 +72,6 @@ export default function GalleryPage() {
   const [albumPick, setAlbumPick] = useState(null);
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
-  const autoScanStarted = useRef(false);
 
   // Settings writes the active category with replaceState so a missing or
   // invalid hash becomes e.g. #library / #appearance. Skip when already
@@ -109,6 +108,11 @@ export default function GalleryPage() {
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  const galleryStatus = useQuery({
+    queryKey: ["gallery-status"],
+    queryFn: () => getJson("/api/v1/gallery/status"),
+    refetchInterval: (query) => (query.state.data?.busy ? 1500 : 8000),
+  });
   const albums = useQuery({
     queryKey: ["gallery-albums"],
     queryFn: () => getJson("/api/v1/gallery/albums"),
@@ -156,30 +160,20 @@ export default function GalleryPage() {
     [gallery.data],
   );
 
-  const scan = useMutation({
-    mutationFn: () => postJson("/api/v1/gallery/scan", {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
-    },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
+  const indexing = !!galleryStatus.data?.busy;
 
   useEffect(() => {
-    if (!scan.isPending && !scan.isSuccess) return undefined;
+    if (!indexing) return undefined;
     const id = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     }, 2000);
-    const stop = setTimeout(() => clearInterval(id), 20_000);
-    return () => {
-      clearInterval(id);
-      clearTimeout(stop);
-    };
-  }, [scan.isPending, scan.isSuccess, queryClient]);
+    return () => clearInterval(id);
+  }, [indexing, queryClient]);
 
   const driveList = drives.data || [];
-  const looking = gallery.isLoading || scan.isPending;
+  const looking = gallery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
   const galleryLoadError =
     gallery.isError && !looking
@@ -202,16 +196,6 @@ export default function GalleryPage() {
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "favorites";
-
-  useEffect(() => {
-    if (autoScanStarted.current) return;
-    if (gallery.isLoading || drives.isLoading) return;
-    if (photos.length > 0) return;
-    if (driveList.length === 0) return;
-    autoScanStarted.current = true;
-    scan.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gallery.isLoading, drives.isLoading, photos.length, driveList.length]);
 
   const favorite = useMutation({
     /** @param {{ drive_id: string, path: string, favorited?: boolean }} photo */
@@ -339,7 +323,7 @@ export default function GalleryPage() {
         <div className="rounded-large-element bg-secondary text-primary p-6 mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">
-            Luna builds the gallery in the background. Previews stay on your drive
+            Luna is finding photos in the background. Previews stay on your drive
             — not on Luna&apos;s internal storage. Originals stay exactly where they are.
           </p>
         </div>
@@ -349,12 +333,7 @@ export default function GalleryPage() {
         <EmptyState
           icon={ImageIcon}
           title="No photos yet"
-          description="Luna looked through your drives and did not find pictures. If you just added photos, look again."
-          action={
-            <Button variant="primary" loading={scan.isPending} onClick={() => scan.mutate()}>
-              Look again
-            </Button>
-          }
+          description="Luna looks through your drives automatically. Add pictures to a drive and they will show up here."
         />
       )}
 

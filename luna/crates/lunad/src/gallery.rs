@@ -456,12 +456,9 @@ fn photo_cache_row(conn: &Connection, rel: &str) -> anyhow::Result<Option<(i64, 
     }
 }
 
-/// Index a single media file after upload (shared album contrib path).
-pub fn index_one(
-    drive_id: &str,
-    root: &Path,
-    rel: &str,
-) -> anyhow::Result<Option<Photo>> {
+/// Fast path: EXIF + DB row so the photo shows in the timeline immediately.
+/// Thumbnails are filled in by [`finish_thumb`].
+pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Option<()>> {
     let path_buf = root.join(rel);
     if !path_buf.is_file() || !is_media(&path_buf) {
         return Ok(None);
@@ -484,49 +481,107 @@ pub fn index_one(
     } else {
         "image"
     };
+    let mut conn = open_drive_db(root)?;
+    if let Ok(Some((old_size, old_mtime, old_has_thumb))) = photo_cache_row(&conn, rel) {
+        let dest = thumb_path(root, drive_id, rel);
+        if old_size == size && old_mtime == mtime && old_has_thumb && dest.exists() {
+            return Ok(Some(()));
+        }
+    }
     let (taken_at, lat, lon) = crate::exif::capture_meta(&path_buf)
         .map(|(ts, lat, lon)| (ts.unwrap_or(mtime), lat, lon))
         .unwrap_or((mtime, None, None));
+    let mut pending = vec![PendingUpsert {
+        path: rel.to_string(),
+        name,
+        size,
+        mtime,
+        taken_at,
+        kind: kind.to_string(),
+        width: 0,
+        height: 0,
+        lat,
+        lon,
+        has_thumb: false,
+    }];
+    flush_batch(&mut conn, &mut pending)?;
+    Ok(Some(()))
+}
+
+/// Build (or refresh) the thumbnail for an already-indexed photo.
+pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()> {
+    let path_buf = root.join(rel);
+    if !path_buf.is_file() || !is_media(&path_buf) {
+        return Ok(());
+    }
+    let kind = if is_video(&path_buf) {
+        "video"
+    } else {
+        "image"
+    };
     let dest = thumb_path(root, drive_id, rel);
     let _ = std::fs::create_dir_all(thumbs_dir(root));
     let (width, height, has_thumb) = match ensure_thumb(&path_buf, &dest, kind) {
         Ok((w, h, _)) => (w, h, dest.exists()),
         Err(_) => (0, 0, false),
     };
-    let mut conn = open_drive_db(root)?;
-    let mut pending = vec![PendingUpsert {
-        path: rel.to_string(),
-        name: name.clone(),
-        size,
-        mtime,
-        taken_at,
-        kind: kind.to_string(),
-        width,
-        height,
-        lat,
-        lon,
-        has_thumb,
-    }];
-    flush_batch(&mut conn, &mut pending)?;
-    Ok(Some(Photo {
-        drive_id: drive_id.to_string(),
-        path: rel.to_string(),
-        name,
-        size: size as u64,
-        taken_at,
-        width,
-        height,
-        thumb: if has_thumb {
-            thumb_url(drive_id, rel)
-        } else {
-            String::new()
-        },
-        kind: kind.to_string(),
-        lat,
-        lon,
-        place_label: None,
-        favorited: false,
-    }))
+    let conn = open_drive_db(root)?;
+    conn.execute(
+        "UPDATE photos SET width = ?1, height = ?2, has_thumb = ?3 WHERE path = ?4",
+        params![width as i64, height as i64, if has_thumb { 1 } else { 0 }, rel],
+    )?;
+    Ok(())
+}
+
+/// Index a single media file (meta + thumb). Used by shared-album uploads and tests.
+pub fn index_one(
+    drive_id: &str,
+    root: &Path,
+    rel: &str,
+) -> anyhow::Result<Option<Photo>> {
+    if index_one_meta(drive_id, root, rel)?.is_none() {
+        return Ok(None);
+    }
+    let _ = finish_thumb(drive_id, root, rel);
+    let conn = open_drive_db(root)?;
+    let mut stmt = conn.prepare(
+        "SELECT path, name, size, taken_at, kind, width, height, lat, lon, has_thumb
+         FROM photos WHERE path = ?1",
+    )?;
+    let photo = stmt
+        .query_row(params![rel], |row| {
+            let path: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let size: i64 = row.get(2)?;
+            let taken_at: i64 = row.get(3)?;
+            let kind: String = row.get(4)?;
+            let width: i64 = row.get(5)?;
+            let height: i64 = row.get(6)?;
+            let lat: Option<f64> = row.get(7)?;
+            let lon: Option<f64> = row.get(8)?;
+            let has_thumb: i64 = row.get(9)?;
+            Ok(Photo {
+                drive_id: drive_id.to_string(),
+                path: path.clone(),
+                name,
+                size: size as u64,
+                taken_at,
+                width: width as u32,
+                height: height as u32,
+                thumb: if has_thumb != 0 {
+                    thumb_url(drive_id, &path)
+                } else {
+                    String::new()
+                },
+                kind,
+                lat,
+                lon,
+                place_label: None,
+                favorited: false,
+            })
+        })
+        .optional()?;
+    Ok(photo)
 }
 
 pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Result<()> {
@@ -544,6 +599,52 @@ pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Re
     let thumb = thumb_path(root, drive_id, rel);
     let _ = std::fs::remove_file(thumb);
     Ok(())
+}
+
+/// Move an indexed path (same drive). Falls back to remove+reindex if the
+/// destination is media that still needs a fresh EXIF pass.
+pub fn rename_indexed_path(
+    root: &Path,
+    drive_id: &str,
+    from: &str,
+    to: &str,
+) -> anyhow::Result<()> {
+    let path = gallery_db_path(root);
+    if !path.exists() {
+        return Ok(());
+    }
+    let conn = open_drive_db(root)?;
+    let name = Path::new(to)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(to);
+    let updated = conn.execute(
+        "UPDATE photos SET path = ?1, name = ?2 WHERE path = ?3",
+        params![to, name, from],
+    )?;
+    conn.execute(
+        "UPDATE favorites SET path = ?1 WHERE path = ?2",
+        params![to, from],
+    )?;
+    conn.execute(
+        "UPDATE album_items SET path = ?1 WHERE drive_id = ?2 AND path = ?3",
+        params![to, drive_id, from],
+    )?;
+    let old_thumb = thumb_path(root, drive_id, from);
+    let new_thumb = thumb_path(root, drive_id, to);
+    if old_thumb.exists() {
+        let _ = std::fs::create_dir_all(thumbs_dir(root));
+        let _ = std::fs::rename(&old_thumb, &new_thumb);
+    }
+    if updated == 0 && should_reindex_after_rename(to) {
+        drop(conn);
+        let _ = index_one_meta(drive_id, root, to);
+    }
+    Ok(())
+}
+
+fn should_reindex_after_rename(rel: &str) -> bool {
+    is_media(Path::new(rel))
 }
 
 /// Generate a 400px JPEG thumbnail. Returns (width, height, was_created).

@@ -40,6 +40,22 @@ async fn main() -> anyhow::Result<()> {
     ));
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
+    // Catch-up gallery index for every adopted mount already on disk.
+    {
+        let mounts = {
+            let db = state.db.lock().expect("db");
+            lunad::db::list_drives(&db)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|d| d.state == "as_is" && !d.mount_point.is_empty())
+                .map(|d| (d.id, std::path::PathBuf::from(d.mount_point)))
+                .collect::<Vec<_>>()
+        };
+        for (id, mount) in mounts {
+            state.gallery.watch_mount(&id, mount);
+        }
+    }
+
     {
         let auth = state.auth.clone();
         std::thread::Builder::new()

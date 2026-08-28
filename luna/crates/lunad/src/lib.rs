@@ -19,6 +19,7 @@ pub mod files;
 pub mod fsprobe;
 pub mod fstrim;
 pub mod gallery;
+pub mod gallery_indexer;
 pub mod heif;
 pub mod hotspot;
 pub mod index;
@@ -54,6 +55,7 @@ pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
+    pub gallery: Arc<crate::gallery_indexer::GalleryIndexer>,
     pub dav_handlers: Arc<Mutex<HashMap<String, DavHandler>>>,
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::connect::ConnectService>,
@@ -81,7 +83,8 @@ impl AppState {
             secret,
             data_dir.to_path_buf(),
         ));
-        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone()));
+        let gallery = crate::gallery_indexer::GalleryIndexer::start();
+        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone(), gallery.clone()));
         let updates = Arc::new(crate::updates::UpdateService::from_db(
             &db.lock().unwrap(),
             data_dir,
@@ -90,6 +93,7 @@ impl AppState {
             db: db.clone(),
             drive_manager,
             job_manager,
+            gallery,
             dav_handlers: Arc::new(Mutex::new(HashMap::new())),
             auth,
             connect: Arc::new(crate::connect::ConnectService::new(

@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import GalleryPage, { galleryUrl } from "./GalleryPage";
 
+const STATUS_OK = { scanning: false, pending: 0, busy: false };
+
 function stubGalleryFetch({ places = [] } = {}) {
   vi.stubGlobal(
     "fetch",
@@ -19,8 +21,8 @@ function stubGalleryFetch({ places = [] } = {}) {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (u.includes("/gallery/scan")) {
-        return new Response(JSON.stringify({ started: true }), {
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -111,8 +113,8 @@ describe("GalleryPage", () => {
       "fetch",
       vi.fn(async (url) => {
         const u = String(url);
-        if (u.includes("/gallery/scan")) {
-          return new Response(JSON.stringify({ started: true }), {
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify(STATUS_OK), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
@@ -207,8 +209,8 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/scan")) {
-        return new Response(JSON.stringify({ started: true }), {
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -274,6 +276,12 @@ describe("GalleryPage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify(STATUS_OK), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         if (u.includes("/gallery?")) {
           return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
             status: 200,
@@ -287,5 +295,36 @@ describe("GalleryPage", () => {
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
     expect(screen.getByText(/tap the heart/i)).toBeInTheDocument();
+  });
+
+  it("does not offer a manual Look again control", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify(STATUS_OK), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery?")) {
+          return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    renderGallery();
+    expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Look again/i })).not.toBeInTheDocument();
   });
 });

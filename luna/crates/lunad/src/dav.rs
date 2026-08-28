@@ -160,7 +160,11 @@ fn dav_handler_for(
     }
 
     let handler = crate::DavHandler::builder()
-        .filesystem(Box::new(JailedFs::new(&drive.mount_point)))
+        .filesystem(Box::new(JailedFs::with_gallery(
+            &drive.mount_point,
+            drive.id.clone(),
+            state.gallery.clone(),
+        )))
         .locksystem(FakeLs::new())
         .strip_prefix(format!("/dav/{}", drive.id))
         .build_handler();
