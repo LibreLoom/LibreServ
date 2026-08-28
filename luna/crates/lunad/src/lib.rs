@@ -41,7 +41,6 @@ pub mod uploads;
 #[cfg(test)]
 mod runtime_perf;
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -56,7 +55,6 @@ pub struct AppState {
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
     pub gallery: Arc<crate::gallery_indexer::GalleryIndexer>,
-    pub dav_handlers: Arc<Mutex<HashMap<String, DavHandler>>>,
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
@@ -94,7 +92,6 @@ impl AppState {
             drive_manager,
             job_manager,
             gallery,
-            dav_handlers: Arc::new(Mutex::new(HashMap::new())),
             auth,
             connect: Arc::new(crate::connect::ConnectService::new(
                 data_dir,

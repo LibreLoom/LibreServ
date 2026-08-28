@@ -86,7 +86,7 @@ pub fn list_drives(base_url: &str, token: &str) -> anyhow::Result<Vec<Drive>> {
 /// first; on Windows/macOS it returns the native command for the user.
 ///
 /// Finder/Explorer must use the access token as the password — never the
-/// household password. Only an admin can mount a drive as a folder.
+/// household password. The mount shows folders that user can already open.
 fn dav_mount_url(base_url: &str, drive_id: &str) -> Result<String, String> {
     if drive_id.is_empty()
         || !drive_id

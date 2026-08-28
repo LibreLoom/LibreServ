@@ -224,7 +224,7 @@ export default function FilesPage() {
         />
       )}
 
-      {!inTrash && user?.role === "admin" && drive && (
+      {!inTrash && drive && (
         <div className="mt-6">
           <ComputerMountHelp driveId={id} driveLabel={drive.label} />
         </div>

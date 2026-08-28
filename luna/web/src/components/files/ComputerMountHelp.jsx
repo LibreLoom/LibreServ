@@ -16,8 +16,9 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
     <Card icon={FolderOpen} title="Open as a folder on a computer">
       <p className="text-primary text-sm">
         This puts {label} next to the other folders on a Mac, Windows PC, or Linux
-        computer. Sign in with your Luna username. For the password, use an access
-        token from Settings — never your Luna password.
+        computer. You will see the folders you can access. Sign in with your Luna
+        username. For the password, use an access token from Settings — never your
+        Luna password.
       </p>
       <ol className="mt-4 space-y-2 text-sm text-primary list-decimal list-inside">
         <li>
@@ -36,9 +37,9 @@ export default function ComputerMountHelp({ driveId, driveLabel }) {
         ariaLabel="Folder address for this drive"
       />
       <p className="mt-3 text-sm text-primary">
-        Only an admin can open a whole drive as a folder.
-        {" "}
         <TextLink surface="secondary" to="/settings#security">Open Settings</TextLink>
+        {" "}
+        to create or copy an access token.
       </p>
     </Card>
   );
