@@ -155,3 +155,61 @@ func TestCORSTrustedHostOverridesRequestHost(t *testing.T) {
 		t.Fatalf("expected 200 with trusted host, got %d", rr.Code)
 	}
 }
+
+
+func TestCORSWildcardRejectsSuffixSpoof(t *testing.T) {
+	mw := CORS([]string{"*.example.com"}, false)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	// Host ends with example.com but is not a subdomain of it.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://notexample.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for suffix spoof host, got %d", rr.Code)
+	}
+}
+
+func TestCORSWildcardRejectsNestedAttackerDomain(t *testing.T) {
+	mw := CORS([]string{"*.example.com"}, false)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://api.example.com.evil.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for nested attacker domain, got %d", rr.Code)
+	}
+}
+
+func TestCORSWildcardRejectsApex(t *testing.T) {
+	mw := CORS([]string{"*.example.com"}, false)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://example.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for apex on wildcard rule, got %d", rr.Code)
+	}
+}
+
+func TestCORSWildcardAllowsNestedSubdomain(t *testing.T) {
+	mw := CORS([]string{"*.example.com"}, false)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://a.b.example.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for nested subdomain, got %d", rr.Code)
+	}
+}
