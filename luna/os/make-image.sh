@@ -26,7 +26,7 @@ mkdir -p "$ROOTFS/var/lib/luna/chrony"
 
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" sh -euc "apk add --no-cache e2fsprogs >/dev/null &&
     truncate -s ${SIZE_MB}M /out/luna-os-x86_64.img
-    mkfs.ext4 -F -L LUNA_A -E hash_seed=42 -d /rootfs /out/luna-os-x86_64.img
+    mkfs.ext4 -F -L LUNA_A -E hash_seed=00000000-0000-0000-0042-000000000042 -d /rootfs /out/luna-os-x86_64.img
 "
 e2fsck -fy "$IMAGE" >/dev/null
 SHA="$(sha256sum "$IMAGE" | awk '{print $1}')"
