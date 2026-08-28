@@ -11,6 +11,7 @@ import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
 import CollapsibleSection from "../components/common/CollapsibleSection";
+import ValueDisplay from "../components/common/ValueDisplay";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
@@ -112,20 +113,10 @@ function prettyFsType(fs) {
   return names[key] || fs;
 }
 
-function DetailRow({ label, hint, children }) {
-  return (
-    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
-      <dt className="text-xs font-mono uppercase tracking-widest text-accent shrink-0 sm:w-40">
-        {hint ? <TermHint content={hint}>{label}</TermHint> : label}
-      </dt>
-      <dd className="text-primary text-sm min-w-0">{children}</dd>
-    </div>
-  );
-}
-
 /**
  * Collapsible tech details for a ready/read-only adopted drive.
- * Replaces the always-visible "Connected as … · fs" line.
+ * Card-style CollapsibleSection (pill) + ValueDisplay rows — same pattern as
+ * LibreServ settings disclosures / UserDetailPage profile table.
  */
 function AdoptedDriveDetails({ drive }) {
   const summary = useQuery({
@@ -155,47 +146,47 @@ function AdoptedDriveDetails({ drive }) {
     storageValue = `${freeLabel} free of ${totalLabel}`;
   }
 
+  const partitionsValue = device
+    ? (drive.fs_type ? `${device} · ${fsLabel}` : device)
+    : (drive.fs_type ? `One volume · ${fsLabel}` : "One volume");
+  const connectionValue = device ? `Connected as ${device}` : "Plugged in";
+
   return (
-    <CollapsibleSection title="Drive details" size="sm" className="text-primary">
-      <dl className="space-y-2.5">
-        <DetailRow
-          label="Available storage"
-          hint="How much room is left for new files on this drive."
-        >
-          {storageValue}
-        </DetailRow>
-        <DetailRow
-          label="File system"
-          hint="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them."
-        >
-          {fsLabel}
-        </DetailRow>
-        <DetailRow
-          label="Partitions"
-          hint="Sections of the drive that hold files. Many USB sticks have just one."
-        >
-          {device
-            ? (
-              <>
-                <span className="font-mono">{device}</span>
-                {drive.fs_type ? ` · ${fsLabel}` : ""}
-              </>
-              )
-            : (drive.fs_type ? `One volume · ${fsLabel}` : "One volume")}
-        </DetailRow>
-        <DetailRow
-          label="Device connection"
-          hint="Luna's short name for this plug. Useful if you need help from support."
-        >
-          {device
-            ? (
-              <>
-                Connected as <span className="font-mono">{device}</span>
-              </>
-              )
-            : "Plugged in"}
-        </DetailRow>
-      </dl>
+    <CollapsibleSection title="Drive details" size="sm" mono pill>
+      <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
+        <ValueDisplay
+          label={(
+            <TermHint content="How much room is left for new files on this drive.">
+              Available storage
+            </TermHint>
+          )}
+          value={storageValue}
+        />
+        <ValueDisplay
+          label={(
+            <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+              File system
+            </TermHint>
+          )}
+          value={fsLabel}
+        />
+        <ValueDisplay
+          label={(
+            <TermHint content="Sections of the drive that hold files. Many USB sticks have just one.">
+              Partitions
+            </TermHint>
+          )}
+          value={partitionsValue}
+        />
+        <ValueDisplay
+          label={(
+            <TermHint content="Luna's short name for this plug. Useful if you need help from support.">
+              Device connection
+            </TermHint>
+          )}
+          value={connectionValue}
+        />
+      </div>
     </CollapsibleSection>
   );
 }

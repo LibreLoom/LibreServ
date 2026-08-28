@@ -237,8 +237,11 @@ describe("DrivesPage", () => {
     expect(panel).toHaveAttribute("aria-hidden", "false");
     expect(await screen.findByText(/50 GB free of 64 GB/i)).toBeInTheDocument();
     expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
-    expect(screen.getByText(/Connected as/i)).toBeInTheDocument();
-    expect(screen.getAllByText("sdmock").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Connected as sdmock/i)).toBeInTheDocument();
+    expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
+    // Card-style collapsible + ValueDisplay table rows
+    expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
+    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(4);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {
