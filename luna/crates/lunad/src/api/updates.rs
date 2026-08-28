@@ -93,18 +93,25 @@ async fn apply(
 /// The update source in effect, for the admin settings screen. Public keys
 /// are never secret material, but the endpoint stays admin-gated like the
 /// rest of the update surface.
+///
+/// `keys` is what is stored in the DB (empty means “use the built-in release
+/// key”). `effective_keys` is what the updater trusts right now — always
+/// populated so the UI can show the shipped key without asking anyone to
+/// paste it.
 async fn get_source(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
     let svc = state.updates.clone();
-    let settings = svc.settings();
+    let effective = svc.settings();
+    let stored = crate::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
     Ok(Json(json!({
-        "api_base": settings.api_base,
-        "owner": settings.owner,
-        "repo": settings.repo,
-        "keys": settings.keys,
+        "api_base": effective.api_base,
+        "owner": effective.owner,
+        "repo": effective.repo,
+        "keys": stored.keys,
+        "effective_keys": effective.keys,
         "default_keys": svc.using_default_keys(),
         "defaults": crate::updates::default_settings(),
     })))
@@ -186,12 +193,16 @@ async fn save_source(
         effective.keys,
     );
     let back = state.updates.settings();
+    let stored = crate::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
     Ok(Json(json!({
         "ok": true,
         "api_base": back.api_base,
         "owner": back.owner,
         "repo": back.repo,
-        "keys": back.keys,
+        "keys": stored.keys,
+        "effective_keys": back.keys,
+        "default_keys": state.updates.using_default_keys(),
+        "defaults": crate::updates::default_settings(),
     })))
 }
 
@@ -324,6 +335,9 @@ mod tests {
         assert_eq!(v["owner"], "LibreLoom");
         assert_eq!(v["repo"], "LibreServ");
         assert_eq!(v["default_keys"], true);
+        assert_eq!(v["keys"], json!([]));
+        assert!(!v["effective_keys"].as_array().unwrap().is_empty());
+        assert_eq!(v["effective_keys"], v["defaults"]["keys"]);
         assert!(v["defaults"]["api_base"].is_string());
     }
 
