@@ -213,11 +213,22 @@ function ClusterMarkers({ markers, onSelect }) {
         const place = clusterToPlace(cluster, index);
         const markerKey = isCluster ? `cluster-${cluster.id}` : cluster.properties.id;
 
+        const expandZoom = isCluster
+          ? Math.min(index.getClusterExpansionZoom(cluster.id), 18)
+          : null;
+
         return (
           <CircleMarker
             key={markerKey}
             center={[lat, lon]}
             radius={radius}
+            eventHandlers={{
+              dblclick: (e) => {
+                if (!isCluster || expandZoom == null) return;
+                e.originalEvent?.preventDefault?.();
+                map.setView([lat, lon], expandZoom, { animate: true });
+              },
+            }}
             pathOptions={{
               color: "var(--secondary)",
               fillColor: isCluster ? "var(--accent)" : "var(--secondary)",
