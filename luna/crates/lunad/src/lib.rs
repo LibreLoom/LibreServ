@@ -81,6 +81,10 @@ impl AppState {
             data_dir.to_path_buf(),
         ));
         let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone()));
+        let updates = Arc::new(crate::updates::UpdateService::from_db(
+            &db.lock().unwrap(),
+            data_dir,
+        ));
         Self {
             db: db.clone(),
             drive_manager,
@@ -108,7 +112,7 @@ impl AppState {
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
-            updates: Arc::new(crate::updates::UpdateService::from_env(data_dir)),
+            updates,
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
