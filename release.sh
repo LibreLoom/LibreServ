@@ -18,8 +18,10 @@ SKIP_CI=false
 WITH_ISO=false
 PUBLISH=false
 LUNA_RELEASE=false
+SIGN_ONLY=false
 VERSION_TAG=""
 NOTES_FILE=""
+MINISIGN_KEY_TEMP=""
 
 # Parse arguments
 while [ $# -gt 0 ]; do
@@ -62,6 +64,10 @@ while [ $# -gt 0 ]; do
             PUBLISH=true
             shift
             ;;
+        --sign-only)
+            SIGN_ONLY=true
+            shift
+            ;;
         --version)
             VERSION_TAG="$2"
             shift 2
@@ -84,6 +90,7 @@ while [ $# -gt 0 ]; do
             echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO"
             echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
+            echo "  --sign-only    Sign SHA256SUMS.txt on an existing release and upload .minisig"
             echo "  --skip-ci      Do not run ./ci (still allowed for pre-releases)"
             echo "  --help, -h     Show this help message"
             exit 0
@@ -107,9 +114,36 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
+cleanup_minisign_key() {
+    if [ -n "$MINISIGN_KEY_TEMP" ] && [ -f "$MINISIGN_KEY_TEMP" ]; then
+        rm -f "$MINISIGN_KEY_TEMP"
+        MINISIGN_KEY_TEMP=""
+    fi
+}
+
+write_minisign_secret_file() {
+    local content="$1"
+    MINISIGN_KEY_TEMP="$(mktemp)"
+    if [[ "$content" == untrusted* ]]; then
+        printf '%s\n' "$content" > "$MINISIGN_KEY_TEMP"
+    else
+        printf 'untrusted comment: minisign secret key\n%s\n' "$content" > "$MINISIGN_KEY_TEMP"
+    fi
+    chmod 600 "$MINISIGN_KEY_TEMP"
+    printf '%s\n' "$MINISIGN_KEY_TEMP"
+}
+
 minisign_secret_key() {
     if [ -n "${MINISIGN_SECRET_KEY:-}" ]; then
-        printf '%s\n' "$MINISIGN_SECRET_KEY"
+        if [ -f "$MINISIGN_SECRET_KEY" ]; then
+            printf '%s\n' "$MINISIGN_SECRET_KEY"
+            return 0
+        fi
+        write_minisign_secret_file "$MINISIGN_SECRET_KEY"
+        return 0
+    fi
+    if [ -n "${LSLUNA_RELEASE_MINISIG_PK:-}" ]; then
+        write_minisign_secret_file "$LSLUNA_RELEASE_MINISIG_PK"
         return 0
     fi
     if [ -f "$HOME/.minisign/libreserv.key" ]; then
@@ -119,10 +153,23 @@ minisign_secret_key() {
     return 1
 }
 
+minisign_passphrase() {
+    if [ -n "${LSLUNA_RELEASE_MINISIG_PW:-}" ]; then
+        printf '%s\n' "$LSLUNA_RELEASE_MINISIG_PW"
+        return 0
+    fi
+    if [ -n "${MINISIGN_PASSPHRASE:-}" ]; then
+        printf '%s\n' "$MINISIGN_PASSPHRASE"
+        return 0
+    fi
+    return 1
+}
+
 # Sign SHA256SUMS.txt in $1. Fail closed — never publish unsigned checksums.
 sign_checksums() {
     local dir="$1"
     local pub="$ROOT_DIR/keys/releases.minisign.pub"
+    local key pass
     if ! command -v minisign >/dev/null 2>&1; then
         log_error "minisign is required to sign SHA256SUMS.txt."
         log_error "Install it (Arch: pacman -S minisign) and try again. Unsigned releases are not allowed."
@@ -132,17 +179,22 @@ sign_checksums() {
         log_error "Missing $pub"
         exit 1
     fi
-    local key
     if ! key="$(minisign_secret_key)"; then
-        log_error "No minisign secret key. Set MINISIGN_SECRET_KEY or put the key at ~/.minisign/libreserv.key"
+        log_error "No minisign secret key."
+        log_error "Set MINISIGN_SECRET_KEY, LSLUNA_RELEASE_MINISIG_PK (+ LSLUNA_RELEASE_MINISIG_PW), or put the key at ~/.minisign/libreserv.key"
         exit 1
     fi
     if [ ! -f "$dir/SHA256SUMS.txt" ]; then
         log_error "SHA256SUMS.txt missing in $dir"
         exit 1
     fi
-    log_info "Signing SHA256SUMS.txt ($key)..."
-    if ! (cd "$dir" && minisign -S -s "$key" -m SHA256SUMS.txt); then
+    log_info "Signing SHA256SUMS.txt..."
+    if pass="$(minisign_passphrase)"; then
+        if ! (cd "$dir" && printf '%s\n' "$pass" | minisign -S -s "$key" -m SHA256SUMS.txt); then
+            log_error "minisign failed. Nothing will be published unsigned."
+            exit 1
+        fi
+    elif ! (cd "$dir" && minisign -S -s "$key" -m SHA256SUMS.txt); then
         log_error "minisign failed. Nothing will be published unsigned."
         exit 1
     fi
@@ -152,10 +204,63 @@ sign_checksums() {
     fi
     if ! minisign -V -q -p "$pub" -m "$dir/SHA256SUMS.txt"; then
         log_error "Signature does not match keys/releases.minisign.pub."
-        log_error "Use the secret that matches the committed public key (MINISIGN_SECRET_KEY)."
+        log_error "Use the secret that matches the committed public key."
         exit 1
     fi
     log_info "Checksums signed and verified against the committed public key"
+}
+
+# Download SHA256SUMS.txt from an existing release, sign it, upload .minisig.
+sign_existing_release() {
+    local workdir sign_dir release_id asset_id http_code
+    if [ -z "$VERSION_TAG" ]; then
+        log_error "--version is required with --sign-only"
+        exit 1
+    fi
+    prompt_token
+    log_step "Signing existing release $VERSION_TAG"
+    workdir="$(mktemp -d)"
+    sign_dir="$workdir/sign"
+    mkdir -p "$sign_dir"
+    log_info "Fetching release metadata..."
+    release_id="$(curl -fsS \
+        -H "Authorization: token $FORGEJO_TOKEN" \
+        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+    log_info "Downloading SHA256SUMS.txt..."
+    curl -fsS \
+        -H "Authorization: token $FORGEJO_TOKEN" \
+        "$FORGEJO_INSTANCE/$REPO_OWNER/$REPO_NAME/releases/download/$VERSION_TAG/SHA256SUMS.txt" \
+        -o "$sign_dir/SHA256SUMS.txt"
+    sign_checksums "$sign_dir"
+    asset_id="$(curl -fsS \
+        -H "Authorization: token $FORGEJO_TOKEN" \
+        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG" \
+        | python3 -c 'import json,sys; assets=json.load(sys.stdin).get("assets",[]); print(next((a["id"] for a in assets if a["name"]=="SHA256SUMS.txt.minisig"), ""))')"
+    if [ -n "$asset_id" ]; then
+        log_info "Replacing existing SHA256SUMS.txt.minisig..."
+        http_code="$(curl -s -o /dev/null -w '%{http_code}' \
+            -X DELETE \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$release_id/assets/$asset_id")"
+        if [ "$http_code" != "204" ] && [ "$http_code" != "404" ]; then
+            log_error "Failed to delete old signature asset (HTTP $http_code)"
+            exit 1
+        fi
+    fi
+    log_info "Uploading SHA256SUMS.txt.minisig..."
+    http_code="$(curl -s -o /dev/null -w '%{http_code}' \
+        -X POST \
+        -H "Authorization: token $FORGEJO_TOKEN" \
+        -H "Content-Type: application/octet-stream" \
+        --data-binary @"$sign_dir/SHA256SUMS.txt.minisig" \
+        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$release_id/assets?name=SHA256SUMS.txt.minisig")"
+    rm -rf "$workdir"
+    if [ "$http_code" != "201" ] && [ "$http_code" != "200" ]; then
+        log_error "Failed to upload SHA256SUMS.txt.minisig (HTTP $http_code)"
+        exit 1
+    fi
+    log_info "Release signed: ${FORGEJO_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
 }
 
 print_banner() {
@@ -850,6 +955,7 @@ publish_release() {
 cleanup() {
     EXIT_CODE=$?
     BUILD_DIR=$(pwd)/release-build
+    cleanup_minisign_key
     
     # Always clean on error
     if [ $EXIT_CODE -ne 0 ]; then
@@ -903,6 +1009,11 @@ main() {
     if [ ! -f "./ci" ] || [ ! -d "./server/backend" ]; then
         log_error "Must run from LibreServ root directory"
         exit 1
+    fi
+
+    if [ "$SIGN_ONLY" = true ]; then
+        sign_existing_release
+        exit 0
     fi
     
     # Clean up any stale build artifacts from previous runs

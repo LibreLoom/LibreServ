@@ -16,7 +16,16 @@ The Forgejo **tag** and **release title** are the same string. Never prefix titl
 
 `SHA256SUMS.txt` uses GNU `sha256sum` lines: `<hash><two spaces><filename>`. `release.sh` signs that file with minisign (`SHA256SUMS.txt.minisig`). The public key is [`keys/releases.minisign.pub`](../keys/releases.minisign.pub), baked into lunad, LibreServ, and `install.sh`.
 
-The secret key stays off-repo. `release.sh` uses `MINISIGN_SECRET_KEY` if set, otherwise `~/.minisign/libreserv.key`. After signing it verifies against the committed public key and **refuses to publish unsigned checksums**.
+The secret key stays off-repo. `release.sh` uses `MINISIGN_SECRET_KEY` if set,
+otherwise `LSLUNA_RELEASE_MINISIG_PK` + `LSLUNA_RELEASE_MINISIG_PW` (Cloud Agent
+secrets), otherwise `~/.minisign/libreserv.key`. After signing it verifies against
+the committed public key and **refuses to publish unsigned checksums**.
+
+To sign an existing release that is missing `SHA256SUMS.txt.minisig`:
+
+```bash
+./release.sh --yes --sign-only --version luna-v0.0.19
+```
 
 See [`keys/README.md`](../keys/README.md) for key locations and how to recreate the public file from a password-protected secret.
 
@@ -50,7 +59,7 @@ Use `./release.sh`. Do not attach Luna files to a `v*` release or LibreServ bina
 - Go 1.26+ installed locally
 - Node.js 20+ installed locally (for frontend build)
 - Podman installed (for CI tests)
-- `minisign` in PATH, and the secret key that matches [`keys/releases.minisign.pub`](../keys/releases.minisign.pub) (see [`keys/README.md`](../keys/README.md))
+- `minisign` in PATH, and the secret key that matches [`keys/releases.minisign.pub`](../keys/releases.minisign.pub) (see [`keys/README.md`](../keys/README.md)). Cloud Agents can set `LSLUNA_RELEASE_MINISIG_PK` and `LSLUNA_RELEASE_MINISIG_PW` as runtime secrets.
 
 ## Release script details
 
