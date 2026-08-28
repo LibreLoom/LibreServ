@@ -7,9 +7,6 @@ import { AuthProvider } from "../../context/AuthContext";
 import AccessSheet from "./AccessSheet";
 
 /**
- * @param {{ role?: string, users?: any[], grants?: any[], shares?: any[], onPatch?: any }} [opts]
- */
-/**
  * @param {{
  *   role?: string,
  *   users?: any[],

@@ -293,7 +293,6 @@ export default function PlacesMap({ places, onSelect }) {
   }
 
   /** @type {[number, number]} */
-  /** @type {[number, number]} */
   const center = [markers[0].lat, markers[0].lon];
 
   return (
