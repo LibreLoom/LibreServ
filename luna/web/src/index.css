@@ -1009,3 +1009,23 @@ body {
 .places-map .leaflet-popup-close-button:focus-visible {
   color: var(--color-accent);
 }
+
+/* Cluster count label centered on blob */
+.places-map .places-map-cluster-count.leaflet-tooltip {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-primary);
+  pointer-events: none;
+}
+
+.places-map .places-map-cluster-count.leaflet-tooltip::before {
+  display: none;
+}
+

@@ -24,6 +24,7 @@
     "react-dom": "^19.2.0",
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.10.1",
+    "supercluster": "^9.0.0",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
