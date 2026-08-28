@@ -51,6 +51,18 @@ start_podman() {
 }
 start_podman
 
+# Luna Photos (Places map) added react-leaflet after some env snapshots were built;
+# sync web deps when the lockfile is newer than node_modules.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LUNA_WEB="${REPO_ROOT}/luna/web"
+if [ -f "${LUNA_WEB}/package-lock.json" ]; then
+  if [ ! -d "${LUNA_WEB}/node_modules/react-leaflet" ] \
+    || [ "${LUNA_WEB}/package-lock.json" -nt "${LUNA_WEB}/node_modules/.package-lock.json" ]; then
+    echo ">> Syncing luna/web npm dependencies"
+    (cd "${LUNA_WEB}" && npm ci --prefer-offline --no-audit --no-fund)
+  fi
+fi
+
 FORGE_HOST="gt.plainskill.net"
 
 install_fj_wrapper() {
