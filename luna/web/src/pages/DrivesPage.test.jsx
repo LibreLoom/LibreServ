@@ -317,12 +317,11 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
-    expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/No health report/i)).toBeInTheDocument();
     expect(screen.queryByText(/doesn't mean anything is wrong/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't tell Luna its temperature/i)).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^Remove$/i }));
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
   });
