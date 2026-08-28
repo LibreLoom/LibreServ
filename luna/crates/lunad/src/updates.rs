@@ -17,6 +17,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use minisign_verify::{PublicKey, Signature};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -32,6 +33,13 @@ const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
 /// Committed minisign public key (`keys/releases.minisign.pub`).
 const PINNED_PUB: &str = include_str!("../../../../keys/releases.minisign.pub");
+
+/// Meta-table key for the persisted update-source settings.
+const SETTINGS_META_KEY: &str = "updates_config";
+/// A public key is one short base64 line; a config blob is bounded so a bad
+/// save can never bloat the DB.
+const MAX_PUB_TEXT_BYTES: usize = 16 * 1024;
+const MAX_KEYS: usize = 8;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum UpdateError {
@@ -507,28 +515,194 @@ fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
     })
 }
 
-pub struct UpdateService {
-    http: Box<dyn HttpGet>,
-    installer: Box<dyn Installer>,
+/// Admin-visible update source: where Luna downloads releases from and which
+/// minisign public keys it trusts. Empty fields mean "use the built-in
+/// default" (env var if set, else the compiled-in value).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct UpdateSettings {
+    #[serde(default)]
+    pub api_base: String,
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub repo: String,
+    /// Minisign public keys (base64 `RW…` lines). Empty means the compiled-in
+    /// release key.
+    #[serde(default)]
+    pub keys: Vec<String>,
+}
+
+impl UpdateSettings {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.api_base.is_empty()
+            && self.owner.is_empty()
+            && self.repo.is_empty()
+            && self.keys.is_empty()
+    }
+}
+
+/// Resolved source the updater actually uses (no empty fields left).
+#[derive(Debug, Clone)]
+struct ActiveSource {
     api_base: String,
     download_base: String,
     owner: String,
     repo: String,
-    pinned_keys: Vec<String>,
+    keys: Vec<String>,
+}
+
+fn active_from(api_base: String, owner: String, repo: String, keys: Vec<String>) -> ActiveSource {
+    let api_base = api_base.trim().trim_end_matches('/').to_string();
+    let host = api_base
+        .trim_end_matches("/api/v1")
+        .trim_end_matches("/api")
+        .to_string();
+    let download_base = format!("{host}/{owner}/{repo}/releases");
+    ActiveSource {
+        api_base,
+        download_base,
+        owner,
+        repo,
+        keys,
+    }
+}
+
+fn first_nonempty(a: &str, b: &str) -> String {
+    if a.trim().is_empty() {
+        b.to_string()
+    } else {
+        a.trim().to_string()
+    }
+}
+
+/// Defaults from env vars, falling back to the compiled-in values. Env vars
+/// stay as the dev/automation override; stored settings win over them.
+pub fn default_settings() -> UpdateSettings {
+    UpdateSettings {
+        api_base: std::env::var("LUNA_UPDATES_API").unwrap_or_else(|_| DEFAULT_API.into()),
+        owner: std::env::var("LUNA_UPDATES_OWNER").unwrap_or_else(|_| DEFAULT_OWNER.into()),
+        repo: std::env::var("LUNA_UPDATES_REPO").unwrap_or_else(|_| DEFAULT_REPO.into()),
+        keys: parse_minisign_pub(PINNED_PUB),
+    }
+}
+
+/// Read the stored update source from the DB. Missing or unreadable rows
+/// return `None` (the caller falls back to defaults) — a bad row must never
+/// stop Luna from updating.
+pub fn load_settings(conn: &Connection) -> Option<UpdateSettings> {
+    let raw = crate::db::get_meta(conn, SETTINGS_META_KEY)
+        .ok()
+        .flatten()?;
+    let settings: UpdateSettings = serde_json::from_str(&raw).ok()?;
+    Some(settings)
+}
+
+/// Persist the update source. An all-default body deletes the row so the DB
+/// stays clean and future compiled-in default changes apply.
+pub fn save_settings(conn: &Connection, settings: &UpdateSettings) -> anyhow::Result<()> {
+    if settings.is_empty() {
+        conn.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            rusqlite::params![SETTINGS_META_KEY],
+        )?;
+        return Ok(());
+    }
+    let raw = serde_json::to_string(settings)?;
+    crate::db::set_meta(conn, SETTINGS_META_KEY, &raw)
+}
+
+/// Normalize key input: accept whole pub-file text or single key lines, keep
+/// only `RW…` base64 lines, and verify each one decodes as a minisign key.
+fn normalize_pub_keys(entries: &[String]) -> Result<Vec<String>, &'static str> {
+    let mut keys = Vec::new();
+    for entry in entries {
+        for line in entry.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with("untrusted comment") {
+                continue;
+            }
+            if !line.starts_with("RW") || PublicKey::from_base64(line).is_err() {
+                return Err(
+                    "One of those signing keys is not a valid minisign public key. Paste the key exactly as it appears in its .pub file (one line starting with RW).",
+                );
+            }
+            if !keys.contains(&line.to_string()) {
+                keys.push(line.to_string());
+            }
+        }
+    }
+    if keys.len() > MAX_KEYS {
+        return Err("That is more signing keys than Luna can keep. Remove one and try again.");
+    }
+    Ok(keys)
+}
+
+/// Validate an admin-supplied update source. Returns a plain-language reason
+/// the save was refused, ready to show in the UI.
+pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'static str> {
+    let api_base = settings.api_base.trim();
+    if api_base.is_empty() {
+        return Err(
+            "The API address needs a value. Put in the old address if you want to keep it.",
+        );
+    }
+    if !api_base.starts_with("http://") && !api_base.starts_with("https://") {
+        return Err("The API address must start with http:// or https://.");
+    }
+    if settings.owner.trim().is_empty() || settings.repo.trim().is_empty() {
+        return Err(
+            "Both the owner and the repo need a value — they say which project page the updates come from.",
+        );
+    }
+    let total: usize = settings.keys.iter().map(|k| k.len()).sum();
+    if total > MAX_PUB_TEXT_BYTES {
+        return Err("That signing key list is too long. One key per line is enough.");
+    }
+    let keys = normalize_pub_keys(&settings.keys)?;
+    Ok(keys)
+}
+
+pub struct UpdateService {
+    http: Box<dyn HttpGet>,
+    installer: Box<dyn Installer>,
+    active: Mutex<ActiveSource>,
     cache: Mutex<Option<(Instant, UpdateInfo)>>,
 }
 
 impl UpdateService {
     pub fn from_env(data_dir: &Path) -> Self {
-        let api = std::env::var("LUNA_UPDATES_API").unwrap_or_else(|_| DEFAULT_API.into());
-        let owner = std::env::var("LUNA_UPDATES_OWNER").unwrap_or_else(|_| DEFAULT_OWNER.into());
-        let repo = std::env::var("LUNA_UPDATES_REPO").unwrap_or_else(|_| DEFAULT_REPO.into());
+        let d = default_settings();
         Self::new(
             Box::new(UreqHttp),
             Box::new(DataDirInstaller::new(data_dir)),
-            api,
-            owner,
-            repo,
+            d.api_base,
+            d.owner,
+            d.repo,
+        )
+    }
+
+    /// Build the service from persisted settings, falling back to env vars and
+    /// compiled-in defaults for every unset field.
+    pub fn from_db(conn: &Connection, data_dir: &Path) -> Self {
+        let stored = load_settings(conn).unwrap_or_default();
+        let d = default_settings();
+        let settings = UpdateSettings {
+            api_base: first_nonempty(&stored.api_base, &d.api_base),
+            owner: first_nonempty(&stored.owner, &d.owner),
+            repo: first_nonempty(&stored.repo, &d.repo),
+            keys: if stored.keys.is_empty() {
+                d.keys
+            } else {
+                stored.keys
+            },
+        };
+        Self::with_keys(
+            Box::new(UreqHttp),
+            Box::new(DataDirInstaller::new(data_dir)),
+            settings.api_base,
+            settings.owner,
+            settings.repo,
+            settings.keys,
         )
     }
 
@@ -555,24 +729,46 @@ impl UpdateService {
         api_base: String,
         owner: String,
         repo: String,
-        pinned_keys: Vec<String>,
+        keys: Vec<String>,
     ) -> Self {
-        let api_base = api_base.trim_end_matches('/').to_string();
-        let host = api_base
-            .trim_end_matches("/api/v1")
-            .trim_end_matches("/api")
-            .to_string();
-        let download_base = format!("{host}/{owner}/{repo}/releases");
         Self {
             http,
             installer,
-            api_base,
-            download_base,
-            owner,
-            repo,
-            pinned_keys,
+            active: Mutex::new(active_from(api_base, owner, repo, keys)),
             cache: Mutex::new(None),
         }
+    }
+
+    fn source(&self) -> ActiveSource {
+        self.active.lock().unwrap().clone()
+    }
+
+    /// The update source currently in effect.
+    pub fn settings(&self) -> UpdateSettings {
+        let src = self.source();
+        UpdateSettings {
+            api_base: src.api_base,
+            owner: src.owner,
+            repo: src.repo,
+            keys: src.keys,
+        }
+    }
+
+    /// True when the trusted keys are still the compiled-in release key.
+    pub fn using_default_keys(&self) -> bool {
+        self.source().keys == parse_minisign_pub(PINNED_PUB)
+    }
+
+    /// Hot-swap the update source (admin saved new settings). Clears the
+    /// release cache so the next check goes to the new source.
+    pub fn reconfigure(&self, api_base: String, owner: String, repo: String, keys: Vec<String>) {
+        let keys = if keys.is_empty() {
+            parse_minisign_pub(PINNED_PUB)
+        } else {
+            keys
+        };
+        *self.active.lock().unwrap() = active_from(api_base, owner, repo, keys);
+        *self.cache.lock().unwrap() = None;
     }
 
     pub fn check(&self, current_version: &str, force: bool) -> Result<UpdateInfo, UpdateError> {
@@ -585,9 +781,10 @@ impl UpdateService {
             return Ok(info.clone());
         }
 
+        let src = self.source();
         let url = format!(
             "{}/repos/{}/{}/releases?limit=50",
-            self.api_base, self.owner, self.repo
+            src.api_base, src.owner, src.repo
         );
         let (status, body) = self.http.get(&url)?;
         if status != 200 {
@@ -652,10 +849,11 @@ impl UpdateService {
     }
 
     fn fetch_signed_sums(&self, tag: &str) -> Result<Vec<u8>, UpdateError> {
-        let sums_url = format!("{}/download/{tag}/SHA256SUMS.txt", self.download_base);
+        let src = self.source();
+        let sums_url = format!("{}/download/{tag}/SHA256SUMS.txt", src.download_base);
         let sig_url = format!(
             "{}/download/{tag}/SHA256SUMS.txt.minisig",
-            self.download_base
+            src.download_base
         );
         let (sums_status, sums) = self.http.get(&sums_url)?;
         if sums_status != 200 {
@@ -668,7 +866,7 @@ impl UpdateService {
         if sig_status != 200 {
             return Err(UpdateError::MissingSignature);
         }
-        verify_sums_signature(&self.pinned_keys, &sums, &sig)?;
+        verify_sums_signature(&src.keys, &sums, &sig)?;
         Ok(sums)
     }
 
@@ -724,7 +922,8 @@ impl UpdateService {
         checksum: &str,
         max_bytes: u64,
     ) -> Result<PathBuf, UpdateError> {
-        let url = format!("{}/download/{tag}/{name}", self.download_base);
+        let src = self.source();
+        let url = format!("{}/download/{tag}/{name}", src.download_base);
         let tmp = std::env::temp_dir().join(format!(
             "luna-update-{}-{}-{name}",
             std::process::id(),
@@ -1184,5 +1383,214 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"hello-lunad");
         inst.write_os_hash("abc123").unwrap();
         assert_eq!(inst.read_os_hash().as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn settings_round_trip_through_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        // Nothing stored yet → defaults.
+        assert!(load_settings(&conn).is_none());
+
+        let settings = UpdateSettings {
+            api_base: "https://staging.forgejo.test/api/v1".into(),
+            owner: "MyOrg".into(),
+            repo: "LunaFork".into(),
+            keys: vec!["RWnotarealkey".into()],
+        };
+        save_settings(&conn, &settings).unwrap();
+        assert_eq!(load_settings(&conn).unwrap(), settings);
+
+        // Saving all-defaults clears the row again.
+        save_settings(&conn, &UpdateSettings::default()).unwrap();
+        assert!(load_settings(&conn).is_none());
+    }
+
+    #[test]
+    fn settings_survive_bad_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::set_meta(&conn, SETTINGS_META_KEY, "{not json").unwrap();
+        // A corrupt row must never stop the updater — fall back to defaults.
+        assert!(load_settings(&conn).is_none());
+    }
+
+    #[test]
+    fn from_db_uses_stored_source_and_falls_back_to_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let key = ephemeral_sign(b"x").0;
+        save_settings(
+            &conn,
+            &UpdateSettings {
+                api_base: "https://staging.forgejo.test/api/v1".into(),
+                owner: "MyOrg".into(),
+                repo: "LunaFork".into(),
+                keys: vec![key.clone()],
+            },
+        )
+        .unwrap();
+        let svc = UpdateService::from_db(&conn, dir.path());
+        let got = svc.settings();
+        assert_eq!(got.api_base, "https://staging.forgejo.test/api/v1");
+        assert_eq!(got.owner, "MyOrg");
+        assert_eq!(got.repo, "LunaFork");
+        assert_eq!(got.keys, vec![key]);
+        assert!(!svc.using_default_keys());
+
+        // No stored row → compiled-in defaults, default key.
+        let conn2 = crate::db::open(&dir.path().join("luna2.db")).unwrap();
+        let svc2 = UpdateService::from_db(&conn2, dir.path());
+        let got2 = svc2.settings();
+        assert_eq!(got2.owner, DEFAULT_OWNER);
+        assert_eq!(got2.repo, DEFAULT_REPO);
+        assert!(svc2.using_default_keys());
+    }
+
+    #[test]
+    fn validate_settings_rejects_bad_input() {
+        let base = UpdateSettings {
+            api_base: "https://forgejo.test/api/v1".into(),
+            owner: "MyOrg".into(),
+            repo: "LunaFork".into(),
+            keys: vec![],
+        };
+        assert!(validate_settings(&base).is_ok());
+        let no_scheme = UpdateSettings {
+            api_base: "ftp://forgejo.test".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&no_scheme).is_err());
+        let no_owner = UpdateSettings {
+            owner: "".into(),
+            ..base.clone()
+        };
+        assert!(validate_settings(&no_owner).is_err());
+        let bad_key = UpdateSettings {
+            keys: vec!["not-a-key".into()],
+            ..base.clone()
+        };
+        assert!(validate_settings(&bad_key).is_err());
+        // A whole pub file (comment + key) is accepted, comment dropped.
+        let real = ephemeral_sign(b"x").0;
+        let file = UpdateSettings {
+            keys: vec![format!("untrusted comment: x\n{real}\n")],
+            ..base
+        };
+        assert_eq!(validate_settings(&file).unwrap(), vec![real]);
+    }
+
+    #[test]
+    fn apply_verifies_release_signed_with_custom_key() {
+        // A release signed by a non-default key installs when that key is
+        // configured — the acceptance case for repointing at a staging Forgejo.
+        let bin = binary_name();
+        let payload = b"custom-keyed-lunad";
+        let sum = {
+            let mut h = Sha256::new();
+            h.update(payload);
+            hex_lower(&h.finalize())
+        };
+        let sums = format!("{sum}  {bin}\n");
+        let (custom_pk, sig) = ephemeral_sign(sums.as_bytes());
+        let mut map = HashMap::new();
+        map.insert(
+            "http://staging.forgejo.test/api/v1/repos/MyOrg/LunaFork/releases?limit=50".into(),
+            (200, json_releases(&["luna-v0.6.0"])),
+        );
+        map.insert(
+            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v0.6.0/SHA256SUMS.txt"
+                .into(),
+            (200, sums.into_bytes()),
+        );
+        map.insert(
+            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v0.6.0/SHA256SUMS.txt.minisig"
+                .into(),
+            (200, sig),
+        );
+        map.insert(
+            format!(
+                "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v0.6.0/{bin}"
+            ),
+            (200, payload.to_vec()),
+        );
+        let svc = UpdateService::with_keys(
+            Box::new(MapHttp { map }),
+            Box::new(RecInstaller {
+                got: Mutex::new(Vec::new()),
+                os_got: Mutex::new(Vec::new()),
+                os_hash: Mutex::new(None),
+            }),
+            "http://staging.forgejo.test/api/v1".into(),
+            "MyOrg".into(),
+            "LunaFork".into(),
+            vec![custom_pk],
+        );
+        let info = svc.apply("0.1.0").unwrap();
+        assert_eq!(info.checksum, sum);
+        assert!(!svc.using_default_keys());
+    }
+
+    #[test]
+    fn reconfigure_swaps_source_and_clears_cache() {
+        let bin = binary_name();
+        let payload = b"staged-lunad";
+        let sum = {
+            let mut h = Sha256::new();
+            h.update(payload);
+            hex_lower(&h.finalize())
+        };
+        let sums = format!("{sum}  {bin}\n");
+        let (pk, sig) = ephemeral_sign(sums.as_bytes());
+        let mut map = HashMap::new();
+        // Both the default source and a staging source; the staging release
+        // list has a newer tag.
+        map.insert(
+            "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
+            (200, json_releases(&["luna-v0.2.0"])),
+        );
+        map.insert(
+            "http://staging.forgejo.test/api/v1/repos/MyOrg/LunaFork/releases?limit=50".into(),
+            (200, json_releases(&["luna-v9.9.9"])),
+        );
+        map.insert(
+            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v9.9.9/SHA256SUMS.txt"
+                .into(),
+            (200, sums.into_bytes()),
+        );
+        map.insert(
+            "http://staging.forgejo.test/MyOrg/LunaFork/releases/download/luna-v9.9.9/SHA256SUMS.txt.minisig"
+                .into(),
+            (200, sig),
+        );
+        let svc = UpdateService::with_keys(
+            Box::new(MapHttp { map }),
+            Box::new(RecInstaller {
+                got: Mutex::new(Vec::new()),
+                os_got: Mutex::new(Vec::new()),
+                os_hash: Mutex::new(None),
+            }),
+            "http://forgejo.test/api/v1".into(),
+            "LibreLoom".into(),
+            "LibreServ".into(),
+            vec![pk.clone()],
+        );
+        let before = svc.check("0.1.0", false).unwrap();
+        assert_eq!(before.latest_version, "luna-v0.2.0");
+        // The hour-long cache holds that result.
+        let cached = svc.check("0.1.0", false).unwrap();
+        assert_eq!(cached.latest_version, "luna-v0.2.0");
+
+        // Admin points Luna at staging → cache clears, next check hits the
+        // new source.
+        svc.reconfigure(
+            "http://staging.forgejo.test/api/v1".into(),
+            "MyOrg".into(),
+            "LunaFork".into(),
+            vec![pk],
+        );
+        let after = svc.check("0.1.0", false).unwrap();
+        assert_eq!(after.latest_version, "luna-v9.9.9");
+        assert_eq!(after.checksum, sum);
     }
 }

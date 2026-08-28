@@ -7,17 +7,33 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::updates::UpdateError;
+use crate::updates::{UpdateError, UpdateSettings};
 
 #[derive(Deserialize, Default)]
 struct CheckQuery {
     force: Option<bool>,
 }
 
+#[derive(Deserialize, Default)]
+struct SourceBody {
+    #[serde(default)]
+    api_base: Option<String>,
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    repo: Option<String>,
+    #[serde(default)]
+    keys: Option<Vec<String>>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/system/updates", get(check))
         .route("/api/v1/system/updates/apply", post(apply))
+        .route(
+            "/api/v1/system/updates/source",
+            get(get_source).put(save_source),
+        )
 }
 
 async fn check(
@@ -74,6 +90,111 @@ async fn apply(
     })))
 }
 
+/// The update source in effect, for the admin settings screen. Public keys
+/// are never secret material, but the endpoint stays admin-gated like the
+/// rest of the update surface.
+async fn get_source(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&user)?;
+    let svc = state.updates.clone();
+    let settings = svc.settings();
+    Ok(Json(json!({
+        "api_base": settings.api_base,
+        "owner": settings.owner,
+        "repo": settings.repo,
+        "keys": settings.keys,
+        "default_keys": svc.using_default_keys(),
+        "defaults": crate::updates::default_settings(),
+    })))
+}
+
+/// Save a new update source. Persists to the DB, validates, and hot-swaps the
+/// running updater. An all-default body clears the stored override.
+async fn save_source(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<SourceBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&user)?;
+    let settings = UpdateSettings {
+        api_base: body.api_base.unwrap_or_default(),
+        owner: body.owner.unwrap_or_default(),
+        repo: body.repo.unwrap_or_default(),
+        keys: body.keys.unwrap_or_default(),
+    };
+    let keys = match crate::updates::validate_settings(&settings) {
+        Ok(keys) => keys,
+        Err(message) => return Err(json_error(StatusCode::BAD_REQUEST, message)),
+    };
+
+    let stored = UpdateSettings {
+        api_base: settings.api_base.trim().to_string(),
+        owner: settings.owner.trim().to_string(),
+        repo: settings.repo.trim().to_string(),
+        keys,
+    };
+    let defaults = crate::updates::default_settings();
+    // An empty key list means "keep the built-in key", so compare the
+    // effective keys against the defaults when deciding to store nothing.
+    let effective_keys = if stored.keys.is_empty() {
+        defaults.keys.clone()
+    } else {
+        stored.keys.clone()
+    };
+    // Saving exactly the defaults stores nothing, so a future change of the
+    // compiled-in default still applies to this Luna.
+    let to_store = if stored.api_base == defaults.api_base
+        && stored.owner == defaults.owner
+        && stored.repo == defaults.repo
+        && effective_keys == defaults.keys
+    {
+        UpdateSettings::default()
+    } else {
+        stored.clone()
+    };
+
+    let db = state.db.clone();
+    let to_save = to_store.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::updates::save_settings(&db.lock().unwrap(), &to_save)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save the update source. Try again.",
+        )
+    })?
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save the update source. Try again.",
+        )
+    })?;
+
+    let effective = if to_store.is_empty() {
+        defaults
+    } else {
+        stored
+    };
+    state.updates.reconfigure(
+        effective.api_base,
+        effective.owner,
+        effective.repo,
+        effective.keys,
+    );
+    let back = state.updates.settings();
+    Ok(Json(json!({
+        "ok": true,
+        "api_base": back.api_base,
+        "owner": back.owner,
+        "repo": back.repo,
+        "keys": back.keys,
+    })))
+}
+
 fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
     if user.role != "admin" {
         return Err(json_error(
@@ -125,7 +246,7 @@ mod tests {
         }
     }
 
-    fn app(releases_json: &[u8]) -> (axum::Router, String) {
+    fn app(releases_json: &[u8]) -> (axum::Router, String, crate::AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let dm = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
@@ -154,14 +275,14 @@ mod tests {
                 state.clone(),
                 crate::auth::guard,
             ))
-            .with_state(state);
-        (router, token)
+            .with_state(state.clone());
+        (router, token, state)
     }
 
     #[tokio::test]
     async fn check_uses_fake_forgejo_and_filters_luna_tags() {
         let body = br#"[{"tag_name":"v9.0.0","body":"libreserv","html_url":"x","prerelease":false,"draft":false},{"tag_name":"luna-v0.9.0","body":"hello luna","html_url":"https://example.test/luna-v0.9.0","prerelease":false,"draft":false}]"#;
-        let (router, token) = app(body);
+        let (router, token, _state) = app(body);
         let response = router
             .oneshot(
                 Request::builder()
@@ -179,5 +300,179 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["latest_version"], "luna-v0.9.0");
         assert_eq!(v["update_available"], true);
+    }
+
+    #[tokio::test]
+    async fn source_get_shows_active_settings() {
+        let (router, token, _state) = app(b"[]");
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/system/updates/source")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["api_base"], "http://forgejo.test/api/v1");
+        assert_eq!(v["owner"], "LibreLoom");
+        assert_eq!(v["repo"], "LibreServ");
+        assert_eq!(v["default_keys"], true);
+        assert!(v["defaults"]["api_base"].is_string());
+    }
+
+    #[tokio::test]
+    async fn source_put_persists_and_reconfigures() {
+        let (router, token, state) = app(b"[]");
+        // A key that is NOT the compiled-in release key.
+        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let key = kp.pk.to_base64();
+        let body = format!(
+            r#"{{"api_base":"https://staging.forgejo.test/api/v1","owner":"MyOrg","repo":"LunaFork","keys":["{key}"]}}"#
+        );
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/system/updates/source")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // The running updater switched source without a restart.
+        let got = state.updates.settings();
+        assert_eq!(got.api_base, "https://staging.forgejo.test/api/v1");
+        assert_eq!(got.owner, "MyOrg");
+        assert_eq!(got.repo, "LunaFork");
+        assert_eq!(got.keys, vec![key.clone()]);
+        assert!(!state.updates.using_default_keys());
+
+        // The settings are persisted in the DB (config round-trip), so a
+        // restart keeps them.
+        let stored = crate::updates::load_settings(&state.db.lock().unwrap()).unwrap();
+        assert_eq!(stored.api_base, "https://staging.forgejo.test/api/v1");
+        assert_eq!(stored.keys, vec![key]);
+    }
+
+    #[tokio::test]
+    async fn source_put_rejects_bad_input() {
+        let (router, token, _state) = app(b"[]");
+        for bad in [
+            r#"{"api_base":"","owner":"o","repo":"r"}"#,
+            r#"{"api_base":"ftp://nope","owner":"o","repo":"r"}"#,
+            r#"{"api_base":"https://a.test/api/v1","owner":"","repo":"r"}"#,
+            r#"{"api_base":"https://a.test/api/v1","owner":"o","repo":"r","keys":["garbage"]}"#,
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri("/api/v1/system/updates/source")
+                        .header("Authorization", format!("Bearer {token}"))
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(bad))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "body: {bad}");
+        }
+    }
+
+    #[tokio::test]
+    async fn source_is_admin_only() {
+        let (router, token, state) = app(b"[]");
+        // Second registered user is a plain member.
+        let member = state
+            .auth
+            .register("Mia", "Mia", "hunter22hunter1", "user")
+            .unwrap();
+        assert_eq!(member.role, "user");
+        let member_token = state.auth.issue(&member).unwrap();
+        let _ = token; // admin token unused here
+
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/system/updates/source")
+                    .header("Authorization", format!("Bearer {member_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/system/updates/source")
+                    .header("Authorization", format!("Bearer {member_token}"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(
+                        r#"{"api_base":"https://a.test/api/v1","owner":"o","repo":"r"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn source_put_with_defaults_clears_stored_row() {
+        let (router, token, state) = app(b"[]");
+        // First point at staging…
+        let staging = r#"{"api_base":"https://staging.forgejo.test/api/v1","owner":"MyOrg","repo":"LunaFork"}"#;
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/system/updates/source")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(staging))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(crate::updates::load_settings(&state.db.lock().unwrap()).is_some());
+
+        // …then restore this binary's defaults: the stored row goes away.
+        let d = crate::updates::default_settings();
+        let body = format!(
+            r#"{{"api_base":"{}","owner":"{}","repo":"{}"}}"#,
+            d.api_base, d.owner, d.repo
+        );
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/system/updates/source")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(crate::updates::load_settings(&state.db.lock().unwrap()).is_none());
     }
 }

@@ -253,6 +253,15 @@ export async function patchJson(path, body, options = {}) {
   });
 }
 
+export async function putJson(path, body, options = {}) {
+  return request(path, {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function deleteJson(path, options = {}) {
   return request(path, { ...options, method: "DELETE" });
 }
