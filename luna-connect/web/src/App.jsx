@@ -10,6 +10,10 @@ const BackupsPage = lazy(() => import("./pages/BackupsPage.jsx"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage.jsx"));
 const AdminTokensPage = lazy(() => import("./pages/AdminTokensPage.jsx"));
 const AdminLogin = lazy(() => import("./pages/AdminLogin.jsx"));
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage.jsx"));
+const AdminDevicesPage = lazy(() => import("./pages/AdminDevicesPage.jsx"));
+const AdminAccountsPage = lazy(() => import("./pages/AdminAccountsPage.jsx"));
+const AdminSecurityPage = lazy(() => import("./pages/AdminSecurityPage.jsx"));
 
 function Protected({ children }) {
   const { isAuthenticated, ready } = useAuth();
@@ -56,8 +60,12 @@ export default function App() {
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/" element={<Protected><LunaPage /></Protected>} />
         <Route path="/backups" element={<Protected><BackupsPage /></Protected>} />
-        <Route path="/admin/login" element={adminAuthed ? <Navigate to="/admin/tokens" replace /> : <AdminLogin />} />
+        <Route path="/admin/login" element={adminAuthed ? <Navigate to="/admin" replace /> : <AdminLogin />} />
+        <Route path="/admin" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} />
+        <Route path="/admin/devices" element={<AdminProtected><AdminDevicesPage /></AdminProtected>} />
         <Route path="/admin/tokens" element={<AdminProtected><AdminTokensPage /></AdminProtected>} />
+        <Route path="/admin/accounts" element={<AdminProtected><AdminAccountsPage /></AdminProtected>} />
+        <Route path="/admin/security" element={<AdminProtected><AdminSecurityPage /></AdminProtected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

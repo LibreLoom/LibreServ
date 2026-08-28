@@ -42,7 +42,7 @@ export default function AdminLogin() {
         setNeeds2FA(true);
         return;
       }
-      navigate("/admin/tokens");
+      navigate("/admin");
     } catch (err) {
       setError(err.message || "Could not sign in.");
     }

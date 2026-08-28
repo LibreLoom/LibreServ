@@ -3,6 +3,10 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import AdminTokensPage from "./AdminTokensPage.jsx";
 
+vi.mock("../components/AdminLayout.jsx", () => ({
+  AdminLayout: ({ children }) => <div data-testid="admin-layout">{children}</div>,
+}));
+
 vi.mock("../context/AdminAuthContext.jsx", () => ({
   useAdminAuth: () => ({
     account: { email: "admin@example.com" },
@@ -22,6 +26,7 @@ describe("AdminTokensPage", () => {
         <AdminTokensPage />
       </MemoryRouter>,
     );
+    expect(screen.getByTestId("admin-layout")).toBeTruthy();
     expect(screen.getByTestId("official-token-recovery")).toBeTruthy();
     expect(screen.getByText(/contact support and refer to their order id/i)).toBeTruthy();
     expect(screen.getByText(/TOKENS on the LUNAASSETS partition/i)).toBeTruthy();
