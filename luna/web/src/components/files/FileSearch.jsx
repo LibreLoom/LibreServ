@@ -101,7 +101,6 @@ export default function FileSearch() {
       return res.json();
     },
     onSuccess: () => {
-      setDeleteTarget(null);
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["search"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
@@ -121,7 +120,6 @@ export default function FileSearch() {
       });
     },
     onSuccess: () => {
-      setCopyTarget(null);
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["search"] });
@@ -281,53 +279,62 @@ export default function FileSearch() {
         </ul>
       )}
 
-      {deleteTarget && (
-        <ModalCard title="Move to trash?" onClose={() => setDeleteTarget(null)}>
-          {({ close }) => (
-            <>
-              <p className="text-primary text-sm">
-                <span className="font-mono">{deleteTarget.name}</span> will move to
-                Luna&apos;s trash on its drive. You can get it back later from Open trash.
-              </p>
-              {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
-              <div className="mt-4 flex gap-3">
-                <Button
-                  variant="danger"
-                  loading={removeMutation.isPending}
-                  onClick={() => removeMutation.mutate(deleteTarget)}
-                >
-                  Move to trash
-                </Button>
-                <Button variant="outline" onClick={close}>
-                  Keep it
-                </Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
+      <ModalCard
+        open={deleteTarget != null}
+        title="Move to trash?"
+        onClose={() => setDeleteTarget(null)}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              <span className="font-mono">{deleteTarget?.name}</span> will move to
+              Luna&apos;s trash on its drive. You can get it back later from Open trash.
+            </p>
+            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="danger"
+                loading={removeMutation.isPending}
+                onClick={() => {
+                  if (!deleteTarget) return;
+                  removeMutation.mutateAsync(deleteTarget)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Move to trash
+              </Button>
+              <Button variant="outline" onClick={close}>
+                Keep it
+              </Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
 
-      {copyTarget && (
-        <FolderPickerModal
-          title={copyKind === "move" ? `Move ${copyTarget.name}` : `Copy ${copyTarget.name}`}
-          drives={drives.data || []}
-          initialDriveId={copyTarget.drive_id}
-          initialPath={copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)}
-          confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
-          busy={copyMutation.isPending}
-          onClose={() => setCopyTarget(null)}
-          onConfirm={(dest) => copyMutation.mutate(dest)}
-        />
-      )}
+      <FolderPickerModal
+        open={copyTarget != null}
+        title={copyKind === "move" ? `Move ${copyTarget?.name || ""}` : `Copy ${copyTarget?.name || ""}`}
+        drives={drives.data || []}
+        initialDriveId={copyTarget?.drive_id || ""}
+        initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
+        confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
+        busy={copyMutation.isPending}
+        onClose={() => setCopyTarget(null)}
+        onConfirm={(dest, close) => {
+          copyMutation.mutateAsync(dest)
+            .then(() => close())
+            .catch(() => {});
+        }}
+      />
 
-      {accessTarget && (
-        <AccessSheet
-          driveId={accessTarget.driveId}
-          path={accessTarget.path}
-          kind={accessTarget.kind}
-          onClose={() => setAccessTarget(null)}
-        />
-      )}
+      <AccessSheet
+        open={accessTarget != null}
+        driveId={accessTarget?.driveId || ""}
+        path={accessTarget?.path || ""}
+        kind={accessTarget?.kind || "folder"}
+        onClose={() => setAccessTarget(null)}
+      />
     </div>
   );
 }

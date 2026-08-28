@@ -216,13 +216,12 @@ export default function UsersPage() {
         )}
       </Page>
 
-      {creating && (
-        <CreateUserModal
-          onClose={() => setCreating(false)}
-          onSubmit={(body) => createMutation.mutate(body)}
-          busy={createMutation.isPending}
-        />
-      )}
+      <CreateUserModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSubmit={(body) => createMutation.mutate(body)}
+        busy={createMutation.isPending}
+      />
 
       <ConfirmModal
         open={!!userToDelete}
@@ -239,7 +238,7 @@ export default function UsersPage() {
   );
 }
 
-function CreateUserModal({ onClose, onSubmit, busy }) {
+function CreateUserModal({ open = true, onClose, onSubmit, busy }) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -253,7 +252,7 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
     username.trim().length > 0 && passwordOk && !busy;
 
   return (
-    <ModalCard title="Add a user" onClose={onClose}>
+    <ModalCard open={open} title="Add a user" onClose={onClose}>
       {({ close }) => (
       <div className="space-y-3">
         <input

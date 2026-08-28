@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -6,11 +6,30 @@ import Card from "./Card";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 import { haptic } from "../../utils/haptics";
 
+/** @type {import('react').Context<(() => void) | null>} */
+const ModalCloseContext = createContext(null);
+
+/** Animated close — waits for exit transition before calling onClose. */
+export function useModalClose() {
+  const close = useContext(ModalCloseContext);
+  if (!close) {
+    throw new Error("useModalClose must be used within ModalCard");
+  }
+  return close;
+}
+
+/** Longest modal exit animation (overlay + card pop-out). */
+export const EXIT_ANIMATION_MS = 300;
+
 /**
  * @typedef {object} ModalCardProps
  * @property {import('react').ReactNode} [title]
  * @property {import('react').ReactNode|function({close: () => void}): import('react').ReactNode} [children]
  * @property {() => void} [onClose]
+ * @property {boolean} [open] Controlled visibility. When set to false, plays the exit
+ *   animation then unmounts. Prefer `<ModalCard open={!!x} onClose={() => setX(null)}>`
+ *   over `{x && <ModalCard>}` so parents that clear state still get animate-out.
+ *   Defaults to true when omitted (legacy always-mounted / conditionally rendered usage).
  * @property {boolean} [showCloseButton]
  * @property {string} [size]
  * @property {boolean} [mobileFullscreen]
@@ -25,6 +44,7 @@ export default function ModalCard({
   title,
   children,
   onClose,
+  open = true,
   showCloseButton = true,
   size = "md",
   mobileFullscreen = false,
@@ -34,6 +54,7 @@ export default function ModalCard({
   loading = false,
 }) {
   const [isClosing, setIsClosing] = useState(false);
+  const [present, setPresent] = useState(open);
   const titleId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -43,21 +64,58 @@ export default function ModalCard({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const isClosingRef = useRef(false);
+  const exitTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
 
   const setRefs = useCallback((node) => {
     dialogRef.current = node;
     outerRef.current = node;
   }, [outerRef]);
 
-  const handleClose = useCallback(() => {
+  const clearExitTimer = useCallback(() => {
+    if (exitTimerRef.current != null) {
+      clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
+    }
+  }, []);
+
+  const finishExit = useCallback((notify) => {
+    clearExitTimer();
+    setPresent(false);
+    setIsClosing(false);
+    isClosingRef.current = false;
+    if (notify) onCloseRef.current?.();
+  }, [clearExitTimer]);
+
+  /** @param {boolean} notify Whether to call onClose after the exit animation. */
+  const beginExit = useCallback((notify) => {
     if (isClosingRef.current) return;
     haptic("light");
     isClosingRef.current = true;
     setIsClosing(true);
-    setTimeout(() => {
-      onCloseRef.current?.();
-    }, 300);
-  }, []);
+    exitTimerRef.current = setTimeout(() => {
+      finishExit(notify);
+    }, EXIT_ANIMATION_MS);
+  }, [finishExit]);
+
+  const handleClose = useCallback(() => {
+    beginExit(true);
+  }, [beginExit]);
+
+  useEffect(() => {
+    if (open) {
+      clearExitTimer();
+      isClosingRef.current = false;
+      setIsClosing(false);
+      setPresent(true);
+      return;
+    }
+    if (present && !isClosingRef.current) {
+      beginExit(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => () => clearExitTimer(), [clearExitTimer]);
 
   const content = loading
     ? null
@@ -66,6 +124,8 @@ export default function ModalCard({
       : children;
 
   useEffect(() => {
+    if (!present) return undefined;
+
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
@@ -105,7 +165,9 @@ export default function ModalCard({
       previousFocusRef.current?.focus?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [present]);
+
+  if (!present) return null;
 
   const widthClasses =
     size === "fullscreen"
@@ -154,6 +216,7 @@ export default function ModalCard({
         onClick={(event) => event.stopPropagation()}
       >
         <div ref={innerRef} className={cn(maxHeightClasses, "overflow-y-auto")}>
+        <ModalCloseContext.Provider value={handleClose}>
         <Card
           noHeightAnim
           noPopIn
@@ -204,6 +267,7 @@ export default function ModalCard({
             </div>
           )}
         </Card>
+        </ModalCloseContext.Provider>
         </div>
       </div>
     </div>,

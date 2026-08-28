@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "./ModalCard";
 import Callout from "../common/Callout";
@@ -53,20 +53,50 @@ export default function ConfirmModal({
   disabledConfirm = false,
   initialFocusRef,
 }) {
-  const iconColor = variant === "danger" || variant === "danger-undoable" ? "text-error" : variant === "warning" ? "text-warning" : "text-accent";
-  const confirmVariant = CONFIRM_VARIANT[variant] || CONFIRM_VARIANT.default;
-  const bannerTone = BANNER_TONE[variant];
+  // Freeze copy while exiting so parents can clear the subject (userToDelete, etc.)
+  // without blanking the modal mid-animation.
+  const snapRef = useRef({
+    title,
+    message,
+    children,
+    Icon,
+    variant,
+    confirmLabel,
+    ConfirmIcon,
+  });
+  if (open) {
+    snapRef.current = {
+      title,
+      message,
+      children,
+      Icon,
+      variant,
+      confirmLabel,
+      ConfirmIcon,
+    };
+  }
+  const snap = snapRef.current;
+
+  const iconColor =
+    snap.variant === "danger" || snap.variant === "danger-undoable"
+      ? "text-error"
+      : snap.variant === "warning"
+        ? "text-warning"
+        : "text-accent";
+  const confirmVariant = CONFIRM_VARIANT[snap.variant] || CONFIRM_VARIANT.default;
+  const bannerTone = BANNER_TONE[snap.variant];
+  const SnapIcon = snap.Icon;
+  const SnapConfirmIcon = snap.ConfirmIcon;
 
   const handleConfirm = useCallback(() => {
     if (loading) return;
     onConfirm?.();
   }, [loading, onConfirm]);
 
-  if (!open) return null;
-
   return (
     <ModalCard
-      title={title}
+      open={open}
+      title={snap.title}
       onClose={onClose}
       size="sm"
       initialFocusRef={initialFocusRef}
@@ -74,23 +104,23 @@ export default function ConfirmModal({
       {({ close }) => (
         <>
           <div className="flex items-start gap-3">
-            {Icon && (
+            {SnapIcon && (
               <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-                <Icon size={24} className={iconColor} />
+                <SnapIcon size={24} className={iconColor} />
               </div>
             )}
             <div className="flex-1">
-              {message && (
-                <p className="font-mono text-sm text-primary/70 mb-2">{message}</p>
+              {snap.message && (
+                <p className="font-mono text-sm text-primary/70 mb-2">{snap.message}</p>
               )}
-              {children}
+              {snap.children}
             </div>
           </div>
 
           {bannerTone && (
             <div className="mt-4">
               <Callout tone={bannerTone} rounded="card">
-                {variant === "danger"
+                {snap.variant === "danger"
                   ? "This action cannot be undone."
                   : "Please review before proceeding."}
               </Callout>
@@ -112,12 +142,12 @@ export default function ConfirmModal({
               onClick={handleConfirm}
               loading={loading}
               disabled={disabledConfirm}
-              className={variant === "warning" ? "flex-1 bg-warning text-secondary" : "flex-1"}
+              className={snap.variant === "warning" ? "flex-1 bg-warning text-secondary" : "flex-1"}
             >
-              {!loading && ConfirmIcon ? (
-                <ConfirmIcon size={16} aria-hidden="true" />
+              {!loading && SnapConfirmIcon ? (
+                <SnapConfirmIcon size={16} aria-hidden="true" />
               ) : null}
-              {loading ? "Processing..." : confirmLabel}
+              {loading ? "Processing..." : snap.confirmLabel}
             </Button>
           </div>
         </>

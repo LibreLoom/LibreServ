@@ -32,7 +32,7 @@ export function ProtectButton({ label, onClick }) {
  * Keep a second copy of a folder (or whole drive) on another drive plugged into Luna.
  * Not sharing — admins only; needs at least two drives.
  */
-export default function ProtectSheet({ driveId, path = "", onClose }) {
+export default function ProtectSheet({ driveId, path = "", onClose, open = true }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [targetDrive, setTargetDrive] = useState("");
@@ -80,6 +80,7 @@ export default function ProtectSheet({ driveId, path = "", onClose }) {
 
   return (
     <ModalCard
+      open={open}
       title={
         <span className="inline-flex items-center gap-2">
           Protect

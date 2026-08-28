@@ -12,6 +12,7 @@ export default function CreateShareModal({
   onClose,
   onError,
   onDone,
+  open = true,
 }) {
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
@@ -32,7 +33,7 @@ export default function CreateShareModal({
 
   if (result) {
     return (
-      <ModalCard title="Link ready" onClose={onDone}>
+      <ModalCard open={open} title="Link ready" onClose={onDone}>
         {({ close }) => (
           <>
             <CopyableValue
@@ -50,41 +51,48 @@ export default function CreateShareModal({
   }
 
   return (
-    <ModalCard title="New link" onClose={onClose}>
-      <div className="space-y-3">
-        <input
-          type="password"
-          className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-          placeholder="Optional password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <Dropdown
-          options={[
-            { value: "7", label: "Expires in 7 days" },
-            { value: "30", label: "Expires in 30 days" },
-            { value: "365", label: "Expires in a year" },
-            { value: "", label: "Never expires" },
-          ]}
-          value={days}
-          onChange={setDays}
-          fullWidth
-        />
-        <Button
-          variant="primary"
-          fullWidth
-          loading={mutation.isPending}
-          disabled={!driveId}
-          onClick={() => mutation.mutate({
-            drive_id: driveId,
-            path: (path || "").trim(),
-            password: password || undefined,
-            expires_in_days: days ? Number(days) : undefined,
-          })}
-        >
-          Create link
-        </Button>
-      </div>
+    <ModalCard open={open} title="New link" onClose={onClose}>
+      {({ close }) => (
+        <div className="space-y-3">
+          <input
+            type="password"
+            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+            placeholder="Optional password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Dropdown
+            options={[
+              { value: "7", label: "Expires in 7 days" },
+              { value: "30", label: "Expires in 30 days" },
+              { value: "365", label: "Expires in a year" },
+              { value: "", label: "Never expires" },
+            ]}
+            value={days}
+            onChange={setDays}
+            fullWidth
+          />
+          <div className="flex gap-3">
+            <Button
+              variant="primary"
+              fullWidth
+              loading={mutation.isPending}
+              disabled={!driveId}
+              onClick={() => mutation.mutate({
+                drive_id: driveId,
+                path: (path || "").trim(),
+                password: password || undefined,
+                expires_in_days: days ? Number(days) : undefined,
+              })}
+            >
+              Create link
+            </Button>
+            <Button variant="outline" onClick={close} disabled={mutation.isPending}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
     </ModalCard>
   );
 }

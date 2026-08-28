@@ -373,8 +373,8 @@ export default function DriveFileExplorer({
         await deleteJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(p)}`);
       }
     },
+    // Modal dismisses via ModalCard close() so exit animation can play.
     onSuccess: (_d, paths) => {
-      setDeletePaths(null);
       invalidate(paths);
     },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again.")),
@@ -387,7 +387,6 @@ export default function DriveFileExplorer({
         new_name: newName,
       }),
     onSuccess: () => {
-      setRenameTarget(null);
       invalidate();
     },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't rename that. Try again.")),
@@ -407,7 +406,6 @@ export default function DriveFileExplorer({
       }
     },
     onSuccess: () => {
-      setTransfer(null);
       invalidate();
     },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't start that transfer. Try again.")),
@@ -431,9 +429,16 @@ export default function DriveFileExplorer({
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't move those files. Try again.")),
   });
 
-  const deleteLabel = deletePaths?.length === 1
-    ? pathBasename(deletePaths[0])
-    : `${deletePaths?.length || 0} items`;
+  const deleteSnapRef = useRef(/** @type {string[]|null} */ (null));
+  if (deletePaths) deleteSnapRef.current = deletePaths;
+  const shownDeletePaths = deletePaths ?? deleteSnapRef.current;
+  const deleteLabel = shownDeletePaths?.length === 1
+    ? pathBasename(shownDeletePaths[0])
+    : `${shownDeletePaths?.length || 0} items`;
+
+  const renameSnapRef = useRef(/** @type {{ fullPath: string, name: string }|null} */ (null));
+  if (renameTarget) renameSnapRef.current = renameTarget;
+  const shownRename = renameTarget ?? renameSnapRef.current;
 
   return (
     <>
@@ -566,99 +571,113 @@ export default function DriveFileExplorer({
         )}
       />
 
-      {viewerPath && (
-        <FileViewer
-          driveId={driveId}
-          path={viewerPath}
-          onClose={() => setViewerPath(null)}
-          onSaved={() => invalidate([viewerPath])}
-        />
-      )}
+      <FileViewer
+        open={viewerPath != null}
+        driveId={driveId}
+        path={viewerPath || ""}
+        onClose={() => setViewerPath(null)}
+        onSaved={() => viewerPath && invalidate([viewerPath])}
+      />
 
-      {transfer && (
-        <FolderPickerModal
-          title={
-            transfer.kind === "move"
-              ? `Move ${transfer.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer.paths.length} items`}`
-              : `Copy ${transfer.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer.paths.length} items`}`
-          }
-          drives={drives.data || [{ id: driveId, label: driveLabel }]}
-          initialDriveId={driveId}
-          initialPath={path}
-          confirmLabel={transfer.kind === "move" ? "Start moving" : "Start copying"}
-          busy={transferMutation.isPending}
-          onClose={() => setTransfer(null)}
-          onConfirm={(dest) => transferMutation.mutate(dest)}
-        />
-      )}
+      <FolderPickerModal
+        open={transfer != null}
+        title={
+          transfer?.kind === "move"
+            ? `Move ${transfer.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer.paths.length} items`}`
+            : `Copy ${transfer?.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer?.paths.length || 0} items`}`
+        }
+        drives={drives.data || [{ id: driveId, label: driveLabel }]}
+        initialDriveId={driveId}
+        initialPath={path}
+        confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
+        busy={transferMutation.isPending}
+        onClose={() => setTransfer(null)}
+        onConfirm={(dest, close) => {
+          transferMutation.mutateAsync(dest)
+            .then(() => close())
+            .catch(() => {});
+        }}
+      />
 
-      {deletePaths && (
-        <ModalCard title="Move to trash?" onClose={() => setDeletePaths(null)}>
-          {({ close }) => (
-            <>
-              <p className="text-primary text-sm">
-                <span className="font-mono">{deleteLabel}</span> will move to
-                Luna&apos;s trash on this drive. You can get it back later from Open trash.
-              </p>
-              <div className="mt-4 flex gap-3">
-                <Button
-                  variant="danger"
-                  loading={removeMutation.isPending}
-                  onClick={() => removeMutation.mutate(deletePaths)}
-                >
-                  Move to trash
-                </Button>
-                <Button variant="outline" onClick={close}>Keep it</Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
+      <ModalCard
+        open={deletePaths != null}
+        title="Move to trash?"
+        onClose={() => setDeletePaths(null)}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              <span className="font-mono">{deleteLabel}</span> will move to
+              Luna&apos;s trash on this drive. You can get it back later from Open trash.
+            </p>
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="danger"
+                loading={removeMutation.isPending}
+                onClick={() => {
+                  if (!deletePaths) return;
+                  removeMutation.mutateAsync(deletePaths)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Move to trash
+              </Button>
+              <Button variant="outline" onClick={close}>Keep it</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
 
-      {renameTarget && (
-        <ModalCard title={`Rename ${renameTarget.name}`} onClose={() => setRenameTarget(null)}>
-          {({ close }) => (
-            <>
-              <input
-                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                value={renameValue}
-                maxLength={255}
-                onChange={(e) => setRenameValue(e.target.value)}
-              />
-              {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
-              <div className="mt-4 flex gap-3">
-                <Button
-                  variant="primary"
-                  loading={renameMutation.isPending}
-                  onClick={() => renameMutation.mutate({
+      <ModalCard
+        open={renameTarget != null}
+        title={`Rename ${shownRename?.name || ""}`}
+        onClose={() => setRenameTarget(null)}
+      >
+        {({ close }) => (
+          <>
+            <input
+              className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+              value={renameValue}
+              maxLength={255}
+              onChange={(e) => setRenameValue(e.target.value)}
+            />
+            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="primary"
+                loading={renameMutation.isPending}
+                onClick={() => {
+                  if (!renameTarget) return;
+                  renameMutation.mutateAsync({
                     fullPath: renameTarget.fullPath,
                     newName: renameValue,
-                  })}
-                >
-                  Rename
-                </Button>
-                <Button variant="outline" onClick={close}>Cancel</Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
+                  })
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Rename
+              </Button>
+              <Button variant="outline" onClick={close}>Cancel</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
 
-      {accessTarget && (
-        <AccessSheet
-          driveId={driveId}
-          path={accessTarget.path}
-          kind={accessTarget.kind}
-          onClose={() => setAccessTarget(null)}
-        />
-      )}
-      {protectTarget && (
-        <ProtectSheet
-          driveId={driveId}
-          path={protectTarget.path}
-          onClose={() => setProtectTarget(null)}
-        />
-      )}
+      <AccessSheet
+        open={accessTarget != null}
+        driveId={driveId}
+        path={accessTarget?.path || ""}
+        kind={accessTarget?.kind || "folder"}
+        onClose={() => setAccessTarget(null)}
+      />
+      <ProtectSheet
+        open={protectTarget != null}
+        driveId={driveId}
+        path={protectTarget?.path || ""}
+        onClose={() => setProtectTarget(null)}
+      />
     </>
   );
 }

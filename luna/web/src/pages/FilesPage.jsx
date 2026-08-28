@@ -70,14 +70,14 @@ export default function FilesPage() {
         path: item.path,
         dest: restoreName,
       }),
-    onSuccess: () => { setRestoreTarget(null); invalidate(); },
+    onSuccess: () => { invalidate(); },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
   });
 
   const purgeMutation = useMutation({
     mutationFn: (/** @type {any} */ item) =>
       postJson(`/api/v1/drives/${id}/files/purge`, { path: item.path }),
-    onSuccess: () => { setPurgeTarget(null); invalidate(); },
+    onSuccess: () => { invalidate(); },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
   });
 
@@ -230,50 +230,72 @@ export default function FilesPage() {
         </div>
       )}
 
-      {restoreTarget && (
-        <ModalCard title="Put this back?" onClose={() => setRestoreTarget(null)}>
-          {({ close }) => (
-            <>
-              <p className="text-primary text-sm">
-                Luna will move it out of trash on this same drive. Choose the name it should have.
-              </p>
-              <input
-                className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                value={restoreName}
-                onChange={(e) => setRestoreName(e.target.value)}
-                aria-label="Restored file name"
-              />
-              {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
-              <div className="mt-4 flex gap-3">
-                <Button variant="primary" loading={restoreMutation.isPending} onClick={() => restoreMutation.mutate(restoreTarget)}>
-                  Put it back
-                </Button>
-                <Button variant="outline" onClick={close}>Not now</Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
+      <ModalCard
+        open={restoreTarget != null}
+        title="Put this back?"
+        onClose={() => setRestoreTarget(null)}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              Luna will move it out of trash on this same drive. Choose the name it should have.
+            </p>
+            <input
+              className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+              value={restoreName}
+              onChange={(e) => setRestoreName(e.target.value)}
+              aria-label="Restored file name"
+            />
+            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="primary"
+                loading={restoreMutation.isPending}
+                onClick={() => {
+                  if (!restoreTarget) return;
+                  restoreMutation.mutateAsync(restoreTarget)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Put it back
+              </Button>
+              <Button variant="outline" onClick={close}>Not now</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
 
-      {purgeTarget && (
-        <ModalCard title="Delete forever?" onClose={() => setPurgeTarget(null)}>
-          {({ close }) => (
-            <>
-              <p className="text-primary text-sm">
-                <span className="font-mono">{purgeTarget.original_name}</span> will be
-                removed for good. Luna cannot get it back after this.
-              </p>
-              {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
-              <div className="mt-4 flex gap-3">
-                <Button variant="danger" loading={purgeMutation.isPending} onClick={() => purgeMutation.mutate(purgeTarget)}>
-                  Delete forever
-                </Button>
-                <Button variant="outline" onClick={close}>Keep in trash</Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
+      <ModalCard
+        open={purgeTarget != null}
+        title="Delete forever?"
+        onClose={() => setPurgeTarget(null)}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              <span className="font-mono">{purgeTarget?.original_name}</span> will be
+              removed for good. Luna cannot get it back after this.
+            </p>
+            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="danger"
+                loading={purgeMutation.isPending}
+                onClick={() => {
+                  if (!purgeTarget) return;
+                  purgeMutation.mutateAsync(purgeTarget)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Delete forever
+              </Button>
+              <Button variant="outline" onClick={close}>Keep in trash</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
     </Page>
   );
 }
