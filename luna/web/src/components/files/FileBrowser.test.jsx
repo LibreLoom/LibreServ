@@ -150,11 +150,11 @@ describe("FileBrowser", () => {
       multiSelect: false,
       enableDownload: false,
     });
-    const copyBtn = await screen.findByRole("button", { name: /Copy note.txt/i });
+    const copyBtn = await screen.findByRole("button", { name: "Copy note.txt" });
     // Focus opens immediately (keyboard path); hover uses the group delay.
     copyBtn.focus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
-    await user.hover(screen.getByRole("button", { name: /Move note.txt/i }));
+    await user.hover(screen.getByRole("button", { name: "Move note.txt" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Move");
   });
 
