@@ -154,7 +154,7 @@ async function mapPool(items, limit, worker) {
 }
 
 /**
- * Full file explorer used by the Files page and the Drives browse modal.
+ * Full file explorer used by the Files page.
  * Same core, same actions; page adds URL sync via linkNavigation.
  *
  * @param {{

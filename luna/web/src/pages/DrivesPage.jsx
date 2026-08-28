@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { File as FileIcon, Folder, FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { File as FileIcon, Folder, FolderOpen, HardDrive, Info, PlugZap, TriangleAlert } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
@@ -13,7 +13,6 @@ import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
-import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import Spinner from "../components/ui/Spinner.jsx";
 import { InfoHint, TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
@@ -21,6 +20,7 @@ import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { describeInspectSummary } from "../lib/fileCounts";
+import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 
 /** @param {number} n @param {string} one @param {string} many */
 function pluralCount(n, one, many) {
@@ -95,7 +95,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -121,8 +121,8 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {(drive.state === "as_is" || drive.state === "readonly") && (
-          <Button size="sm" variant="primary" onClick={() => onBrowse(drive)}>
-            Browse files
+          <Button size="sm" variant="primary" asChild>
+            <Link to={`/drives/${drive.id}`}>Browse files</Link>
           </Button>
         )}
         {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
@@ -190,7 +190,6 @@ export default function DrivesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
-  const [browsingDrive, setBrowsingDrive] = useState(null);
   /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
@@ -219,9 +218,8 @@ export default function DrivesPage() {
     mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
-      setInspectFor(null);
+      // InspectModal closes via ModalCard's animated close (not an instant unmount).
       setActionError(null);
-      adopt.reset();
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
@@ -327,7 +325,6 @@ export default function DrivesPage() {
               ejecting={eject.isPending}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
-              onBrowse={(d) => setBrowsingDrive(d)}
               onProtect={(d) => setProtectingDrive({ id: d.id, path: "" })}
             />
           ))}
@@ -374,30 +371,6 @@ export default function DrivesPage() {
           onClose={() => setProtectingDrive(null)}
         />
       )}
-      {browsingDrive && (
-        <ModalCard
-          title={`Browse ${browsingDrive.label}`}
-          size="lg"
-          onClose={() => setBrowsingDrive(null)}
-        >
-          {({ close }) => (
-            <DriveFileExplorer
-              driveId={browsingDrive.id}
-              driveLabel={browsingDrive.label}
-              isAdmin={isAdmin}
-              dense
-              headerExtra={
-                <Button variant="outline" surface="secondary" size="sm" asChild>
-                  <Link to={`/drives/${browsingDrive.id}`} onClick={close}>
-                    Open full files page
-                  </Link>
-                </Button>
-              }
-            />
-          )}
-        </ModalCard>
-      )}
-
       {removeTarget && (
         <ModalCard title="Remove this drive?" onClose={() => setRemoveTarget(null)}>
           {({ close }) => (
@@ -428,7 +401,7 @@ export default function DrivesPage() {
           result={inspect.data}
           error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
           onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
-          onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
+          onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
           adoptError={adoptError}
           adopting={adopt.isPending}
         />
@@ -542,7 +515,7 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
             </p>
           ) : (
             <div className="mt-4 flex items-center gap-3">
-              <TriangleAlert size={18} className="text-warning shrink-0" />
+              <Info size={18} className="text-accent shrink-0" aria-hidden="true" />
               <p className="text-primary text-xs">
                 Adding it only writes one tiny <span className="font-mono">.luna</span> marker
                 file at the top of the drive. Your files are untouched.
@@ -554,7 +527,7 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
               <label className="block mt-4">
                 <span className="text-primary text-xs">What should Luna call this drive?</span>
                 <input
-                  className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                   value={label}
                   maxLength={80}
                   onChange={(e) => setLabel(e.target.value)}
@@ -570,7 +543,11 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
                   <Button
                     variant={needsErase ? "danger" : "primary"}
                     loading={adopting}
-                    onClick={() => onAdopt(label, needsErase)}
+                    onClick={() => {
+                      Promise.resolve(onAdopt(label, needsErase))
+                        .then(() => close())
+                        .catch(() => {});
+                    }}
                   >
                     {needsErase ? "Yes, erase it" : "Add this drive"}
                   </Button>

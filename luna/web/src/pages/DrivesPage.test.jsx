@@ -147,6 +147,50 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
   });
 
+  it("uses an info icon for the .luna marker note and softens the name-field focus ring", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi();
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    const note = await screen.findByText(/marker file/i);
+    const row = note.closest("div");
+    expect(row?.querySelector(".text-accent")).toBeTruthy();
+    expect(row?.querySelector(".text-warning")).toBeNull();
+    const input = screen.getByDisplayValue("64GB PSSD");
+    expect(input.className).toMatch(/no-focus-outline/);
+    expect(input.className).not.toMatch(/focus:ring/);
+  });
+
+  it("animates Look-inside out when Add this drive succeeds", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const { waitFor } = await import("@testing-library/react");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.includes("/adopt")) {
+          return new Response(JSON.stringify({ id: "d-new", label: "64GB PSSD" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /Add this drive/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+        .toHaveClass("animate-out");
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
   it("uses a page heading for unknown drives, not a stacked title card", async () => {
     stubDrivesApi();
     renderPage();
@@ -332,7 +376,8 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("button", { name: /Browse files/i })).toBeInTheDocument();
+    const browse = await screen.findByRole("link", { name: /Browse files/i });
+    expect(browse).toHaveAttribute("href", "/drives/d1");
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
   });
 
@@ -363,8 +408,7 @@ describe("DrivesPage", () => {
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
   });
 
-  it("offers Browse files and opens the shared file browser", async () => {
-    const { default: userEvent } = await import("@testing-library/user-event");
+  it("offers Browse files linking to the full files page", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives")) {
@@ -377,22 +421,12 @@ describe("DrivesPage", () => {
             available: false, overall: "unknown",
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (u.includes("/files?")) {
-          return new Response(JSON.stringify([
-            { name: "Vacation", kind: "dir", size: 0, hidden: false },
-            { name: "notes.txt", kind: "file", size: 12, hidden: false },
-          ]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
         return null;
       },
     });
     renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Browse files/i }));
-    expect(await screen.findByRole("heading", { name: /Browse Photos Drive/i })).toBeInTheDocument();
-    expect(await screen.findByText("Vacation")).toBeInTheDocument();
-    expect(screen.getByText("notes.txt")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open full files page/i })).toHaveAttribute("href", "/drives/d1");
+    expect(await screen.findByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.queryByRole("heading", { name: /Browse Photos Drive/i })).not.toBeInTheDocument();
   });
 
   it("shows singular grammar and named entries when looking inside", async () => {
