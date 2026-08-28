@@ -4,17 +4,19 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import UpdatesCategory from "./UpdatesCategory";
 
+const SHIPPED_KEY = "RWBUILTIN";
 const SOURCE_RESPONSE = {
   api_base: "https://gt.plainskill.net/api/v1",
   owner: "LibreLoom",
   repo: "LibreServ",
-  keys: ["RWBUILTIN"],
+  keys: [],
+  effective_keys: [SHIPPED_KEY],
   default_keys: true,
   defaults: {
     api_base: "https://gt.plainskill.net/api/v1",
     owner: "LibreLoom",
     repo: "LibreServ",
-    keys: ["RWBUILTIN"],
+    keys: [SHIPPED_KEY],
   },
 };
 
@@ -69,6 +71,7 @@ describe("UpdatesCategory", () => {
       owner: "MyOrg",
       repo: "LunaFork",
       keys: ["RWCUSTOM"],
+      effective_keys: ["RWCUSTOM"],
       default_keys: false,
     }));
     expect(await screen.findByText("Custom source")).toBeTruthy();
@@ -93,7 +96,24 @@ describe("UpdatesCategory", () => {
     const keysField = /** @type {HTMLTextAreaElement} */ (
       screen.getByRole("textbox", { name: /Signing keys/i })
     );
-    expect(keysField.value).toBe("RWBUILTIN");
+    expect(keysField.value).toBe(SHIPPED_KEY);
+  });
+
+  it("prefills the shipped key when stored keys are empty", async () => {
+    const user = userEvent.setup();
+    renderPage(stubFetch({
+      ...SOURCE_RESPONSE,
+      keys: [],
+      effective_keys: [SHIPPED_KEY],
+      default_keys: true,
+    }));
+    await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
+    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
+    const keysField = /** @type {HTMLTextAreaElement} */ (
+      screen.getByRole("textbox", { name: /Signing keys/i })
+    );
+    expect(keysField.value).toBe(SHIPPED_KEY);
   });
 
   it("saves the new source with a PUT and closes the modal", async () => {
@@ -117,7 +137,7 @@ describe("UpdatesCategory", () => {
     const body = JSON.parse(put?.[1]?.body ?? "{}");
     expect(body.owner).toBe("MyOrg");
     expect(body.repo).toBe("LibreServ");
-    expect(body.keys).toEqual(["RWBUILTIN"]);
+    expect(body.keys).toEqual([]);
   });
 
   it("blocks a save with an invalid signing key", async () => {

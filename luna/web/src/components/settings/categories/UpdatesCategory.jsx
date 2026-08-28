@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download } from "lucide-react";
 import Button from "../../ui/Button";
@@ -12,6 +12,28 @@ import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
 
 const INPUT_CLASS =
   "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono";
+
+/** Keys shown in the form: stored override, else the key Luna is actually using. */
+function signingKeysForDisplay(source) {
+  const s = source || {};
+  const stored = s.keys || [];
+  if (stored.length > 0) return stored;
+  const effective = s.effective_keys || [];
+  if (effective.length > 0) return effective;
+  return s.defaults?.keys || [];
+}
+
+/** Keys sent on save — empty means “keep Luna’s built-in release key”. */
+function signingKeysForSave(keyLines, source) {
+  const defaults = source?.defaults?.keys || [];
+  const trimmed = keyLines
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (trimmed.length === 0) return [];
+  const defaultText = defaults.join("\n");
+  if (trimmed.join("\n") === defaultText) return [];
+  return trimmed;
+}
 
 export default function UpdatesCategory() {
   const queryClient = useQueryClient();
@@ -159,19 +181,29 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
   const [baseUrl, setBaseUrl] = useState(s.api_base || "");
   const [owner, setOwner] = useState(s.owner || "");
   const [repo, setRepo] = useState(s.repo || "");
-  const [keysText, setKeysText] = useState((s.keys || []).join("\n"));
+  const [keysText, setKeysText] = useState(signingKeysForDisplay(s).join("\n"));
   const [saveError, setSaveError] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setBaseUrl(s.api_base || "");
+    setOwner(s.owner || "");
+    setRepo(s.repo || "");
+    setKeysText(signingKeysForDisplay(s).join("\n"));
+    setSaveError(null);
+  }, [open, s.api_base, s.owner, s.repo, s.keys, s.effective_keys, s.default_keys, s.defaults]);
 
   const keyLines = keysText
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const defaults = s.defaults || {};
+  const initialKeyLines = signingKeysForDisplay(s);
   const dirty =
     baseUrl !== (s.api_base || "") ||
     owner !== (s.owner || "") ||
     repo !== (s.repo || "") ||
-    keyLines.join("\n") !== (s.keys || []).join("\n");
+    keyLines.join("\n") !== initialKeyLines.join("\n");
 
   const save = useMutation({
     mutationFn: () =>
@@ -179,7 +211,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
         api_base: baseUrl.trim(),
         owner: owner.trim(),
         repo: repo.trim(),
-        keys: keyLines,
+        keys: signingKeysForSave(keyLines, s),
       }),
     onSuccess: (data) => {
       onSaved(data);
@@ -275,19 +307,21 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
 
         <div className="space-y-1">
           <label className="block text-sm text-primary" htmlFor="us-keys">
-            Signing keys <InfoHint label="What signing keys do" content="An update is only installed when it carries a signature made with the matching secret key. These public keys are how Luna knows an update really comes from the project and wasn't tampered with. Leave this empty to keep the key Luna shipped with. If you change these without a matching signer, updates will stop." />
+            Signing keys <InfoHint label="What signing keys do" content="An update is only installed when it carries a signature made with the matching secret key. These public keys are how Luna knows an update really comes from the project and wasn't tampered with. Luna already ships with the LibreLoom release key filled in below — you only need to change this if your updates are signed by someone else." />
           </label>
           <textarea
             id="us-keys"
             value={keysText}
             onChange={(e) => setKeysText(e.target.value)}
             rows={3}
-            placeholder={(defaults.keys || []).join("\n") || "Leave empty to use Luna's built-in release key"}
+            placeholder={(defaults.keys || []).join("\n") || "Luna's built-in release key"}
             className="w-full min-w-0 rounded-large-element bg-primary text-secondary px-4 py-2 font-mono text-sm"
           />
           <p className="text-primary text-sm">
             One minisign public key per line (the line that starts with RW).
-            Leave empty to keep the key this Luna shipped with.
+            {s.default_keys
+              ? " This is the key Luna shipped with — leave it as-is unless you know your updates use a different signer."
+              : " Clear the field and save to go back to Luna's built-in release key."}
           </p>
         </div>
 
