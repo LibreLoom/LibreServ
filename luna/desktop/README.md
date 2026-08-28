@@ -1,22 +1,24 @@
 # Luna Desktop
 
-Tauri 2 app: folder backup and one-click WebDAV mounts.
+Tauri 2 app for **Backup** (one-way copy of folders onto Luna) and **Sync**
+(two-way keep a Luna folder and a local folder up to date).
 
-- Backup uses Luna's resumable chunked upload API, watches the chosen folder,
-  and retries changed files.
-- "Open as folder" mounts `/dav/{drive_id}` with the OS-native WebDAV client.
-  Sign in once; Luna mints an access token. Use that token as the WebDAV
-  password — never the Luna password.
+## What it does
+
+1. **Sign in** once. Luna Desktop mints a device access token and remembers it
+   on this computer. Your Luna password is not stored.
+2. **Backup** — pick folders on this computer and a folder on Luna (create one
+   if you need). You can run several backup jobs to different destinations.
+3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
+   Desktop creates a child folder there and keeps both sides in sync. If both
+   sides change the same file, both copies are kept with a clear conflict name.
 
 ## Linux package (this repo's supported path)
-
-Apple and Windows installers are **not** required here and need platform
-certs if you ever build them yourself. On Linux:
 
 ```sh
 # From luna/
 make desktop          # tests + unbundled binary
-make desktop-bundle   # .deb + AppImage (one command)
+make desktop-bundle   # .deb + AppImage
 ```
 
 Or from `luna/desktop`:
@@ -26,16 +28,17 @@ npm install
 npm run tauri -- build --bundles deb,appimage
 ```
 
-System packages (Fedora/Debian names vary): `webkit2gtk4.1` / `libwebkit2gtk-4.1-dev`,
-`librsvg2`, `openssl-devel`, a C compiler, and `patchelf` for AppImage.
+System packages (Fedora/Debian names vary): `webkit2gtk4.1` /
+`libwebkit2gtk-4.1-dev`, `librsvg2`, `openssl-devel`, a C compiler, and
+`patchelf` for AppImage. If AppImage tooling cannot use FUSE, set
+`APPIMAGE_EXTRACT_AND_RUN=1`.
 
 Outputs land in `desktop/src-tauri/target/release/bundle/`.
 
-## Soak test (fake Luna API)
-
-`cargo test` in `desktop/src-tauri` hits a local fake Luna HTTP API (login +
-drive list, repeated). No running lunad required.
+## Soak / unit tests
 
 ```sh
 cd desktop/src-tauri && cargo test
 ```
+
+Fake Luna HTTP coverage includes login, drive list, folder list, and mkdir.

@@ -2,6 +2,14 @@
   --primary: #ffffff;
   --secondary: #000000;
   --accent: #767676;
+  --success: #1a7f37;
+  --error: #cf222e;
+  --warning: #9a6700;
+}
+
+html.dark {
+  --primary: #000000;
+  --secondary: #ffffff;
 }
 
 html,
@@ -16,16 +24,185 @@ body {
   min-height: 100vh;
 }
 
-.page {
-  background: var(--primary);
-  color: var(--secondary);
-  padding: 24px;
-  max-width: 40rem;
+button,
+input,
+select {
+  font: inherit;
 }
 
-h1 {
+.mono {
+  font-family: FreeMono, "Courier New", monospace;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.login-card {
+  width: min(28rem, 100%);
+  background: var(--secondary);
+  color: var(--primary);
+  border-radius: 24px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-family: FreeMono, "Courier New", monospace;
+  font-size: 1.75rem;
+}
+
+.login-card p {
+  margin: 0;
+  opacity: 0.95;
+}
+
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.login-card input {
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  background: var(--primary);
+  color: var(--secondary);
+  padding: 0.65rem 1rem;
+}
+
+.login-card .primary-btn {
+  border: 0;
+  border-radius: 9999px;
+  padding: 0.7rem 1.25rem;
+  background: var(--primary);
+  color: var(--secondary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.login-card .primary-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.login-error {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  color: var(--primary);
+  border-radius: 16px;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 13.5rem 1fr;
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--secondary);
+  color: var(--primary);
+  padding: 1.25rem 0.85rem;
+  border-radius: 0 24px 24px 0;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.sidebar-brand {
+  font-family: FreeMono, "Courier New", monospace;
+  font-size: 1.25rem;
+  padding: 0.5rem 0.75rem 1.25rem;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.nav-btn {
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--primary);
+  text-align: left;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+}
+
+.nav-btn:hover {
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.nav-btn.active {
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  margin-top: auto;
+}
+
+.sidebar-user {
+  font-family: FreeMono, "Courier New", monospace;
+  font-size: 0.95rem;
+}
+
+.sign-out-btn {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--primary);
+  color: var(--secondary);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.main {
+  padding: 1.5rem 1.75rem 2rem;
+  overflow: auto;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.page-head h1 {
+  margin: 0;
   font-family: FreeMono, "Courier New", monospace;
   font-size: 1.5rem;
+}
+
+.page-head p {
+  margin: 0.35rem 0 0;
+  color: var(--accent);
 }
 
 .card {
@@ -33,53 +210,172 @@ h1 {
   color: var(--primary);
   border-radius: 24px;
   padding: 1.25rem;
-  margin: 1rem 0;
+  margin-bottom: 1rem;
+}
+
+.card h2 {
+  margin: 0 0 0.35rem;
+  font-family: FreeMono, "Courier New", monospace;
+  font-size: 1.1rem;
+}
+
+.muted {
+  color: color-mix(in srgb, var(--primary) 70%, transparent);
+  font-size: 0.9rem;
 }
 
 .row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin: 0.75rem 0;
+  align-items: center;
+  margin-top: 0.85rem;
 }
 
-input,
-select {
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   border-radius: 9999px;
-  border: 2px solid color-mix(in srgb, var(--secondary) 30%, transparent);
   background: var(--primary);
   color: var(--secondary);
-  padding: 0.5rem 1rem;
-  font: inherit;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  max-width: 100%;
 }
 
-.card input,
-.card select {
-  background: var(--primary);
-  color: var(--secondary);
-}
-
-button {
-  border-radius: 9999px;
+.chip button {
   border: 0;
-  padding: 0.5rem 1rem;
-  font: inherit;
+  background: transparent;
+  color: var(--secondary);
   cursor: pointer;
-  background: var(--accent);
+  padding: 0;
+  line-height: 1;
+}
+
+.btn {
+  border: 0;
+  border-radius: 9999px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--primary);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+
+.btn.danger {
+  background: color-mix(in srgb, var(--error) 85%, var(--primary));
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.banner {
+  border-radius: 16px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.banner.error {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+}
+
+.banner.ok {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field input,
+.field select {
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  background: var(--primary);
+  color: var(--secondary);
+  padding: 0.55rem 1rem;
+}
+
+.browser {
+  background: var(--primary);
+  color: var(--secondary);
+  border-radius: 16px;
+  padding: 0.75rem;
+}
+
+.browser-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.crumb {
+  border: 0;
+  background: transparent;
+  color: var(--secondary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.file-list button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--secondary);
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+}
+
+.file-list button:hover,
+.file-list button.selected {
+  background: var(--secondary);
   color: var(--primary);
 }
 
-.card button {
-  background: var(--primary);
-  color: var(--secondary);
+.empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--accent);
 }
 
-.token {
-  font-family: FreeMono, "Courier New", monospace;
-  word-break: break-all;
-  margin-top: 0.75rem;
-}
-
-.hint {
-  font-size: 0.875rem;
+.status-line {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
 }

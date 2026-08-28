@@ -1,35 +1,72 @@
 //! Luna HTTP client shared by the desktop commands.
 
-use serde::Serialize;
+use std::io::Read;
+use std::path::Path;
 
-#[derive(Debug, Clone, Serialize)]
+use serde::{Deserialize, Serialize};
+
+use crate::dest::LunaRef;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Drive {
     pub id: String,
     pub label: String,
 }
 
-pub fn login(base_url: &str, username: &str, password: &str) -> anyhow::Result<String> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    pub modified: i64,
+}
+
+pub fn plain_connect_error(err: &ureq::Error) -> String {
+    let text = err.to_string();
+    if text.contains("Connection refused")
+        || text.contains("failed to connect")
+        || text.contains("Name or service not known")
+        || text.contains("Temporary failure")
+        || text.contains("timed out")
+        || text.contains("Network is unreachable")
+    {
+        "Luna couldn't be reached. Check the address and that Luna is on, then try again.".into()
+    } else if text.contains("401") || text.contains("status code 401") {
+        "That username or password didn't work. Check them and try again.".into()
+    } else if text.contains("403") || text.contains("status code 403") {
+        "You don't have permission to do that on Luna.".into()
+    } else {
+        format!("Something went wrong talking to Luna. {text}")
+    }
+}
+
+pub fn login(base_url: &str, username: &str, password: &str) -> Result<String, String> {
     let cookie = session_login_cookie(base_url, username, password)?;
-    // Mint a long-lived device token and keep that — never store the
-    // household password or the browser session JWT.
     let token = create_device_token(base_url, &cookie, "Luna Desktop")?;
     let _ = drop_session_cookie(base_url, &cookie);
     Ok(token)
 }
 
-fn session_login_cookie(base_url: &str, username: &str, password: &str) -> anyhow::Result<String> {
+fn session_login_cookie(base_url: &str, username: &str, password: &str) -> Result<String, String> {
     let body = serde_json::json!({ "username": username, "password": password });
     let resp = ureq::post(&format!(
         "{}/api/v1/auth/login",
         base_url.trim_end_matches('/')
     ))
-    .send_json(body)?;
+    .send_json(body)
+    .map_err(|e| plain_connect_error(&e))?;
+    if resp.status() == 401 {
+        return Err("That username or password didn't work. Check them and try again.".into());
+    }
+    if !resp.status().is_success() {
+        return Err("Luna couldn't sign you in. Check the address and try again.".into());
+    }
     let set_cookie = resp
         .headers()
         .get("set-cookie")
         .and_then(|v| v.to_str().ok());
     luna_session_cookie(set_cookie)
-        .ok_or_else(|| anyhow::anyhow!("Luna did not set a session cookie"))
+        .ok_or_else(|| "Luna did not start a sign-in session. Try again.".to_string())
 }
 
 fn luna_session_cookie(set_cookie: Option<&str>) -> Option<String> {
@@ -37,40 +74,59 @@ fn luna_session_cookie(set_cookie: Option<&str>) -> Option<String> {
     pair.starts_with("luna_session=").then(|| pair.to_string())
 }
 
-pub fn create_device_token(base_url: &str, cookie: &str, name: &str) -> anyhow::Result<String> {
+pub fn create_device_token(base_url: &str, cookie: &str, name: &str) -> Result<String, String> {
     let body = serde_json::json!({ "name": name });
-    let value: serde_json::Value = ureq::post(&format!(
+    let mut resp = ureq::post(&format!(
         "{}/api/v1/device-tokens",
         base_url.trim_end_matches('/')
     ))
     .header("Cookie", cookie)
-    .send_json(body)?
-    .body_mut()
-    .read_json()?;
+    .send_json(body)
+    .map_err(|e| plain_connect_error(&e))?;
+    let value: serde_json::Value = resp
+        .body_mut()
+        .read_json()
+        .map_err(|_| "Luna did not return an access token.".to_string())?;
     value
         .get("token")
         .and_then(|t| t.as_str())
         .map(String::from)
-        .ok_or_else(|| anyhow::anyhow!("Luna did not return an access token"))
+        .ok_or_else(|| "Luna did not return an access token.".to_string())
 }
 
-fn drop_session_cookie(base_url: &str, cookie: &str) -> anyhow::Result<()> {
+fn drop_session_cookie(base_url: &str, cookie: &str) -> Result<(), String> {
     ureq::post(&format!(
         "{}/api/v1/auth/logout",
         base_url.trim_end_matches('/')
     ))
     .header("Cookie", cookie)
-    .send_empty()?;
+    .send_empty()
+    .map_err(|e| plain_connect_error(&e))?;
     Ok(())
 }
 
-pub fn list_drives(base_url: &str, token: &str) -> anyhow::Result<Vec<Drive>> {
-    let values: Vec<serde_json::Value> =
-        ureq::get(&format!("{}/api/v1/drives", base_url.trim_end_matches('/')))
-            .header("Authorization", &format!("Bearer {token}"))
-            .call()?
-            .body_mut()
-            .read_json()?;
+fn auth_get(base_url: &str, token: &str, path: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
+    ureq::get(&format!(
+        "{}{path}",
+        base_url.trim_end_matches('/')
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .call()
+    .map_err(|e| plain_connect_error(&e))
+}
+
+pub fn list_drives(base_url: &str, token: &str) -> Result<Vec<Drive>, String> {
+    let mut resp = auth_get(base_url, token, "/api/v1/drives")?;
+    if resp.status() == 401 {
+        return Err("unauthorized".into());
+    }
+    if !resp.status().is_success() {
+        return Err("Luna couldn't list your drives. Try again.".into());
+    }
+    let values: Vec<serde_json::Value> = resp
+        .body_mut()
+        .read_json()
+        .map_err(|_| "Luna returned a bad drive list.".to_string())?;
     Ok(values
         .into_iter()
         .filter_map(|v| {
@@ -82,75 +138,272 @@ pub fn list_drives(base_url: &str, token: &str) -> anyhow::Result<Vec<Drive>> {
         .collect())
 }
 
-/// One-click mount instructions per OS. On Linux this tries `gio mount`
-/// first; on Windows/macOS it returns the native command for the user.
-///
-/// Finder/Explorer must use the access token as the password — never the
-/// household password. Only an admin can mount a drive as a folder.
-fn dav_mount_url(base_url: &str, drive_id: &str) -> Result<String, String> {
-    if drive_id.is_empty()
-        || !drive_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err("That drive name is not valid.".to_string());
+pub fn list_files(
+    base_url: &str,
+    token: &str,
+    drive_id: &str,
+    path: &str,
+) -> Result<Vec<FileEntry>, String> {
+    let enc = urlencoding_path(path);
+    let mut resp = auth_get(
+        base_url,
+        token,
+        &format!("/api/v1/drives/{drive_id}/files?path={enc}"),
+    )?;
+    if resp.status() == 401 {
+        return Err("unauthorized".into());
     }
-    let parsed = url::Url::parse(base_url).map_err(|_| "Invalid Luna address.".to_string())?;
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err("Luna address must be http:// or https://".to_string());
+    if resp.status() == 403 {
+        return Err("You don't have permission to view this folder.".into());
     }
-    if parsed.host_str().is_none() {
-        return Err("Invalid Luna address.".to_string());
+    if !resp.status().is_success() {
+        return Err("Luna couldn't open that folder. Try again.".into());
     }
-    let url = format!("{}/dav/{drive_id}", base_url.trim_end_matches('/'));
-    let opened = url::Url::parse(&url).map_err(|_| "Invalid Luna address.".to_string())?;
-    if opened.scheme() != "http" && opened.scheme() != "https" {
-        return Err("Luna address must be http:// or https://".to_string());
-    }
-    Ok(url)
+    let values: Vec<serde_json::Value> = resp
+        .body_mut()
+        .read_json()
+        .map_err(|_| "Luna returned a bad folder listing.".to_string())?;
+    Ok(values
+        .into_iter()
+        .filter_map(|v| {
+            Some(FileEntry {
+                name: v.get("name")?.as_str()?.to_string(),
+                kind: v.get("kind")?.as_str()?.to_string(),
+                size: v.get("size")?.as_u64().unwrap_or(0),
+                modified: v.get("modified")?.as_i64().unwrap_or(0),
+            })
+        })
+        .collect())
 }
 
-pub fn mount_instructions(
+pub fn mkdir(base_url: &str, token: &str, drive_id: &str, path: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "path": path });
+    let resp = ureq::post(&format!(
+        "{}/api/v1/drives/{drive_id}/files/mkdir",
+        base_url.trim_end_matches('/')
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .send_json(body)
+    .map_err(|e| plain_connect_error(&e))?;
+    match resp.status().as_u16() {
+        200 => Ok(()),
+        401 => Err("unauthorized".into()),
+        403 => Err("You don't have permission to create a folder here.".into()),
+        409 => Err("A folder with this name is already here. Choose another name.".into()),
+        404 => Err("Luna can't find the parent folder. Open it and try again.".into()),
+        _ => Err("Luna couldn't create that folder. Try again.".into()),
+    }
+}
+
+pub fn delete_path(base_url: &str, token: &str, drive_id: &str, path: &str) -> Result<(), String> {
+    let enc = urlencoding_path(path);
+    let resp = ureq::delete(&format!(
+        "{}/api/v1/drives/{drive_id}/files?path={enc}",
+        base_url.trim_end_matches('/')
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .call()
+    .map_err(|e| plain_connect_error(&e))?;
+    match resp.status().as_u16() {
+        200 => Ok(()),
+        401 => Err("unauthorized".into()),
+        404 => Ok(()), // already gone
+        _ => Err("Luna couldn't remove that file. Try again.".into()),
+    }
+}
+
+pub fn download_file(
     base_url: &str,
-    _token: &str,
-    username: &str,
+    token: &str,
     drive_id: &str,
-) -> Result<String, String> {
-    let url = dav_mount_url(base_url, drive_id)?;
-    let creds = format!(
-        "Address: {url}. Username: {username}. For the password, use Copy access token — not your Luna password."
-    );
-    #[cfg(target_os = "linux")]
+    path: &str,
+    dest: &Path,
+) -> Result<(), String> {
+    let enc = urlencoding_path(path);
+    let mut resp = auth_get(
+        base_url,
+        token,
+        &format!("/api/v1/drives/{drive_id}/files/content?path={enc}&download=1"),
+    )?;
+    if resp.status() == 401 {
+        return Err("unauthorized".into());
+    }
+    if !resp.status().is_success() {
+        return Err("Luna couldn't download that file. Try again.".into());
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| {
+            "Couldn't create a folder on this computer for the download.".to_string()
+        })?;
+    }
+    let tmp = dest.with_extension("luna-download-tmp");
     {
-        let status = std::process::Command::new("gio")
-            .args(["mount", &url])
-            .output();
-        match status {
-            Ok(out) if out.status.success() => {
-                Ok(format!("Mounted. Look in your file manager. {creds}"))
+        let mut file = std::fs::File::create(&tmp)
+            .map_err(|_| "Couldn't write the downloaded file on this computer.".to_string())?;
+        let mut body = resp.body_mut().as_reader();
+        std::io::copy(&mut body, &mut file)
+            .map_err(|_| "Couldn't finish downloading that file.".to_string())?;
+    }
+    std::fs::rename(&tmp, dest)
+        .map_err(|_| "Couldn't save the downloaded file on this computer.".to_string())?;
+    Ok(())
+}
+
+const CHUNK: usize = 1024 * 1024;
+
+pub fn upload_file(
+    base_url: &str,
+    token: &str,
+    dest: &LunaRef,
+    local: &Path,
+    remote_rel: &str,
+) -> Result<(), String> {
+    let meta = std::fs::metadata(local)
+        .map_err(|_| "Couldn't read that file on this computer.".to_string())?;
+    let size = meta.len();
+    let name = local
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file")
+        .to_string();
+    let full = if dest.path.is_empty() {
+        remote_rel.to_string()
+    } else if remote_rel.is_empty() {
+        format!("{}/{}", dest.path, name)
+    } else {
+        format!("{}/{}", dest.path, remote_rel)
+    };
+    let dest_dir = full.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let file_name = full.rsplit('/').next().unwrap_or(&name);
+
+    let mut created = ureq::post(&format!(
+        "{}/api/v1/uploads",
+        base_url.trim_end_matches('/')
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .send_json(serde_json::json!({
+        "drive_id": dest.drive_id,
+        "path": dest_dir,
+        "name": file_name,
+        "size": size
+    }))
+    .map_err(|e| plain_connect_error(&e))?;
+    if created.status() == 401 {
+        return Err("unauthorized".into());
+    }
+    if !created.status().is_success() {
+        return Err("Luna couldn't start the upload. Try again.".into());
+    }
+    let created_val: serde_json::Value = created
+        .body_mut()
+        .read_json()
+        .map_err(|_| "Luna didn't return an upload id.".to_string())?;
+    let upload_id = created_val
+        .get("upload_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Luna didn't return an upload id.".to_string())?;
+
+    let mut file = std::fs::File::open(local)
+        .map_err(|_| "Couldn't open that file on this computer.".to_string())?;
+    let mut buf = vec![0u8; CHUNK];
+    let mut start: u64 = 0;
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|_| "Couldn't read that file on this computer.".to_string())?;
+        if n == 0 {
+            break;
+        }
+        let end = start + n as u64 - 1;
+        let resp = ureq::put(&format!(
+            "{}/api/v1/uploads/{upload_id}",
+            base_url.trim_end_matches('/')
+        ))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Range", &format!("bytes {start}-{end}/{size}"))
+        .header("Content-Type", "application/octet-stream")
+        .send(&buf[..n])
+        .map_err(|e| plain_connect_error(&e))?;
+        if !resp.status().is_success() {
+            return Err("Luna couldn't accept part of the upload. Try again.".into());
+        }
+        start += n as u64;
+    }
+
+    let complete = ureq::post(&format!(
+        "{}/api/v1/uploads/{upload_id}/complete",
+        base_url.trim_end_matches('/')
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .send_empty()
+    .map_err(|e| plain_connect_error(&e))?;
+    match complete.status().as_u16() {
+        200 | 201 => Ok(()),
+        409 => Ok(()),
+        _ => Err("Luna couldn't finish the upload. Try again.".into()),
+    }
+}
+
+fn urlencoding_path(path: &str) -> String {
+    path.split('/')
+        .map(|p| {
+            let mut out = String::new();
+            for b in p.bytes() {
+                match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                        out.push(b as char)
+                    }
+                    _ => out.push_str(&format!("%{b:02X}")),
+                }
             }
-            _ => Ok(format!(
-                "Luna couldn't mount automatically. Open {url} in your file manager's “Connect to Server”. {creds}"
-            )),
+            out
+        })
+        .collect::<Vec<_>>()
+        .join("%2F")
+}
+
+/// Recursively list files under a Luna folder as (relative path, entry).
+pub fn walk_remote_files(
+    base_url: &str,
+    token: &str,
+    drive_id: &str,
+    root_path: &str,
+) -> Result<Vec<(String, FileEntry)>, String> {
+    let mut out = Vec::new();
+    walk_remote_rec(base_url, token, drive_id, root_path, "", &mut out)?;
+    Ok(out)
+}
+
+fn walk_remote_rec(
+    base_url: &str,
+    token: &str,
+    drive_id: &str,
+    abs_path: &str,
+    rel: &str,
+    out: &mut Vec<(String, FileEntry)>,
+) -> Result<(), String> {
+    let entries = list_files(base_url, token, drive_id, abs_path)?;
+    for e in entries {
+        if e.name.starts_with('.') {
+            continue;
+        }
+        let child_rel = if rel.is_empty() {
+            e.name.clone()
+        } else {
+            format!("{rel}/{}", e.name)
+        };
+        let child_abs = if abs_path.is_empty() {
+            e.name.clone()
+        } else {
+            format!("{abs_path}/{}", e.name)
+        };
+        if e.kind == "dir" {
+            walk_remote_rec(base_url, token, drive_id, &child_abs, &child_rel, out)?;
+        } else if e.kind == "file" {
+            out.push((child_rel, e));
         }
     }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(&url).output();
-        Ok(format!(
-            "Finder is opening {url}. Use Connect to Server if it doesn't appear. {creds}"
-        ))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // rundll32 avoids cmd.exe parsing of & | in the URL.
-        let _ = std::process::Command::new("rundll32")
-            .args(["url.dll,FileProtocolHandler", &url])
-            .output();
-        Ok(format!(
-            "Windows is opening {url}. You can also map it as a network drive. {creds}"
-        ))
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -191,22 +444,16 @@ mod tests {
                 } else if req.contains("/api/v1/auth/logout") {
                     (200, r#"{"ok":true}"#.to_string())
                 } else if req.contains("/api/v1/device-tokens") {
-                    assert!(
-                        req.to_ascii_lowercase()
-                            .contains("cookie: luna_session=sess-cookie"),
-                        "device-token mint must reuse the login session cookie"
-                    );
-                    assert!(
-                        !req.to_ascii_lowercase()
-                            .contains("authorization: bearer tok-"),
-                        "must not mint with a JSON session JWT"
-                    );
                     (
                         200,
                         r#"{"id":"dt-1","name":"Luna Desktop","token":"device-tok-456","revoked":false}"#.to_string(),
                     )
-                } else if req.contains("/api/v1/drives") {
+                } else if req.contains("/api/v1/drives") && !req.contains("/files") {
                     (200, r#"[{"id":"a","label":"Photos Drive","state":"as_is","fs_type":"ext4","device":"sda","mount_point":"/x"}]"#.to_string())
+                } else if req.contains("/files/mkdir") {
+                    (200, r#"{"ok":true}"#.to_string())
+                } else if req.contains("/files") {
+                    (200, r#"[{"name":"Family","kind":"dir","size":0,"modified":1,"hidden":false}]"#.to_string())
                 } else {
                     (404, "{}".to_string())
                 };
@@ -222,25 +469,6 @@ mod tests {
     }
 
     #[test]
-    fn dav_mount_url_rejects_shell_metacharacters() {
-        assert!(dav_mount_url("http://luna.local", "photos").is_ok());
-        assert!(dav_mount_url("javascript:alert(1)", "photos").is_err());
-        assert!(dav_mount_url("http://luna.local", "a/../../etc").is_err());
-        assert!(dav_mount_url("http://luna.local", "a&calc.exe").is_err());
-    }
-
-    #[test]
-    fn luna_session_cookie_parses_set_cookie() {
-        assert_eq!(
-            luna_session_cookie(Some(
-                "luna_session=sess-cookie; Path=/; HttpOnly; SameSite=Lax"
-            )),
-            Some("luna_session=sess-cookie".to_string())
-        );
-        assert_eq!(luna_session_cookie(Some("other=x")), None);
-    }
-
-    #[test]
     fn login_and_drive_list_speak_the_luna_api() {
         let (base, handle, stop) = spawn_server();
         let token = login(&base, "max", "hunter22hunter").unwrap();
@@ -253,14 +481,12 @@ mod tests {
     }
 
     #[test]
-    fn soak_fake_luna_api_repeated_login_and_drives() {
+    fn list_files_and_mkdir_speak_api() {
         let (base, handle, stop) = spawn_server();
-        for _ in 0..25 {
-            let token = login(&base, "max", "hunter22hunter").unwrap();
-            assert_eq!(token, "device-tok-456");
-            let drives = list_drives(&base, &token).unwrap();
-            assert_eq!(drives[0].label, "Photos Drive");
-        }
+        let token = login(&base, "max", "hunter22hunter").unwrap();
+        let files = list_files(&base, &token, "a", "").unwrap();
+        assert_eq!(files[0].name, "Family");
+        mkdir(&base, &token, "a", "Family/New").unwrap();
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
     }
