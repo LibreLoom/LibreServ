@@ -15,7 +15,6 @@ import ValueDisplay from "../components/common/ValueDisplay";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
-import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import Spinner from "../components/ui/Spinner.jsx";
 import { InfoHint, TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
@@ -23,6 +22,7 @@ import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { describeInspectSummary } from "../lib/fileCounts";
+import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 
 /** @param {number} n @param {string} one @param {string} many */
 function pluralCount(n, one, many) {
@@ -254,7 +254,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
   const ready = drive.state === "as_is" || drive.state === "readonly";
   const health = useQuery({
@@ -294,8 +294,8 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {ready && (
-          <Button size="sm" variant="primary" onClick={() => onBrowse(drive)}>
-            Browse files
+          <Button size="sm" variant="primary" asChild>
+            <Link to={`/drives/${drive.id}`}>Browse files</Link>
           </Button>
         )}
         {showHealth && ready && (
@@ -364,7 +364,6 @@ export default function DrivesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
-  const [browsingDrive, setBrowsingDrive] = useState(null);
   /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
@@ -500,7 +499,6 @@ export default function DrivesPage() {
               ejecting={eject.isPending}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
-              onBrowse={(d) => setBrowsingDrive(d)}
               onProtect={(d) => setProtectingDrive({ id: d.id, path: "" })}
             />
           ))}
@@ -547,30 +545,6 @@ export default function DrivesPage() {
           onClose={() => setProtectingDrive(null)}
         />
       )}
-      {browsingDrive && (
-        <ModalCard
-          title={`Browse ${browsingDrive.label}`}
-          size="lg"
-          onClose={() => setBrowsingDrive(null)}
-        >
-          {({ close }) => (
-            <DriveFileExplorer
-              driveId={browsingDrive.id}
-              driveLabel={browsingDrive.label}
-              isAdmin={isAdmin}
-              dense
-              headerExtra={
-                <Button variant="outline" surface="secondary" size="sm" asChild>
-                  <Link to={`/drives/${browsingDrive.id}`} onClick={close}>
-                    Open full files page
-                  </Link>
-                </Button>
-              }
-            />
-          )}
-        </ModalCard>
-      )}
-
       {removeTarget && (
         <ModalCard title="Remove this drive?" onClose={() => setRemoveTarget(null)}>
           {({ close }) => (
