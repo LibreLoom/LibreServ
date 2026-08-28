@@ -19,6 +19,7 @@ WITH_ISO=false
 PUBLISH=false
 LUNA_RELEASE=false
 SIGN_ONLY=false
+CI_PROFILE=""
 VERSION_TAG=""
 NOTES_FILE=""
 MINISIGN_KEY_TEMP=""
@@ -51,6 +52,10 @@ while [ $# -gt 0 ]; do
             SKIP_CI=true
             shift
             ;;
+        --ci-profile)
+            CI_PROFILE="$2"
+            shift 2
+            ;;
         --with-iso)
             WITH_ISO=true
             shift
@@ -77,7 +82,7 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release] [--yes] [--version vX.Y.Z] [--notes-file PATH] [--luna] [--with-iso] [--publish] [--skip-ci]"
+            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release] [--yes] [--version vX.Y.Z] [--notes-file PATH] [--luna] [--with-iso] [--publish] [--skip-ci] [--ci-profile NAME]"
             echo ""
             echo "Options:"
             echo "  --dry-run      Build binaries and release notes, but skip Forgejo API calls"
@@ -92,6 +97,7 @@ while [ $# -gt 0 ]; do
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
             echo "  --sign-only    Sign SHA256SUMS.txt on an existing release and upload .minisig"
             echo "  --skip-ci      Do not run ./ci (still allowed for pre-releases)"
+            echo "  --ci-profile   Override CI profile (default: libreserv for v*, luna for --luna; use full for monorepo)"
             echo "  --help, -h     Show this help message"
             exit 0
             ;;
@@ -134,6 +140,18 @@ write_minisign_secret_file() {
 }
 
 minisign_secret_key() {
+    # Product-specific Cloud Agent secrets first, then generic override, then local files.
+    if [ "$LUNA_RELEASE" = true ]; then
+        if [ -n "${LSLUNA_RELEASE_MINISIG_PK:-}" ]; then
+            write_minisign_secret_file "$LSLUNA_RELEASE_MINISIG_PK"
+            return 0
+        fi
+    else
+        if [ -n "${LIBRESERV_RELEASE_MINISIG_PK:-}" ]; then
+            write_minisign_secret_file "$LIBRESERV_RELEASE_MINISIG_PK"
+            return 0
+        fi
+    fi
     if [ -n "${MINISIGN_SECRET_KEY:-}" ]; then
         if [ -f "$MINISIGN_SECRET_KEY" ]; then
             printf '%s\n' "$MINISIGN_SECRET_KEY"
@@ -142,20 +160,27 @@ minisign_secret_key() {
         write_minisign_secret_file "$MINISIGN_SECRET_KEY"
         return 0
     fi
-    if [ -n "${LSLUNA_RELEASE_MINISIG_PK:-}" ]; then
-        write_minisign_secret_file "$LSLUNA_RELEASE_MINISIG_PK"
-        return 0
-    fi
-    if [ -f "$HOME/.minisign/libreserv.key" ]; then
-        printf '%s\n' "$HOME/.minisign/libreserv.key"
-        return 0
+    if [ "$LUNA_RELEASE" = true ]; then
+        if [ -f "$HOME/.minisign/luna.key" ]; then
+            printf '%s\n' "$HOME/.minisign/luna.key"
+            return 0
+        fi
+    else
+        if [ -f "$HOME/.minisign/libreserv.key" ]; then
+            printf '%s\n' "$HOME/.minisign/libreserv.key"
+            return 0
+        fi
     fi
     return 1
 }
 
 minisign_passphrase() {
-    if [ -n "${LSLUNA_RELEASE_MINISIG_PW:-}" ]; then
+    if [ "$LUNA_RELEASE" = true ] && [ -n "${LSLUNA_RELEASE_MINISIG_PW:-}" ]; then
         printf '%s\n' "$LSLUNA_RELEASE_MINISIG_PW"
+        return 0
+    fi
+    if [ "$LUNA_RELEASE" != true ] && [ -n "${LIBRESERV_RELEASE_MINISIG_PW:-}" ]; then
+        printf '%s\n' "$LIBRESERV_RELEASE_MINISIG_PW"
         return 0
     fi
     if [ -n "${MINISIGN_PASSPHRASE:-}" ]; then
@@ -165,10 +190,20 @@ minisign_passphrase() {
     return 1
 }
 
+# Public key path for the product being released.
+release_minisign_pub() {
+    if [ "$LUNA_RELEASE" = true ]; then
+        printf '%s\n' "$ROOT_DIR/keys/luna.minisign.pub"
+        return
+    fi
+    printf '%s\n' "$ROOT_DIR/keys/libreserv.minisign.pub"
+}
+
 # Sign SHA256SUMS.txt in $1. Fail closed — never publish unsigned checksums.
 sign_checksums() {
     local dir="$1"
-    local pub="$ROOT_DIR/keys/releases.minisign.pub"
+    local pub
+    pub="$(release_minisign_pub)"
     local key pass
     if ! command -v minisign >/dev/null 2>&1; then
         log_error "minisign is required to sign SHA256SUMS.txt."
@@ -180,15 +215,19 @@ sign_checksums() {
         exit 1
     fi
     if ! key="$(minisign_secret_key)"; then
-        log_error "No minisign secret key."
-        log_error "Set MINISIGN_SECRET_KEY, LSLUNA_RELEASE_MINISIG_PK (+ LSLUNA_RELEASE_MINISIG_PW), or put the key at ~/.minisign/libreserv.key"
+        log_error "No minisign secret key for this product."
+        if [ "$LUNA_RELEASE" = true ]; then
+            log_error "Set LSLUNA_RELEASE_MINISIG_PK (+ LSLUNA_RELEASE_MINISIG_PW), MINISIGN_SECRET_KEY, or ~/.minisign/luna.key"
+        else
+            log_error "Set LIBRESERV_RELEASE_MINISIG_PK (+ LIBRESERV_RELEASE_MINISIG_PW), MINISIGN_SECRET_KEY, or ~/.minisign/libreserv.key"
+        fi
         exit 1
     fi
     if [ ! -f "$dir/SHA256SUMS.txt" ]; then
         log_error "SHA256SUMS.txt missing in $dir"
         exit 1
     fi
-    log_info "Signing SHA256SUMS.txt..."
+    log_info "Signing SHA256SUMS.txt with $(basename "$pub")..."
     if pass="$(minisign_passphrase)"; then
         if ! (cd "$dir" && printf '%s\n' "$pass" | minisign -S -s "$key" -m SHA256SUMS.txt); then
             log_error "minisign failed. Nothing will be published unsigned."
@@ -203,11 +242,11 @@ sign_checksums() {
         exit 1
     fi
     if ! minisign -V -q -p "$pub" -m "$dir/SHA256SUMS.txt"; then
-        log_error "Signature does not match keys/releases.minisign.pub."
-        log_error "Use the secret that matches the committed public key."
+        log_error "Signature does not match $(basename "$pub")."
+        log_error "Use the secret that matches the committed public key for this product."
         exit 1
     fi
-    log_info "Checksums signed and verified against the committed public key"
+    log_info "Checksums signed and verified against $(basename "$pub")"
 }
 
 # Download SHA256SUMS.txt from an existing release, sign it, upload .minisig.
@@ -423,6 +462,19 @@ validate_tag() {
     log_info "Tag validated successfully"
 }
 
+# Default CI profile for this cut (product-specific unless --ci-profile overrides).
+release_ci_profile() {
+    if [ -n "$CI_PROFILE" ]; then
+        printf '%s\n' "$CI_PROFILE"
+        return
+    fi
+    if [ "$LUNA_RELEASE" = true ]; then
+        printf 'luna\n'
+        return
+    fi
+    printf 'libreserv\n'
+}
+
 # Run CI suite
 run_ci() {
     log_step "Run CI Suite"
@@ -437,18 +489,22 @@ run_ci() {
         log_warn "Skipping CI suite (--skip-ci)"
         return
     fi
+
+    local profile
+    profile="$(release_ci_profile)"
+
     if [ "$YES" != true ]; then
-        echo "The CI suite takes 5-15 minutes to run."
+        echo "Release CI profile: $profile (override with --ci-profile full for the monorepo gate)."
         echo ""
-        read -p "Run full CI suite before release? (Y/n): " run_ci
+        read -p "Run CI profile '$profile' before release? (Y/n): " run_ci
         if [ "$run_ci" = "n" ] || [ "$run_ci" = "N" ]; then
             log_warn "Skipping CI suite - ensure tests pass manually!"
             return
         fi
     fi
     
-    log_info "Running full CI profile (this may take a while)..."
-    ./ci run -profile full
+    log_info "Running CI profile '$profile' (this may take a while)..."
+    ./ci run -profile "$profile"
     
     if [ $? -ne 0 ]; then
         log_error "CI suite failed. Cannot create release with failing tests"
@@ -1023,6 +1079,12 @@ main() {
     fi
 
     if [ "$SIGN_ONLY" = true ]; then
+        # Infer product from the tag when --luna was not passed.
+        case "$VERSION_TAG" in
+            luna-v*)
+                LUNA_RELEASE=true
+                ;;
+        esac
         sign_existing_release
         exit 0
     fi

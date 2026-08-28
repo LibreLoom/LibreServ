@@ -151,7 +151,7 @@ connect/configs/connect.yaml
 .shots
 .chromium-profile
 
-# Minisign secrets (public key in keys/releases.minisign.pub is committed)
+# Minisign secrets (public keys in keys/*.minisign.pub are committed)
 keys/*.key
 *.minisign.key
 
