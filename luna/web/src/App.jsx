@@ -52,6 +52,11 @@ function AppShell() {
   );
 }
 
+function PhotosToGalleryRedirect() {
+  const { hash } = useLocation();
+  return <Navigate to={{ pathname: "/gallery", hash }} replace />;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -68,6 +73,7 @@ export default function App() {
                 <Route path="/drives" element={<DrivesPage />} />
                 <Route path="/drives/:id" element={<FilesPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "remote" }} replace />} />
