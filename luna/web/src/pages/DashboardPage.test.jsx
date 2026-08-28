@@ -171,12 +171,13 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
   });
 
-  it("shows storage, top-level counts, and folder shortcuts on drive cards", async () => {
+  it("shows storage, root counts, and folder shortcuts on drive cards", async () => {
     stubFetch();
     renderPage();
     expect(await screen.findByText(/12 GB free/i)).toBeInTheDocument();
     expect(screen.getByText(/52 GB used/i)).toBeInTheDocument();
-    expect(screen.getByText(/3 folders · 12 files at the top/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 folders · 12 files at the/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^root$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
       "/drives/d1?path=Photos",
