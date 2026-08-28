@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -74,6 +75,18 @@ func CORS(allowedOrigins []string, devMode bool, trustedHost ...string) func(nex
 }
 
 func originAllowed(allowed []string, origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Host)
+	if h, _, splitErr := net.SplitHostPort(host); splitErr == nil {
+		host = h
+	}
+
 	for _, o := range allowed {
 		if o == "*" {
 			return true
@@ -81,10 +94,13 @@ func originAllowed(allowed []string, origin string) bool {
 		if strings.EqualFold(o, origin) {
 			return true
 		}
-		// wildcard subdomain: *.example.com
+		// wildcard: *.example.com matches api.example.com and a.b.example.com,
+		// not the apex and not a host that merely has a matching suffix in the
+		// full Origin string (scheme included).
 		if strings.HasPrefix(o, "*.") {
-			suffix := strings.TrimPrefix(o, "*")
-			if strings.HasSuffix(strings.ToLower(origin), strings.ToLower(suffix)) {
+			suffix := strings.ToLower(strings.TrimPrefix(o, "*")) // ".example.com"
+			apex := strings.TrimPrefix(suffix, ".")
+			if host != apex && strings.HasSuffix(host, suffix) {
 				return true
 			}
 		}

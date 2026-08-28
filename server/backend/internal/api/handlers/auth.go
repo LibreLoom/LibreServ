@@ -49,6 +49,9 @@ func isSecureRequest(r *http.Request) bool {
 }
 
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	// Secure must match how the cookies were set. Browsers only drop a cookie
+	// when Path/Name/Secure match; a Secure:true clearing header is ignored on
+	// plain HTTP, so the refresh token would survive logout on LAN/setup.
 	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
@@ -68,7 +71,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   secure,
 	})
 }
 

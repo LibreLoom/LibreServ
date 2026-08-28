@@ -196,3 +196,29 @@ func TestLogoutWithoutUser(t *testing.T) {
 		t.Fatalf("logout without user expected 200, got %d", rec.Code)
 	}
 }
+
+
+func TestClearAuthCookiesMatchesSecureFlag(t *testing.T) {
+	// Over plain HTTP, both cookies were set with Secure:false. Clearing must
+	// use the same Secure flag or the browser keeps the refresh cookie.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req.RemoteAddr = "192.168.1.10:12345"
+	rr := httptest.NewRecorder()
+	clearAuthCookies(rr, req)
+	var accessSecure, refreshSecure *bool
+	for _, c := range rr.Result().Cookies() {
+		s := c.Secure
+		switch c.Name {
+		case accessCookieName:
+			accessSecure = &s
+		case refreshCookieName:
+			refreshSecure = &s
+		}
+	}
+	if accessSecure == nil || refreshSecure == nil {
+		t.Fatal("expected both cookies to be cleared")
+	}
+	if *accessSecure || *refreshSecure {
+		t.Fatalf("expected Secure=false on HTTP clear, access=%v refresh=%v", *accessSecure, *refreshSecure)
+	}
+}

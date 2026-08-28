@@ -689,23 +689,34 @@ func (s *Service) RefreshTokensWithRotation(refreshToken, revokedBy string) (*To
 
 	jti := GetTokenJTI(claims)
 
-	// Atomically check if revoked and revoke in one operation to prevent race conditions.
-	// Also handles user-wide revocation (revoke-all) by checking sentinel rows.
-	revoked, err := s.tokenStore.RevokeTokenIfNotRevoked(
+	// Honor logout / password-change sentinels BEFORE consuming the JTI.
+	// RevokeAllTokens writes "revoke-all-refresh-<userID>", not this token's JTI,
+	// so INSERT OR IGNORE on the JTI would otherwise succeed and mint a new session
+	// after logout.
+	alreadyRevoked, err := s.tokenStore.IsRevokedOrUserRevokedAll(jti, claims.UserID, "refresh")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check token revocation: %w", err)
+	}
+	if alreadyRevoked {
+		userWide, checkErr := s.tokenStore.IsRevoked("revoke-all-refresh-"+claims.UserID, "refresh")
+		if checkErr == nil && !userWide {
+			// This specific refresh JTI was already consumed — reuse / theft signal.
+			s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
+			_ = s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
+		}
+		return nil, ErrTokenRevoked
+	}
+
+	consumed, err := s.tokenStore.RevokeTokenIfNotRevoked(
 		jti, claims.UserID, "refresh", revokedBy, "Token rotation - consumed",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check token revocation: %w", err)
 	}
-	if !revoked {
-		// Token was already revoked — possible token reuse attack.
-		// Also check if user-wide revocation was the cause.
-		userRevoked, checkErr := s.tokenStore.IsRevokedOrUserRevokedAll(jti, claims.UserID, "refresh")
-		if checkErr == nil && !userRevoked {
-			// Specific token reuse detected (not from revoke-all), revoke all tokens.
-			s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
-			_ = s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
-		}
+	if !consumed {
+		// Lost a race with another refresh of the same token.
+		s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
+		_ = s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
 		return nil, ErrTokenRevoked
 	}
 
