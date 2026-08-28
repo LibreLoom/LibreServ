@@ -23,6 +23,17 @@ export const ABOVE_LIGHTBOX_OVERLAY_CLASS = "z-[90]";
 
 /**
  * Immersive full-screen photo/video viewer with manage actions.
+ * @param {{
+ *   photos: object[],
+ *   index: number,
+ *   onClose: () => void,
+ *   onIndexChange: (index: number) => void,
+ *   onFavorite?: (photo: object) => void,
+ *   onShare?: (photo: object) => void,
+ *   onAlbum?: (photo: object) => void,
+ *   onTrash?: (photo: object) => void,
+ *   favoriting?: boolean,
+ * }} props
  */
 export default function PhotoLightbox({
   photos,

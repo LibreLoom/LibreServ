@@ -121,6 +121,7 @@ export default function Navbar() {
         parsed.y >= 0 &&
         parsed.y <= windowHeight - FAB_SIZE
       ) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
         setPosition(parsed);
       } else {
         localStorage.removeItem(HAMBURGER_STORAGE_KEY);

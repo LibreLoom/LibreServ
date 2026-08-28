@@ -8,10 +8,12 @@ vi.mock("../lib/api", () => ({
 
 import { postJson } from "../lib/api";
 
+const mockedPostJson = vi.mocked(postJson);
+
 describe("useSetupProgress", () => {
   beforeEach(() => {
-    postJson.mockReset();
-    postJson.mockResolvedValue({ current_step: "network", step_data: {} });
+    mockedPostJson.mockReset();
+    mockedPostJson.mockResolvedValue({ current_step: "network", step_data: {} });
   });
 
   it("saves progress via POST to /api/v1/setup", async () => {
@@ -21,15 +23,16 @@ describe("useSetupProgress", () => {
       promise = result.current.saveProgress("network", { network_connected: true });
       await promise;
     });
-    expect(postJson).toHaveBeenCalledWith("/api/v1/setup", {
+    expect(mockedPostJson).toHaveBeenCalledWith("/api/v1/setup", {
       current_step: "network",
       step_data: { network_connected: true },
     });
   });
 
   it("flushProgress waits for the in-flight save", async () => {
+    /** @type {(() => void) | undefined} */
     let resolveSave;
-    postJson.mockReturnValue(
+    mockedPostJson.mockReturnValue(
       new Promise((resolve) => {
         resolveSave = () => resolve({ ok: true });
       }),
@@ -44,7 +47,7 @@ describe("useSetupProgress", () => {
       flushed = true;
     });
     expect(flushed).toBe(false);
-    resolveSave();
+    resolveSave?.();
     await flushPromise;
     expect(flushed).toBe(true);
   });

@@ -120,6 +120,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
     setBaseUrl(s.api_base || "");
     setOwner(s.owner || "");
     setRepo(s.repo || "");

@@ -6,6 +6,9 @@ import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import { postJson, apiErrorMessage } from "../../lib/api";
 
+/**
+ * @param {{ driveId: any, path?: string, onClose: any, onError: any, onDone: any, open?: boolean, overlayClassName?: string }} props
+ */
 export default function CreateShareModal({
   driveId,
   path = "",

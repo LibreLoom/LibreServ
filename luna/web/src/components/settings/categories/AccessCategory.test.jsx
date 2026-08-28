@@ -97,7 +97,7 @@ describe("AccessCategory", () => {
     expect(item).toBeTruthy();
     expect(item.className).toMatch(/transition-\[height\]/);
     expect(item.className).toMatch(/overflow-hidden/);
-    expect(item.style.transitionDuration).toBe("var(--motion-duration-medium2)");
+    expect(/** @type {HTMLElement} */ (item).style.transitionDuration).toBe("var(--motion-duration-medium2)");
     // Measured-height pattern: outer clip + inner content wrapper
     expect(item.children.length).toBe(1);
   });

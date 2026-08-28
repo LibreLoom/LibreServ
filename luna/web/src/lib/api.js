@@ -92,7 +92,7 @@ export async function putBinary(path, body, options = {}) {
  * the bar moves while a chunk is still in flight; fetch cannot report that.
  *
  * @param {string} path
- * @param {Blob|ArrayBuffer|ArrayBufferView} body
+ * @param {Blob|ArrayBuffer|Uint8Array} body
  * @param {{
  *   headers?: Record<string, string>,
  *   signal?: AbortSignal,
@@ -125,7 +125,11 @@ export function putBinaryProgress(path, body, options = {}) {
 
     xhr.upload.onprogress = (event) => {
       if (!options.onProgress) return;
-      const total = event.lengthComputable ? event.total : (body?.size ?? body?.byteLength ?? 0);
+      let known = 0;
+      if (typeof Blob !== "undefined" && body instanceof Blob) known = body.size;
+      else if (body instanceof ArrayBuffer) known = body.byteLength;
+      else if (ArrayBuffer.isView(body)) known = body.byteLength;
+      const total = event.lengthComputable ? event.total : known;
       options.onProgress(event.loaded, total || event.loaded);
     };
 
@@ -163,7 +167,7 @@ export function putBinaryProgress(path, body, options = {}) {
       reject(new DOMException("Aborted", "AbortError"));
     };
 
-    xhr.send(body);
+    xhr.send(/** @type {XMLHttpRequestBodyInit} */ (body));
   });
 }
 

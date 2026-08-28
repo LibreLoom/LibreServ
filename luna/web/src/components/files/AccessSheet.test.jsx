@@ -6,6 +6,18 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import AccessSheet from "./AccessSheet";
 
+/**
+ * @param {{ role?: string, users?: any[], grants?: any[], shares?: any[], onPatch?: any }} [opts]
+ */
+/**
+ * @param {{
+ *   role?: string,
+ *   users?: any[],
+ *   grants?: any[],
+ *   shares?: any[],
+ *   onPatch?: (url: string, body: any) => void,
+ * }} [opts]
+ */
 function stubAccessApi({ role = "admin", users = [], grants = [], shares = [], onPatch } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);

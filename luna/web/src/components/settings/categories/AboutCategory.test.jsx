@@ -79,18 +79,6 @@ describe("AboutCategory", () => {
   });
 
   it("flags a custom source when keys differ from the built-in key", async () => {
-<<<<<<< HEAD:luna/web/src/components/settings/categories/AboutCategory.test.jsx
-    renderPage(
-      stubFetch({
-        ...SOURCE_RESPONSE,
-        api_base: "https://staging.forgejo.test/api/v1",
-        owner: "MyOrg",
-        repo: "LunaFork",
-        keys: ["RWCUSTOM"],
-        default_keys: false,
-      }),
-    );
-=======
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,
       api_base: "https://staging.forgejo.test/api/v1",
@@ -100,7 +88,6 @@ describe("AboutCategory", () => {
       effective_keys: ["RWCUSTOM"],
       default_keys: false,
     }));
->>>>>>> origin/main:luna/web/src/components/settings/categories/UpdatesCategory.test.jsx
     expect(await screen.findByText("Custom source")).toBeTruthy();
     expect(screen.getByText("MyOrg/LunaFork")).toBeTruthy();
   });
