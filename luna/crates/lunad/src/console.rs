@@ -3,7 +3,7 @@
 use std::io::Write;
 
 pub const BANNER_TITLE: &str =
-    "Luna is running. Open it from a phone or computer on your home Wi-Fi.";
+    "Luna is running. Open it from a phone or computer on your home internet.";
 
 #[derive(Debug, Clone, Default)]
 pub struct ConsoleSnapshot {
@@ -34,7 +34,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  into a LAN port on your router or modem.".into());
     }
     if !snap.ipv4.is_empty() {
-        lines.push("  On your phone or laptop (stay on home Wi-Fi):".into());
+        lines.push("  On your phone or laptop (stay on home internet):".into());
         for ip in &snap.ipv4 {
             lines.push(format!("    http://{ip}"));
         }

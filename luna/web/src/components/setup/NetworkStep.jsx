@@ -58,7 +58,7 @@ export default function NetworkStep({ name, onContinue }) {
         {waitingLease
           ? "The cable is in. Waiting for an address from your router or modem."
           : online
-            ? `${name} is on your home network. Stay on home Wi-Fi on your phone.`
+            ? `${name} is on your home network. Stay on home internet on your phone.`
             : (
               <>
                 Plug {name} into power and into your{" "}

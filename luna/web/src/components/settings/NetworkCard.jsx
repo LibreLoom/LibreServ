@@ -34,7 +34,7 @@ export default function NetworkCard() {
           RJ45
         </TermHint>
         {" "}(ethernet) cable. Phones and computers reach Luna on this network
-        while they stay on home Wi-Fi.
+        while they stay on home internet.
       </p>
       <ul className="mt-4 space-y-2 text-sm text-primary">
         <li className="flex items-center justify-between gap-3">

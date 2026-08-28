@@ -57,7 +57,7 @@ rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
 support, then flashes the Alpine OS slots above.
 
 Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem. Phone stays
-on home Wi-Fi. Open the address shown on Luna's screen, or try `luna.local`.
+on home internet. Open the address shown on Luna's screen, or try `luna.local`.
 
 ## Photo previews (HEIC)
 
