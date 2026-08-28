@@ -55,6 +55,7 @@ func (s *Server) routes() {
 	bak := handlers.BackupHandler{Deps: s.deps}
 	onb := handlers.OnboardingHandler{Deps: s.deps}
 	adm := handlers.AdminAuthHandler{Deps: s.deps}
+	console := handlers.AdminConsoleHandler{Deps: s.deps}
 
 	r.Post("/api/v1/billing/webhook", http.MaxBytesHandler(http.HandlerFunc(acct.StripeWebhook), 65536).ServeHTTP)
 
@@ -118,30 +119,20 @@ func (s *Server) routes() {
 			r.Post("/admin/logout", adm.Logout)
 			r.With(handlers.LimitJSONBody).Post("/admin/2fa/setup", adm.Setup2FA)
 			r.With(handlers.LimitJSONBody).Post("/admin/2fa/verify", adm.Verify2FA)
+			r.With(handlers.LimitJSONBody).Post("/admin/password", adm.ChangePassword)
+			r.Get("/admin/admins", adm.ListAdmins)
+			r.With(handlers.LimitJSONBody).Post("/admin/admins", adm.CreateAdmin)
+			r.Delete("/admin/admins/{adminID}", adm.DeleteAdmin)
+			r.Get("/admin/stats", console.Stats)
+			r.Get("/admin/devices", console.Devices)
+			r.Get("/admin/accounts", console.Accounts)
 			r.Post("/admin/setup-tokens", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/setup-tokens/bulk", onb.AdminMintBulk)
-			r.Get("/admin/devices", s.adminDevices)
 		})
 	})
 
 	s.mountWeb(r)
 	s.router = r
-}
-
-func (s *Server) adminDevices(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`SELECT id, subdomain, name FROM devices`)
-	if err != nil {
-		handlers.JSONError(w, http.StatusInternalServerError, "Could not list devices.")
-		return
-	}
-	defer rows.Close()
-	var list []map[string]string
-	for rows.Next() {
-		var id, sub, name string
-		_ = rows.Scan(&id, &sub, &name)
-		list = append(list, map[string]string{"id": id, "hostname": sub + "." + config.C.Server.PublicZone, "name": name})
-	}
-	handlers.JSON(w, 200, map[string]any{"devices": list})
 }
 
 func (s *Server) mountWeb(r *chi.Mux) {
