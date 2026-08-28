@@ -14,7 +14,8 @@ import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
-import { TermHint } from "../components/ui/Tooltip";
+import Spinner from "../components/ui/Spinner.jsx";
+import { InfoHint, TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
@@ -448,11 +449,25 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
     : null;
 
   return (
-    <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
+    <ModalCard
+      onClose={onClose}
+      title={
+        <span className="inline-flex items-center gap-2 flex-wrap">
+          {`Look inside ${drive.model || drive.name}`}
+          <InfoHint
+            label="What looking inside does"
+            content="Luna only reads the drive. Nothing is changed until you add it."
+          />
+        </span>
+      }
+    >
       {({ close }) => (
         <>
       {!result && !error && (
-        <p className="text-primary text-sm">Looking… Luna reads in read-only mode and changes nothing until you add it.</p>
+        <div className="flex items-center gap-3 text-primary" role="status">
+          <Spinner size="sm" decorative className="text-primary shrink-0" />
+          <p className="text-sm">Looking…</p>
+        </div>
       )}
 
       {error && (

@@ -110,6 +110,43 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /Add this drive/i })).toBeInTheDocument();
   });
 
+  it("keeps Look-inside loading copy short while inspect is pending", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    let finishInspect;
+    const inspectGate = new Promise((resolve) => {
+      finishInspect = resolve;
+    });
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "64GB PSSD", size_bytes: 64000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "exfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdb/inspect")) {
+          return inspectGate.then(() => new Response(JSON.stringify({
+            device: "sdb", model: "64GB PSSD", fs_type: "exfat",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
+            folders: 1, files: 1, unreadable: 0, needs_erase: false,
+            readable: true, writable: true,
+            entries: [{ name: "Photos", kind: "folder" }, { name: "notes.txt", kind: "file" }],
+          }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Looking…$/);
+    expect(screen.queryByText(/read-only mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/changes nothing until you add it/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /What looking inside does/i })).toBeInTheDocument();
+    finishInspect();
+    expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
+  });
+
   it("uses a page heading for unknown drives, not a stacked title card", async () => {
     stubDrivesApi();
     renderPage();
