@@ -226,6 +226,12 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
+    // Storage bar is always visible (dashboard-style), outside Drive details.
+    expect(await screen.findByText(/50 GB free/i)).toBeInTheDocument();
+    expect(screen.getByText(/14 GB used · 64 GB total/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /22% used/i })).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=drive-storage-bar]")).toBeTruthy();
+
     const toggle = await screen.findByRole("button", { name: /Drive details/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     const panel = document.getElementById(toggle.getAttribute("aria-controls"));
@@ -236,13 +242,12 @@ describe("DrivesPage", () => {
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(panel).toHaveAttribute("aria-hidden", "false");
-    expect(await screen.findByText(/50 GB free of 64 GB/i)).toBeInTheDocument();
     expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
     expect(screen.getByText(/Connected as sdmock/i)).toBeInTheDocument();
     expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
-    // Card-style collapsible + ValueDisplay table rows
+    // Card-style collapsible + ValueDisplay rows (storage is outside)
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
-    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(4);
+    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {

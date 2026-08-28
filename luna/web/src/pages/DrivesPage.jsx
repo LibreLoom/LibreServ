@@ -114,37 +114,87 @@ function prettyFsType(fs) {
 }
 
 /**
- * Collapsible tech details for a ready/read-only adopted drive.
- * Card-style CollapsibleSection (pill) + ValueDisplay rows — same pattern as
- * LibreServ settings disclosures / UserDetailPage profile table.
+ * Dashboard-style free/total + usage bar (matches DriveHomeCard on DashboardPage).
+ * Always visible on ready AdoptedCards — not inside Drive details.
  */
-function AdoptedDriveDetails({ drive }) {
-  const summary = useQuery({
-    queryKey: ["drive-summary", drive.id],
-    queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  });
-
+function DriveStorageBar({ summary }) {
   const freeLabel = formatBytes(summary.data?.free_bytes);
   const totalLabel = formatBytes(summary.data?.total_bytes);
+  const usedLabel = formatBytes(summary.data?.used_bytes);
   const hasSpace =
     summary.data?.mounted &&
     summary.data?.total_bytes != null &&
     Number(summary.data.total_bytes) > 0 &&
     freeLabel &&
     totalLabel;
+  const usedPct = hasSpace
+    ? Math.min(100, Math.round((Number(summary.data.used_bytes) / Number(summary.data.total_bytes)) * 100))
+    : 0;
+
+  if (hasSpace) {
+    return (
+      <div data-slot="drive-storage-bar">
+        <div className="flex items-center gap-2 mb-1">
+          <span
+            className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+            aria-hidden="true"
+          />
+          <span className="text-xs font-mono uppercase tracking-widest text-accent">
+            <TermHint content="How much room is left for new files on this drive.">
+              Available storage
+            </TermHint>
+          </span>
+        </div>
+        <div className="text-2xl font-mono font-normal leading-tight text-primary">
+          {freeLabel} free
+        </div>
+        <p className="text-primary text-sm mt-1">
+          {usedLabel ? `${usedLabel} used · ` : ""}
+          {totalLabel} total
+        </p>
+        <div
+          className="mt-3 h-2 rounded-pill bg-primary overflow-hidden"
+          role="progressbar"
+          aria-valuenow={usedPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`${usedPct}% used`}
+        >
+          <div
+            className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-500"
+            style={{ width: `${usedPct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (summary.isLoading) {
+    return <p className="text-primary text-sm">Checking space…</p>;
+  }
+  if (summary.isError) {
+    return (
+      <p className="text-primary text-sm">
+        Couldn&apos;t read free space. Try Browse files.
+      </p>
+    );
+  }
+  return (
+    <p className="text-primary text-sm">
+      Storage will show once Luna can read this drive.
+    </p>
+  );
+}
+
+/**
+ * Collapsible tech details for a ready/read-only adopted drive.
+ * Card-style CollapsibleSection (pill) + ValueDisplay rows — same pattern as
+ * LibreServ settings disclosures / UserDetailPage profile table.
+ * Storage lives outside (DriveStorageBar); this covers fs / partitions / connection.
+ */
+function AdoptedDriveDetails({ drive }) {
   const fsLabel = prettyFsType(drive.fs_type) || "Unknown";
   const device = drive.device ? String(drive.device) : "";
-
-  let storageValue = "Checking…";
-  if (summary.isError) {
-    storageValue = "Couldn't read free space. Try Browse files.";
-  } else if (summary.isSuccess && !summary.data?.mounted) {
-    storageValue = "Not available while this drive is unreadable.";
-  } else if (hasSpace) {
-    storageValue = `${freeLabel} free of ${totalLabel}`;
-  }
 
   const partitionsValue = device
     ? (drive.fs_type ? `${device} · ${fsLabel}` : device)
@@ -154,14 +204,6 @@ function AdoptedDriveDetails({ drive }) {
   return (
     <CollapsibleSection title="Drive details" size="sm" mono pill>
       <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
-        <ValueDisplay
-          label={(
-            <TermHint content="How much room is left for new files on this drive.">
-              Available storage
-            </TermHint>
-          )}
-          value={storageValue}
-        />
         <ValueDisplay
           label={(
             <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
@@ -220,6 +262,13 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
     enabled: !!showHealth && drive.state === "as_is",
     retry: false,
   });
+  const summary = useQuery({
+    queryKey: ["drive-summary", drive.id],
+    queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
+    enabled: ready,
+    staleTime: 30_000,
+    refetchInterval: ready ? 60_000 : false,
+  });
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
   const statusMessage = driveStatusMessage(drive);
 
@@ -229,7 +278,8 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
         <p className="text-primary text-sm">{statusMessage}</p>
       ) : null}
       {ready ? (
-        <div className={statusMessage ? "mt-2" : undefined}>
+        <div className={statusMessage ? "mt-3 space-y-3" : "space-y-3"}>
+          <DriveStorageBar summary={summary} />
           <AdoptedDriveDetails drive={drive} />
         </div>
       ) : null}
