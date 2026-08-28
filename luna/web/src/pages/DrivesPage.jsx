@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { File as FileIcon, Folder, FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { File as FileIcon, Folder, FolderOpen, HardDrive, Info, PlugZap, TriangleAlert } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
@@ -219,9 +219,8 @@ export default function DrivesPage() {
     mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
-      setInspectFor(null);
+      // InspectModal closes via ModalCard's animated close (not an instant unmount).
       setActionError(null);
-      adopt.reset();
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
@@ -428,7 +427,7 @@ export default function DrivesPage() {
           result={inspect.data}
           error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
           onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
-          onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
+          onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
           adoptError={adoptError}
           adopting={adopt.isPending}
         />
@@ -542,7 +541,7 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
             </p>
           ) : (
             <div className="mt-4 flex items-center gap-3">
-              <TriangleAlert size={18} className="text-warning shrink-0" />
+              <Info size={18} className="text-accent shrink-0" aria-hidden="true" />
               <p className="text-primary text-xs">
                 Adding it only writes one tiny <span className="font-mono">.luna</span> marker
                 file at the top of the drive. Your files are untouched.
@@ -554,7 +553,7 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
               <label className="block mt-4">
                 <span className="text-primary text-xs">What should Luna call this drive?</span>
                 <input
-                  className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                   value={label}
                   maxLength={80}
                   onChange={(e) => setLabel(e.target.value)}
@@ -570,7 +569,11 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
                   <Button
                     variant={needsErase ? "danger" : "primary"}
                     loading={adopting}
-                    onClick={() => onAdopt(label, needsErase)}
+                    onClick={() => {
+                      Promise.resolve(onAdopt(label, needsErase))
+                        .then(() => close())
+                        .catch(() => {});
+                    }}
                   >
                     {needsErase ? "Yes, erase it" : "Add this drive"}
                   </Button>
