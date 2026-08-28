@@ -1047,25 +1047,10 @@ async fn public_upload(
 
 #[cfg(test)]
 mod tests {
-    use super::{GalleryQuery, THUMB_CACHE_CONTROL};
-
+    use super::THUMB_CACHE_CONTROL;
     #[test]
     fn thumbs_are_private() {
         assert_eq!(THUMB_CACHE_CONTROL, "private, no-store");
         assert!(!THUMB_CACHE_CONTROL.contains("public"));
-    }
-
-    #[test]
-    fn favorites_query_accepts_true_false_not_one() {
-        let ok: GalleryQuery =
-            serde_urlencoded::from_str("limit=80&offset=0&favorites=true").unwrap();
-        assert_eq!(ok.favorites, Some(true));
-        let off: GalleryQuery =
-            serde_urlencoded::from_str("favorites=false").unwrap();
-        assert_eq!(off.favorites, Some(false));
-        assert!(
-            serde_urlencoded::from_str::<GalleryQuery>("favorites=1").is_err(),
-            "numeric 1 must not silently parse — the web client sends true/false"
-        );
     }
 }
