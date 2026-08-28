@@ -4,17 +4,19 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AboutCategory from "./AboutCategory";
 
+const SHIPPED_KEY = "RWBUILTIN";
 const SOURCE_RESPONSE = {
   api_base: "https://gt.plainskill.net/api/v1",
   owner: "LibreLoom",
   repo: "LibreServ",
-  keys: ["RWBUILTIN"],
+  keys: [],
+  effective_keys: [SHIPPED_KEY],
   default_keys: true,
   defaults: {
     api_base: "https://gt.plainskill.net/api/v1",
     owner: "LibreLoom",
     repo: "LibreServ",
-    keys: ["RWBUILTIN"],
+    keys: [SHIPPED_KEY],
   },
 };
 
@@ -77,6 +79,7 @@ describe("AboutCategory", () => {
   });
 
   it("flags a custom source when keys differ from the built-in key", async () => {
+<<<<<<< HEAD:luna/web/src/components/settings/categories/AboutCategory.test.jsx
     renderPage(
       stubFetch({
         ...SOURCE_RESPONSE,
@@ -87,6 +90,17 @@ describe("AboutCategory", () => {
         default_keys: false,
       }),
     );
+=======
+    renderPage(stubFetch({
+      ...SOURCE_RESPONSE,
+      api_base: "https://staging.forgejo.test/api/v1",
+      owner: "MyOrg",
+      repo: "LunaFork",
+      keys: ["RWCUSTOM"],
+      effective_keys: ["RWCUSTOM"],
+      default_keys: false,
+    }));
+>>>>>>> origin/main:luna/web/src/components/settings/categories/UpdatesCategory.test.jsx
     expect(await screen.findByText("Custom source")).toBeTruthy();
     expect(screen.getByText("MyOrg/LunaFork")).toBeTruthy();
   });
@@ -113,7 +127,24 @@ describe("AboutCategory", () => {
     const keysField = /** @type {HTMLTextAreaElement} */ (
       screen.getByRole("textbox", { name: /Signing keys/i })
     );
-    expect(keysField.value).toBe("RWBUILTIN");
+    expect(keysField.value).toBe(SHIPPED_KEY);
+  });
+
+  it("prefills the shipped key when stored keys are empty", async () => {
+    const user = userEvent.setup();
+    renderPage(stubFetch({
+      ...SOURCE_RESPONSE,
+      keys: [],
+      effective_keys: [SHIPPED_KEY],
+      default_keys: true,
+    }));
+    await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
+    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
+    const keysField = /** @type {HTMLTextAreaElement} */ (
+      screen.getByRole("textbox", { name: /Signing keys/i })
+    );
+    expect(keysField.value).toBe(SHIPPED_KEY);
   });
 
   it("saves the new source with a PUT and closes the modal", async () => {
