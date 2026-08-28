@@ -109,7 +109,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"billing_status":         acct.BillingStatus,
 		"stored_bytes":           bytes,
 		"estimated_month":        billing.EstimateUSD(bytes),
-		"price_copy":             "Cloud backup costs $7 per terabyte each month, based on how much is stored right now.",
+		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on how much is stored right now.",
 		"stripe_publishable_key": stripePublishableKey(),
 		"stripe_enabled":         config.C.Stripe.Enabled,
 	})

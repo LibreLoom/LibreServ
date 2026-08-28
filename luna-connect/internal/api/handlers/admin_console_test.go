@@ -147,3 +147,52 @@ func TestAdminPasswordAndCRUD(t *testing.T) {
 		t.Fatalf("delete %d %s", delRec.Code, delRec.Body.String())
 	}
 }
+
+func TestAdminSetupTokensListAndRevoke(t *testing.T) {
+	d := testDeps(t)
+	adm := AdminAuthHandler{Deps: d}
+	console := AdminConsoleHandler{Deps: d}
+	onb := OnboardingHandler{Deps: d}
+	adminID, _ := seedAdminSession(t, adm)
+	ctx := WithAdminID(context.Background(), adminID)
+	config.C.Server.AdminToken = "admin-test-token"
+
+	mintReq := httptest.NewRequest(http.MethodPost, "/admin/setup-tokens", nil)
+	mintReq.Header.Set("Authorization", "Bearer admin-test-token")
+	mintReq = mintReq.WithContext(ctx)
+	mintRec := httptest.NewRecorder()
+	onb.AdminMint(mintRec, mintReq)
+	if mintRec.Code != 201 {
+		t.Fatalf("mint %d %s", mintRec.Code, mintRec.Body.String())
+	}
+	var minted map[string]any
+	_ = json.Unmarshal(mintRec.Body.Bytes(), &minted)
+	tokID := minted["id"].(string)
+
+	listRec := httptest.NewRecorder()
+	console.SetupTokens(listRec, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens", nil).WithContext(ctx))
+	if listRec.Code != 200 {
+		t.Fatalf("list %d %s", listRec.Code, listRec.Body.String())
+	}
+	var listed map[string]any
+	_ = json.Unmarshal(listRec.Body.Bytes(), &listed)
+	tokens := listed["tokens"].([]any)
+	if len(tokens) < 1 {
+		t.Fatal("expected tokens")
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/admin/setup-tokens/"+tokID, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("tokenID", tokID)
+	delReq = delReq.WithContext(context.WithValue(ctx, chi.RouteCtxKey, rctx))
+	delRec := httptest.NewRecorder()
+	console.RevokeSetupToken(delRec, delReq)
+	if delRec.Code != 200 {
+		t.Fatalf("revoke %d %s", delRec.Code, delRec.Body.String())
+	}
+	var status string
+	_ = d.DB.QueryRow(`SELECT status FROM issued_tokens WHERE id = ?`, tokID).Scan(&status)
+	if status != "revoked" {
+		t.Fatalf("status %q", status)
+	}
+}

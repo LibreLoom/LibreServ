@@ -367,10 +367,10 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := "active"
-	price := "Cloud backup costs $7 per terabyte each month."
+	price := "Cloud backup costs $8 per terabyte each month."
 	if billing.DevBypass() {
 		status = "dev"
-		price = "Cloud backup costs $7 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
+		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
 		status, sub, item, acct.ID)
@@ -442,8 +442,8 @@ func (h OnboardingHandler) MintOSS(w http.ResponseWriter, r *http.Request) {
 	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
 	exp := time.Now().Add(15 * time.Minute).Unix()
-	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at)
-VALUES (?, ?, 'oss', 'issued', ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix())
+	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at, token_hint)
+VALUES (?, ?, 'oss', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix(), security.TokenHint(norm))
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not make a setup code. Try again.")
 		return
@@ -477,8 +477,9 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	display := security.OfficialBookletToken()
 	norm := security.NormalizeToken(display)
 	id := security.NewID("tok")
-	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at) VALUES (?, ?, 'official', 'issued', ?)`,
-		id, security.HashToken(norm), time.Now().Unix())
+	hint := security.TokenHint(norm)
+	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint) VALUES (?, ?, 'official', 'issued', ?, ?)`,
+		id, security.HashToken(norm), time.Now().Unix(), hint)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not mint a booklet code.")
 		return
@@ -486,6 +487,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]any{
 		"id":     id,
 		"token":  display,
+		"hint":   hint,
 		"kind":   "official",
 		"status": "issued",
 	})
@@ -528,8 +530,8 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		norm := security.NormalizeToken(display)
 		id := security.NewID("tok")
 		_, err := h.DB.Exec(
-			`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at) VALUES (?, ?, 'official', 'issued', ?)`,
-			id, security.HashToken(norm), now)
+			`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint) VALUES (?, ?, 'official', 'issued', ?, ?)`,
+			id, security.HashToken(norm), now, security.TokenHint(norm))
 		if err != nil {
 			// Collision on 6-hex space — try another.
 			continue

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AdminLayout } from "../components/AdminLayout.jsx";
+import { Badge, StatusBadge } from "../components/ui/badge.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
@@ -19,6 +20,21 @@ function downloadTokensFile(tokens) {
   URL.revokeObjectURL(url);
 }
 
+function formatWhen(unix) {
+  if (!unix) return "—";
+  try {
+    return new Date(Number(unix) * 1000).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
+
+function kindLabel(kind) {
+  if (kind === "oss") return "Short code";
+  if (kind === "official") return "Official";
+  return kind || "—";
+}
+
 export default function AdminTokensPage() {
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
@@ -26,13 +42,144 @@ export default function AdminTokensPage() {
   const [bulkTokens, setBulkTokens] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [singleBusy, setSingleBusy] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [listError, setListError] = useState("");
+  const [listLoading, setListLoading] = useState(true);
+  const [revokeBusy, setRevokeBusy] = useState("");
+  const [filter, setFilter] = useState("all");
+
+  const loadTokens = useCallback(async () => {
+    setListError("");
+    try {
+      const data = await adminApi("/admin/setup-tokens");
+      setRows(data.tokens || []);
+    } catch (err) {
+      setListError(err.message);
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTokens();
+  }, [loadTokens]);
+
+  const revoke = async (id) => {
+    if (!window.confirm("Revoke this unused setup code? It will no longer work for pairing.")) return;
+    setRevokeBusy(id);
+    setError("");
+    try {
+      await adminApi(`/admin/setup-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await loadTokens();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRevokeBusy("");
+    }
+  };
+
+  const visible = rows.filter((r) => {
+    if (filter === "all") return true;
+    if (filter === "issued") return r.status === "issued";
+    if (filter === "claimed") return r.status === "claimed";
+    if (filter === "revoked") return r.status === "revoked" || r.status === "expired";
+    return true;
+  });
 
   return (
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Setup codes</h2>
       <p className="text-muted-foreground mb-8">
-        Official setup codes are created here. The public OS image has no code. Factory lists go on the installer USB as a file named TOKENS.
+        Official setup codes are created here. The public OS image has no code. Factory lists go on the installer USB as a file named TOKENS. Full codes are shown only at mint time — after that the table keeps a short hint, status, and linked account.
       </p>
+
+      <Card className="mb-6" data-testid="setup-codes-table">
+        <CardHeader>
+          <CardTitle>Issued codes</CardTitle>
+          <CardDescription>
+            Newest 500 codes. Revoke unused ones. Claimed rows show the customer account and Luna when known.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "all", label: "All" },
+              { id: "issued", label: "Unused" },
+              { id: "claimed", label: "Claimed" },
+              { id: "revoked", label: "Revoked / expired" },
+            ].map((f) => (
+              <Button
+                key={f.id}
+                size="sm"
+                variant={filter === f.id ? "default" : "outline"}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" onClick={() => { setListLoading(true); loadTokens(); }}>
+              Refresh
+            </Button>
+          </div>
+          {listLoading ? (
+            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading codes…</p>
+          ) : listError ? (
+            <p className="text-sm text-error">{listError}</p>
+          ) : visible.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No setup codes in this filter.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-large-element border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-card border-b border-border">
+                  <tr className="text-left font-mono text-xs text-muted-foreground">
+                    <th className="px-3 py-2">Hint</th>
+                    <th className="px-3 py-2">Kind</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Account</th>
+                    <th className="px-3 py-2">Device</th>
+                    <th className="px-3 py-2">Created</th>
+                    <th className="px-3 py-2">Expires</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((r) => (
+                    <tr key={r.id} className="border-b border-border last:border-0 align-top">
+                      <td className="px-3 py-2 font-mono">{r.hint || "—"}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant="outline">{kindLabel(r.kind)}</Badge>
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={r.status} />
+                      </td>
+                      <td className="px-3 py-2 font-mono break-all max-w-[14rem]">
+                        {r.account_email || "—"}
+                      </td>
+                      <td className="px-3 py-2 font-mono break-all max-w-[14rem]">
+                        {r.device_hostname || r.device_name || "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">{formatWhen(r.created_at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{formatWhen(r.expires_at)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {r.can_revoke && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            loading={revokeBusy === r.id}
+                            onClick={() => revoke(r.id)}
+                          >
+                            Revoke
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mb-6" data-testid="official-token-recovery">
         <CardHeader>
@@ -46,7 +193,7 @@ export default function AdminTokensPage() {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Single booklet code</CardTitle>
-          <CardDescription>Create one long code to print in a box or give as a remint.</CardDescription>
+          <CardDescription>Create one long code to print in a box or give as a remint. Copy it now — it will not be shown again in full.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -57,6 +204,7 @@ export default function AdminTokensPage() {
               try {
                 const data = await adminApi("/admin/setup-tokens", { method: "POST", body: "{}" });
                 setToken(data.token);
+                await loadTokens();
               } catch (err) {
                 setError(err.message);
               } finally {
@@ -102,6 +250,7 @@ export default function AdminTokensPage() {
                     body: JSON.stringify({ count: n }),
                   });
                   setBulkTokens(data.tokens || []);
+                  await loadTokens();
                 } catch (err) {
                   setError(err.message);
                 } finally {

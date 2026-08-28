@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS issued_tokens (
   account_id TEXT,
   claimed_device_id TEXT,
   expires_at INTEGER,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  token_hint TEXT
 );
 CREATE TABLE IF NOT EXISTS setup_sessions (
   id TEXT PRIMARY KEY,
@@ -131,5 +132,6 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN setup_secret TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN stripe_subscription_item_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
+	_, _ = db.Exec(`ALTER TABLE issued_tokens ADD COLUMN token_hint TEXT`)
 	return nil
 }

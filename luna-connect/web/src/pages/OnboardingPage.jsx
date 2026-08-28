@@ -203,12 +203,12 @@ export default function OnboardingPage() {
           )}
           {step === "copies" && (
             <div className="space-y-3">
-              <p className="text-sm text-foreground">Cloud backup costs $7 per terabyte each month, based on how much is stored. Not a flat $7 a month.</p>
+              <p className="text-sm text-foreground">Cloud backup costs $8 per terabyte each month, based on how much is stored. Not a flat $8 a month.</p>
               {stripeLooksConfigured(me) ? (
                 <VerifyHumanCard
                   account={me}
                   loading={loading}
-                  description="Add a payment card to turn on cloud backup. It costs $7 per terabyte each month."
+                  description="Add a payment card to turn on cloud backup. It costs $8 per terabyte each month."
                   buttonLabel="Turn on cloud backup"
                   onConfirm={async (paymentMethodId) => {
                     setError("");

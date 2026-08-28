@@ -103,3 +103,15 @@ func IsOfficialShape(norm string) bool {
 	}
 	return true
 }
+
+// TokenHint returns a short uppercase suffix for admin lists (plaintext is not stored).
+func TokenHint(norm string) string {
+	norm = NormalizeToken(norm)
+	if norm == "" {
+		return ""
+	}
+	if len(norm) <= 4 {
+		return norm
+	}
+	return "…" + norm[len(norm)-4:]
+}

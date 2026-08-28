@@ -3,7 +3,9 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
@@ -98,4 +100,98 @@ ORDER BY a.created_at DESC`)
 		})
 	}
 	JSON(w, http.StatusOK, map[string]any{"accounts": list})
+}
+
+func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.DB.Query(`
+SELECT t.id, t.kind, t.status, COALESCE(t.token_hint, ''), t.account_id, COALESCE(a.email, ''),
+  t.claimed_device_id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), t.expires_at, t.created_at
+FROM issued_tokens t
+LEFT JOIN devices d ON d.id = t.claimed_device_id
+LEFT JOIN accounts a ON a.id = COALESCE(t.account_id, d.account_id)
+ORDER BY t.created_at DESC
+LIMIT 500`)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not list setup codes.")
+		return
+	}
+	defer rows.Close()
+	zone := config.C.Server.PublicZone
+	list := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, kind, status, hint, email, deviceName, subdomain string
+		var accountID, claimedDevice sql.NullString
+		var expires sql.NullInt64
+		var created int64
+		if err := rows.Scan(&id, &kind, &status, &hint, &accountID, &email, &claimedDevice, &deviceName, &subdomain, &expires, &created); err != nil {
+			JSONError(w, http.StatusInternalServerError, "Could not list setup codes.")
+			return
+		}
+		acctID := ""
+		if accountID.Valid {
+			acctID = accountID.String
+		}
+		devID := ""
+		if claimedDevice.Valid {
+			devID = claimedDevice.String
+		}
+		hostname := ""
+		if subdomain != "" {
+			hostname = subdomain + "." + zone
+		}
+		var exp any
+		if expires.Valid && expires.Int64 > 0 {
+			exp = expires.Int64
+		} else {
+			exp = nil
+		}
+		list = append(list, map[string]any{
+			"id":                id,
+			"kind":              kind,
+			"status":            status,
+			"hint":              hint,
+			"account_id":        acctID,
+			"account_email":     email,
+			"claimed_device_id": devID,
+			"device_name":       deviceName,
+			"device_hostname":   hostname,
+			"expires_at":        exp,
+			"created_at":        created,
+			"can_revoke":        status == "issued",
+		})
+	}
+	JSON(w, http.StatusOK, map[string]any{"tokens": list})
+}
+
+func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
+	if id == "" {
+		JSONError(w, http.StatusBadRequest, "Setup code id is required.")
+		return
+	}
+	var hash, status string
+	err := h.DB.QueryRow(`SELECT token_hash, status FROM issued_tokens WHERE id = ?`, id).Scan(&hash, &status)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That setup code was not found.")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not revoke that setup code. Try again.")
+		return
+	}
+	if status != "issued" {
+		JSONError(w, http.StatusConflict, "Only unused setup codes can be revoked.")
+		return
+	}
+	res, err := h.DB.Exec(`UPDATE issued_tokens SET status = 'revoked' WHERE id = ? AND status = 'issued'`, id)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not revoke that setup code. Try again.")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		JSONError(w, http.StatusConflict, "Only unused setup codes can be revoked.")
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'replaced' WHERE token_hash = ? AND status IN ('waiting_device','attached')`, hash)
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "revoked"})
 }

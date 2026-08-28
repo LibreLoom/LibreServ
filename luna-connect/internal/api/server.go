@@ -126,8 +126,10 @@ func (s *Server) routes() {
 			r.Get("/admin/stats", console.Stats)
 			r.Get("/admin/devices", console.Devices)
 			r.Get("/admin/accounts", console.Accounts)
+			r.Get("/admin/setup-tokens", console.SetupTokens)
 			r.Post("/admin/setup-tokens", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/setup-tokens/bulk", onb.AdminMintBulk)
+			r.Delete("/admin/setup-tokens/{tokenID}", console.RevokeSetupToken)
 		})
 	})
 

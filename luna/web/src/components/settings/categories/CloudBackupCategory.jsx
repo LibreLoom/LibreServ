@@ -44,7 +44,7 @@ export default function CloudBackupCategory() {
         <div className="space-y-3">
           <p className="text-primary text-sm">
             Luna copies the latest files when this Luna is idle — not a history of old versions.
-            Cloud backup costs $7 per terabyte each month.
+            Cloud backup costs $8 per terabyte each month.
           </p>
           {(drives.data || []).map((d) => {
             const on = (connect.data.backup_sources || []).some((s) => s.drive_id === d.id);

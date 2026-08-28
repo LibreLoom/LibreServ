@@ -77,7 +77,7 @@ export default function AdminDashboardPage() {
             </CardHeader>
             <CardContent>
               <p className="font-mono text-2xl">${Number(stats.estimated_month || 0).toFixed(2)}</p>
-              <p className="font-mono text-xs text-muted-foreground mt-1">$7 per TB stored</p>
+              <p className="font-mono text-xs text-muted-foreground mt-1">$8 per TB stored</p>
             </CardContent>
           </Card>
         </div>

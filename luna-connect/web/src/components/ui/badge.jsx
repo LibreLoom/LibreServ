@@ -35,6 +35,8 @@ export function StatusBadge({ status }) {
     cancelled: "destructive",
     issued: "warning",
     claimed: "success",
+    revoked: "destructive",
+    expired: "outline",
   };
   return <Badge variant={map[status] || "default"}>{status}</Badge>;
 }
