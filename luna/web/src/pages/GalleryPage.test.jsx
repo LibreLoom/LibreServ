@@ -25,8 +25,11 @@ describe("GalleryPage", () => {
           { id: "b", label: "Travel" },
         ]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
-      if (u.includes("/gallery/scan")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify({ scanning: false, pending: 0, busy: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/gallery")) {
         return new Response(JSON.stringify({
@@ -49,8 +52,11 @@ describe("GalleryPage", () => {
   it("points people to Drives when there is nothing to look in", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       const u = String(url);
-      if (u.includes("/gallery/scan")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify({ scanning: false, pending: 0, busy: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/gallery?")) {
         return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
@@ -63,5 +69,33 @@ describe("GalleryPage", () => {
     renderGallery();
     expect(await screen.findByText(/No drives to look in/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
+  });
+
+  it("does not offer a manual Look again control", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify({ scanning: false, pending: 0, busy: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+    renderGallery();
+    expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Look again/i })).not.toBeInTheDocument();
   });
 });

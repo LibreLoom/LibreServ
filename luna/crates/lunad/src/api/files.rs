@@ -240,6 +240,8 @@ async fn delete_entry(
     check_access(&state, &user, &id, &rel, true)?;
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
+    state.gallery.remove(&id, &rel);
+    state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
 }
 
@@ -250,6 +252,12 @@ async fn rename_entry(
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     check_access(&state, &user, &id, &body.path, true)?;
+    let parent = body
+        .path
+        .rsplit_once('/')
+        .map(|(p, _)| p)
+        .unwrap_or("");
+    let new_rel = crate::gallery_indexer::join_rel(parent, &body.new_name);
     with_db(&state, |conn| {
         files::rename(conn, &id, &body.path, &body.new_name)
     })
@@ -260,6 +268,19 @@ async fn rename_entry(
         ),
         other => map_files_err(other),
     })?;
+    // Folder renames move many gallery rows; a catch-up rescan is the safe path.
+    let renamed_dir = with_db(&state, |conn| {
+        let drive = crate::files::drive_root(conn, &id)?;
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        Ok::<_, FilesError>(root.join(&new_rel).is_dir())
+    })
+    .unwrap_or(false);
+    if renamed_dir {
+        state.gallery.rescan(&id);
+    } else {
+        state.gallery.rename(&id, &body.path, &new_rel);
+    }
+    state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -309,6 +330,8 @@ async fn restore_entry(
         ),
         other => map_files_err(other),
     })?;
+    state.gallery.upsert(&id, &body.dest);
+    state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -413,6 +436,9 @@ async fn upload(
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
+                let rel = crate::gallery_indexer::join_rel(&dest_rel, &name);
+                state.gallery.upsert(&id, &rel);
+                state.touch_io_activity();
                 return Ok(Json(FileEntry {
                     name,
                     kind: "file".into(),

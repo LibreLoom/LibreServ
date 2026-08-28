@@ -40,12 +40,6 @@ struct ThumbQuery {
     path: String,
 }
 
-#[derive(Deserialize, Default)]
-struct ScanBody {
-    #[serde(default)]
-    drive_id: Option<String>,
-}
-
 #[derive(Deserialize)]
 struct FavoriteBody {
     drive_id: String,
@@ -107,7 +101,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/gallery", get(timeline))
         .route("/api/v1/gallery/places", get(places))
         .route("/api/v1/gallery/thumb", get(thumb))
-        .route("/api/v1/gallery/scan", post(scan))
+        .route("/api/v1/gallery/status", get(status))
         .route(
             "/api/v1/gallery/favorites",
             put(put_favorite).delete(delete_favorite),
@@ -314,20 +308,13 @@ async fn places(
     Ok(Json(places))
 }
 
-async fn scan(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<ScanBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mounts = accessible_mounts(&state, &user, body.drive_id.as_deref())?;
-    tokio::task::spawn_blocking(move || {
-        for (id, mount) in mounts {
-            let _ = gallery::scan_drive(&id, &mount);
-        }
-    });
-    Ok(Json(
-        json!({ "started": true, "message": "Luna is building your photo gallery in the background." }),
-    ))
+async fn status(State(state): State<AppState>) -> Json<Value> {
+    let (scanning, pending) = state.gallery.status();
+    Json(json!({
+        "scanning": scanning,
+        "pending": pending,
+        "busy": scanning || pending > 0,
+    }))
 }
 
 async fn thumb(

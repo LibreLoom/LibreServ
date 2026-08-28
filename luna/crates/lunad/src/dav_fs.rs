@@ -7,6 +7,7 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use bytes::{Buf, Bytes};
@@ -20,12 +21,46 @@ use luna_core::path::{PathError, resolve_child_nofollow, resolve_for_create_nofo
 #[derive(Clone)]
 pub struct JailedFs {
     root: PathBuf,
+    drive_id: Option<String>,
+    gallery: Option<Arc<crate::gallery_indexer::GalleryIndexer>>,
 }
 
 impl JailedFs {
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
+            drive_id: None,
+            gallery: None,
+        }
+    }
+
+    pub fn with_gallery(
+        root: impl AsRef<Path>,
+        drive_id: String,
+        gallery: Arc<crate::gallery_indexer::GalleryIndexer>,
+    ) -> Self {
+        Self {
+            root: root.as_ref().to_path_buf(),
+            drive_id: Some(drive_id),
+            gallery: Some(gallery),
+        }
+    }
+
+    fn notify_upsert(&self, rel: &str) {
+        if let (Some(drive_id), Some(gallery)) = (&self.drive_id, &self.gallery) {
+            gallery.upsert(drive_id, rel);
+        }
+    }
+
+    fn notify_remove(&self, rel: &str) {
+        if let (Some(drive_id), Some(gallery)) = (&self.drive_id, &self.gallery) {
+            gallery.remove(drive_id, rel);
+        }
+    }
+
+    fn notify_rename(&self, from: &str, to: &str) {
+        if let (Some(drive_id), Some(gallery)) = (&self.drive_id, &self.gallery) {
+            gallery.rename(drive_id, from, to);
         }
     }
 
@@ -242,7 +277,9 @@ impl DavFileSystem for JailedFs {
         Box::pin(async move {
             let rel = Self::rel(path)?;
             let disk = resolve_child_nofollow(&self.root, &rel).map_err(Self::map_err)?;
-            std::fs::remove_file(&disk).map_err(io_to_fs)
+            std::fs::remove_file(&disk).map_err(io_to_fs)?;
+            self.notify_remove(&rel);
+            Ok(())
         })
     }
 
@@ -252,7 +289,9 @@ impl DavFileSystem for JailedFs {
             let to_rel = Self::rel(to)?;
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
-            std::fs::rename(&src, &dest).map_err(io_to_fs)
+            std::fs::rename(&src, &dest).map_err(io_to_fs)?;
+            self.notify_rename(&from_rel, &to_rel);
+            Ok(())
         })
     }
 
@@ -263,6 +302,7 @@ impl DavFileSystem for JailedFs {
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
             std::fs::copy(&src, &dest).map_err(io_to_fs)?;
+            self.notify_upsert(&to_rel);
             Ok(())
         })
     }

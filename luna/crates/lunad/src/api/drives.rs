@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Extension, Path, State};
@@ -236,6 +237,11 @@ async fn adopt(
             format!("Luna couldn't add this drive. {}", plain_adopt_error(&e)),
         )
     })?;
+    if !row.mount_point.is_empty() {
+        state
+            .gallery
+            .watch_mount(&row.id, PathBuf::from(&row.mount_point));
+    }
     Ok(Json(row.into()))
 }
 
@@ -263,6 +269,7 @@ async fn eject(
     with_db(&state.db, |conn| state.drive_manager.eject(conn, &id))
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
+    state.gallery.unwatch_mount(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -279,6 +286,7 @@ async fn remove(
         )
     })?;
     crate::dav::drop_cached_handler(&state, &id);
+    state.gallery.unwatch_mount(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

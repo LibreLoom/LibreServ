@@ -128,8 +128,23 @@ async fn complete(
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id, true)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
+    let (drive_id, rel) = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
+        (
+            row.drive_id,
+            crate::gallery_indexer::join_rel(&row.path, &row.name),
+        )
+    };
     let entry = uploads::complete(&state.db, &id, overwrite, query.hash.as_deref())
         .map_err(map_upload_err)?;
+    state.gallery.upsert(&drive_id, &rel);
+    state.touch_io_activity();
     Ok(Json(entry))
 }
 
