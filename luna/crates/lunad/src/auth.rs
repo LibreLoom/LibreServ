@@ -618,6 +618,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         || path == "/api/v1/health"
         || path.starts_with("/api/v1/auth/")
         || path.starts_with("/api/v1/setup")
+        || path.starts_with("/api/v1/public/")
         || path.starts_with("/s/")
         || !path.starts_with("/api/");
     if !is_public && path.starts_with("/api/v1/network/") {

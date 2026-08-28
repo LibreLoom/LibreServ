@@ -53,7 +53,7 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux \
         dhcpcd ca-certificates ssl_client pciutils curl \
-        libheif libheif-tools \
+        libheif libheif-tools ffmpeg \
         hdparm \
         chrony logrotate
 

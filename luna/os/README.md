@@ -59,17 +59,28 @@ support, then flashes the Alpine OS slots above.
 Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem. Phone stays
 on home internet. Open the address shown on Luna's screen, or try `luna.local`.
 
-## Photo previews (HEIC)
+## Photo library
+
+Photos lives under each data drive — never on the OS eMMC:
+
+- `{drive}/.lunagallery/gallery.sqlite` — index, favorites, albums, invites
+- `{drive}/.lunathumbs/` — JPEG previews
+- `{drive}/.luna-shared-albums/{id}/` — uploads into shared albums
 
 Phone backups are often HEIC. The daemon stays a musl Rust binary and does **not**
 link `libheif`. The OS image installs Alpine `libheif` + `libheif-tools`
-(`heif-dec` / `heif-convert`) so Luna can make JPEG previews. Capture dates are
-read from EXIF inside the file (JPEG APP1 or the HEIF `Exif` item). Originals
-are never rewritten.
+(`heif-dec` / `heif-convert`) so Luna can make JPEG previews. Capture dates and
+GPS (for Places) are read from EXIF inside the file. Originals are never rewritten.
 
-If you build a custom rootfs without those packages, HEIC files still appear in
-the gallery when they have EXIF, but previews stay empty until `heif-dec` is
-installed.
+Video previews use optional `ffmpeg` when present (same pattern as `heif-dec`).
+Without it, videos still appear in the gallery with a play badge and empty preview.
+
+If you build a custom rootfs without those packages, HEIC/video files still appear
+in the gallery when indexed, but previews stay empty until the tools are installed.
+
+Places uses Leaflet in the browser with OpenStreetMap tiles (fetched by the
+client). Luna does not store map tiles on disk.
+
 
 ## Software updates
 
