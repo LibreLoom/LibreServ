@@ -1,30 +1,27 @@
 import { cn } from "@/lib/utils";
 import AppearanceCategory from "./categories/AppearanceCategory.jsx";
 import NetworkCategory from "./categories/NetworkCategory.jsx";
-import RemoteCategory from "./categories/RemoteCategory.jsx";
-import CloudBackupCategory from "./categories/CloudBackupCategory.jsx";
+import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";
 import AccessCategory from "./categories/AccessCategory.jsx";
 import UpdatesCategory from "./categories/UpdatesCategory.jsx";
 
 const CATEGORY_TITLES = {
-  appearance: "Look and feel",
-  network: "Home network",
-  remote: "Remote access",
-  cloud: "Cloud backup",
-  devices: "Phones and computers",
-  access: "Access",
-  updates: "Software updates",
+  appearance: "Appearance",
+  network: "Local Network",
+  external_services: "External Services",
+  devices: "Devices",
+  security: "Security",
+  about: "About",
 };
 
 const CATEGORY_COMPONENTS = {
   appearance: AppearanceCategory,
   network: NetworkCategory,
-  remote: RemoteCategory,
-  cloud: CloudBackupCategory,
+  external_services: ExternalServicesCategory,
   devices: DevicesCategory,
-  access: AccessCategory,
-  updates: UpdatesCategory,
+  security: AccessCategory,
+  about: UpdatesCategory,
 };
 
 export default function SettingsContent({ category }) {

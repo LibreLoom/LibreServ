@@ -92,34 +92,34 @@ describe("SettingsPage", () => {
     }
   });
 
-  it("uses a category sidebar and opens Look and feel by default", async () => {
+  it("uses a category sidebar and opens Appearance by default", async () => {
     stubFetch("admin");
     renderPage();
 
     expect(await screen.findByRole("navigation", { name: /Settings categories/i })).toBeTruthy();
     expect(await screen.findByText("max")).toBeTruthy();
-    expect(await screen.findByRole("heading", { level: 1, name: "Look and feel" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /System/i })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /^Light$/i })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /^Dark$/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /If you forget your password/i })).toBeNull();
-    expect(screen.queryByText(/Plug a USB keyboard into Luna/i)).toBeNull();
+    expect(screen.queryByText(/Plug a USB keyboard into Luna/i )).toBeNull();
     expect(screen.queryByText(/Keep this card somewhere safe/i)).toBeNull();
   });
 
-  it("keeps access and updates in their own categories", async () => {
+  it("keeps security and about in their own categories", async () => {
     stubFetch("admin");
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("max");
 
-    await user.click(screen.getByRole("button", { name: /^Access$/i }));
+    await user.click(screen.getByRole("button", { name: /^Security$/i }));
     expect(await screen.findByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
     expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /Software updates/i }));
+    await user.click(screen.getByRole("button", { name: /^About$/i }));
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText(/Updates only install when you tap the button/i)).toBeTruthy();
   });
@@ -128,10 +128,9 @@ describe("SettingsPage", () => {
     stubFetch("user");
     renderPage();
     await screen.findByText("max");
-    expect(screen.getByText(/Some settings are only for admins/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Software updates/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Home network/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Cloud backup/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Remote access/i })).toBeNull();
+    expect(screen.getByText(/Some settings require an administrator/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Local Network/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
   });
 });
