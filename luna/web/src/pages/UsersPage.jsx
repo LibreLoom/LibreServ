@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield, Trash2, User, UserPlus } from "lucide-react";
+import { Plus, Shield, Trash2, User, UserPlus } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
@@ -80,16 +80,17 @@ export default function UsersPage() {
         className={userToDelete ? "pop-out" : "pop-in"}
         rightContent={
           <Button
-            size="sm"
+            size="icon"
             variant="secondary"
             surface="primary"
+            className="rounded-full hover:scale-110"
+            aria-label="Add user"
             onClick={() => {
               setError(null);
               setCreating(true);
             }}
           >
-            <UserPlus size={14} aria-hidden="true" />
-            Add user
+            <Plus size={32} aria-hidden="true" />
           </Button>
         }
       >

@@ -130,6 +130,7 @@ describe("UsersPage", () => {
     const user = userEvent.setup();
     renderPage();
 
+    // Header trigger is icon-only (LibreServ-style big plus) with aria-label.
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
@@ -160,5 +161,14 @@ describe("UsersPage", () => {
         body: expect.stringContaining('"password":"hunter22hunter1"'),
       }),
     );
+  });
+
+  it("shows a big plus add-user control in the header, not an Add user chip", async () => {
+    stubFetch();
+    renderPage();
+
+    const add = await screen.findByRole("button", { name: /^Add user$/i });
+    expect(add.textContent?.trim()).toBe("");
+    expect(within(add).queryByText(/Add user/i)).toBeNull();
   });
 });
