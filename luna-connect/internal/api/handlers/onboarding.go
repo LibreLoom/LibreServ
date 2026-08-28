@@ -465,8 +465,7 @@ func (h OnboardingHandler) rollbackCloud(tunnelID, hostname string) {
 }
 
 func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
-	if !security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
-		JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
+	if !requireAdmin(w, r) {
 		return
 	}
 	if !allowGuess(h.DB, "admin-mint:"+ClientIP(r), 10, 3600) {
@@ -489,6 +488,60 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 		"token":  display,
 		"kind":   "official",
 		"status": "issued",
+	})
+}
+
+const maxBulkFactoryTokens = 10000
+
+func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if !allowGuess(h.DB, "admin-mint-bulk:"+ClientIP(r), 20, 3600) {
+		JSONError(w, http.StatusTooManyRequests, "Too many bulk token requests from this network. Wait an hour, then try again.")
+		return
+	}
+	var req struct {
+		Count int `json:"count"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Count < 1 {
+		JSONError(w, http.StatusBadRequest, "Enter how many tokens to create (at least 1).")
+		return
+	}
+	if req.Count > maxBulkFactoryTokens {
+		JSONError(w, http.StatusBadRequest, "You can create at most 10,000 tokens at a time.")
+		return
+	}
+
+	tokens := make([]string, 0, req.Count)
+	now := time.Now().Unix()
+	attempts := 0
+	maxAttempts := req.Count*20 + 50
+	for len(tokens) < req.Count {
+		attempts++
+		if attempts > maxAttempts {
+			JSONError(w, http.StatusInternalServerError, "Could not finish the token list. Try a smaller number.")
+			return
+		}
+		display := security.FactoryHexToken()
+		norm := security.NormalizeToken(display)
+		id := security.NewID("tok")
+		_, err := h.DB.Exec(
+			`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at) VALUES (?, ?, 'official', 'issued', ?)`,
+			id, security.HashToken(norm), now)
+		if err != nil {
+			// Collision on 6-hex space — try another.
+			continue
+		}
+		tokens = append(tokens, display)
+	}
+	JSON(w, http.StatusCreated, map[string]any{
+		"count":    len(tokens),
+		"tokens":   tokens,
+		"filename": "TOKENS",
+		"kind":     "official",
+		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one code per line, uppercase).",
 	})
 }
 

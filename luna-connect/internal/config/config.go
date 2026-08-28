@@ -12,6 +12,7 @@ var C Config
 
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
+	Auth       AuthConfig       `mapstructure:"auth"`
 	Database   DatabaseConfig   `mapstructure:"database"`
 	DataDir    string           `mapstructure:"data_dir"`
 	Cloudflare CloudflareConfig `mapstructure:"cloudflare"`
@@ -27,6 +28,14 @@ type ServerConfig struct {
 	AdminToken string `mapstructure:"admin_token"`
 	AtRestKey  string `mapstructure:"at_rest_key"`
 	WebDir     string `mapstructure:"web_dir"`
+}
+
+// AuthConfig covers staff admin login (separate from customer accounts).
+type AuthConfig struct {
+	// AdminSeedToken gates POST /admin/seed when set (X-Seed-Token header).
+	// Empty allows seed only from loopback.
+	AdminSeedToken  string `mapstructure:"admin_seed_token"`
+	SessionTTLHours int    `mapstructure:"session_ttl_hours"`
 }
 
 type DatabaseConfig struct {
@@ -75,6 +84,7 @@ func setDefaults() {
 	viper.SetDefault("data_dir", "dev/data")
 	viper.SetDefault("backup.driver", "local")
 	viper.SetDefault("server.web_dir", "web/dist")
+	viper.SetDefault("auth.session_ttl_hours", 168)
 }
 
 func (c CloudflareConfig) Ready() bool {
