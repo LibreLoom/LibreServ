@@ -48,11 +48,11 @@ assert_file_has "$ROOT/../docs/RELEASE.md" 'luna-os-x86_64.img' "RELEASE.md must
 
 # UI must stay undifferentiated (no Software vs System split).
 if grep -E 'System update|OS update|system update' \
-	"$ROOT/web/src/components/settings/categories/UpdatesCategory.jsx" >/dev/null 2>&1; then
+	"$ROOT/web/src/components/settings/categories/SystemUpdatesCard.jsx" >/dev/null 2>&1; then
 	echo "FAIL Updates UI must not differentiate OS vs software" >&2
 	fail=$((fail + 1))
 fi
-assert_file_has "$ROOT/web/src/components/settings/categories/UpdatesCategory.jsx" 'Install update' \
+assert_file_has "$ROOT/web/src/components/settings/categories/SystemUpdatesCard.jsx" 'Install update' \
 	"Updates UI must keep a single Install update action"
 
 # Simulate hash-detect → apply decision (mirrors updates.rs logic).
