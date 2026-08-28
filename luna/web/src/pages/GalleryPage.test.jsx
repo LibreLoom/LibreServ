@@ -1,8 +1,73 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import GalleryPage, { galleryUrl } from "./GalleryPage";
+
+function stubGalleryFetch({ places = [] } = {}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        return new Response(
+          JSON.stringify([
+            { id: "a", label: "Family" },
+            { id: "b", label: "Travel" },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/gallery/scan")) {
+        return new Response(JSON.stringify({ started: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/places")) {
+        return new Response(JSON.stringify(places), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery")) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                drive_id: "a",
+                path: "one.jpg",
+                name: "one.jpg",
+                taken_at: 1_700_000_000,
+                thumb: "/t1",
+                kind: "image",
+              },
+              {
+                drive_id: "b",
+                path: "two.jpg",
+                name: "two.jpg",
+                taken_at: 1_700_000_100,
+                thumb: "/t2",
+                kind: "image",
+              },
+            ],
+            next_offset: 2,
+            has_more: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }),
+  );
+}
 
 function renderGallery() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -25,33 +90,16 @@ describe("galleryUrl", () => {
 
 describe("GalleryPage", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/gallery");
+  });
+
+  afterEach(() => {
     vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
   });
 
   it("shows photos from every drive without asking which one", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url) => {
-      const u = String(url);
-      if (u.endsWith("/drives")) {
-        return new Response(JSON.stringify([
-          { id: "a", label: "Family" },
-          { id: "b", label: "Travel" },
-        ]), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      if (u.includes("/gallery/scan")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      if (u.includes("/gallery")) {
-        return new Response(JSON.stringify({
-          items: [
-            { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 1_700_000_000, thumb: "/t1", kind: "image" },
-            { drive_id: "b", path: "two.jpg", name: "two.jpg", taken_at: 1_700_000_100, thumb: "/t2", kind: "image" },
-          ],
-          next_offset: 2,
-          has_more: false,
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-    }));
+    stubGalleryFetch();
     renderGallery();
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
     expect(screen.getByLabelText("two.jpg")).toBeInTheDocument();
@@ -59,22 +107,95 @@ describe("GalleryPage", () => {
   });
 
   it("points people to Drives when there is nothing to look in", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url) => {
-      const u = String(url);
-      if (u.includes("/gallery/scan")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      if (u.includes("/gallery?")) {
-        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/gallery/scan")) {
+          return new Response(JSON.stringify({ started: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery?")) {
+          return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
     renderGallery();
     expect(await screen.findByText(/No drives to look in/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
+  });
+
+  it("defaults the URL hash to #library when none is set", async () => {
+    stubGalleryFetch();
+    renderGallery();
+    await screen.findByRole("radio", { name: /^Library$/i });
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#library");
+    });
+    expect(screen.getByRole("radio", { name: /^Library$/i })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("opens Places when loaded with #places", async () => {
+    window.history.replaceState(null, "", "/gallery#places");
+    stubGalleryFetch({
+      places: [{ key: "home", label: "Home", count: 2, lat: 1, lon: 2 }],
+    });
+    renderGallery();
+    expect(await screen.findByRole("radio", { name: /^Places$/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(window.location.hash).toBe("#places");
+  });
+
+  it("updates the hash when a segment is selected", async () => {
+    stubGalleryFetch();
+    const user = userEvent.setup();
+    renderGallery();
+    await screen.findByRole("radio", { name: /^Library$/i });
+    await user.click(screen.getByRole("radio", { name: /^Favorites$/i }));
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#favorites");
+    });
+    expect(screen.getByRole("radio", { name: /^Favorites$/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
+  it("follows hashchange for back/forward navigation", async () => {
+    stubGalleryFetch();
+    renderGallery();
+    await screen.findByRole("radio", { name: /^Library$/i });
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#library");
+    });
+
+    act(() => {
+      window.location.hash = "albums";
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: /^Albums$/i })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    });
+
+    act(() => {
+      window.location.hash = "library";
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: /^Library$/i })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    });
   });
 
   it("loads Favorites with favorites=true and shows favorited photos", async () => {
