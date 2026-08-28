@@ -21,7 +21,7 @@ function BoardRow({ ok, okText, offText }) {
           size={16}
           className={cn("shrink-0", ok ? "text-success" : "text-primary")}
         />
-        <span className="font-mono text-sm text-primary">Cable</span>
+        <span className="font-mono text-sm text-primary">Ethernet</span>
       </span>
       <Pill variant={ok ? "success" : "muted"} className="shrink-0">
         {ok ? <Check size={12} /> : <X size={12} />}

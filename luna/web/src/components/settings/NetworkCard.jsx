@@ -40,7 +40,7 @@ export default function NetworkCard() {
         <li className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-2">
             <Cable size={16} aria-hidden="true" />
-            Cable
+            Ethernet
           </span>
           <Pill variant={ethernet ? "success" : "muted"}>
             {ethernet
