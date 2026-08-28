@@ -1,0 +1,470 @@
+[
+  {
+    "path": "DCIM/100CANON/IMG_1001.JPG",
+    "datetime": "2019:07:12 00:46:00",
+    "lat": 37.90560377787599,
+    "lon": -119.58530259159977
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1002.JPG",
+    "datetime": "2019:07:15 02:20:00",
+    "lat": 37.80756502431219,
+    "lon": -119.51176016193335
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1003.JPG",
+    "datetime": "2019:07:18 02:53:00",
+    "lat": 37.877763994423645,
+    "lon": -119.46884203746261
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1004.JPG",
+    "datetime": "2019:07:21 03:52:00",
+    "lat": 37.86093857611154,
+    "lon": -119.54100700826847
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1005.JPG",
+    "datetime": "2019:07:24 04:50:00",
+    "lat": 37.87276064087939,
+    "lon": -119.59139756689893
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1006.JPG",
+    "datetime": "2019:07:26 23:42:00",
+    "lat": 37.87268015304069,
+    "lon": -119.56806226392762
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1007.JPG",
+    "datetime": "2019:07:30 01:17:00",
+    "lat": 37.94282627178426,
+    "lon": -119.54712011747804
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1008.JPG",
+    "datetime": "2019:08:02 02:25:00",
+    "lat": 37.83915994757947,
+    "lon": -119.5585546896375
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1009.JPG",
+    "datetime": "2019:08:05 02:32:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1010.JPG",
+    "datetime": "2019:08:08 03:46:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1011.JPG",
+    "datetime": "2019:08:11 04:47:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "DCIM/100CANON/IMG_1012.JPG",
+    "datetime": "2019:08:13 23:39:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2001.JPG",
+    "datetime": "2020:04:16 02:44:00",
+    "lat": 37.72681154334373,
+    "lon": -122.4942663708434
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2002.JPG",
+    "datetime": "2020:04:18 04:29:00",
+    "lat": 37.80264763606201,
+    "lon": -122.40312439940627
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2003.JPG",
+    "datetime": "2020:04:20 04:45:00",
+    "lat": 37.81578806405106,
+    "lon": -122.42008991074779
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2004.JPG",
+    "datetime": "2020:04:22 06:24:00",
+    "lat": 37.70811792252214,
+    "lon": -122.43549072348993
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2005.JPG",
+    "datetime": "2020:04:24 01:46:00",
+    "lat": 37.821454416138074,
+    "lon": -122.39752108962693
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2006.JPG",
+    "datetime": "2020:04:26 03:22:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2007.JPG",
+    "datetime": "2020:04:28 04:10:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "DCIM/100APPLE/IMG_2008.JPG",
+    "datetime": "2020:04:30 04:32:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-01.jpg",
+    "datetime": "2020:11:04 00:11:00",
+    "lat": 37.88261301236822,
+    "lon": -119.60260753642005
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-02.jpg",
+    "datetime": "2020:11:08 00:46:00",
+    "lat": 37.94057007158142,
+    "lon": -119.5538422459418
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-03.jpg",
+    "datetime": "2020:11:12 02:03:00",
+    "lat": 37.85977968291244,
+    "lon": -119.61191115769049
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-04.jpg",
+    "datetime": "2020:11:16 03:14:00",
+    "lat": 37.82723729674898,
+    "lon": -119.48284995254247
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-05.jpg",
+    "datetime": "2020:11:20 03:36:00",
+    "lat": 37.872289205995315,
+    "lon": -119.6118037154499
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-06.jpg",
+    "datetime": "2020:11:24 05:19:00",
+    "lat": 37.80834228406854,
+    "lon": -119.46149047620806
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-07.jpg",
+    "datetime": "2020:11:28 05:30:00",
+    "lat": 37.87794341581732,
+    "lon": -119.5156660320605
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-08.jpg",
+    "datetime": "2020:12:02 07:25:00",
+    "lat": 37.86674516360567,
+    "lon": -119.5436167264324
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-09.jpg",
+    "datetime": "2020:12:06 07:51:00",
+    "lat": 37.908730132088884,
+    "lon": -119.45838624575087
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-10.jpg",
+    "datetime": "2020:12:10 09:01:00",
+    "lat": 37.804866797872585,
+    "lon": -119.57841851856037
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-11.jpg",
+    "datetime": "2020:12:14 09:59:00",
+    "lat": 37.82191143474438,
+    "lon": -119.53474159779918
+  },
+  {
+    "path": "Photos/Vacation - Yosemite/2022-yosemite-12.jpg",
+    "datetime": "2020:12:18 11:04:00",
+    "lat": 37.80532899088184,
+    "lon": -119.56818190144564
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-01.jpg",
+    "datetime": "2020:11:04 00:05:00",
+    "lat": 45.542598161027904,
+    "lon": -122.74788064830489
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-02.jpg",
+    "datetime": "2020:11:08 00:43:00",
+    "lat": 45.512101463253984,
+    "lon": -122.6325724323546
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-03.jpg",
+    "datetime": "2020:11:12 02:16:00",
+    "lat": 45.57092958595677,
+    "lon": -122.66294249962344
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-04.jpg",
+    "datetime": "2020:11:16 02:46:00",
+    "lat": 45.53552551722825,
+    "lon": -122.71059647515182
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-05.jpg",
+    "datetime": "2020:11:20 04:11:00",
+    "lat": 45.584501435312426,
+    "lon": -122.6031337962593
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-06.jpg",
+    "datetime": "2020:11:24 04:43:00",
+    "lat": 45.531525244039976,
+    "lon": -122.65112651808734
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-07.jpg",
+    "datetime": "2020:11:28 06:14:00",
+    "lat": 45.58721280599557,
+    "lon": -122.68388531660533
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-08.jpg",
+    "datetime": "2020:12:02 06:41:00",
+    "lat": 45.54742887168918,
+    "lon": -122.65745274539817
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-09.jpg",
+    "datetime": "2020:12:06 07:40:00",
+    "lat": 45.516116499823056,
+    "lon": -122.61383690184931
+  },
+  {
+    "path": "Photos/Vacation - Portland/2022-portland-10.jpg",
+    "datetime": "2020:12:10 09:12:00",
+    "lat": 45.50148607013455,
+    "lon": -122.68796765522615
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-01.jpg",
+    "datetime": "2020:11:04 00:05:00",
+    "lat": 41.80131186645799,
+    "lon": -87.64007158072887
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-02.jpg",
+    "datetime": "2020:11:08 01:07:00",
+    "lat": 41.94675532369519,
+    "lon": -87.70555544981774
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-03.jpg",
+    "datetime": "2020:11:12 01:36:00",
+    "lat": 41.937338429324285,
+    "lon": -87.55291157299668
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-04.jpg",
+    "datetime": "2020:11:16 03:25:00",
+    "lat": 41.86572366262968,
+    "lon": -87.68196830197077
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-05.jpg",
+    "datetime": "2020:11:20 03:52:00",
+    "lat": 41.815231610104476,
+    "lon": -87.58194533902181
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-06.jpg",
+    "datetime": "2020:11:24 05:27:00",
+    "lat": 41.899776240280424,
+    "lon": -87.67811919729097
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-07.jpg",
+    "datetime": "2020:11:28 06:03:00",
+    "lat": 41.839500445611904,
+    "lon": -87.61623149403901
+  },
+  {
+    "path": "Photos/2022 Chicago trip/2022-chicago-08.jpg",
+    "datetime": "2020:12:02 06:58:00",
+    "lat": 41.87622433343936,
+    "lon": -87.64617798115039
+  },
+  {
+    "path": "Photos/Family/family-01.jpg",
+    "datetime": "2021:08:28 07:26:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-02.jpg",
+    "datetime": "2021:08:29 07:00:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-03.jpg",
+    "datetime": "2021:08:30 06:57:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-04.jpg",
+    "datetime": "2021:08:31 06:52:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-05.jpg",
+    "datetime": "2021:09:01 07:18:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-06.jpg",
+    "datetime": "2021:09:02 07:09:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-07.jpg",
+    "datetime": "2021:09:03 06:52:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Family/family-08.jpg",
+    "datetime": "2021:09:04 07:13:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/2024/2024-01.jpg",
+    "datetime": "2027:10:06 01:51:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/2024/2024-02.jpg",
+    "datetime": "2027:10:13 03:04:00",
+    "lat": 37.85120803247999,
+    "lon": -122.39954527643872
+  },
+  {
+    "path": "Photos/2024/2024-03.jpg",
+    "datetime": "2027:10:20 03:57:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/2024/2024-04.jpg",
+    "datetime": "2027:10:27 05:06:00",
+    "lat": 37.72009745866704,
+    "lon": -122.40047607356568
+  },
+  {
+    "path": "Photos/2024/2024-05.jpg",
+    "datetime": "2027:11:03 05:36:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/2024/2024-06.jpg",
+    "datetime": "2027:11:10 07:09:00",
+    "lat": 37.77446945970445,
+    "lon": -122.42516131425333
+  },
+  {
+    "path": "Photos/2025/2025-01.jpg",
+    "datetime": "2027:10:07 01:49:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/2025/2025-02.jpg",
+    "datetime": "2027:10:14 02:33:00",
+    "lat": 37.76786378648329,
+    "lon": -122.43713123230347
+  },
+  {
+    "path": "Photos/2025/2025-03.jpg",
+    "datetime": "2027:10:21 04:07:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/2025/2025-04.jpg",
+    "datetime": "2027:10:28 05:29:00",
+    "lat": 37.763846249681635,
+    "lon": -122.46951903379937
+  },
+  {
+    "path": "Photos/2025/2025-05.jpg",
+    "datetime": "2027:11:04 06:17:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Misc/misc-01.jpg",
+    "datetime": "2022:10:12 04:22:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Misc/misc-02.jpg",
+    "datetime": "2022:10:23 03:33:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Misc/misc-03.jpg",
+    "datetime": "2022:11:03 03:33:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Photos/Misc/misc-04.jpg",
+    "datetime": "2022:11:14 04:25:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Pictures/Wallpapers/wallpaper-01.jpg",
+    "datetime": "2023:04:19 15:26:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Pictures/Wallpapers/wallpaper-02.jpg",
+    "datetime": "2023:04:20 15:28:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": "Pictures/Wallpapers/wallpaper-03.jpg",
+    "datetime": "2023:04:21 15:22:00",
+    "lat": null,
+    "lon": null
+  },
+  {
+    "path": ".Trashes/501/deleted-beach.jpg",
+    "datetime": "2021:02:08 08:30:00",
+    "lat": 45.479658822614674,
+    "lon": -122.73444246755332
+  },
+  {
+    "path": ".Trashes/501/deleted-selfie.jpg",
+    "datetime": "2021:03:30 09:33:00",
+    "lat": 37.762522851233825,
+    "lon": -122.38810355758862
+  }
+]

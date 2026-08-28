@@ -130,7 +130,7 @@ describe("UsersPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Header trigger is icon-only (LibreServ-style big plus) with aria-label.
+    // Floating trigger is icon-only (LibreServ-style big plus) with aria-label.
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
@@ -163,12 +163,17 @@ describe("UsersPage", () => {
     );
   });
 
-  it("shows a big plus add-user control in the header, not an Add user chip", async () => {
+  it("shows a floating big plus add-user control below the list, not in the header", async () => {
     stubFetch();
     renderPage();
+
+    await screen.findByRole("region", { name: /User list/i });
 
     const add = await screen.findByRole("button", { name: /^Add user$/i });
     expect(add.textContent?.trim()).toBe("");
     expect(within(add).queryByText(/Add user/i)).toBeNull();
+    expect(add.className).toMatch(/fixed/);
+    expect(add.className).toMatch(/bottom-8/);
+    expect(add.className).toMatch(/right-8/);
   });
 });

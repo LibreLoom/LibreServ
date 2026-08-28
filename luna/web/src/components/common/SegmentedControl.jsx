@@ -2,14 +2,26 @@ import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics";
 
+/**
+ * @param {"default"|"secondary"} [surface]
+ *   Backdrop the control sits on. `"secondary"` uses a primary selected pill
+ *   (Apps / Gallery layered search-bar pattern) so a large accent indicator
+ *   does not read as the toolbar background.
+ */
 export default function SegmentedControl({
   options,
   value,
   onChange,
   onDisabledClick = (_value) => {},
   className = "",
+  surface = "default",
 }) {
   const selectedIndex = options.findIndex((o) => o.value === value);
+  const onSecondary = surface === "secondary";
+  // On secondary shells (Gallery toolbar), selected pill matches the search
+  // field (`bg-primary`) so a gray accent indicator does not dominate.
+  const indicatorClass = onSecondary ? "bg-primary" : "bg-accent";
+  const idleTextClass = "text-accent hover:text-primary";
 
   return (
     <div
@@ -32,7 +44,7 @@ export default function SegmentedControl({
       >
         <div
           key={selectedIndex}
-          className="h-full w-full rounded-pill bg-accent animate-segmented-settle"
+          className={cn("h-full w-full rounded-pill animate-segmented-settle", indicatorClass)}
         />
       </div>
       {options.map(({ value: optValue, icon: Icon, label, disabled, title }) => (
@@ -55,7 +67,7 @@ export default function SegmentedControl({
               ? "text-accent opacity-50 cursor-not-allowed"
               : value === optValue
                 ? "text-secondary"
-                : "text-accent hover:text-primary"
+                : idleTextClass
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
           role="radio"
@@ -85,4 +97,5 @@ SegmentedControl.propTypes = {
   onChange: PropTypes.func.isRequired,
   onDisabledClick: PropTypes.func,
   className: PropTypes.string,
+  surface: PropTypes.oneOf(["default", "secondary"]),
 };

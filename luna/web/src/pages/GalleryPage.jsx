@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Image as ImageIcon, Plus, PlugZap, Search } from "lucide-react";
+import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import SegmentedControl from "../components/common/SegmentedControl";
 import ModalCard from "../components/cards/ModalCard";
+import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
-import PhotoLightbox from "../components/gallery/PhotoLightbox.jsx";
+import PhotoLightbox, {
+  ABOVE_LIGHTBOX_OVERLAY_CLASS,
+} from "../components/gallery/PhotoLightbox.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import {
   apiErrorMessage,
@@ -31,7 +33,12 @@ const SEGMENTS = [
   { value: "favorites", label: "Favorites" },
 ];
 
-function galleryUrl({ q, favorites, albumId, albumHome, place, offset }) {
+const SEGMENT_IDS = SEGMENTS.map((s) => s.value);
+const DEFAULT_SEGMENT = "library";
+
+/** Build the gallery list URL. Bool query flags must be `true`/`false` —
+ *  lunad's serde query parser rejects `1`/`0` (Favorites used to 400). */
+export function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
   const params = new URLSearchParams();
   params.set("limit", "80");
   params.set("offset", String(offset || 0));
@@ -39,13 +46,21 @@ function galleryUrl({ q, favorites, albumId, albumHome, place, offset }) {
   if (favorites) params.set("favorites", "true");
   if (albumId) params.set("album_id", albumId);
   if (albumHome) params.set("album_home", albumHome);
-  if (place) params.set("place", place);
+  if (placeBbox) params.set("place_bbox", placeBbox);
+  else if (place) params.set("place", place);
   return `/api/v1/gallery?${params}`;
 }
 
 export default function GalleryPage() {
   const queryClient = useQueryClient();
-  const [segment, setSegment] = useState("library");
+  // Same #category hash pattern as SettingsPage: read on mount, keep URL in
+  // sync, listen for hashchange so back/forward and deep links work.
+  const [segment, setSegment] = useState(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+    if (SEGMENT_IDS.includes(hash)) return hash;
+    return DEFAULT_SEGMENT;
+  });
+  const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const [error, setError] = useState(null);
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
@@ -58,6 +73,40 @@ export default function GalleryPage() {
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
 
+  // Settings writes the active category with replaceState so a missing or
+  // invalid hash becomes e.g. #library / #appearance. Skip when already
+  // matching so a location.hash assignment (push) is not clobbered.
+  useEffect(() => {
+    if (window.location.hash.slice(1) === activeSegment) return;
+    window.history.replaceState(null, "", `#${activeSegment}`);
+  }, [activeSegment]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (SEGMENT_IDS.includes(hash)) {
+        setSegment(hash);
+        setPlace(null);
+        setAlbumView(null);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  // Assigning location.hash pushes a history entry and fires hashchange, so
+  // SegmentedControl stays in sync with back/forward (Settings only
+  // replaceStates; Photos needs a real stack between Library / Albums / …).
+  const handleSegmentChange = useCallback(
+    (next) => {
+      if (!SEGMENT_IDS.includes(next) || next === activeSegment) return;
+      setPlace(null);
+      setAlbumView(null);
+      window.location.hash = next;
+    },
+    [activeSegment],
+  );
+
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const galleryStatus = useQuery({
     queryKey: ["gallery-status"],
@@ -67,23 +116,24 @@ export default function GalleryPage() {
   const albums = useQuery({
     queryKey: ["gallery-albums"],
     queryFn: () => getJson("/api/v1/gallery/albums"),
-    enabled: segment === "albums" || !!albumPick,
+    enabled: activeSegment === "albums" || !!albumPick,
   });
   const places = useQuery({
     queryKey: ["gallery-places"],
     queryFn: () => getJson("/api/v1/gallery/places"),
-    enabled: segment === "places",
+    enabled: activeSegment === "places",
   });
 
   const listKey = useMemo(
     () => [
       "gallery",
-      segment,
+      activeSegment,
       search,
       place?.key || "",
+      place?.place_bbox?.join(",") || "",
       albumView ? `${albumView.home_drive_id}:${albumView.id}` : "",
     ],
-    [segment, search, place, albumView],
+    [activeSegment, search, place, albumView],
   );
 
   const gallery = useInfiniteQuery({
@@ -93,15 +143,16 @@ export default function GalleryPage() {
       getJson(
         galleryUrl({
           q: search || undefined,
-          favorites: segment === "favorites",
+          favorites: activeSegment === "favorites",
           albumId: albumView?.id,
           albumHome: albumView?.home_drive_id,
-          place: place?.key,
+          place: place?.place_bbox ? undefined : place?.key,
+          placeBbox: place?.place_bbox?.join(","),
           offset: pageParam,
         }),
       ),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
-    enabled: segment !== "places" || !!place,
+    enabled: activeSegment !== "places" || !!place,
   });
 
   const photos = useMemo(
@@ -124,15 +175,27 @@ export default function GalleryPage() {
   const driveList = drives.data || [];
   const looking = gallery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
+  const galleryLoadError =
+    gallery.isError && !looking
+      ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
+      : null;
   const noPhotos =
     !looking &&
     !gallery.isLoading &&
+    !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
-    segment === "library" &&
+    activeSegment === "library" &&
     !search &&
     !place &&
     !albumView;
+  const noFavorites =
+    !looking &&
+    !gallery.isLoading &&
+    !gallery.isError &&
+    photos.length === 0 &&
+    driveList.length > 0 &&
+    activeSegment === "favorites";
 
   const favorite = useMutation({
     /** @param {{ drive_id: string, path: string, favorited?: boolean }} photo */
@@ -206,62 +269,40 @@ export default function GalleryPage() {
     }
   }, [gallery]);
 
-  function submitSearch(e) {
-    e.preventDefault();
-    setSearch(q.trim());
-    setPlace(null);
-    if (segment === "places") setSegment("library");
-  }
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  const handleQueryChange = useCallback(
+    (e) => {
+      const next = e.target.value;
+      setQ(next);
+      if (!next.trim()) return;
+      setPlace(null);
+      if (activeSegment === "places") handleSegmentChange("library");
+    },
+    [activeSegment, handleSegmentChange],
+  );
 
   const showTimeline =
-    segment === "library" ||
-    segment === "favorites" ||
-    (segment === "places" && place) ||
-    (segment === "albums" && albumView);
+    activeSegment === "library" ||
+    activeSegment === "favorites" ||
+    (activeSegment === "places" && place) ||
+    (activeSegment === "albums" && albumView);
 
   return (
-    <Page
-      title="Photos"
-      titleId="gallery-title"
-      bottomContent={
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <SegmentedControl
-            options={SEGMENTS}
-            value={segment}
-            onChange={(v) => {
-              setSegment(v);
-              setPlace(null);
-              setAlbumView(null);
-            }}
-          />
-          <form onSubmit={submitSearch} className="flex gap-2 grow max-w-md">
-            <label className="sr-only" htmlFor="photo-search">
-              Search photos
-            </label>
-            <div className="relative grow">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-                aria-hidden="true"
-              />
-              <input
-                id="photo-search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search by name"
-                className="w-full rounded-pill bg-secondary text-primary border-2 border-secondary/30 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              />
-            </div>
-            <Button type="submit" variant="secondary" surface="primary">
-              Search
-            </Button>
-          </form>
-        </div>
-      }
-    >
-      {error && (
+    <Page title="Photos" titleId="gallery-title">
+      <GalleryToolbar
+        segments={SEGMENTS}
+        segment={activeSegment}
+        onSegmentChange={handleSegmentChange}
+        query={q}
+        onQueryChange={handleQueryChange}
+      />
+      {(error || galleryLoadError) && (
         <PageNotice variant="error" className="mb-4">
-          {error}
+          {error || galleryLoadError}
         </PageNotice>
       )}
 
@@ -278,7 +319,7 @@ export default function GalleryPage() {
         />
       )}
 
-      {looking && photos.length === 0 && !noDrives && segment === "library" && (
+      {looking && photos.length === 0 && !noDrives && activeSegment === "library" && (
         <div className="rounded-large-element bg-secondary text-primary p-6 mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">
@@ -296,7 +337,15 @@ export default function GalleryPage() {
         />
       )}
 
-      {segment === "albums" && !albumView && (
+      {noFavorites && (
+        <EmptyState
+          icon={ImageIcon}
+          title="No favorites yet"
+          description="Open a photo and tap the heart to save it here."
+        />
+      )}
+
+      {activeSegment === "albums" && !albumView && (
         <AlbumsPanel
           albums={albums.data || []}
           loading={albums.isLoading}
@@ -328,12 +377,11 @@ export default function GalleryPage() {
         />
       )}
 
-      {segment === "places" && !place && (
+      {activeSegment === "places" && !place && (
         <PlacesMap
           places={places.data || []}
           onSelect={(p) => {
             setPlace(p);
-            setSegment("places");
           }}
         />
       )}
@@ -387,6 +435,7 @@ export default function GalleryPage() {
           onClose={() => setSharePhoto(null)}
           onDone={() => setSharePhoto(null)}
           onError={setError}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         />
       )}
 
@@ -399,6 +448,7 @@ export default function GalleryPage() {
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trash.isPending}
+        overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
       />
 
       {newAlbumOpen && (
@@ -435,7 +485,11 @@ export default function GalleryPage() {
       )}
 
       {albumPick && (
-        <ModalCard title="Add to album" onClose={() => setAlbumPick(null)}>
+        <ModalCard
+          title="Add to album"
+          onClose={() => setAlbumPick(null)}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
+        >
           {({ close }) => (
             <div className="space-y-2">
               {(albums.data || []).length === 0 && (

@@ -102,4 +102,15 @@ describe("ModalCard", () => {
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("applies overlayClassName on the fixed overlay for stacking", () => {
+    render(
+      <ModalCard title="Stacked" onClose={() => {}} overlayClassName="z-[90]">
+        Body
+      </ModalCard>,
+    );
+    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]")).toHaveClass(
+      "z-[90]",
+    );
+  });
 });
