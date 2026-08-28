@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
@@ -91,6 +92,9 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     (s) => s.drive_id === driveId && pathKey(s.path) === objectPath,
   );
   const members = (users.data || []).filter((u) => u.role !== "admin");
+  const grantedUserIds = new Set(matchingGrants.map((g) => g.user_id));
+  const addablePeople = members.filter((u) => !grantedUserIds.has(u.id));
+  const noPeopleToAdd = users.isSuccess && addablePeople.length === 0;
 
   const grantMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/grants", body),
@@ -178,43 +182,60 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
               </div>
             );
           })}
-          <Dropdown
-            options={members.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
-            value={personId}
-            onChange={setPersonId}
-            placeholder="Add a person"
-            fullWidth
-          />
-          <Dropdown
-            options={PERMISSION_OPTIONS}
-            value={permission}
-            onChange={setPermission}
-            fullWidth
-          />
-          <p className="text-primary text-xs">
-            <TermHint content="Can open files in this folder, but cannot save changes.">
-              Read
-            </TermHint>
-            {" "}opens files.{" "}
-            <TermHint content="Can open files and save changes in this folder.">
-              Write
-            </TermHint>
-            {" "}can also save changes.
-          </p>
-          <Button
-            variant="primary"
-            size="sm"
-            loading={grantMutation.isPending}
-            disabled={!personId}
-            onClick={() => grantMutation.mutate({
-              user_id: personId,
-              drive_id: driveId,
-              path: objectPath,
-              permission,
-            })}
-          >
-            Grant access
-          </Button>
+          {noPeopleToAdd ? (
+            <div className="space-y-3 rounded-large-element border border-primary/20 p-3">
+              <p className="text-primary text-sm">
+                {members.length === 0
+                  ? "No people to share with yet. Add a Member on the Users page."
+                  : "Everyone already has access. Add more people on the Users page."}
+              </p>
+              <Button variant="primary" size="sm" asChild>
+                <Link to="/settings/users" onClick={onClose}>
+                  Go to Users
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Dropdown
+                options={addablePeople.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+                value={personId}
+                onChange={setPersonId}
+                placeholder="Add a person"
+                fullWidth
+              />
+              <Dropdown
+                options={PERMISSION_OPTIONS}
+                value={permission}
+                onChange={setPermission}
+                fullWidth
+              />
+              <p className="text-primary text-xs">
+                <TermHint content="Can open files in this folder, but cannot save changes.">
+                  Read
+                </TermHint>
+                {" "}opens files.{" "}
+                <TermHint content="Can open files and save changes in this folder.">
+                  Write
+                </TermHint>
+                {" "}can also save changes.
+              </p>
+              <Button
+                variant="primary"
+                size="sm"
+                loading={grantMutation.isPending}
+                disabled={!personId}
+                onClick={() => grantMutation.mutate({
+                  user_id: personId,
+                  drive_id: driveId,
+                  path: objectPath,
+                  permission,
+                })}
+              >
+                Grant access
+              </Button>
+            </>
+          )}
         </section>
       )}
 
