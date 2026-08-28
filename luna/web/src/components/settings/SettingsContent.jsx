@@ -4,7 +4,7 @@ import NetworkCategory from "./categories/NetworkCategory.jsx";
 import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";
 import AccessCategory from "./categories/AccessCategory.jsx";
-import UpdatesCategory from "./categories/UpdatesCategory.jsx";
+import AboutCategory from "./categories/AboutCategory.jsx";
 
 const CATEGORY_TITLES = {
   appearance: "Appearance",
@@ -21,7 +21,7 @@ const CATEGORY_COMPONENTS = {
   external_services: ExternalServicesCategory,
   devices: DevicesCategory,
   security: AccessCategory,
-  about: UpdatesCategory,
+  about: AboutCategory,
 };
 
 export default function SettingsContent({ category }) {

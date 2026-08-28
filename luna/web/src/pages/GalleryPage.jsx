@@ -12,7 +12,9 @@ import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
-import PhotoLightbox from "../components/gallery/PhotoLightbox.jsx";
+import PhotoLightbox, {
+  ABOVE_LIGHTBOX_OVERLAY_CLASS,
+} from "../components/gallery/PhotoLightbox.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import {
   apiErrorMessage,
@@ -393,6 +395,7 @@ export default function GalleryPage() {
           onClose={() => setSharePhoto(null)}
           onDone={() => setSharePhoto(null)}
           onError={setError}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         />
       )}
 
@@ -405,6 +408,7 @@ export default function GalleryPage() {
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trash.isPending}
+        overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
       />
 
       {newAlbumOpen && (
@@ -441,7 +445,11 @@ export default function GalleryPage() {
       )}
 
       {albumPick && (
-        <ModalCard title="Add to album" onClose={() => setAlbumPick(null)}>
+        <ModalCard
+          title="Add to album"
+          onClose={() => setAlbumPick(null)}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
+        >
           {({ close }) => (
             <div className="space-y-2">
               {(albums.data || []).length === 0 && (

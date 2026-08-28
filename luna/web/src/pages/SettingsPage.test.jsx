@@ -22,6 +22,27 @@ function stubFetch(role = "admin") {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (u.includes("/api/v1/health")) {
+      return new Response(JSON.stringify({ status: "ok", product: "Luna", version: "0.1.0" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.includes("/system/updates/source")) {
+      return new Response(JSON.stringify({
+        api_base: "https://gt.plainskill.net/api/v1",
+        owner: "LibreLoom",
+        repo: "LibreServ",
+        keys: ["RWBUILTIN"],
+        default_keys: true,
+        defaults: {
+          api_base: "https://gt.plainskill.net/api/v1",
+          owner: "LibreLoom",
+          repo: "LibreServ",
+          keys: ["RWBUILTIN"],
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/system/updates")) {
       return new Response(JSON.stringify({
         current_version: "0.1.0",
@@ -121,6 +142,7 @@ describe("SettingsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /^About$/i }));
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
+    expect(screen.getByText(/home file box/i)).toBeTruthy();
     expect(screen.getByText(/Updates only install when you tap the button/i)).toBeTruthy();
   });
 

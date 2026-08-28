@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Download, Save } from "lucide-react";
+import { Download, Maximize2, Minimize2, Save } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
+import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
@@ -26,7 +27,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const [loading, setLoading] = useState(kind === "text");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState(/** @type {string|null} */ (null));
+  const previewKey = `${driveId}:${path}:${open}`;
+  const [expandedScope, setExpandedScope] = useState(previewKey);
+
+  if (expandedScope !== previewKey) {
+    setExpandedScope(previewKey);
+    setExpanded(false);
+    setError(null);
+  }
 
   useEffect(() => {
     if (!open || !path || kind !== "text") return undefined;
@@ -82,20 +92,21 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
         : kind === "text" ? `Edit ${name}`
           : name;
 
+  const modalSize = kind === "image" && expanded ? "fullscreen" : "lg";
+
   return (
-    <ModalCard open={open} title={title} size="lg" onClose={onClose}>
+    <ModalCard open={open} title={title} size={modalSize} onClose={onClose}>
       {({ close }) => (
         <>
           {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
           {kind === "image" && (
-            <div className="rounded-large-element bg-primary text-secondary p-2 flex items-center justify-center max-h-[70vh] overflow-auto">
-              <img
-                src={contentHref(driveId, path)}
-                alt={name}
-                className="max-w-full max-h-[65vh] object-contain"
-              />
-            </div>
+            <ImagePreviewPanel
+              key={contentHref(driveId, path)}
+              src={contentHref(driveId, path)}
+              alt={name}
+              expanded={expanded}
+            />
           )}
 
           {kind === "video" && (
@@ -131,6 +142,21 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
           )}
 
           <div className="mt-4 flex flex-wrap gap-3">
+            {kind === "image" && (
+              <Button
+                variant="outline"
+                surface="secondary"
+                aria-label={expanded ? "Normal size" : "Full view"}
+                onClick={() => setExpanded((value) => !value)}
+              >
+                {expanded ? (
+                  <Minimize2 size={14} aria-hidden="true" />
+                ) : (
+                  <Maximize2 size={14} aria-hidden="true" />
+                )}
+                {expanded ? "Normal size" : "Full view"}
+              </Button>
+            )}
             {kind === "text" && (
               <Button
                 variant="accent"
