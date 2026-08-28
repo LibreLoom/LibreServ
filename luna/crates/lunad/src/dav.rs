@@ -1,16 +1,15 @@
 //! WebDAV for native desktop mounts (Finder, Explorer, davfs2).
 //!
 //! One endpoint per adopted drive: `/dav/{drive_id}/...`. The handler uses a
-//! jailed filesystem (no symlink following, `O_NOFOLLOW` opens) rooted at the
-//! drive's mount point, so a client can never address anything outside that
-//! drive.
+//! grant-filtered jailed filesystem (no symlink following, `O_NOFOLLOW` opens)
+//! rooted at the drive's mount point, so a client can never address anything
+//! outside that drive — and members only see folders granted to them.
 //!
-//! DAV hands out the whole drive with read/write access, so unlike the
-//! grant-scoped file API it is limited to authenticated admins. Clients
-//! authenticate with a session cookie, `Authorization: Bearer <token>`, or
-//! HTTP Basic where the password is a session JWT or a device token (the
+//! Clients authenticate with a session cookie, `Authorization: Bearer <token>`,
+//! or HTTP Basic where the password is a session JWT or a device token (the
 //! same long-lived access token apps mint after login). The household
-//! password is not accepted here.
+//! password is not accepted here. Access matches the signed-in user: admins
+//! see the whole drive; members see their grants (read or write).
 
 use axum::Router;
 use axum::extract::{Path, Request, State};
@@ -19,11 +18,11 @@ use axum::response::IntoResponse;
 use axum::routing::any;
 use dav_server::fakels::FakeLs;
 
-use crate::dav_fs::JailedFs;
+use crate::dav_fs::GrantFs;
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::auth::CurrentUser;
+use crate::auth::{CurrentUser, has_drive_access};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -49,10 +48,11 @@ async fn handle_dav_wild(
 }
 
 async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::response::Response {
-    if let Err(err) = require_dav_admin(&state, &req) {
-        return err.into_response();
-    }
-    let handler = match dav_handler_for(&state, &id) {
+    let user = match require_dav_user(&state, &req) {
+        Ok(user) => user,
+        Err(err) => return err.into_response(),
+    };
+    let handler = match dav_handler_for(&state, &id, user) {
         Ok(handler) => handler,
         Err(err) => return err.into_response(),
     };
@@ -61,12 +61,12 @@ async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::re
     axum::response::Response::from_parts(parts, axum::body::Body::new(body))
 }
 
-fn require_dav_admin(
+fn require_dav_user(
     state: &AppState,
     req: &Request,
-) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
+) -> Result<CurrentUser, (StatusCode, axum::Json<serde_json::Value>)> {
     if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
-        return require_admin_role(user);
+        return Ok(user);
     }
     // Failed Basic (household password, unknown token, empty) is rate-limited
     // so a WebDAV prompt cannot hammer guesses. Missing credentials just 401.
@@ -87,18 +87,6 @@ fn require_dav_admin(
         StatusCode::UNAUTHORIZED,
         "Use your Luna username and an access token as the password. Your Luna password will not work here.",
     ))
-}
-
-fn require_admin_role(
-    user: CurrentUser,
-) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an admin can mount drives as folders.",
-        ));
-    }
-    Ok(())
 }
 
 fn basic_credentials_present(headers: &HeaderMap) -> bool {
@@ -128,6 +116,7 @@ fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
 fn dav_handler_for(
     state: &AppState,
     id: &str,
+    user: CurrentUser,
 ) -> Result<crate::DavHandler, (StatusCode, axum::Json<serde_json::Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -153,30 +142,33 @@ fn dav_handler_for(
             "This drive is not connected.",
         ));
     }
-
-    let mut cache = state.dav_handlers.lock().unwrap();
-    if let Some(handler) = cache.get(&drive.id) {
-        return Ok(handler.clone());
+    if !has_drive_access(&user, &conn, &drive.id) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have access to this drive.",
+        ));
     }
+    let mount_point = drive.mount_point.clone();
+    let drive_id = drive.id.clone();
+    drop(conn);
 
-    let handler = crate::DavHandler::builder()
-        .filesystem(Box::new(JailedFs::with_gallery(
-            &drive.mount_point,
-            drive.id.clone(),
-            state.gallery.clone(),
+    // Per-request handler: grants are user-specific, so we must not share one
+    // filesystem across sessions.
+    Ok(crate::DavHandler::builder()
+        .filesystem(Box::new(GrantFs::new(
+            &mount_point,
+            user,
+            drive_id.clone(),
+            state.db.clone(),
         )))
         .locksystem(FakeLs::new())
-        .strip_prefix(format!("/dav/{}", drive.id))
-        .build_handler();
-    cache.insert(drive.id, handler.clone());
-    Ok(handler)
+        .strip_prefix(format!("/dav/{drive_id}"))
+        .build_handler())
 }
 
-pub fn drop_cached_handler(state: &AppState, drive_id: &str) {
-    if let Ok(mut cache) = state.dav_handlers.lock() {
-        cache.remove(drive_id);
-    }
-}
+/// Kept for call sites that used to invalidate a shared DavHandler cache.
+/// Handlers are built per request now, so this is a no-op.
+pub fn drop_cached_handler(_state: &AppState, _drive_id: &str) {}
 
 #[cfg(test)]
 mod tests {
@@ -196,7 +188,7 @@ mod tests {
         54321,
     );
 
-    fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+    fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router, crate::AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         crate::db::upsert_drive(
@@ -217,8 +209,8 @@ mod tests {
                 state.clone(),
                 crate::auth::guard,
             ))
-            .with_state(state);
-        (dir, app)
+            .with_state(state.clone());
+        (dir, app, state)
     }
 
     fn req(method: Method, uri: &str, auth: Option<&str>) -> HttpReq<Body> {
@@ -227,6 +219,16 @@ mod tests {
             builder = builder.header("authorization", a);
         }
         let mut http = builder.body(Body::empty()).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    fn req_body(method: Method, uri: &str, auth: Option<&str>, body: &'static [u8]) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder().method(method).uri(uri);
+        if let Some(a) = auth {
+            builder = builder.header("authorization", a);
+        }
+        let mut http = builder.body(Body::from(body)).unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         http
     }
@@ -244,7 +246,7 @@ mod tests {
     fn json_req(
         method: Method,
         uri: &str,
-        body: &'static str,
+        body: &str,
         cookie: Option<&str>,
         csrf: Option<&str>,
     ) -> HttpReq<Body> {
@@ -258,7 +260,7 @@ mod tests {
         if let Some(t) = csrf {
             builder = builder.header("x-csrf-token", t);
         }
-        let mut http = builder.body(Body::from(body)).unwrap();
+        let mut http = builder.body(Body::from(body.to_string())).unwrap();
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         http
     }
@@ -278,6 +280,47 @@ mod tests {
         (session, csrf)
     }
 
+    async fn login_and_token(
+        app: &axum::Router,
+        username: &str,
+        password: &str,
+        token_name: &str,
+    ) -> String {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                &format!(
+                    r#"{{"username":"{username}","password":"{password}"}}"#
+                ),
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "login {username}");
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = format!("{session}; luna_csrf={csrf}");
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/device-tokens",
+                &format!(r#"{{"name":"{token_name}"}}"#),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        v["token"].as_str().unwrap().to_string()
+    }
+
     async fn setup_admin_and_token(app: &axum::Router) -> String {
         let res = call(
             app,
@@ -291,7 +334,19 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), 200);
+        login_and_token(app, "max", "hunter22hunter1", "Finder on the kitchen Mac").await
+    }
 
+    /// Admin + member with a grant. Returns (admin_token, member_token, member_user_id).
+    async fn setup_admin_member_grant(
+        app: &axum::Router,
+        state: &crate::AppState,
+        grant_path: &str,
+        permission: &str,
+    ) -> (String, String, String) {
+        let admin_token = setup_admin_and_token(app).await;
+
+        // Admin session to create member.
         let res = call(
             app,
             json_req(
@@ -306,22 +361,13 @@ mod tests {
         assert_eq!(res.status(), 200);
         let (session, csrf) = auth_cookies(&res);
         let cookie = format!("{session}; luna_csrf={csrf}");
-        assert!(session.starts_with("luna_session="));
-        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(
-            v.get("token").is_none(),
-            "login JSON must not include a session JWT"
-        );
 
         let res = call(
             app,
             json_req(
                 Method::POST,
-                "/api/v1/device-tokens",
-                r#"{"name":"Finder on the kitchen Mac"}"#,
+                "/api/v1/users",
+                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter1","role":"user"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),
@@ -332,13 +378,30 @@ mod tests {
             .await
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        v["token"].as_str().unwrap().to_string()
+        let sam_id = v["id"].as_str().unwrap().to_string();
+
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_grant(
+                &conn,
+                "g-sam",
+                &sam_id,
+                "photos",
+                grant_path,
+                permission,
+            )
+            .unwrap();
+        }
+
+        let member_token =
+            login_and_token(app, "sam", "hunter22hunter1", "Sam's laptop").await;
+        (admin_token, member_token, sam_id)
     }
 
     #[tokio::test]
     async fn dav_accepts_device_token_as_basic_password() {
         let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
+        let (_dir, app, _state) = test_app(mount.path());
         let token = setup_admin_and_token(&app).await;
 
         let res = call(
@@ -358,7 +421,7 @@ mod tests {
     #[tokio::test]
     async fn dav_rejects_household_password() {
         let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
+        let (_dir, app, _state) = test_app(mount.path());
         let _token = setup_admin_and_token(&app).await;
 
         let res = call(
@@ -384,7 +447,7 @@ mod tests {
     #[tokio::test]
     async fn dav_accepts_token_as_username_with_empty_password() {
         let mount = tempfile::tempdir().unwrap();
-        let (_dir, app) = test_app(mount.path());
+        let (_dir, app, _state) = test_app(mount.path());
         let token = setup_admin_and_token(&app).await;
 
         let res = call(
@@ -394,6 +457,184 @@ mod tests {
         .await;
         assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
         assert_ne!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn dav_member_with_write_grant_can_read_granted_path() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::write(mount.path().join("family/hi.txt"), b"hello").unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        std::fs::write(mount.path().join("secret/nope.txt"), b"nope").unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let (_admin, member_token, _) =
+            setup_admin_member_grant(&app, &state, "family", "write").await;
+
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/family/hi.txt",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"hello");
+
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/secret/nope.txt",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn dav_member_read_grant_rejects_put() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let (_admin, member_token, _) =
+            setup_admin_member_grant(&app, &state, "family", "read").await;
+
+        let res = call(
+            &app,
+            req_body(
+                Method::PUT,
+                "/dav/photos/family/new.txt",
+                Some(&basic("sam", &member_token)),
+                b"data",
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn dav_member_without_grant_forbidden() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app, _state) = test_app(mount.path());
+        let _admin = setup_admin_and_token(&app).await;
+
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = format!("{session}; luna_csrf={csrf}");
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/users",
+                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter1","role":"user"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let member_token =
+            login_and_token(&app, "sam", "hunter22hunter1", "Sam no grant").await;
+
+        let res = call(
+            &app,
+            req(Method::GET, "/dav/photos/", Some(&basic("sam", &member_token))),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("don't have access") || text.contains("access"),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dav_admin_still_sees_whole_drive() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("anywhere.txt"), b"yes").unwrap();
+        let (_dir, app, _state) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/anywhere.txt",
+                Some(&basic("max", &token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn dav_deep_grant_lists_ancestors_hides_siblings() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family/photos")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        std::fs::write(mount.path().join("family/photos/a.txt"), b"a").unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let (_admin, member_token, _) =
+            setup_admin_member_grant(&app, &state, "family/photos", "read").await;
+
+        // PROPFIND is the usual list; GET on a directory may 405 — use PROPFIND.
+        let res = call(
+            &app,
+            req(
+                Method::from_bytes(b"PROPFIND").unwrap(),
+                "/dav/photos/",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        assert!(
+            res.status().is_success() || res.status() == StatusCode::MULTI_STATUS,
+            "root propfind {}",
+            res.status()
+        );
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("family"),
+            "ancestor folder should appear: {text}"
+        );
+        assert!(
+            !text.contains("secret"),
+            "sibling outside grant must be hidden: {text}"
+        );
+
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/family/photos/a.txt",
+                Some(&basic("sam", &member_token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     #[test]
@@ -421,16 +662,18 @@ mod tests {
         let mount = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("secret.txt"), b"secret-bytes").unwrap();
-        symlink(outside.path(), mount.path().join("escape")).unwrap();
-        std::fs::write(mount.path().join("ok.txt"), b"ok").unwrap();
-        let (_dir, app) = test_app(mount.path());
-        let token = setup_admin_and_token(&app).await;
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        symlink(outside.path(), mount.path().join("family/escape")).unwrap();
+        std::fs::write(mount.path().join("family/ok.txt"), b"ok").unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let (_admin, member_token, _) =
+            setup_admin_member_grant(&app, &state, "family", "write").await;
         let res = call(
             &app,
             req(
                 Method::GET,
-                "/dav/photos/escape/secret.txt",
-                Some(&basic("max", &token)),
+                "/dav/photos/family/escape/secret.txt",
+                Some(&basic("sam", &member_token)),
             ),
         )
         .await;

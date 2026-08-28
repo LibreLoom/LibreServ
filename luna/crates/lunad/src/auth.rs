@@ -740,6 +740,44 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
     grants.iter().any(|g| g.drive_id == drive_id)
 }
 
+/// True if WebDAV (or a file browser) may list/walk `path` on this drive.
+///
+/// Broader than [`can_access`]: a grant on `family/photos` lets the user walk
+/// `""` → `family` → `family/photos` so Finder can reach the granted folder.
+/// Sibling folders outside the grant stay hidden. Writes still use
+/// [`can_access`] with `write = true`.
+pub fn can_browse_path(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    if can_access(user, conn, drive_id, path, false) {
+        return true;
+    }
+    if user.role == "admin" {
+        return true;
+    }
+    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+        return false;
+    };
+    grants.iter().any(|g| {
+        if g.drive_id != drive_id {
+            return false;
+        }
+        // Whole-drive grant already covered by can_access above.
+        if g.path.is_empty() {
+            return true;
+        }
+        // Empty path is the drive root — always an ancestor of any grant.
+        if path.is_empty() {
+            return true;
+        }
+        // path is a proper prefix of the grant (ancestor walk).
+        g.path == path || g.path.starts_with(&format!("{path}/"))
+    })
+}
+
 pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthError> {
     let user = current_user(req).ok_or(AuthError::Unauthenticated)?;
     if user.role != "admin" {
@@ -885,6 +923,24 @@ mod tests {
             "anything",
             true
         ));
+        // Deep grant: ancestors are browsable; siblings are not.
+        crate::db::insert_grant(&conn, "g2", &sam.id, "drive-b", "family/photos", "read")
+            .unwrap();
+        assert!(can_browse_path(&sam_user, &conn, "drive-b", ""));
+        assert!(can_browse_path(&sam_user, &conn, "drive-b", "family"));
+        assert!(can_browse_path(
+            &sam_user,
+            &conn,
+            "drive-b",
+            "family/photos"
+        ));
+        assert!(!can_browse_path(
+            &sam_user,
+            &conn,
+            "drive-b",
+            "family/other"
+        ));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-b", "secret"));
         drop(conn);
         drop((dir, auth));
     }
