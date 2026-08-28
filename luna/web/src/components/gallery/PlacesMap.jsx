@@ -103,8 +103,16 @@ function clusterToPlace(cluster, index) {
   };
 }
 
-function PlacePopupContent({ place, onSelect }) {
+export function PlacePopupContent({ place, onSelect }) {
   const photoWord = place.count === 1 ? "photo" : "photos";
+  const countText = `${place.count} ${photoWord}`;
+  // Clustering may already set label to "N photos"; avoid showing that twice.
+  const placeName =
+    place.label &&
+    place.label !== countText &&
+    place.label !== "Photos from this place"
+      ? place.label
+      : null;
 
   return (
     <div className="places-map-popup-card bg-secondary text-primary rounded-large-element border-2 border-primary p-2 shadow-[0_8px_24px_color-mix(in_srgb,var(--color-secondary)_25%,transparent)] motion-safe:animate-[pop-in_200ms_var(--motion-easing-emphasized-decelerate)_both]">
@@ -125,15 +133,14 @@ function PlacePopupContent({ place, onSelect }) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <p className="truncate font-mono text-xs leading-tight">{place.label}</p>
-            <span
-              className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 font-mono text-[10px] leading-none text-primary"
-              aria-label={`${place.count} ${photoWord}`}
-            >
-              {place.count}
-            </span>
-          </div>
+          {placeName ? (
+            <>
+              <p className="truncate font-mono text-xs leading-tight">{placeName}</p>
+              <p className="truncate text-[11px] leading-tight">{countText}</p>
+            </>
+          ) : (
+            <p className="truncate font-mono text-xs leading-tight">{countText}</p>
+          )}
         </div>
 
         <Button
@@ -235,7 +242,12 @@ function ClusterMarkers({ markers, onSelect }) {
                 {count}
               </Tooltip>
             )}
-            <Popup className="places-map-popup" minWidth={0} maxWidth={280}>
+            <Popup
+              className="places-map-popup"
+              closeButton={false}
+              minWidth={0}
+              maxWidth={280}
+            >
               <PlacePopupContent place={place} onSelect={onSelect} />
             </Popup>
           </CircleMarker>
