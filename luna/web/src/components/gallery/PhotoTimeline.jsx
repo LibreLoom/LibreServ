@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import PropTypes from "prop-types";
+import Spinner from "../ui/Spinner.jsx";
 import PhotoThumb from "./PhotoThumb.jsx";
 
 function dayKey(ts) {
@@ -73,7 +74,14 @@ export default function PhotoTimeline({
       ))}
       <div ref={sentinel} className="h-8" aria-hidden="true" />
       {loadingMore && (
-        <p className="text-center text-secondary text-sm py-4">Loading more…</p>
+        <div
+          className="flex items-center justify-center gap-2 py-4 text-secondary"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="font-mono text-sm">Loading more…</p>
+          <Spinner size="sm" decorative className="text-secondary shrink-0" />
+        </div>
       )}
     </div>
   );
