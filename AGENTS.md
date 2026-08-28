@@ -270,7 +270,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 
 ## Key Notes
 
-- **Database:** SQLite. Multiple migration files in `internal/database/migrations/`
+- **Database:** SQLite. Migrations in `internal/database/migrations/` are squashed into one `001_schema.sql`; `migrate.go` reconciles old numbered migrations on existing DBs
 - **Container Runtime:** Required for app runtime (`podman compose`). Integration tests also need Podman.
 - **Config:** `server/backend/configs/libreserv.yaml` — must be created from `.example` before first run
 - **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, LibreServ generates and persists them to the config file. If config is read-only, set `LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` env vars instead.
