@@ -32,9 +32,7 @@ const OS_HASH_FILE: &str = "os-image.sha256";
 const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
 
 /// Committed Luna minisign public key (`keys/lsluna.minisign.pub`).
-/// During the key-split transition this may list the former shared key and the
-/// new Luna-only key (one `RW…` line each). After fielded boxes pick up a build
-/// that trusts the Luna-only key, drop the shared line.
+/// This is Luna’s production trust root (separate from LibreServ).
 const PINNED_PUB: &str = include_str!("../../../../keys/lsluna.minisign.pub");
 
 /// Meta-table key for the persisted update-source settings.

@@ -30,59 +30,56 @@ Keep these identical to the committed files:
 
 A LibreServ unit test fails if the embed drifts from `keys/libreserv.minisign.pub`.
 
-## Key ceremony (Max-operated)
+## Ownership
 
-Do this on a trusted machine. Do **not** commit secret keys.
+**The existing production keypair (`7AA9417DBF891F5E`) is Luna’s.** It lives in
+`keys/lsluna.minisign.pub` and is used with `LSLUNA_RELEASE_MINISIG_*` /
+`~/.minisign/lsluna.key`. **Do not regenerate it.**
 
-### Current state (post-split plumbing)
-
-Both product pubs still hold the former shared key (`7AA9417DBF891F5E`) so
-existing secrets (`~/.minisign/libreserv.key` / current `LSLUNA_*`) keep working
-while the plumbing is product-specific. LibreServ signing must use
-`LIBRESERV_RELEASE_MINISIG_*` or `~/.minisign/libreserv.key` — not `LSLUNA_*`.
-
-### Create a Luna-only key
+If the Luna secret is still at the old path `~/.minisign/libreserv.key`, rename
+it:
 
 ```bash
 mkdir -p ~/.minisign
-minisign -G -p keys/lsluna.minisign.pub -s ~/.minisign/lsluna.key
+mv ~/.minisign/libreserv.key ~/.minisign/lsluna.key
 ```
 
-1. Commit the new `keys/lsluna.minisign.pub`.
-2. Dual-trust transition: put **two** `RW…` lines in `keys/lsluna.minisign.pub`
-   (old shared key first, new Luna key second) so boxes that only trust the old
-   key can still install one hop. `PINNED_PUB` follows that file.
-3. Sign the next `luna-v*` release with the **new** Luna secret
-   (`LSLUNA_RELEASE_MINISIG_PK` / `~/.minisign/lsluna.key`).
-4. After fielded boxes are on a build that embeds the new key, drop the old
-   shared `RW…` line from `keys/lsluna.minisign.pub` and the embed.
+## Key ceremony — LibreServ only
 
-### Optional: rotate LibreServ to a fresh key
-
-LibreServ has no signed field releases yet, so a clean cut is fine:
+LibreServ needs its **own** new keypair (no signed LibreServ field releases yet,
+so a clean cut is fine). Do this on a trusted machine. Do **not** commit secret
+keys.
 
 ```bash
+mkdir -p ~/.minisign
 minisign -G -p keys/libreserv.minisign.pub -s ~/.minisign/libreserv.key
 ```
 
-Then copy the pub into
-`server/backend/internal/system/releases.minisign.pub` and the heredoc in
-`install.sh`, and set `LIBRESERV_RELEASE_MINISIG_PK` / `_PW`.
+Then:
+
+1. Commit `keys/libreserv.minisign.pub`.
+2. Copy it into `server/backend/internal/system/releases.minisign.pub` and the
+   heredoc in `install.sh` (keep all three identical).
+3. Set Cloud Agent secrets `LIBRESERV_RELEASE_MINISIG_PK` +
+   `LIBRESERV_RELEASE_MINISIG_PW`.
+
+Until that LibreServ ceremony is done, `keys/libreserv.minisign.pub` may still
+temporarily match Luna’s pub from the pre-split era — replace it before the
+first signed `v*` cut. Never sign LibreServ releases with `LSLUNA_*`.
 
 ### Recreate a public file from a secret
 
 ```bash
-minisign -R -s ~/.minisign/libreserv.key -p keys/libreserv.minisign.pub
-# or
 minisign -R -s ~/.minisign/lsluna.key -p keys/lsluna.minisign.pub
+minisign -R -s ~/.minisign/libreserv.key -p keys/libreserv.minisign.pub
 ```
 
 ## Verify checksums
 
 ```bash
-# LibreServ release
-minisign -Vm SHA256SUMS.txt -p keys/libreserv.minisign.pub
-
 # Luna release
 minisign -Vm SHA256SUMS.txt -p keys/lsluna.minisign.pub
+
+# LibreServ release
+minisign -Vm SHA256SUMS.txt -p keys/libreserv.minisign.pub
 ```
