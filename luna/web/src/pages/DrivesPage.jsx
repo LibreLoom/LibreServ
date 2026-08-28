@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { File as FileIcon, Folder, FolderOpen, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
@@ -218,9 +218,8 @@ export default function DrivesPage() {
     mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
-      setInspectFor(null);
+      // InspectModal closes via ModalCard animated close (not instant unmount).
       setActionError(null);
-      adopt.reset();
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
@@ -251,7 +250,6 @@ export default function DrivesPage() {
   const remove = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/remove`, {}),
     onSuccess: () => {
-      setRemoveTarget(null);
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
@@ -292,13 +290,12 @@ export default function DrivesPage() {
         {!access.isLoading && grants.length === 0 && (
           <EmptyState icon={FolderOpen} title="Nothing shared with you yet" />
         )}
-        {sharingDrive && (
-          <AccessSheet
-            driveId={sharingDrive.id}
-            path={sharingDrive.path}
-            onClose={() => setSharingDrive(null)}
-          />
-        )}
+        <AccessSheet
+          open={sharingDrive != null}
+          driveId={sharingDrive?.id || ""}
+          path={sharingDrive?.path || ""}
+          onClose={() => setSharingDrive(null)}
+        />
       </Page>
     );
   }
@@ -359,27 +356,26 @@ export default function DrivesPage() {
         </>
       )}
 
-      {sharingDrive && (
-        <AccessSheet
-          driveId={sharingDrive.id}
-          path={sharingDrive.path}
-          onClose={() => setSharingDrive(null)}
-        />
-      )}
-      {protectingDrive && (
-        <ProtectSheet
-          driveId={protectingDrive.id}
-          path={protectingDrive.path}
-          onClose={() => setProtectingDrive(null)}
-        />
-      )}
-      {browsingDrive && (
-        <ModalCard
-          title={`Browse ${browsingDrive.label}`}
-          size="lg"
-          onClose={() => setBrowsingDrive(null)}
-        >
-          {({ close }) => (
+      <AccessSheet
+        open={sharingDrive != null}
+        driveId={sharingDrive?.id || ""}
+        path={sharingDrive?.path || ""}
+        onClose={() => setSharingDrive(null)}
+      />
+      <ProtectSheet
+        open={protectingDrive != null}
+        driveId={protectingDrive?.id || ""}
+        path={protectingDrive?.path || ""}
+        onClose={() => setProtectingDrive(null)}
+      />
+      <ModalCard
+        open={browsingDrive != null}
+        title={`Browse ${browsingDrive?.label || ""}`}
+        size="lg"
+        onClose={() => setBrowsingDrive(null)}
+      >
+        {({ close }) => (
+          browsingDrive ? (
             <DriveFileExplorer
               driveId={browsingDrive.id}
               driveLabel={browsingDrive.label}
@@ -393,52 +389,72 @@ export default function DrivesPage() {
                 </Button>
               }
             />
-          )}
-        </ModalCard>
-      )}
+          ) : null
+        )}
+      </ModalCard>
 
-      {removeTarget && (
-        <ModalCard title="Remove this drive?" onClose={() => setRemoveTarget(null)}>
-          {({ close }) => (
-            <>
-              <p className="text-primary text-sm">
-                Luna will stop managing <span className="font-mono">{removeTarget.label}</span>.
-                Your files stay on the drive. Luna only removes its tiny{" "}
-                <span className="font-mono">.luna</span> sticker file.
-              </p>
-              <div className="mt-4 flex gap-3">
-                <Button
-                  variant="accent"
-                  loading={remove.isPending}
-                  onClick={() => remove.mutate(removeTarget)}
-                >
-                  Remove
-                </Button>
-                <Button variant="outline" onClick={close}>Keep it</Button>
-              </div>
-            </>
-          )}
-        </ModalCard>
-      )}
+      <ModalCard
+        open={removeTarget != null}
+        title="Remove this drive?"
+        onClose={() => setRemoveTarget(null)}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              Luna will stop managing <span className="font-mono">{removeTarget?.label}</span>.
+              Your files stay on the drive. Luna only removes its tiny{" "}
+              <span className="font-mono">.luna</span> sticker file.
+            </p>
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="accent"
+                loading={remove.isPending}
+                onClick={() => {
+                  if (!removeTarget) return;
+                  remove.mutateAsync(removeTarget)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Remove
+              </Button>
+              <Button variant="outline" onClick={close}>Keep it</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
 
-      {inspectFor && (
-        <InspectModal
-          drive={inspectFor}
-          result={inspect.data}
-          error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
-          onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
-          onAdopt={(label, erase) => adopt.mutate({ drive: inspectFor, label, erase })}
-          adoptError={adoptError}
-          adopting={adopt.isPending}
-        />
-      )}
+      <InspectModal
+        open={inspectFor != null}
+        drive={inspectFor}
+        result={inspect.data}
+        error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
+        onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
+        onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
+        adoptError={adoptError}
+        adopting={adopt.isPending}
+      />
     </Page>
   );
 }
 
-function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adopting }) {
-  const [label, setLabel] = useState(drive.model || "My Drive");
+function InspectModal({ open = true, drive, result, error, onClose, onAdopt, adoptError, adopting }) {
+  const driveSnapRef = useRef(drive);
+  if (drive) driveSnapRef.current = drive;
+  const shownDrive = drive || driveSnapRef.current;
+
+  const [label, setLabel] = useState(shownDrive?.model || "My Drive");
   const [confirmErase, setConfirmErase] = useState(false);
+
+  useEffect(() => {
+    if (open && drive) {
+      setLabel(drive.model || "My Drive");
+      setConfirmErase(false);
+    }
+  }, [open, drive]);
+
+  if (!shownDrive) return null;
+
   const needsErase = Boolean(result?.needs_erase);
   const canUse = Boolean(result) && result.readable && (result.writable || needsErase);
   const blockedReason = result && !canUse
@@ -448,7 +464,7 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
     : null;
 
   return (
-    <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
+    <ModalCard open={open} onClose={onClose} title={`Look inside ${shownDrive.model || shownDrive.name}`}>
       {({ close }) => (
         <>
       {!result && !error && (
@@ -555,7 +571,11 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
                   <Button
                     variant={needsErase ? "danger" : "primary"}
                     loading={adopting}
-                    onClick={() => onAdopt(label, needsErase)}
+                    onClick={() => {
+                      Promise.resolve(onAdopt(label, needsErase))
+                        .then(() => close())
+                        .catch(() => {});
+                    }}
                   >
                     {needsErase ? "Yes, erase it" : "Add this drive"}
                   </Button>

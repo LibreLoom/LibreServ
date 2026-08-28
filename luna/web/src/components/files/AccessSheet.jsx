@@ -57,7 +57,7 @@ export function AccessButton({ label, onClick, surface = "secondary" }) {
   );
 }
 
-export default function AccessSheet({ driveId, path = "", kind = "folder", onClose }) {
+export default function AccessSheet({ driveId, path = "", kind = "folder", onClose, open = true }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
@@ -133,6 +133,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   if (creatingLink) {
     return (
       <CreateShareModal
+        open={open}
         driveId={driveId}
         path={objectPath}
         onClose={() => setCreatingLink(false)}
@@ -146,7 +147,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   }
 
   return (
-    <ModalCard title="Sharing" onClose={onClose}>
+    <ModalCard open={open} title="Sharing" onClose={onClose}>
       {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
       {isAdmin && (

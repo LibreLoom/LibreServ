@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
@@ -14,8 +14,9 @@ import FileBrowser from "./FileBrowser.jsx";
  *   initialDriveId: string,
  *   initialPath?: string,
  *   confirmLabel?: string,
- *   onConfirm: (dest: { driveId: string, path: string }) => void,
+ *   onConfirm: (dest: { driveId: string, path: string }, close: () => void) => void,
  *   onClose: () => void,
+ *   open?: boolean,
  *   busy?: boolean,
  * }} props
  */
@@ -27,6 +28,7 @@ export default function FolderPickerModal({
   confirmLabel = "Use this folder",
   onConfirm,
   onClose,
+  open = true,
   busy = false,
 }) {
   const [driveId, setDriveId] = useState(initialDriveId);
@@ -34,8 +36,15 @@ export default function FolderPickerModal({
   const [picked, setPicked] = useState(initialPath);
   const drive = drives.find((d) => d.id === driveId) || drives[0];
 
+  useEffect(() => {
+    if (!open) return;
+    setDriveId(initialDriveId);
+    setPath(initialPath);
+    setPicked(initialPath);
+  }, [open, initialDriveId, initialPath]);
+
   return (
-    <ModalCard title={title} size="lg" onClose={onClose}>
+    <ModalCard open={open} title={title} size="lg" onClose={onClose}>
       {({ close }) => (
         <>
           {drives.length > 1 && (
@@ -78,7 +87,7 @@ export default function FolderPickerModal({
               surface="secondary"
               loading={busy}
               disabled={!drive}
-              onClick={() => onConfirm({ driveId: drive.id, path: picked })}
+              onClick={() => onConfirm({ driveId: drive.id, path: picked }, close)}
             >
               {confirmLabel}
             </Button>
@@ -103,5 +112,6 @@ FolderPickerModal.propTypes = {
   confirmLabel: PropTypes.string,
   onConfirm: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
+  open: PropTypes.bool,
   busy: PropTypes.bool,
 };

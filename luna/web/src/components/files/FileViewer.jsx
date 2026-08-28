@@ -16,9 +16,10 @@ import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
  *   path: string,
  *   onClose: () => void,
  *   onSaved?: () => void,
+ *   open?: boolean,
  * }} props
  */
-export default function FileViewer({ driveId, path, onClose, onSaved }) {
+export default function FileViewer({ driveId, path, onClose, onSaved, open = true }) {
   const name = pathBasename(path) || path;
   const kind = openableKind(name);
   const [text, setText] = useState("");
@@ -28,7 +29,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved }) {
   const [error, setError] = useState(/** @type {string|null} */ (null));
 
   useEffect(() => {
-    if (kind !== "text") return undefined;
+    if (!open || !path || kind !== "text") return undefined;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -50,7 +51,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [driveId, path, kind]);
+  }, [driveId, path, kind, open]);
 
   async function save() {
     setSaving(true);
@@ -82,7 +83,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved }) {
           : name;
 
   return (
-    <ModalCard title={title} size="lg" onClose={onClose}>
+    <ModalCard open={open} title={title} size="lg" onClose={onClose}>
       {({ close }) => (
         <>
           {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
@@ -163,4 +164,5 @@ FileViewer.propTypes = {
   path: PropTypes.string.isRequired,
   onClose: PropTypes.func.isRequired,
   onSaved: PropTypes.func,
+  open: PropTypes.bool,
 };

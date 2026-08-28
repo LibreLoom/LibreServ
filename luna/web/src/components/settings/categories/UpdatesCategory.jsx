@@ -134,8 +134,9 @@ function UpdateSourceCard() {
         </Button>
       </CollapsibleSection>
 
-      {modalOpen && source.data && (
+      {source.data && (
         <UpdateSourceModal
+          open={modalOpen}
           initial={source.data}
           onClose={() => setModalOpen(false)}
           onSaved={(data) => {
@@ -152,7 +153,7 @@ function UpdateSourceCard() {
   );
 }
 
-function UpdateSourceModal({ initial, onClose, onSaved }) {
+function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
   const s = initial || {};
 
   const [baseUrl, setBaseUrl] = useState(s.api_base || "");
@@ -221,7 +222,8 @@ function UpdateSourceModal({ initial, onClose, onSaved }) {
   };
 
   return (
-    <ModalCard title="Update source" onClose={onClose}>
+    <ModalCard open={open} title="Update source" onClose={onClose}>
+      {({ close }) => (
       <div className="space-y-4">
         <p className="text-primary text-sm">
           Where Luna gets its own updates from — the Luna software on this box,
@@ -317,13 +319,14 @@ function UpdateSourceModal({ initial, onClose, onSaved }) {
             type="button"
             variant="outline"
             surface="secondary"
-            onClick={onClose}
+            onClick={close}
             disabled={save.isPending}
           >
             Cancel
           </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }
