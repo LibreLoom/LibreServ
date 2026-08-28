@@ -192,7 +192,8 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/^Healthy$/i)).toBeInTheDocument();
     expect(screen.getByText(/31°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Connected as sdz/i)).not.toBeInTheDocument();
+    // Device connection lives inside collapsed Drive details, not as a status line.
+    expect(screen.getByRole("button", { name: /Drive details/i })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("hides Connected as behind collapsible Drive details", async () => {
