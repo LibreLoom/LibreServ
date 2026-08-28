@@ -216,11 +216,7 @@ impl DavDirEntry for DirEntry {
 }
 
 fn open_write_requested(options: &OpenOptions) -> bool {
-    options.write
-        || options.append
-        || options.truncate
-        || options.create
-        || options.create_new
+    options.write || options.append || options.truncate || options.create || options.create_new
 }
 
 impl DavFileSystem for JailedFs {

@@ -746,12 +746,7 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
 /// `""` → `family` → `family/photos` so Finder can reach the granted folder.
 /// Sibling folders outside the grant stay hidden. Writes still use
 /// [`can_access`] with `write = true`.
-pub fn can_browse_path(
-    user: &CurrentUser,
-    conn: &Connection,
-    drive_id: &str,
-    path: &str,
-) -> bool {
+pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
     if can_access(user, conn, drive_id, path, false) {
         return true;
     }
@@ -924,8 +919,7 @@ mod tests {
             true
         ));
         // Deep grant: ancestors are browsable; siblings are not.
-        crate::db::insert_grant(&conn, "g2", &sam.id, "drive-b", "family/photos", "read")
-            .unwrap();
+        crate::db::insert_grant(&conn, "g2", &sam.id, "drive-b", "family/photos", "read").unwrap();
         assert!(can_browse_path(&sam_user, &conn, "drive-b", ""));
         assert!(can_browse_path(&sam_user, &conn, "drive-b", "family"));
         assert!(can_browse_path(
