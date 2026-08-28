@@ -37,7 +37,7 @@ import {
  */
 
 /**
- * Shared file browser for browse modal, full files page, and folder pickers.
+ * Shared file browser for the full files page and folder pickers.
  *
  * Browse mode: flat list rows, multi-select, drag-and-drop upload, open files,
  * and the same action set everywhere. Picker mode replaces typed folder paths.

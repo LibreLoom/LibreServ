@@ -13,8 +13,8 @@ import PageNotice from "../components/common/PageNotice";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
-import DriveFileExplorer from "../components/files/DriveFileExplorer";
-import { TermHint } from "../components/ui/Tooltip";
+import Spinner from "../components/ui/Spinner.jsx";
+import { InfoHint, TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
@@ -94,7 +94,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
@@ -120,8 +120,8 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {(drive.state === "as_is" || drive.state === "readonly") && (
-          <Button size="sm" variant="primary" onClick={() => onBrowse(drive)}>
-            Browse files
+          <Button size="sm" variant="primary" asChild>
+            <Link to={`/drives/${drive.id}`}>Browse files</Link>
           </Button>
         )}
         {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
@@ -189,7 +189,6 @@ export default function DrivesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
-  const [browsingDrive, setBrowsingDrive] = useState(null);
   /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
@@ -326,7 +325,6 @@ export default function DrivesPage() {
               ejecting={eject.isPending}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
-              onBrowse={(d) => setBrowsingDrive(d)}
               onProtect={(d) => setProtectingDrive({ id: d.id, path: "" })}
             />
           ))}
@@ -373,30 +371,6 @@ export default function DrivesPage() {
           onClose={() => setProtectingDrive(null)}
         />
       )}
-      {browsingDrive && (
-        <ModalCard
-          title={`Browse ${browsingDrive.label}`}
-          size="lg"
-          onClose={() => setBrowsingDrive(null)}
-        >
-          {({ close }) => (
-            <DriveFileExplorer
-              driveId={browsingDrive.id}
-              driveLabel={browsingDrive.label}
-              isAdmin={isAdmin}
-              dense
-              headerExtra={
-                <Button variant="outline" surface="secondary" size="sm" asChild>
-                  <Link to={`/drives/${browsingDrive.id}`} onClick={close}>
-                    Open full files page
-                  </Link>
-                </Button>
-              }
-            />
-          )}
-        </ModalCard>
-      )}
-
       {removeTarget && (
         <ModalCard title="Remove this drive?" onClose={() => setRemoveTarget(null)}>
           {({ close }) => (
@@ -448,11 +422,25 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
     : null;
 
   return (
-    <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
+    <ModalCard
+      onClose={onClose}
+      title={
+        <span className="inline-flex items-center gap-2 flex-wrap">
+          {`Look inside ${drive.model || drive.name}`}
+          <InfoHint
+            label="What looking inside does"
+            content="Luna only reads the drive. Nothing is changed until you add it."
+          />
+        </span>
+      }
+    >
       {({ close }) => (
         <>
       {!result && !error && (
-        <p className="text-primary text-sm">Looking… Luna reads in read-only mode and changes nothing until you add it.</p>
+        <div className="flex items-center gap-3 text-primary" role="status">
+          <Spinner size="sm" decorative className="text-primary shrink-0" />
+          <p className="text-sm">Looking…</p>
+        </div>
       )}
 
       {error && (
