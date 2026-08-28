@@ -48,6 +48,7 @@ export default function CollapsibleSection({
       </button>
       <div
         id={contentId}
+        aria-hidden={!open}
         className={cn(
           "grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"

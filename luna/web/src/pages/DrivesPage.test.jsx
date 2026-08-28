@@ -53,6 +53,18 @@ function stubDrivesApi(extra = {}) {
     if (u.endsWith("/drives/detected")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/summary")) {
+      return new Response(JSON.stringify({
+        id: "d1",
+        mounted: true,
+        total_bytes: 64_000_000_000,
+        free_bytes: 50_000_000_000,
+        used_bytes: 14_000_000_000,
+        folders: 2,
+        files: 10,
+        shortcuts: [],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     return new Response("{}", { status: 500 });
   }));
 }
@@ -180,6 +192,62 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/^Healthy$/i)).toBeInTheDocument();
     expect(screen.getByText(/31°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
+    // Device connection lives inside collapsed Drive details, not as a status line.
+    expect(screen.getByRole("button", { name: /Drive details/i })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("hides Connected as behind collapsible Drive details", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "64GB PSSD!", state: "as_is", fs_type: "exfat", device: "sdmock",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/summary")) {
+          return new Response(JSON.stringify({
+            id: "d1",
+            mounted: true,
+            total_bytes: 64_000_000_000,
+            free_bytes: 50_000_000_000,
+            used_bytes: 14_000_000_000,
+            folders: 1,
+            files: 2,
+            shortcuts: [],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    // Storage bar is always visible (dashboard-style), outside Drive details.
+    expect(await screen.findByText(/50 GB free/i)).toBeInTheDocument();
+    expect(screen.getByText(/14 GB used · 64 GB total/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /22% used/i })).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=drive-storage-bar]")).toBeTruthy();
+
+    const toggle = await screen.findByRole("button", { name: /Drive details/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const panel = document.getElementById(toggle.getAttribute("aria-controls"));
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(panel).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connected as sdmock/i)).toBeInTheDocument();
+    expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
+    // Card-style collapsible + ValueDisplay rows (storage is outside)
+    expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
+    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {
@@ -317,11 +385,12 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByText(/No health report/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't mean anything is wrong/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't tell Luna its temperature/i)).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
   });
