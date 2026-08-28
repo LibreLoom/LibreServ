@@ -254,7 +254,6 @@ func (d *DB) runMigration(filename string) error {
 // with an older version of the schema (including DBs that never ran 002–009).
 func (d *DB) reconcileSchema() error {
 	existingTables := d.getExistingTables()
-	existingColumns := d.getExistingColumns()
 
 	// Add missing tables (CREATE IF NOT EXISTS is safe)
 	missingTables := map[string]string{
@@ -384,7 +383,7 @@ func (d *DB) reconcileSchema() error {
 
 	// Refresh after creating tables so column checks see new tables.
 	existingTables = d.getExistingTables()
-	existingColumns = d.getExistingColumns()
+	existingColumns := d.getExistingColumns()
 
 	// Add missing columns
 	missingColumns := map[string]map[string]string{

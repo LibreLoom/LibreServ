@@ -22,14 +22,22 @@ const IDLE_POLL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone)]
 pub enum GalleryEvent {
-    Upsert { drive_id: String, rel: String },
-    Remove { drive_id: String, rel: String },
+    Upsert {
+        drive_id: String,
+        rel: String,
+    },
+    Remove {
+        drive_id: String,
+        rel: String,
+    },
     Rename {
         drive_id: String,
         from: String,
         to: String,
     },
-    Rescan { drive_id: String },
+    Rescan {
+        drive_id: String,
+    },
 }
 
 struct MountWatch {
@@ -155,7 +163,10 @@ impl GalleryIndexer {
             notify::Config::default(),
         );
         let Ok(mut watcher) = watcher else {
-            tracing::warn!(drive_id, "gallery watcher unavailable; rescans will catch up");
+            tracing::warn!(
+                drive_id,
+                "gallery watcher unavailable; rescans will catch up"
+            );
             return;
         };
         if let Err(e) = watcher.watch(mount, RecursiveMode::Recursive) {
@@ -163,26 +174,18 @@ impl GalleryIndexer {
             return;
         }
         let mut guard = self.inner.lock().unwrap();
-        guard.watches.insert(
-            drive_id.to_string(),
-            MountWatch {
-                _watcher: watcher,
-            },
-        );
+        guard
+            .watches
+            .insert(drive_id.to_string(), MountWatch { _watcher: watcher });
     }
 }
 
-fn handle_watch_event(
-    indexer: &GalleryIndexer,
-    drive_id: &str,
-    root: &Path,
-    event: notify::Event,
-) {
-    let remove_like = matches!(
+fn handle_watch_event(indexer: &GalleryIndexer, drive_id: &str, root: &Path, event: notify::Event) {
+    let remove_like = matches!(event.kind, EventKind::Remove(_) | EventKind::Any);
+    let rename = matches!(
         event.kind,
-        EventKind::Remove(_) | EventKind::Any
+        EventKind::Modify(notify::event::ModifyKind::Name(_))
     );
-    let rename = matches!(event.kind, EventKind::Modify(notify::event::ModifyKind::Name(_)));
     for path in event.paths {
         let Ok(rel) = path.strip_prefix(root) else {
             continue;
@@ -249,28 +252,43 @@ fn worker_loop(
                     GalleryEvent::Upsert { drive_id, rel } => {
                         removes.remove(&(drive_id.clone(), rel.clone()));
                         if !upserts.insert((drive_id, rel)) {
-                            pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                            pending.fetch_sub(
+                                1.min(pending.load(Ordering::Relaxed)),
+                                Ordering::Relaxed,
+                            );
                         }
                         last_upsert_at = Instant::now();
                     }
                     GalleryEvent::Remove { drive_id, rel } => {
                         if upserts.remove(&(drive_id.clone(), rel.clone())) {
-                            pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                            pending.fetch_sub(
+                                1.min(pending.load(Ordering::Relaxed)),
+                                Ordering::Relaxed,
+                            );
                         }
                         if !removes.insert((drive_id, rel)) {
-                            pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                            pending.fetch_sub(
+                                1.min(pending.load(Ordering::Relaxed)),
+                                Ordering::Relaxed,
+                            );
                         }
                     }
                     GalleryEvent::Rename { drive_id, from, to } => {
                         if upserts.remove(&(drive_id.clone(), from.clone())) {
-                            pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                            pending.fetch_sub(
+                                1.min(pending.load(Ordering::Relaxed)),
+                                Ordering::Relaxed,
+                            );
                         }
                         removes.remove(&(drive_id.clone(), to.clone()));
                         renames.push((drive_id, from, to));
                     }
                     GalleryEvent::Rescan { drive_id } => {
                         if rescans.insert(drive_id, Instant::now()).is_some() {
-                            pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                            pending.fetch_sub(
+                                1.min(pending.load(Ordering::Relaxed)),
+                                Ordering::Relaxed,
+                            );
                         }
                     }
                 }
@@ -318,8 +336,7 @@ fn worker_loop(
         }
 
         if !renames.is_empty() {
-            let batch: Vec<_> = renames.drain(..).collect();
-            for (drive_id, from, to) in batch {
+            for (drive_id, from, to) in renames.drain(..) {
                 pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
                 let mount = {
                     let guard = mounts.lock().unwrap();

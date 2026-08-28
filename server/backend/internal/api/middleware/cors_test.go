@@ -156,7 +156,6 @@ func TestCORSTrustedHostOverridesRequestHost(t *testing.T) {
 	}
 }
 
-
 func TestCORSWildcardRejectsSuffixSpoof(t *testing.T) {
 	mw := CORS([]string{"*.example.com"}, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

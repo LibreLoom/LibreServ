@@ -30,6 +30,7 @@ pub struct JailedFs {
 }
 
 impl JailedFs {
+    #[allow(dead_code)] // kept for unit tests / simple jail without gallery hooks
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),

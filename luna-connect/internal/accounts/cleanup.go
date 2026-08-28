@@ -40,7 +40,7 @@ func RunCleanupLoop(ctx context.Context, db *sql.DB) {
 	for {
 		select {
 		case <-ctx.Done():
-		 return
+			return
 		case <-t.C:
 			if _, err := CleanupOrphans(ctx, db); err != nil {
 				slog.Warn("orphan account cleanup failed", "error", err)
