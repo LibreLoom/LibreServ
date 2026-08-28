@@ -995,9 +995,9 @@ body {
   box-shadow: none;
 }
 
-/* Compact card has Open; Leaflet's × overlaps the pill and adds noise. */
+/* Popup uses closeButton={false}; keep CSS hide as belt-and-suspenders. */
 .places-map .leaflet-popup-close-button {
-  display: none;
+  display: none !important;
 }
 
 /* Cluster count label centered on blob */
