@@ -8,23 +8,23 @@ import AccessCategory from "./categories/AccessCategory.jsx";
 import UpdatesCategory from "./categories/UpdatesCategory.jsx";
 
 const CATEGORY_TITLES = {
-  appearance: "Look and feel",
-  network: "Home network",
-  remote: "Remote access",
-  cloud: "Cloud backup",
-  devices: "Phones and computers",
-  access: "Access",
-  updates: "Software updates",
+  appearance: "Appearance",
+  network: "Network",
+  remote: "Remote Access",
+  backups: "Backups",
+  devices: "Devices",
+  security: "Security",
+  about: "About",
 };
 
 const CATEGORY_COMPONENTS = {
   appearance: AppearanceCategory,
   network: NetworkCategory,
   remote: RemoteCategory,
-  cloud: CloudBackupCategory,
+  backups: CloudBackupCategory,
   devices: DevicesCategory,
-  access: AccessCategory,
-  updates: UpdatesCategory,
+  security: AccessCategory,
+  about: UpdatesCategory,
 };
 
 export default function SettingsContent({ category }) {

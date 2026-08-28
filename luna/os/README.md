@@ -101,7 +101,7 @@ signature installs nothing.
 
 Env overrides: `LUNA_UPDATES_API`, `LUNA_UPDATES_OWNER`, `LUNA_UPDATES_REPO`
 seed the defaults. An admin can instead point Luna at a different Forgejo
-instance/repo from Settings → Software updates → Advanced, and that choice is
+instance/repo from Settings → About → Advanced, and that choice is
 stored in Luna's database, survives reboots, and wins over the env vars. The
 same panel swaps the minisign public keys the updater trusts. Changing those
 keys without a matching signer breaks updates — the updater refuses a release
