@@ -31,9 +31,9 @@ titles with "Release" or "Luna".
 **product** secret, then verifies against the product public key and **refuses
 to publish unsigned checksums**.
 
-See [`keys/README.md`](../keys/README.md) for key ownership (existing keypair is
-Luna’s — do not regenerate it), the LibreServ-only key ceremony, and how to
-recreate a public file from a password-protected secret.
+See [`keys/README.md`](../keys/README.md) for key ownership (Luna =
+`7AA9417DBF891F5E`, LibreServ = `48EB64CB69EA36CD`), Cursor secret names, and
+how to recreate a public file from a password-protected secret.
 
 ### Luna daemon cut vs OS cut
 
