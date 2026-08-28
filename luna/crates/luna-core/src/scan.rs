@@ -77,8 +77,11 @@ pub fn scan_top_level(root: &Path) -> TopLevelSummary {
     preview.sort_by(|a, b| {
         let ak = if a.kind == "folder" { 0 } else { 1 };
         let bk = if b.kind == "folder" { 0 } else { 1 };
-        ak.cmp(&bk)
-            .then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()))
+        ak.cmp(&bk).then_with(|| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        })
     });
     preview.truncate(PREVIEW_LIMIT);
     summary.entries = preview;

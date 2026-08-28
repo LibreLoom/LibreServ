@@ -252,11 +252,7 @@ async fn rename_entry(
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     check_access(&state, &user, &id, &body.path, true)?;
-    let parent = body
-        .path
-        .rsplit_once('/')
-        .map(|(p, _)| p)
-        .unwrap_or("");
+    let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery_indexer::join_rel(parent, &body.new_name);
     with_db(&state, |conn| {
         files::rename(conn, &id, &body.path, &body.new_name)

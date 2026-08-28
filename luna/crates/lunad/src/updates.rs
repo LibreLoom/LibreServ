@@ -1126,7 +1126,7 @@ mod tests {
     fn pinned_pub_parses() {
         assert!(
             !parse_minisign_pub(PINNED_PUB).is_empty(),
-			"keys/lsluna.minisign.pub must contain an RW public key line"
+            "keys/lsluna.minisign.pub must contain an RW public key line"
         );
     }
 
