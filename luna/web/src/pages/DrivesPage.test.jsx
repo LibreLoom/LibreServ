@@ -122,6 +122,87 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /Add this drive/i })).toBeInTheDocument();
   });
 
+  it("keeps Look-inside loading copy short while inspect is pending", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    let finishInspect;
+    const inspectGate = new Promise((resolve) => {
+      finishInspect = resolve;
+    });
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "64GB PSSD", size_bytes: 64000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "exfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdb/inspect")) {
+          return inspectGate.then(() => new Response(JSON.stringify({
+            device: "sdb", model: "64GB PSSD", fs_type: "exfat",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
+            folders: 1, files: 1, unreadable: 0, needs_erase: false,
+            readable: true, writable: true,
+            entries: [{ name: "Photos", kind: "folder" }, { name: "notes.txt", kind: "file" }],
+          }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Looking…$/);
+    expect(screen.queryByText(/read-only mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/changes nothing until you add it/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /What looking inside does/i })).toBeInTheDocument();
+    finishInspect();
+    expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
+  });
+
+  it("uses an info icon for the .luna marker note and softens the name-field focus ring", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi();
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    const note = await screen.findByText(/marker file/i);
+    const row = note.closest("div");
+    expect(row?.querySelector(".text-accent")).toBeTruthy();
+    expect(row?.querySelector(".text-warning")).toBeNull();
+    const input = screen.getByDisplayValue("64GB PSSD");
+    expect(input.className).toMatch(/no-focus-outline/);
+    expect(input.className).not.toMatch(/focus:ring/);
+  });
+
+  it("animates Look-inside out when Add this drive succeeds", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const { waitFor } = await import("@testing-library/react");
+    window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.includes("/adopt")) {
+          return new Response(JSON.stringify({ id: "d-new", label: "64GB PSSD" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /Add this drive/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+        .toHaveClass("animate-out");
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
   it("uses a page heading for unknown drives, not a stacked title card", async () => {
     stubDrivesApi();
     renderPage();
