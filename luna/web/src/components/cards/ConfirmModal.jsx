@@ -35,6 +35,7 @@ const BANNER_TONE = {
  * @property {boolean} [loading]
  * @property {boolean} [disabledConfirm]
  * @property {import('react').RefObject} [initialFocusRef]
+ * @property {string} [overlayClassName] Passed to ModalCard (e.g. stack above lightbox).
  */
 
 /** @param {ConfirmModalProps} props */
@@ -52,6 +53,7 @@ export default function ConfirmModal({
   loading = false,
   disabledConfirm = false,
   initialFocusRef,
+  overlayClassName,
 }) {
   // Freeze copy while exiting so parents can clear the subject (userToDelete, etc.)
   // without blanking the modal mid-animation.
@@ -100,6 +102,7 @@ export default function ConfirmModal({
       onClose={onClose}
       size="sm"
       initialFocusRef={initialFocusRef}
+      overlayClassName={overlayClassName}
     >
       {({ close }) => (
         <>
@@ -170,4 +173,5 @@ ConfirmModal.propTypes = {
   loading: PropTypes.bool,
   disabledConfirm: PropTypes.bool,
   initialFocusRef: PropTypes.object,
+  overlayClassName: PropTypes.string,
 };

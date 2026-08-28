@@ -12,7 +12,9 @@ import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
-import PhotoLightbox from "../components/gallery/PhotoLightbox.jsx";
+import PhotoLightbox, {
+  ABOVE_LIGHTBOX_OVERLAY_CLASS,
+} from "../components/gallery/PhotoLightbox.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import {
   apiErrorMessage,
@@ -31,12 +33,14 @@ const SEGMENTS = [
   { value: "favorites", label: "Favorites" },
 ];
 
-function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
+/** Build the gallery list URL. Bool query flags must be `true`/`false` —
+ *  lunad's serde query parser rejects `1`/`0` (Favorites used to 400). */
+export function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
   const params = new URLSearchParams();
   params.set("limit", "80");
   params.set("offset", String(offset || 0));
   if (q) params.set("q", q);
-  if (favorites) params.set("favorites", "1");
+  if (favorites) params.set("favorites", "true");
   if (albumId) params.set("album_id", albumId);
   if (albumHome) params.set("album_home", albumHome);
   if (placeBbox) params.set("place_bbox", placeBbox);
@@ -133,15 +137,27 @@ export default function GalleryPage() {
   const driveList = drives.data || [];
   const looking = gallery.isLoading || scan.isPending;
   const noDrives = !drives.isLoading && driveList.length === 0;
+  const galleryLoadError =
+    gallery.isError && !looking
+      ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
+      : null;
   const noPhotos =
     !looking &&
     !gallery.isLoading &&
+    !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     segment === "library" &&
     !search &&
     !place &&
     !albumView;
+  const noFavorites =
+    !looking &&
+    !gallery.isLoading &&
+    !gallery.isError &&
+    photos.length === 0 &&
+    driveList.length > 0 &&
+    segment === "favorites";
 
   useEffect(() => {
     if (autoScanStarted.current) return;
@@ -260,9 +276,9 @@ export default function GalleryPage() {
         query={q}
         onQueryChange={handleQueryChange}
       />
-      {error && (
+      {(error || galleryLoadError) && (
         <PageNotice variant="error" className="mb-4">
-          {error}
+          {error || galleryLoadError}
         </PageNotice>
       )}
 
@@ -299,6 +315,14 @@ export default function GalleryPage() {
               Look again
             </Button>
           }
+        />
+      )}
+
+      {noFavorites && (
+        <EmptyState
+          icon={ImageIcon}
+          title="No favorites yet"
+          description="Open a photo and tap the heart to save it here."
         />
       )}
 
@@ -393,6 +417,7 @@ export default function GalleryPage() {
           onClose={() => setSharePhoto(null)}
           onDone={() => setSharePhoto(null)}
           onError={setError}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         />
       )}
 
@@ -405,6 +430,7 @@ export default function GalleryPage() {
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trash.isPending}
+        overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
       />
 
       {newAlbumOpen && (
@@ -441,7 +467,11 @@ export default function GalleryPage() {
       )}
 
       {albumPick && (
-        <ModalCard title="Add to album" onClose={() => setAlbumPick(null)}>
+        <ModalCard
+          title="Add to album"
+          onClose={() => setAlbumPick(null)}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
+        >
           {({ close }) => (
             <div className="space-y-2">
               {(albums.data || []).length === 0 && (
