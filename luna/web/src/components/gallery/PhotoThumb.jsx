@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { Play } from "lucide-react";
+import { Heart, Play } from "lucide-react";
 
 /** Dense edge-to-edge photo cell for the timeline grid. */
 export default function PhotoThumb({ photo, onClick, selected }) {
@@ -30,7 +30,17 @@ export default function PhotoThumb({ photo, onClick, selected }) {
         </span>
       )}
       {photo.favorited && (
-        <span className="absolute top-2 right-2 h-2 w-2 rounded-pill bg-accent" aria-hidden="true" />
+        <span
+          className="absolute top-2 right-2 [filter:drop-shadow(0_0_1.5px_var(--secondary))]"
+          aria-hidden="true"
+        >
+          <Heart
+            size={14}
+            className="fill-primary stroke-secondary"
+            strokeWidth={2.25}
+            aria-hidden="true"
+          />
+        </span>
       )}
     </button>
   );
