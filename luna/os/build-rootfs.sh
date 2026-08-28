@@ -80,6 +80,7 @@ printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
 # Prefer a daemon-only OTA binary on the data partition over the image bake.
+mkdir -p "$ROOTFS/usr/local/sbin"
 cat > "$ROOTFS/usr/local/sbin/luna-run" <<'RUN'
 #!/bin/sh
 if [ -x /var/lib/luna/bin/lunad ]; then
