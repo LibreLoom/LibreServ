@@ -227,12 +227,14 @@ describe("DrivesPage", () => {
     renderPage();
     const toggle = await screen.findByRole("button", { name: /Drive details/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText(/Connected as/i)).not.toBeInTheDocument();
+    const panel = document.getElementById(toggle.getAttribute("aria-controls"));
+    expect(panel).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
 
     const user = userEvent.setup();
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(panel).toHaveAttribute("aria-hidden", "false");
     expect(await screen.findByText(/50 GB free of 64 GB/i)).toBeInTheDocument();
     expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
     expect(screen.getByText(/Connected as/i)).toBeInTheDocument();
