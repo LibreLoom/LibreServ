@@ -53,6 +53,18 @@ function stubDrivesApi(extra = {}) {
     if (u.endsWith("/drives/detected")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/summary")) {
+      return new Response(JSON.stringify({
+        id: "d1",
+        mounted: true,
+        total_bytes: 64_000_000_000,
+        free_bytes: 50_000_000_000,
+        used_bytes: 14_000_000_000,
+        folders: 2,
+        files: 10,
+        shortcuts: [],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     return new Response("{}", { status: 500 });
   }));
 }
@@ -180,6 +192,51 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/^Healthy$/i)).toBeInTheDocument();
     expect(screen.getByText(/31°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connected as sdz/i)).not.toBeInTheDocument();
+  });
+
+  it("hides Connected as behind collapsible Drive details", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "64GB PSSD!", state: "as_is", fs_type: "exfat", device: "sdmock",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/summary")) {
+          return new Response(JSON.stringify({
+            id: "d1",
+            mounted: true,
+            total_bytes: 64_000_000_000,
+            free_bytes: 50_000_000_000,
+            used_bytes: 14_000_000_000,
+            folders: 1,
+            files: 2,
+            shortcuts: [],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const toggle = await screen.findByRole("button", { name: /Drive details/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/Connected as/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText(/50 GB free of 64 GB/i)).toBeInTheDocument();
+    expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connected as/i)).toBeInTheDocument();
+    expect(screen.getAllByText("sdmock").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {

@@ -10,6 +10,7 @@ import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
+import CollapsibleSection from "../components/common/CollapsibleSection";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import FileSearch from "../components/files/FileSearch";
@@ -74,6 +75,131 @@ function sizeLabel(bytes) {
   return `${gb.toFixed(0)} GB`;
 }
 
+/** Decimal sizes for drive details (matches DashboardPage). */
+function formatBytes(bytes) {
+  if (bytes == null || Number.isNaN(Number(bytes))) return "";
+  const n = Number(bytes);
+  if (n < 1000) return `${Math.round(n)} B`;
+  const kb = n / 1000;
+  if (kb < 1000) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1000;
+  if (mb < 1000) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+  const gb = mb / 1000;
+  if (gb < 1000) return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`;
+  const tb = gb / 1000;
+  return `${tb < 10 ? tb.toFixed(1) : Math.round(tb)} TB`;
+}
+
+/** @param {string | undefined | null} fs */
+function prettyFsType(fs) {
+  if (!fs) return "";
+  const key = String(fs).toLowerCase();
+  const names = {
+    exfat: "exFAT",
+    vfat: "FAT",
+    fat: "FAT",
+    fat32: "FAT32",
+    msdos: "FAT",
+    ext2: "ext2",
+    ext3: "ext3",
+    ext4: "ext4",
+    ntfs: "NTFS",
+    ntfs3: "NTFS",
+    xfs: "XFS",
+    btrfs: "Btrfs",
+    iso9660: "ISO disc image",
+  };
+  return names[key] || fs;
+}
+
+function DetailRow({ label, hint, children }) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
+      <dt className="text-xs font-mono uppercase tracking-widest text-accent shrink-0 sm:w-40">
+        {hint ? <TermHint content={hint}>{label}</TermHint> : label}
+      </dt>
+      <dd className="text-primary text-sm min-w-0">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Collapsible tech details for a ready/read-only adopted drive.
+ * Replaces the always-visible "Connected as … · fs" line.
+ */
+function AdoptedDriveDetails({ drive }) {
+  const summary = useQuery({
+    queryKey: ["drive-summary", drive.id],
+    queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const freeLabel = formatBytes(summary.data?.free_bytes);
+  const totalLabel = formatBytes(summary.data?.total_bytes);
+  const hasSpace =
+    summary.data?.mounted &&
+    summary.data?.total_bytes != null &&
+    Number(summary.data.total_bytes) > 0 &&
+    freeLabel &&
+    totalLabel;
+  const fsLabel = prettyFsType(drive.fs_type) || "Unknown";
+  const device = drive.device ? String(drive.device) : "";
+
+  let storageValue = "Checking…";
+  if (summary.isError) {
+    storageValue = "Couldn't read free space. Try Browse files.";
+  } else if (summary.isSuccess && !summary.data?.mounted) {
+    storageValue = "Not available while this drive is unreadable.";
+  } else if (hasSpace) {
+    storageValue = `${freeLabel} free of ${totalLabel}`;
+  }
+
+  return (
+    <CollapsibleSection title="Drive details" size="sm" className="text-primary">
+      <dl className="space-y-2.5">
+        <DetailRow
+          label="Available storage"
+          hint="How much room is left for new files on this drive."
+        >
+          {storageValue}
+        </DetailRow>
+        <DetailRow
+          label="File system"
+          hint="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them."
+        >
+          {fsLabel}
+        </DetailRow>
+        <DetailRow
+          label="Partitions"
+          hint="Sections of the drive that hold files. Many USB sticks have just one."
+        >
+          {device
+            ? (
+              <>
+                <span className="font-mono">{device}</span>
+                {drive.fs_type ? ` · ${fsLabel}` : ""}
+              </>
+              )
+            : (drive.fs_type ? `One volume · ${fsLabel}` : "One volume")}
+        </DetailRow>
+        <DetailRow
+          label="Device connection"
+          hint="Luna's short name for this plug. Useful if you need help from support."
+        >
+          {device
+            ? (
+              <>
+                Connected as <span className="font-mono">{device}</span>
+              </>
+              )
+            : "Plugged in"}
+        </DetailRow>
+      </dl>
+    </CollapsibleSection>
+  );
+}
+
 function DetectedCard({ drive, onOpen, onIgnore }) {
   return (
     <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`} headerActions={
@@ -96,6 +222,7 @@ function DetectedCard({ drive, onOpen, onIgnore }) {
 
 function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
+  const ready = drive.state === "as_is" || drive.state === "readonly";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
     queryFn: () => getJson(`/api/v1/drives/${drive.id}/health`),
@@ -103,13 +230,18 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
     retry: false,
   });
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
-  const nextStep = driveNextStep(drive);
+  const statusMessage = driveStatusMessage(drive);
 
   return (
     <Card icon={HardDrive} title={drive.label} headerActions={<Pill variant={state}>{plainDriveState(drive.state)}</Pill>}>
-      <p className="text-primary text-sm">
-        {nextStep}
-      </p>
+      {statusMessage ? (
+        <p className="text-primary text-sm">{statusMessage}</p>
+      ) : null}
+      {ready ? (
+        <div className={statusMessage ? "mt-2" : undefined}>
+          <AdoptedDriveDetails drive={drive} />
+        </div>
+      ) : null}
       {copy && (
         <div className="mt-3">
           <Pill variant={copy.pill}>{copy.title}</Pill>
@@ -119,12 +251,12 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
         </div>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {(drive.state === "as_is" || drive.state === "readonly") && (
+        {ready && (
           <Button size="sm" variant="primary" onClick={() => onBrowse(drive)}>
             Browse files
           </Button>
         )}
-        {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
+        {showHealth && ready && (
           <Button size="sm" variant="outline" loading={ejecting} onClick={() => onEject(drive)}>
             Eject safely
           </Button>
@@ -134,10 +266,10 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
             Remove
           </Button>
         )}
-        {onShare && (drive.state === "as_is" || drive.state === "readonly") && (
+        {onShare && ready && (
           <AccessButton label={drive.label} onClick={() => onShare(drive)} />
         )}
-        {onProtect && (drive.state === "as_is" || drive.state === "readonly") && (
+        {onProtect && ready && (
           <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
         )}
       </div>
@@ -145,12 +277,13 @@ function AdoptedCard({ drive, showHealth, onBrowse, onEject, ejecting, onRemove,
   );
 }
 
-function driveNextStep(drive) {
+/** Status line for non-ready drives, or the read-only note. Ready drives use Drive details instead. */
+function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Plug it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
   if (drive.state === "failed") return "This drive ran into a problem.";
   if (drive.state === "readonly") return "Read only — Luna cannot save here.";
-  return `Connected as ${drive.device} · ${drive.fs_type || "drive"}`;
+  return null;
 }
 
 function plainDriveState(state) {
