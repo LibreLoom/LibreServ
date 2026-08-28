@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FileBrowser from "./FileBrowser.jsx";
@@ -134,6 +135,27 @@ describe("FileBrowser", () => {
     renderBrowser({ onCopy, multiSelect: false });
     fireEvent.click(await screen.findByRole("button", { name: /Copy note.txt/i }));
     expect(onCopy).toHaveBeenCalledWith(["note.txt"]);
+  });
+
+  it("exposes plain-language tooltips for row action icons", async () => {
+    const user = userEvent.setup();
+    stubListing({
+      "": [{ name: "note.txt", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      onCopy: vi.fn(),
+      onMove: vi.fn(),
+      onRename: vi.fn(),
+      onDelete: vi.fn(),
+      multiSelect: false,
+      enableDownload: false,
+    });
+    const copyBtn = await screen.findByRole("button", { name: /Copy note.txt/i });
+    // Focus opens immediately (keyboard path); hover uses the group delay.
+    copyBtn.focus();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+    await user.hover(screen.getByRole("button", { name: /Move note.txt/i }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Move");
   });
 
   it("opens openable files via onOpenFile", async () => {

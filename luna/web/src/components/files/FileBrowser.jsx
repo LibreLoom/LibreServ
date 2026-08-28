@@ -19,6 +19,7 @@ import Button from "../ui/Button.jsx";
 import TextLink from "../ui/TextLink.jsx";
 import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
 import Spinner from "../ui/Spinner.jsx";
+import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import { getJson } from "../../lib/api.js";
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
@@ -332,78 +333,85 @@ export default function FileBrowser({
     }
     if (onCopy) {
       actions.push(
-        <Button
-          key="copy"
-          variant="ghost"
-          surface="secondary"
-          size="iconSm"
-          aria-label={`Copy ${ctx.entry.name}`}
-          onClick={() => onCopy([ctx.fullPath])}
-        >
-          <Copy size={14} />
-        </Button>,
+        <Tooltip key="copy" content="Copy">
+          <Button
+            variant="ghost"
+            surface="secondary"
+            size="iconSm"
+            aria-label={`Copy ${ctx.entry.name}`}
+            onClick={() => onCopy([ctx.fullPath])}
+          >
+            <Copy size={14} />
+          </Button>
+        </Tooltip>,
       );
     }
     if (onMove) {
       actions.push(
-        <Button
-          key="move"
-          variant="ghost"
-          surface="secondary"
-          size="iconSm"
-          aria-label={`Move ${ctx.entry.name}`}
-          onClick={() => onMove([ctx.fullPath])}
-        >
-          <FolderInput size={14} />
-        </Button>,
+        <Tooltip key="move" content="Move">
+          <Button
+            variant="ghost"
+            surface="secondary"
+            size="iconSm"
+            aria-label={`Move ${ctx.entry.name}`}
+            onClick={() => onMove([ctx.fullPath])}
+          >
+            <FolderInput size={14} />
+          </Button>
+        </Tooltip>,
       );
     }
     if (onRename) {
       actions.push(
-        <Button
-          key="rename"
-          variant="ghost"
-          surface="secondary"
-          size="iconSm"
-          aria-label={`Rename ${ctx.entry.name}`}
-          onClick={() => onRename(ctx)}
-        >
-          <Pencil size={14} />
-        </Button>,
+        <Tooltip key="rename" content="Rename">
+          <Button
+            variant="ghost"
+            surface="secondary"
+            size="iconSm"
+            aria-label={`Rename ${ctx.entry.name}`}
+            onClick={() => onRename(ctx)}
+          >
+            <Pencil size={14} />
+          </Button>
+        </Tooltip>,
       );
     }
     if (onDelete) {
       actions.push(
-        <Button
-          key="delete"
-          variant="ghost"
-          surface="secondary"
-          size="iconSm"
-          aria-label={`Move ${ctx.entry.name} to trash`}
-          onClick={() => onDelete([ctx.fullPath])}
-        >
-          <Trash2 size={14} />
-        </Button>,
+        <Tooltip key="delete" content="Move to trash">
+          <Button
+            variant="ghost"
+            surface="secondary"
+            size="iconSm"
+            aria-label={`Move ${ctx.entry.name} to trash`}
+            onClick={() => onDelete([ctx.fullPath])}
+          >
+            <Trash2 size={14} />
+          </Button>
+        </Tooltip>,
       );
     }
     if (enableDownload && ctx.entry.kind === "file") {
       actions.push(
-        <Button
-          key="download"
-          variant="ghost"
-          surface="secondary"
-          size="iconSm"
-          asChild
-          aria-label={`Download ${ctx.entry.name}`}
-        >
-          <a href={downloadHref(driveId, ctx.fullPath)}>
-            <Download size={14} />
-          </a>
-        </Button>,
+        <Tooltip key="download" content="Download">
+          <Button
+            variant="ghost"
+            surface="secondary"
+            size="iconSm"
+            asChild
+            aria-label={`Download ${ctx.entry.name}`}
+          >
+            <a href={downloadHref(driveId, ctx.fullPath)}>
+              <Download size={14} />
+            </a>
+          </Button>
+        </Tooltip>,
       );
     }
     return actions.length ? (
-      <div className="flex items-center gap-0.5 flex-wrap justify-end">{actions}</div>
+      <ActionTooltipGroup>
+        <div className="flex items-center gap-0.5 flex-wrap justify-end">{actions}</div>
+      </ActionTooltipGroup>
     ) : null;
   }
 

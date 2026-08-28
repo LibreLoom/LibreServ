@@ -12,6 +12,7 @@ import ModalCard from "../cards/ModalCard.jsx";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import Spinner from "../ui/Spinner.jsx";
+import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import PageNotice from "../common/PageNotice.jsx";
 import {
   apiErrorMessage,
@@ -498,60 +499,70 @@ export default function DriveFileExplorer({
           </>
         )}
         renderRowActions={(ctx) => (
-          <div className="flex items-center gap-0.5 flex-wrap justify-end">
-            <AccessButton
-              label={ctx.entry.name}
-              onClick={() => setAccessTarget({
-                path: ctx.fullPath,
-                kind: ctx.entry.kind === "dir" ? "folder" : "file",
-              })}
-            />
-            {isAdmin && ctx.entry.kind === "dir" && (
-              <ProtectButton
+          <ActionTooltipGroup>
+            <div className="flex items-center gap-0.5 flex-wrap justify-end">
+              <AccessButton
                 label={ctx.entry.name}
-                onClick={() => setProtectTarget({ path: ctx.fullPath })}
+                onClick={() => setAccessTarget({
+                  path: ctx.fullPath,
+                  kind: ctx.entry.kind === "dir" ? "folder" : "file",
+                })}
               />
-            )}
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Copy ${ctx.entry.name}`}
-              onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath] })}
-            >
-              <Copy size={14} />
-            </Button>
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Move ${ctx.entry.name}`}
-              onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath] })}
-            >
-              <FolderInput size={14} />
-            </Button>
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Rename ${ctx.entry.name}`}
-              onClick={() => {
-                setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
-                setRenameValue(ctx.entry.name);
-              }}
-            >
-              <Pencil size={14} />
-            </Button>
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Move ${ctx.entry.name} to trash`}
-              onClick={() => setDeletePaths([ctx.fullPath])}
-            >
-              <Trash2 size={14} />
-            </Button>
-          </div>
+              {isAdmin && ctx.entry.kind === "dir" && (
+                <ProtectButton
+                  label={ctx.entry.name}
+                  onClick={() => setProtectTarget({ path: ctx.fullPath })}
+                />
+              )}
+              <Tooltip content="Copy">
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  aria-label={`Copy ${ctx.entry.name}`}
+                  onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath] })}
+                >
+                  <Copy size={14} />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Move">
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  aria-label={`Move ${ctx.entry.name}`}
+                  onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath] })}
+                >
+                  <FolderInput size={14} />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Rename">
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  aria-label={`Rename ${ctx.entry.name}`}
+                  onClick={() => {
+                    setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
+                    setRenameValue(ctx.entry.name);
+                  }}
+                >
+                  <Pencil size={14} />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Move to trash">
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  aria-label={`Move ${ctx.entry.name} to trash`}
+                  onClick={() => setDeletePaths([ctx.fullPath])}
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </Tooltip>
+            </div>
+          </ActionTooltipGroup>
         )}
       />
 
