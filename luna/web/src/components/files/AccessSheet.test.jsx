@@ -58,6 +58,7 @@ describe("AccessSheet", () => {
       users: [
         { id: "1", role: "admin", username: "admin", display_name: "Admin" },
         { id: "2", role: "user", username: "sam", display_name: "Sam" },
+        { id: "3", role: "user", username: "alex", display_name: "Alex" },
       ],
       grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "photos", permission: "read" }],
       shares: [],
@@ -99,5 +100,39 @@ describe("AccessSheet", () => {
     expect(await screen.findByRole("button", { name: "New link" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Protect" })).not.toBeInTheDocument();
+  });
+
+  it("links to Users when there are no people to share with", async () => {
+    stubAccessApi({
+      users: [{ id: "1", role: "admin", username: "admin", display_name: "Admin" }],
+      grants: [],
+      shares: [],
+    });
+    renderSheet();
+    expect(
+      await screen.findByText(/No people to share with yet\. Add a Member on the Users page\./),
+    ).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Go to Users" });
+    expect(link).toHaveAttribute("href", "/settings/users");
+    expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Add a person")).not.toBeInTheDocument();
+  });
+
+  it("links to Users when everyone already has access", async () => {
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "photos", permission: "read" }],
+      shares: [],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Sam/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Everyone already has access\. Add more people on the Users page\./),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Users" })).toHaveAttribute("href", "/settings/users");
+    expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
   });
 });
