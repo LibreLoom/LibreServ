@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
+import { ImageIcon } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "../ui/Button.jsx";
@@ -17,6 +18,62 @@ function FitBounds({ points }) {
   }, [map, points]);
   return null;
 }
+
+function PlacePopupContent({ place, onSelect }) {
+  const photoWord = place.count === 1 ? "photo" : "photos";
+
+  return (
+    <div className="places-map-popup-card bg-secondary text-primary rounded-large-element border-2 border-primary p-2 shadow-[0_8px_24px_color-mix(in_srgb,var(--color-secondary)_25%,transparent)] motion-safe:animate-[pop-in_200ms_var(--motion-easing-emphasized-decelerate)_both]">
+      <div className="flex items-center gap-2">
+        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[12px] bg-accent">
+          {place.cover_thumb ? (
+            <img
+              src={place.cover_thumb}
+              alt=""
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-primary">
+              <ImageIcon className="h-4 w-4" aria-hidden />
+            </span>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate font-mono text-xs leading-tight">{place.label}</p>
+            <span
+              className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 font-mono text-[10px] leading-none text-primary"
+              aria-label={`${place.count} ${photoWord}`}
+            >
+              {place.count}
+            </span>
+          </div>
+        </div>
+
+        <Button
+          variant="primary"
+          size="sm"
+          className="shrink-0 px-3"
+          onClick={() => onSelect?.(place)}
+        >
+          Open
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+PlacePopupContent.propTypes = {
+  place: PropTypes.shape({
+    key: PropTypes.string,
+    label: PropTypes.string,
+    count: PropTypes.number,
+    cover_thumb: PropTypes.string,
+  }).isRequired,
+  onSelect: PropTypes.func,
+};
 
 /** Full-bleed Leaflet Places map (OSM tiles in the browser only). */
 export default function PlacesMap({ places, onSelect }) {
@@ -43,7 +100,7 @@ export default function PlacesMap({ places, onSelect }) {
       <MapContainer
         center={center}
         zoom={4}
-        className="h-full w-full [&_.leaflet-control-attribution]:text-[10px]"
+        className="places-map h-full w-full [&_.leaflet-control-attribution]:text-[10px]"
         scrollWheelZoom
       >
         <TileLayer
@@ -63,16 +120,8 @@ export default function PlacesMap({ places, onSelect }) {
               weight: 2,
             }}
           >
-            <Popup>
-              <div className="text-sm space-y-2 min-w-[140px]">
-                <p className="font-mono">{place.label}</p>
-                <p>
-                  {place.count} {place.count === 1 ? "photo" : "photos"}
-                </p>
-                <Button variant="accent" size="sm" onClick={() => onSelect?.(place)}>
-                  Open
-                </Button>
-              </div>
+            <Popup className="places-map-popup" minWidth={0} maxWidth={280}>
+              <PlacePopupContent place={place} onSelect={onSelect} />
             </Popup>
           </CircleMarker>
         ))}
