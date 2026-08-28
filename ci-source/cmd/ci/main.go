@@ -68,7 +68,7 @@ Commands:
   help      Show this help message
 
 Run Flags:
-  -profile <name>     Run tests for a profile (quick, deep, full, etc.)
+  -profile <name>     Run tests for a profile (quick, libreserv, luna, full, etc.)
   -tests <id,...>     Run specific test IDs (comma-separated)
   -parallel <n>       Number of parallel containers (default: 4)
   -fuzz <duration>    Fuzz test duration (default: 5m)
@@ -79,6 +79,7 @@ Examples:
   ci                           # Launch TUI
   ci run -profile quick        # Run quick profile
   ci run -tests go-test,go-vet # Run specific tests
+  ci run -profile libreserv    # LibreServ release gate (no Luna/Connect)
   ci run -profile luna         # Luna (luna/ci.sh on the host)
   ci run -profile full         # Run full profile
   ci list                      # List all tests
