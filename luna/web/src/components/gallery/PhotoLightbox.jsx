@@ -16,6 +16,11 @@ import Button from "../ui/Button.jsx";
 import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
 import { Link } from "react-router-dom";
 
+/** Full-screen gallery lightbox layer. Modals opened from it must stack higher. */
+export const LIGHTBOX_Z_CLASS = "z-[80]";
+/** Use on ModalCard `overlayClassName` when the dialog opens over PhotoLightbox. */
+export const ABOVE_LIGHTBOX_OVERLAY_CLASS = "z-[90]";
+
 /**
  * Immersive full-screen photo/video viewer with manage actions.
  */
@@ -59,7 +64,7 @@ export default function PhotoLightbox({
       role="dialog"
       aria-modal="true"
       aria-label={photo.name}
-      className={`fixed inset-0 z-[80] flex flex-col bg-primary text-secondary motion-safe:transition-opacity motion-safe:duration-200 ${
+      className={`fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col bg-primary text-secondary motion-safe:transition-opacity motion-safe:duration-200 ${
         visible ? "opacity-100" : "opacity-0"
       }`}
     >
