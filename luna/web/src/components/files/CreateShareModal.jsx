@@ -13,6 +13,7 @@ export default function CreateShareModal({
   onError,
   onDone,
   open = true,
+  overlayClassName,
 }) {
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
@@ -33,7 +34,7 @@ export default function CreateShareModal({
 
   if (result) {
     return (
-      <ModalCard open={open} title="Link ready" onClose={onDone}>
+      <ModalCard open={open} title="Link ready" onClose={onDone} overlayClassName={overlayClassName}>
         {({ close }) => (
           <>
             <CopyableValue
@@ -51,7 +52,7 @@ export default function CreateShareModal({
   }
 
   return (
-    <ModalCard open={open} title="New link" onClose={onClose}>
+    <ModalCard open={open} title="New link" onClose={onClose} overlayClassName={overlayClassName}>
       {({ close }) => (
         <div className="space-y-3">
           <input

@@ -32,6 +32,17 @@ struct GalleryQuery {
     album_home: Option<String>,
     #[serde(default)]
     place: Option<String>,
+    /// Comma-separated west,south,east,north bounds for map cluster selection.
+    #[serde(default)]
+    place_bbox: Option<String>,
+}
+
+fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
+    let parts: Vec<f64> = raw.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    if parts.len() != 4 {
+        return None;
+    }
+    Some([parts[0], parts[1], parts[2], parts[3]])
 }
 
 #[derive(Deserialize)]
@@ -267,6 +278,10 @@ async fn timeline(
         album_id: query.album_id,
         album_home_drive: query.album_home,
         place: query.place,
+        place_bbox: query
+            .place_bbox
+            .as_deref()
+            .and_then(parse_place_bbox),
         user_id: Some(user.id.clone()),
     };
     let page = gallery::list_photos(
@@ -303,15 +318,15 @@ async fn timeline(
 async fn places(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Vec<gallery::PlaceCluster>>, (StatusCode, Json<Value>)> {
+) -> Result<Json<Vec<gallery::PlaceMarker>>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
-    let places = gallery::list_places(&mounts).map_err(|_| {
+    let markers = gallery::list_place_markers(&mounts).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't open Places.",
         )
     })?;
-    Ok(Json(places))
+    Ok(Json(markers))
 }
 
 async fn scan(

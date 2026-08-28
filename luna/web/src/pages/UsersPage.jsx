@@ -78,21 +78,6 @@ export default function UsersPage() {
         title="Users"
         titleId="users-title"
         className={userToDelete ? "pop-out" : "pop-in"}
-        rightContent={
-          <Button
-            size="icon"
-            variant="secondary"
-            surface="primary"
-            className="rounded-full hover:scale-110"
-            aria-label="Add user"
-            onClick={() => {
-              setError(null);
-              setCreating(true);
-            }}
-          >
-            <Plus size={32} aria-hidden="true" />
-          </Button>
-        }
       >
         {error && (
           <PageNotice variant="error" className="mb-4">
@@ -213,6 +198,21 @@ export default function UsersPage() {
               </div>
             </Card>
           </section>
+        )}
+
+        {showList && (
+          <Button
+            variant="secondary"
+            surface="primary"
+            className="fixed bottom-8 right-8 z-40 rounded-full p-4 hover:scale-110"
+            aria-label="Add user"
+            onClick={() => {
+              setError(null);
+              setCreating(true);
+            }}
+          >
+            <Plus size={32} aria-hidden="true" />
+          </Button>
         )}
       </Page>
 

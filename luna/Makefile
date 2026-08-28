@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev ensure-web-dist mock-pssd
+.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev ensure-web-dist mock-pssd mock-pssd-photos
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -42,6 +42,9 @@ build-daemon: ensure-web-dist
 
 mock-pssd:
 	bash scripts/setup-mock-pssd.sh
+
+mock-pssd-photos:
+	python3 scripts/generate-mock-pssd-photos.py
 
 dev-daemon: build-daemon mock-pssd
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)

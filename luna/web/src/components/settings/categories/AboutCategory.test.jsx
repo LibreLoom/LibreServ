@@ -2,32 +2,45 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import UpdatesCategory from "./UpdatesCategory";
+import AboutCategory from "./AboutCategory";
 
+const SHIPPED_KEY = "RWBUILTIN";
 const SOURCE_RESPONSE = {
   api_base: "https://gt.plainskill.net/api/v1",
   owner: "LibreLoom",
   repo: "LibreServ",
-  keys: ["RWBUILTIN"],
+  keys: [],
+  effective_keys: [SHIPPED_KEY],
   default_keys: true,
   defaults: {
     api_base: "https://gt.plainskill.net/api/v1",
     owner: "LibreLoom",
     repo: "LibreServ",
-    keys: ["RWBUILTIN"],
+    keys: [SHIPPED_KEY],
   },
 };
 
 function stubFetch(sourceBody) {
   return vi.fn(async (path, options) => {
     void options;
+    if (path.startsWith("/api/v1/health")) {
+      return new Response(JSON.stringify({ status: "ok", product: "Luna", version: "0.1.0" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (path.startsWith("/api/v1/setup")) {
+      return new Response(JSON.stringify({ name: "Living Room Luna", setup_completed: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (path.startsWith("/api/v1/system/updates/source")) {
       return new Response(JSON.stringify(sourceBody ?? SOURCE_RESPONSE), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
-    // /api/v1/system/updates — no release waiting.
     return new Response(
       JSON.stringify({
         current_version: "0.1.0",
@@ -49,28 +62,45 @@ function renderPage(fetchImpl) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <UpdatesCategory />
+      <AboutCategory />
     </QueryClientProvider>,
   );
 }
 
-describe("UpdatesCategory", () => {
-  it("shows the update card and a default-source advanced pill", async () => {
+describe("AboutCategory", () => {
+  it("shows Luna branding, device info, and the update card", async () => {
     renderPage(stubFetch());
-    expect(await screen.findByText(/latest Luna software/i)).toBeTruthy();
+    expect(await screen.findByText(/home file box/i)).toBeTruthy();
+    expect(await screen.findByText("Living Room Luna")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(await screen.findByText("Default source")).toBeTruthy();
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
   });
 
   it("flags a custom source when keys differ from the built-in key", async () => {
+<<<<<<< HEAD:luna/web/src/components/settings/categories/AboutCategory.test.jsx
+    renderPage(
+      stubFetch({
+        ...SOURCE_RESPONSE,
+        api_base: "https://staging.forgejo.test/api/v1",
+        owner: "MyOrg",
+        repo: "LunaFork",
+        keys: ["RWCUSTOM"],
+        default_keys: false,
+      }),
+    );
+=======
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,
       api_base: "https://staging.forgejo.test/api/v1",
       owner: "MyOrg",
       repo: "LunaFork",
       keys: ["RWCUSTOM"],
+      effective_keys: ["RWCUSTOM"],
       default_keys: false,
     }));
+>>>>>>> origin/main:luna/web/src/components/settings/categories/UpdatesCategory.test.jsx
     expect(await screen.findByText("Custom source")).toBeTruthy();
     expect(screen.getByText("MyOrg/LunaFork")).toBeTruthy();
   });
@@ -88,12 +118,33 @@ describe("UpdatesCategory", () => {
       screen.getByPlaceholderText("https://gt.plainskill.net/api/v1")
     );
     expect(apiInput.value).toBe("https://gt.plainskill.net/api/v1");
-    expect(/** @type {HTMLInputElement} */ (screen.getByPlaceholderText("LibreLoom")).value).toBe("LibreLoom");
-    expect(/** @type {HTMLInputElement} */ (screen.getByPlaceholderText("LibreServ")).value).toBe("LibreServ");
+    expect(/** @type {HTMLInputElement} */ (screen.getByPlaceholderText("LibreLoom")).value).toBe(
+      "LibreLoom",
+    );
+    expect(/** @type {HTMLInputElement} */ (screen.getByPlaceholderText("LibreServ")).value).toBe(
+      "LibreServ",
+    );
     const keysField = /** @type {HTMLTextAreaElement} */ (
       screen.getByRole("textbox", { name: /Signing keys/i })
     );
-    expect(keysField.value).toBe("RWBUILTIN");
+    expect(keysField.value).toBe(SHIPPED_KEY);
+  });
+
+  it("prefills the shipped key when stored keys are empty", async () => {
+    const user = userEvent.setup();
+    renderPage(stubFetch({
+      ...SOURCE_RESPONSE,
+      keys: [],
+      effective_keys: [SHIPPED_KEY],
+      default_keys: true,
+    }));
+    await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
+    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
+    const keysField = /** @type {HTMLTextAreaElement} */ (
+      screen.getByRole("textbox", { name: /Signing keys/i })
+    );
+    expect(keysField.value).toBe(SHIPPED_KEY);
   });
 
   it("saves the new source with a PUT and closes the modal", async () => {
@@ -117,7 +168,7 @@ describe("UpdatesCategory", () => {
     const body = JSON.parse(put?.[1]?.body ?? "{}");
     expect(body.owner).toBe("MyOrg");
     expect(body.repo).toBe("LibreServ");
-    expect(body.keys).toEqual(["RWBUILTIN"]);
+    expect(body.keys).toEqual([]);
   });
 
   it("blocks a save with an invalid signing key", async () => {
