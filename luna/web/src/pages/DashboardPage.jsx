@@ -11,6 +11,7 @@ import EmptyState from "../components/common/EmptyState.jsx";
 import TextLink from "../components/ui/TextLink.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
+import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
@@ -64,7 +65,12 @@ function countLine(folders, files) {
   const fileN = Number(files) || 0;
   const folderBit = `${folderN} folder${folderN === 1 ? "" : "s"}`;
   const fileBit = `${fileN} file${fileN === 1 ? "" : "s"}`;
-  return `${folderBit} · ${fileBit} at the top`;
+  return (
+    <>
+      {folderBit} · {fileBit} at the{" "}
+      <TermHint content={ROOT_TERM_HINT}>root</TermHint>
+    </>
+  );
 }
 
 function DriveStateLabel({ state }) {
@@ -80,7 +86,7 @@ function DriveStateLabel({ state }) {
 }
 
 /**
- * Home drive card — storage, top-level counts, and folder shortcuts from
+ * Home drive card — storage, root-level counts, and folder shortcuts from
  * GET /api/v1/drives/{id}/summary. Never invents numbers when the drive is
  * unplugged or the summary is still loading.
  *
@@ -393,15 +399,32 @@ function driveName(drives, id) {
   return drives.find((d) => d.id === id)?.label || "Drive";
 }
 
+function jobPathLabel(path) {
+  if (path) return pathBasename(path);
+  return (
+    <TermHint content={ROOT_TERM_HINT} surface="primary">
+      root
+    </TermHint>
+  );
+}
+
 function jobLocationLine(drives, job) {
   const fromDrive = driveName(drives, job.from_drive);
   const toDrive = driveName(drives, job.to_drive);
-  const fromPath = job.from_path ? pathBasename(job.from_path) : "top of drive";
-  const toPath = job.to_path ? pathBasename(job.to_path) : "top of drive";
+  const fromPath = jobPathLabel(job.from_path);
+  const toPath = jobPathLabel(job.to_path);
   if (job.from_drive === job.to_drive) {
-    return `${fromDrive}: ${fromPath} → ${toPath}`;
+    return (
+      <>
+        {fromDrive}: {fromPath} → {toPath}
+      </>
+    );
   }
-  return `${fromDrive} → ${toDrive}: ${toPath}`;
+  return (
+    <>
+      {fromDrive} → {toDrive}: {toPath}
+    </>
+  );
 }
 
 /**

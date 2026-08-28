@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -420,8 +420,13 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
-    const hint = await screen.findByText(/Showing names at the top of the drive/i);
+    const hint = await screen.findByText((_content, el) =>
+      el?.tagName === "P" &&
+      /Showing names at the root of the drive/i.test(el.textContent || ""),
+    );
     expect(hint).toHaveClass("text-secondary");
     expect(hint).not.toHaveClass("text-primary");
+    expect(within(hint).getByRole("button", { name: /^root$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/at the top of the drive/i)).not.toBeInTheDocument();
   });
 });

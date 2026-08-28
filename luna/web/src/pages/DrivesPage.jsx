@@ -20,6 +20,7 @@ import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { describeInspectSummary } from "../lib/fileCounts";
+import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 
 /** @param {number} n @param {string} one @param {string} many */
 function pluralCount(n, one, many) {
@@ -498,7 +499,11 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
               </ul>
               {(Number(result.folders) + Number(result.files) > result.entries.length) && (
                 <p className="text-secondary text-xs mt-2">
-                  Showing names at the top of the drive
+                  Showing names at the{" "}
+                  <TermHint content={ROOT_TERM_HINT} surface="primary">
+                    root
+                  </TermHint>{" "}
+                  of the drive
                   {result.entries.length >= 24 ? " (first 24)" : ""}.
                   Add it to open folders and see everything.
                 </p>
@@ -530,7 +535,9 @@ function InspectModal({ drive, result, error, onClose, onAdopt, adoptError, adop
               <TriangleAlert size={18} className="text-warning shrink-0" />
               <p className="text-primary text-xs">
                 Adding it only writes one tiny <span className="font-mono">.luna</span> marker
-                file at the top of the drive. Your files are untouched.
+                file at the{" "}
+                <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive.
+                Your files are untouched.
               </p>
             </div>
           )}
