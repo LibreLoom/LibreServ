@@ -86,7 +86,7 @@ describe("SetupPage", () => {
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
     expect(await screen.findByRole("heading", { name: /Connect Ethernet/i })).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("Cable")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Ethernet")).toBeTruthy());
     await waitFor(() => {
       const progressPosts = fetchMock.mock.calls.filter(([url, init]) => {
         return String(url).includes("/api/v1/setup") && (init?.method || "GET").toUpperCase() === "POST";

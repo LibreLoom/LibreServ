@@ -33,14 +33,14 @@ export default function NetworkCard() {
         <TermHint content="The clip-in network cable in the box. Same shape as a phone jack, but wider.">
           RJ45
         </TermHint>
-        {" "}(ethernet) cable. Devices on your home Wi-Fi can reach Luna on this
-        network.
+        {" "}(ethernet) cable. Phones and computers reach Luna on this network
+        while they stay on home internet.
       </p>
       <ul className="mt-4 space-y-2 text-sm text-primary">
         <li className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-2">
             <Cable size={16} aria-hidden="true" />
-            Cable
+            Ethernet
           </span>
           <Pill variant={ethernet ? "success" : "muted"}>
             {ethernet

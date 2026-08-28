@@ -144,7 +144,7 @@ function LogoMark({ size = 64 }) {
 }
 LogoMark.propTypes = { size: PropTypes.number };
 
-/** Where to find Luna after install. Phone stays on home Wi-Fi. */
+/** Where to find Luna after install. Phone stays on home internet. */
 function DiscoveryPaths({ name = "Luna" }) {
   const netStatus = useQuery({
     queryKey: ["network-status"],
@@ -157,7 +157,7 @@ function DiscoveryPaths({ name = "Luna" }) {
   return (
     <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left">
       <p className="text-xs text-secondary mb-3">
-        Stay on your home Wi-Fi. You can find {label} at:
+        Stay on your home internet. You can find {label} at:
       </p>
       <ul className="space-y-2.5 text-xs">
         <li className="flex items-center gap-2.5">
