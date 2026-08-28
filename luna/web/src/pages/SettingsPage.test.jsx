@@ -130,8 +130,7 @@ describe("SettingsPage", () => {
     await screen.findByText("max");
     expect(screen.getByText(/Some settings require an administrator/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Network$/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Backups$/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Remote Access/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Local Network/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
   });
 });
