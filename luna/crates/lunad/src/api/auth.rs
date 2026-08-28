@@ -179,7 +179,7 @@ async fn revoke_devices(
         .map_err(map_auth_err)?;
     Ok(Json(json!({
         "ok": true,
-        "message": "Phones and computers must set up backup again.",
+        "message": "Apps on phones and computers need a new access token.",
     })))
 }
 

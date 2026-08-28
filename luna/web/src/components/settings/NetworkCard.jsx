@@ -23,7 +23,7 @@ export default function NetworkCard() {
     ethernet && (netStatus.data?.has_default_route || ipv4.length > 0);
 
   return (
-    <Card icon={Cable} title="Home network">
+    <Card icon={Cable} title="Local Network">
       <p className="text-primary text-sm">
         Plug Luna into your{" "}
         <TermHint content="The box that brings internet into the house. Often labeled WAN, Internet, or LAN on the back.">
