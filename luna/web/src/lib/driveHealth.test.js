@@ -4,11 +4,7 @@ import { describeDriveHealth } from "./driveHealth";
 describe("describeDriveHealth", () => {
   it("stays quiet when a health report is unavailable", () => {
     const copy = describeDriveHealth({ available: false, overall: "unknown" });
-    expect(copy.title).toMatch(/No health report/i);
-    expect(copy.detail).toBe("");
-    expect(copy.detail.toLowerCase()).not.toMatch(
-      /smartctl|reallocated|self-assessment|common|doesn't mean|temperature/,
-    );
+    expect(copy).toBeNull();
   });
 
   it("glosses a healthy drive with temperature", () => {

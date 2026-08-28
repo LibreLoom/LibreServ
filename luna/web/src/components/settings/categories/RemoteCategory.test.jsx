@@ -53,8 +53,8 @@ describe("RemoteCategory", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ));
     renderPage();
-    expect(await screen.findByText("photos.luna.servers.libreloom.org")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
+    expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
+    expect(screen.getByLabelText("Luna Connect address")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Save new address/i })).toBeTruthy();
     expect(screen.getByText(/free forever/i)).toBeTruthy();
   });
