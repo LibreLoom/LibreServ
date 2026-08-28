@@ -33,12 +33,14 @@ const SEGMENTS = [
   { value: "favorites", label: "Favorites" },
 ];
 
-function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
+/** Build the gallery list URL. Bool query flags must be `true`/`false` —
+ *  lunad's serde query parser rejects `1`/`0` (Favorites used to 400). */
+export function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
   const params = new URLSearchParams();
   params.set("limit", "80");
   params.set("offset", String(offset || 0));
   if (q) params.set("q", q);
-  if (favorites) params.set("favorites", "1");
+  if (favorites) params.set("favorites", "true");
   if (albumId) params.set("album_id", albumId);
   if (albumHome) params.set("album_home", albumHome);
   if (placeBbox) params.set("place_bbox", placeBbox);
@@ -135,15 +137,27 @@ export default function GalleryPage() {
   const driveList = drives.data || [];
   const looking = gallery.isLoading || scan.isPending;
   const noDrives = !drives.isLoading && driveList.length === 0;
+  const galleryLoadError =
+    gallery.isError && !looking
+      ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
+      : null;
   const noPhotos =
     !looking &&
     !gallery.isLoading &&
+    !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     segment === "library" &&
     !search &&
     !place &&
     !albumView;
+  const noFavorites =
+    !looking &&
+    !gallery.isLoading &&
+    !gallery.isError &&
+    photos.length === 0 &&
+    driveList.length > 0 &&
+    segment === "favorites";
 
   useEffect(() => {
     if (autoScanStarted.current) return;
@@ -262,9 +276,9 @@ export default function GalleryPage() {
         query={q}
         onQueryChange={handleQueryChange}
       />
-      {error && (
+      {(error || galleryLoadError) && (
         <PageNotice variant="error" className="mb-4">
-          {error}
+          {error || galleryLoadError}
         </PageNotice>
       )}
 
@@ -301,6 +315,14 @@ export default function GalleryPage() {
               Look again
             </Button>
           }
+        />
+      )}
+
+      {noFavorites && (
+        <EmptyState
+          icon={ImageIcon}
+          title="No favorites yet"
+          description="Open a photo and tap the heart to save it here."
         />
       )}
 
