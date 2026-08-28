@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Image as ImageIcon, Plus, PlugZap, Search } from "lucide-react";
+import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import SegmentedControl from "../components/common/SegmentedControl";
 import ModalCard from "../components/cards/ModalCard";
+import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
@@ -222,12 +222,21 @@ export default function GalleryPage() {
     }
   }, [gallery]);
 
-  function submitSearch(e) {
-    e.preventDefault();
-    setSearch(q.trim());
-    setPlace(null);
-    if (segment === "places") setSegment("library");
-  }
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  const handleQueryChange = useCallback(
+    (e) => {
+      const next = e.target.value;
+      setQ(next);
+      if (!next.trim()) return;
+      setPlace(null);
+      if (segment === "places") setSegment("library");
+    },
+    [segment],
+  );
 
   const showTimeline =
     segment === "library" ||
@@ -236,45 +245,18 @@ export default function GalleryPage() {
     (segment === "albums" && albumView);
 
   return (
-    <Page
-      title="Photos"
-      titleId="gallery-title"
-      bottomContent={
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <SegmentedControl
-            options={SEGMENTS}
-            value={segment}
-            onChange={(v) => {
-              setSegment(v);
-              setPlace(null);
-              setAlbumView(null);
-            }}
-          />
-          <form onSubmit={submitSearch} className="flex gap-2 grow max-w-md">
-            <label className="sr-only" htmlFor="photo-search">
-              Search photos
-            </label>
-            <div className="relative grow">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-                aria-hidden="true"
-              />
-              <input
-                id="photo-search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search by name"
-                className="w-full rounded-pill bg-secondary text-primary border-2 border-secondary/30 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              />
-            </div>
-            <Button type="submit" variant="secondary" surface="primary">
-              Search
-            </Button>
-          </form>
-        </div>
-      }
-    >
+    <Page title="Photos" titleId="gallery-title">
+      <GalleryToolbar
+        segments={SEGMENTS}
+        segment={segment}
+        onSegmentChange={(v) => {
+          setSegment(v);
+          setPlace(null);
+          setAlbumView(null);
+        }}
+        query={q}
+        onQueryChange={handleQueryChange}
+      />
       {error && (
         <PageNotice variant="error" className="mb-4">
           {error}
