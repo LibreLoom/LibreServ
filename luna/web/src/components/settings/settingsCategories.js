@@ -5,9 +5,9 @@ import { Info, Laptop, Palette, Plug, Shield, Cable } from "lucide-react";
 // Labels match LibreServ's clean category style (Appearance, External Services,
 // Security, About) rather than euphemistic phrasing.
 const CATEGORIES = [
+  { id: "external_services", label: "External Services", icon: Plug, adminOnly: true },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "network", label: "Local Network", icon: Cable, adminOnly: true },
-  { id: "external_services", label: "External Services", icon: Plug, adminOnly: true },
   { id: "security", label: "Security", icon: Shield },
   { id: "devices", label: "Devices", icon: Laptop },
   { id: "about", label: "About", icon: Info, adminOnly: true },
