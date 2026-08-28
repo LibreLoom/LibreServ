@@ -18,9 +18,9 @@ for this document’s signing model.
 | Tag / title | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` |
 | Default CI | `./ci run -profile libreserv` | `./ci run -profile luna` |
 | Assets | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` | `lunad-linux-amd64`, optional `lunad-linux-arm64`, OS cut: `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
-| Public key | [`keys/libreserv.minisign.pub`](../keys/libreserv.minisign.pub) | [`keys/luna.minisign.pub`](../keys/luna.minisign.pub) |
+| Public key | [`keys/libreserv.minisign.pub`](../keys/libreserv.minisign.pub) | [`keys/lsluna.minisign.pub`](../keys/lsluna.minisign.pub) |
 | Secret env | `LIBRESERV_RELEASE_MINISIG_PK` + `_PW` | `LSLUNA_RELEASE_MINISIG_PK` + `_PW` |
-| Local secret | `~/.minisign/libreserv.key` | `~/.minisign/luna.key` |
+| Local secret | `~/.minisign/libreserv.key` | `~/.minisign/lsluna.key` |
 | Consumers | `install.sh`, in-app updater | lunad OTA (Settings → Software updates) |
 
 The Forgejo **tag** and **release title** are the same string. Never prefix
@@ -261,7 +261,7 @@ Wrong secret for the product (LibreServ vs Luna). Confirm env vars and
 
 ```bash
 minisign -Vm SHA256SUMS.txt -p keys/libreserv.minisign.pub
-minisign -Vm SHA256SUMS.txt -p keys/luna.minisign.pub
+minisign -Vm SHA256SUMS.txt -p keys/lsluna.minisign.pub
 ```
 
 ## Automation (future)

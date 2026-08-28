@@ -161,8 +161,8 @@ minisign_secret_key() {
         return 0
     fi
     if [ "$LUNA_RELEASE" = true ]; then
-        if [ -f "$HOME/.minisign/luna.key" ]; then
-            printf '%s\n' "$HOME/.minisign/luna.key"
+        if [ -f "$HOME/.minisign/lsluna.key" ]; then
+            printf '%s\n' "$HOME/.minisign/lsluna.key"
             return 0
         fi
     else
@@ -193,7 +193,7 @@ minisign_passphrase() {
 # Public key path for the product being released.
 release_minisign_pub() {
     if [ "$LUNA_RELEASE" = true ]; then
-        printf '%s\n' "$ROOT_DIR/keys/luna.minisign.pub"
+        printf '%s\n' "$ROOT_DIR/keys/lsluna.minisign.pub"
         return
     fi
     printf '%s\n' "$ROOT_DIR/keys/libreserv.minisign.pub"
@@ -217,7 +217,7 @@ sign_checksums() {
     if ! key="$(minisign_secret_key)"; then
         log_error "No minisign secret key for this product."
         if [ "$LUNA_RELEASE" = true ]; then
-            log_error "Set LSLUNA_RELEASE_MINISIG_PK (+ LSLUNA_RELEASE_MINISIG_PW), MINISIGN_SECRET_KEY, or ~/.minisign/luna.key"
+            log_error "Set LSLUNA_RELEASE_MINISIG_PK (+ LSLUNA_RELEASE_MINISIG_PW), MINISIGN_SECRET_KEY, or ~/.minisign/lsluna.key"
         else
             log_error "Set LIBRESERV_RELEASE_MINISIG_PK (+ LIBRESERV_RELEASE_MINISIG_PW), MINISIGN_SECRET_KEY, or ~/.minisign/libreserv.key"
         fi
