@@ -35,6 +35,8 @@ export const EXIT_ANIMATION_MS = 300;
  * @property {boolean} [mobileFullscreen]
  * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
  * @property {string} [className]
+ * @property {string} [overlayClassName] Extra classes on the fixed overlay (e.g. raise
+ *   z-index above PhotoLightbox's z-[80] with `z-[90]`). Default overlay is `z-50`.
  * @property {import('react').RefObject} [initialFocusRef]
  * @property {boolean} [loading] Show a skeleton body until content is ready.
  */
@@ -50,6 +52,7 @@ export default function ModalCard({
   mobileFullscreen = false,
   footer,
   className = "",
+  overlayClassName = "",
   initialFocusRef,
   loading = false,
 }) {
@@ -137,6 +140,7 @@ export default function ModalCard({
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         handleClose();
       }
 
@@ -194,6 +198,7 @@ export default function ModalCard({
       data-slot="dialog-overlay"
       className={cn(
         "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
+        overlayClassName,
         mobileFsClasses,
         isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95"
       )}
