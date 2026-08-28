@@ -70,7 +70,14 @@ export default function PhotoLightbox({
             <p className="text-xs truncate">{photo.place_label}</p>
           )}
         </div>
-        <Button variant="ghost" surface="primary" onClick={onClose} aria-label="Close">
+        <Button
+          variant="ghost"
+          surface="primary"
+          size="icon"
+          className="rounded-full shrink-0"
+          onClick={onClose}
+          aria-label="Close"
+        >
           <X size={20} />
         </Button>
       </div>
@@ -80,7 +87,8 @@ export default function PhotoLightbox({
           <Button
             variant="ghost"
             surface="primary"
-            className="absolute left-2 z-10"
+            size="icon"
+            className="absolute left-2 z-10 rounded-full shrink-0"
             aria-label="Previous"
             onClick={() => onIndexChange(index - 1)}
           >
@@ -109,7 +117,8 @@ export default function PhotoLightbox({
           <Button
             variant="ghost"
             surface="primary"
-            className="absolute right-2 z-10"
+            size="icon"
+            className="absolute right-2 z-10 rounded-full shrink-0"
             aria-label="Next"
             onClick={() => onIndexChange(index + 1)}
           >
