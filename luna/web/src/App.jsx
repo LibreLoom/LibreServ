@@ -8,6 +8,7 @@ import LoadingBar from "./components/common/LoadingBar";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
+import PublicAlbumPage from "./pages/PublicAlbumPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
 import UsersPage from "./pages/UsersPage";
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route path="/s/:token" element={<PublicSharePage />} />
+              <Route path="/a/:token" element={<PublicAlbumPage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/drives" element={<DrivesPage />} />

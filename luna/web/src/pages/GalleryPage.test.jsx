@@ -29,17 +29,21 @@ describe("GalleryPage", () => {
         return new Response(JSON.stringify({ started: true }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (u.includes("/gallery")) {
-        return new Response(JSON.stringify([
-          { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 0, thumb: "" },
-          { drive_id: "b", path: "two.jpg", name: "two.jpg", taken_at: 0, thumb: "" },
-        ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({
+          items: [
+            { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 1_700_000_000, thumb: "/t1", kind: "image" },
+            { drive_id: "b", path: "two.jpg", name: "two.jpg", taken_at: 1_700_000_100, thumb: "/t2", kind: "image" },
+          ],
+          next_offset: 2,
+          has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }));
     renderGallery();
-    expect(await screen.findByText("one.jpg")).toBeInTheDocument();
-    expect(screen.getByText("two.jpg")).toBeInTheDocument();
-    expect(screen.queryByText(/Choose a drive/i)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    expect(screen.getByLabelText("two.jpg")).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup")).toBeInTheDocument();
   });
 
   it("points people to Drives when there is nothing to look in", async () => {
@@ -47,6 +51,12 @@ describe("GalleryPage", () => {
       const u = String(url);
       if (u.includes("/gallery/scan")) {
         return new Response(JSON.stringify({ started: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }));
