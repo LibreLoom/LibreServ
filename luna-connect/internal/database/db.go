@@ -103,6 +103,25 @@ CREATE TABLE IF NOT EXISTS oss_payments (
   status TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS admin_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  name TEXT,
+  totp_secret TEXT,
+  totp_enabled INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  id TEXT PRIMARY KEY,
+  admin_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  FOREIGN KEY(admin_id) REFERENCES admin_accounts(id) ON DELETE CASCADE
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)

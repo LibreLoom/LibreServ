@@ -2,6 +2,7 @@ package security
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"strings"
 	"unicode"
@@ -45,6 +46,15 @@ func GroupCrockford(raw string) string {
 // Same strength as official booklet codes (not a short guessable hex).
 func OSSHexToken() string {
 	return OfficialBookletToken()
+}
+
+// FactoryHexToken is a 6-digit uppercase hex code for the LUNAASSETS TOKENS magazine.
+func FactoryHexToken() string {
+	b := make([]byte, 3)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		panic(err)
+	}
+	return strings.ToUpper(hex.EncodeToString(b))
 }
 
 // NormalizeToken strips grouping and maps lookalike Crockford letters.

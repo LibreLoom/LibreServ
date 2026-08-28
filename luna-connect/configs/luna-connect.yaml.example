@@ -3,10 +3,17 @@ server:
   port: 8092
   base_url: "https://connect.luna.libreloom.org"
   public_zone: "luna.servers.libreloom.org"
+  # Optional static Bearer for ops/automation. Prefer admin login sessions.
   admin_token: ""
   # Shared between blue/green instances. openssl rand -hex 32
   at_rest_key: ""
   web_dir: "web/dist"
+
+auth:
+  # Gates POST /admin/seed when set (send as X-Seed-Token). Empty = loopback only.
+  admin_seed_token: ""
+  # Staff admin session length (hours). Default 168 (7 days).
+  session_ttl_hours: 168
 
 database:
   path: "dev/luna-connect.db"

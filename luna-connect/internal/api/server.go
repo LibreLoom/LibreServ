@@ -12,7 +12,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
@@ -55,6 +54,7 @@ func (s *Server) routes() {
 	acct := handlers.AccountHandler{Deps: s.deps}
 	bak := handlers.BackupHandler{Deps: s.deps}
 	onb := handlers.OnboardingHandler{Deps: s.deps}
+	adm := handlers.AdminAuthHandler{Deps: s.deps}
 
 	r.Post("/api/v1/billing/webhook", http.MaxBytesHandler(http.HandlerFunc(acct.StripeWebhook), 65536).ServeHTTP)
 
@@ -109,8 +109,19 @@ func (s *Server) routes() {
 			})
 		})
 
-		r.Post("/admin/setup-tokens", onb.AdminMint)
-		r.Get("/admin/devices", s.adminDevices)
+		r.With(handlers.LimitJSONBody).Post("/admin/login", adm.Login)
+		r.With(handlers.LimitJSONBody).Post("/admin/seed", adm.Seed)
+
+		r.Group(func(r chi.Router) {
+			r.Use(handlers.AdminAuth(s.db))
+			r.Get("/admin/me", adm.Me)
+			r.Post("/admin/logout", adm.Logout)
+			r.With(handlers.LimitJSONBody).Post("/admin/2fa/setup", adm.Setup2FA)
+			r.With(handlers.LimitJSONBody).Post("/admin/2fa/verify", adm.Verify2FA)
+			r.Post("/admin/setup-tokens", onb.AdminMint)
+			r.With(handlers.LimitJSONBody).Post("/admin/setup-tokens/bulk", onb.AdminMintBulk)
+			r.Get("/admin/devices", s.adminDevices)
+		})
 	})
 
 	s.mountWeb(r)
@@ -118,10 +129,6 @@ func (s *Server) routes() {
 }
 
 func (s *Server) adminDevices(w http.ResponseWriter, r *http.Request) {
-	if !security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
-		handlers.JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
-		return
-	}
 	rows, err := s.db.Query(`SELECT id, subdomain, name FROM devices`)
 	if err != nil {
 		handlers.JSONError(w, http.StatusInternalServerError, "Could not list devices.")

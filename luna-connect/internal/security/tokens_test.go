@@ -22,3 +22,13 @@ func TestOfficialShape(t *testing.T) {
 		t.Fatalf("official shape %s", tok)
 	}
 }
+
+func TestFactoryHexToken(t *testing.T) {
+	tok := FactoryHexToken()
+	if !IsOSSHex(NormalizeToken(tok)) {
+		t.Fatalf("factory hex shape %q", tok)
+	}
+	if tok != strings.ToUpper(tok) {
+		t.Fatalf("expected uppercase %q", tok)
+	}
+}

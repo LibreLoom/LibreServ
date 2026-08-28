@@ -3,13 +3,12 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "./ui/button.jsx";
 import { Separator } from "./ui/separator.jsx";
-import { HardDrive, Cloud, LogOut, Sun, Moon, Sparkles, KeyRound } from "lucide-react";
+import { HardDrive, Cloud, LogOut, Sun, Moon, Sparkles } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Away from home", icon: HardDrive },
   { to: "/onboarding", label: "Setup", icon: Sparkles },
   { to: "/backups", label: "Cloud backups", icon: Cloud },
-  { to: "/admin/tokens", label: "Booklet codes", icon: KeyRound },
 ];
 
 export function Layout({ children }) {
