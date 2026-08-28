@@ -1469,4 +1469,62 @@ mod tests {
         let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
         assert_eq!(page.items.len(), 2);
     }
+
+    fn copy_fixture_tree(src: &Path, dst: &Path, names: &[&str]) {
+        for name in names {
+            let from = src.join(name);
+            if from.is_dir() {
+                copy_dir_all(&from, &dst.join(name));
+            }
+        }
+    }
+
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        std::fs::create_dir_all(dst).expect("mkdir");
+        for entry in std::fs::read_dir(src).expect("read_dir") {
+            let entry = entry.expect("entry");
+            let ty = entry.file_type().expect("file_type");
+            let to = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &to);
+            } else {
+                std::fs::copy(entry.path(), to).expect("copy");
+            }
+        }
+    }
+
+    #[test]
+    fn mock_pssd_fixtures_scan_for_gallery() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mock-pssd");
+        if !fixture.join("DCIM/100CANON").exists() {
+            eprintln!("mock PSSD photo fixtures missing — run: make mock-pssd-photos");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let vol = dir.path().join("vol");
+        copy_fixture_tree(
+            &fixture,
+            &vol,
+            &["DCIM", "Photos", "Pictures", ".Trashes"],
+        );
+
+        let report = scan_drive("mock", &vol).expect("scan mock PSSD fixtures");
+        assert!(report.found >= 60, "expected many photos, found {}", report.found);
+        assert!(
+            report.thumbnailed >= 55,
+            "expected most thumbnails, got {}",
+            report.thumbnailed
+        );
+
+        let mounts = vec![("mock".into(), vol.clone())];
+        let page = list_photos(&mounts, Some("mock"), &ListFilter::default(), 200, 0).unwrap();
+        assert!(page.items.len() >= 60, "listed {}", page.items.len());
+
+        let with_gps = page.items.iter().filter(|p| p.lat.is_some()).count();
+        assert!(with_gps >= 20, "expected GPS photos, got {with_gps}");
+
+        let places = list_places(&mounts).unwrap();
+        assert!(places.len() >= 3, "expected place clusters, got {}", places.len());
+    }
 }
