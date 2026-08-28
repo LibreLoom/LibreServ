@@ -85,6 +85,7 @@ export default function GalleryToolbar({
             options={segments}
             value={segment}
             onChange={onSegmentChange}
+            surface="secondary"
           />
         </div>
       </div>
@@ -106,6 +107,7 @@ export default function GalleryToolbar({
           options={segments}
           value={segment}
           onChange={onSegmentChange}
+          surface="secondary"
           className="w-full"
         />
       </div>
