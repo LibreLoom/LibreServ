@@ -967,3 +967,55 @@ body {
     color: var(--primary);
   }
 }
+
+/* Luna Gallery Places map — strip Leaflet popup chrome; card lives in React */
+.places-map .leaflet-popup-content-wrapper,
+.places-map .leaflet-popup-content {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+
+.places-map .leaflet-popup-content {
+  width: auto !important;
+  line-height: inherit;
+}
+
+.places-map .leaflet-popup-tip-container {
+  margin-top: -1px;
+}
+
+.places-map .leaflet-popup-tip {
+  background: var(--color-secondary);
+  border: 2px solid var(--color-primary);
+  border-top: none;
+  border-left: none;
+  box-shadow: none;
+}
+
+/* Popup uses closeButton={false}; keep CSS hide as belt-and-suspenders. */
+.places-map .leaflet-popup-close-button {
+  display: none !important;
+}
+
+/* Cluster count label centered on blob */
+.places-map .places-map-cluster-count.leaflet-tooltip {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-primary);
+  pointer-events: none;
+}
+
+.places-map .places-map-cluster-count.leaflet-tooltip::before {
+  display: none;
+}
+

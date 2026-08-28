@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Image as ImageIcon, Plus, PlugZap, Search } from "lucide-react";
+import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import SegmentedControl from "../components/common/SegmentedControl";
 import ModalCard from "../components/cards/ModalCard";
+import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
-import PhotoLightbox from "../components/gallery/PhotoLightbox.jsx";
+import PhotoLightbox, {
+  ABOVE_LIGHTBOX_OVERLAY_CLASS,
+} from "../components/gallery/PhotoLightbox.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import {
   apiErrorMessage,
@@ -34,15 +36,18 @@ const SEGMENTS = [
 const SEGMENT_IDS = SEGMENTS.map((s) => s.value);
 const DEFAULT_SEGMENT = "library";
 
-function galleryUrl({ q, favorites, albumId, albumHome, place, offset }) {
+/** Build the gallery list URL. Bool query flags must be `true`/`false` —
+ *  lunad's serde query parser rejects `1`/`0` (Favorites used to 400). */
+export function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
   const params = new URLSearchParams();
   params.set("limit", "80");
   params.set("offset", String(offset || 0));
   if (q) params.set("q", q);
-  if (favorites) params.set("favorites", "1");
+  if (favorites) params.set("favorites", "true");
   if (albumId) params.set("album_id", albumId);
   if (albumHome) params.set("album_home", albumHome);
-  if (place) params.set("place", place);
+  if (placeBbox) params.set("place_bbox", placeBbox);
+  else if (place) params.set("place", place);
   return `/api/v1/gallery?${params}`;
 }
 
@@ -121,6 +126,7 @@ export default function GalleryPage() {
       activeSegment,
       search,
       place?.key || "",
+      place?.place_bbox?.join(",") || "",
       albumView ? `${albumView.home_drive_id}:${albumView.id}` : "",
     ],
     [activeSegment, search, place, albumView],
@@ -136,7 +142,8 @@ export default function GalleryPage() {
           favorites: activeSegment === "favorites",
           albumId: albumView?.id,
           albumHome: albumView?.home_drive_id,
-          place: place?.key,
+          place: place?.place_bbox ? undefined : place?.key,
+          placeBbox: place?.place_bbox?.join(","),
           offset: pageParam,
         }),
       ),
@@ -174,15 +181,27 @@ export default function GalleryPage() {
   const driveList = drives.data || [];
   const looking = gallery.isLoading || scan.isPending;
   const noDrives = !drives.isLoading && driveList.length === 0;
+  const galleryLoadError =
+    gallery.isError && !looking
+      ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
+      : null;
   const noPhotos =
     !looking &&
     !gallery.isLoading &&
+    !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "library" &&
     !search &&
     !place &&
     !albumView;
+  const noFavorites =
+    !looking &&
+    !gallery.isLoading &&
+    !gallery.isError &&
+    photos.length === 0 &&
+    driveList.length > 0 &&
+    activeSegment === "favorites";
 
   useEffect(() => {
     if (autoScanStarted.current) return;
@@ -266,12 +285,21 @@ export default function GalleryPage() {
     }
   }, [gallery]);
 
-  function submitSearch(e) {
-    e.preventDefault();
-    setSearch(q.trim());
-    setPlace(null);
-    if (activeSegment === "places") handleSegmentChange("library");
-  }
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  const handleQueryChange = useCallback(
+    (e) => {
+      const next = e.target.value;
+      setQ(next);
+      if (!next.trim()) return;
+      setPlace(null);
+      if (activeSegment === "places") handleSegmentChange("library");
+    },
+    [activeSegment, handleSegmentChange],
+  );
 
   const showTimeline =
     activeSegment === "library" ||
@@ -280,44 +308,17 @@ export default function GalleryPage() {
     (activeSegment === "albums" && albumView);
 
   return (
-    <Page
-      title="Photos"
-      titleId="gallery-title"
-      bottomContent={
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <SegmentedControl
-            options={SEGMENTS}
-            value={activeSegment}
-            onChange={handleSegmentChange}
-          />
-          <form onSubmit={submitSearch} className="flex gap-2 grow max-w-md">
-            <label className="sr-only" htmlFor="photo-search">
-              Search photos
-            </label>
-            <div className="relative grow">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary"
-                aria-hidden="true"
-              />
-              <input
-                id="photo-search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search by name"
-                className="w-full rounded-pill bg-secondary text-primary border-2 border-secondary/30 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              />
-            </div>
-            <Button type="submit" variant="secondary" surface="primary">
-              Search
-            </Button>
-          </form>
-        </div>
-      }
-    >
-      {error && (
+    <Page title="Photos" titleId="gallery-title">
+      <GalleryToolbar
+        segments={SEGMENTS}
+        segment={activeSegment}
+        onSegmentChange={handleSegmentChange}
+        query={q}
+        onQueryChange={handleQueryChange}
+      />
+      {(error || galleryLoadError) && (
         <PageNotice variant="error" className="mb-4">
-          {error}
+          {error || galleryLoadError}
         </PageNotice>
       )}
 
@@ -354,6 +355,14 @@ export default function GalleryPage() {
               Look again
             </Button>
           }
+        />
+      )}
+
+      {noFavorites && (
+        <EmptyState
+          icon={ImageIcon}
+          title="No favorites yet"
+          description="Open a photo and tap the heart to save it here."
         />
       )}
 
@@ -447,6 +456,7 @@ export default function GalleryPage() {
           onClose={() => setSharePhoto(null)}
           onDone={() => setSharePhoto(null)}
           onError={setError}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         />
       )}
 
@@ -459,6 +469,7 @@ export default function GalleryPage() {
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trash.isPending}
+        overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
       />
 
       {newAlbumOpen && (
@@ -495,7 +506,11 @@ export default function GalleryPage() {
       )}
 
       {albumPick && (
-        <ModalCard title="Add to album" onClose={() => setAlbumPick(null)}>
+        <ModalCard
+          title="Add to album"
+          onClose={() => setAlbumPick(null)}
+          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
+        >
           {({ close }) => (
             <div className="space-y-2">
               {(albums.data || []).length === 0 && (
