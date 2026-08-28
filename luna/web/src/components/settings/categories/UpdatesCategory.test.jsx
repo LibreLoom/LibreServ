@@ -79,6 +79,7 @@ describe("UpdatesCategory", () => {
     const user = userEvent.setup();
     renderPage(stubFetch());
     await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
     await user.click(screen.getByRole("button", { name: /Edit update source/i }));
 
     expect(await screen.findByText(/Don't touch these during normal use/i)).toBeTruthy();
@@ -100,6 +101,7 @@ describe("UpdatesCategory", () => {
     const fetchImpl = stubFetch();
     renderPage(fetchImpl);
     await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
     await user.click(screen.getByRole("button", { name: /Edit update source/i }));
     await screen.findByText(/Don't touch these during normal use/i);
 
@@ -122,6 +124,7 @@ describe("UpdatesCategory", () => {
     const user = userEvent.setup();
     renderPage(stubFetch());
     await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
     await user.click(screen.getByRole("button", { name: /Edit update source/i }));
 
     const keysField = await screen.findByRole("textbox", { name: /Signing keys/i });
