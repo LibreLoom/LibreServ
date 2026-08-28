@@ -33,7 +33,7 @@ const SEGMENTS = [
   { value: "favorites", label: "Favorites" },
 ];
 
-function galleryUrl({ q, favorites, albumId, albumHome, place, offset }) {
+function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
   const params = new URLSearchParams();
   params.set("limit", "80");
   params.set("offset", String(offset || 0));
@@ -41,7 +41,8 @@ function galleryUrl({ q, favorites, albumId, albumHome, place, offset }) {
   if (favorites) params.set("favorites", "1");
   if (albumId) params.set("album_id", albumId);
   if (albumHome) params.set("album_home", albumHome);
-  if (place) params.set("place", place);
+  if (placeBbox) params.set("place_bbox", placeBbox);
+  else if (place) params.set("place", place);
   return `/api/v1/gallery?${params}`;
 }
 
@@ -79,6 +80,7 @@ export default function GalleryPage() {
       segment,
       search,
       place?.key || "",
+      place?.place_bbox?.join(",") || "",
       albumView ? `${albumView.home_drive_id}:${albumView.id}` : "",
     ],
     [segment, search, place, albumView],
@@ -94,7 +96,8 @@ export default function GalleryPage() {
           favorites: segment === "favorites",
           albumId: albumView?.id,
           albumHome: albumView?.home_drive_id,
-          place: place?.key,
+          place: place?.place_bbox ? undefined : place?.key,
+          placeBbox: place?.place_bbox?.join(","),
           offset: pageParam,
         }),
       ),

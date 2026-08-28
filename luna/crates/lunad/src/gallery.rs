@@ -64,6 +64,8 @@ pub struct ListFilter {
     pub album_id: Option<String>,
     pub album_home_drive: Option<String>,
     pub place: Option<String>,
+    /// Map viewport filter: min_lon, min_lat, max_lon, max_lat (WGS84 degrees).
+    pub place_bbox: Option<[f64; 4]>,
     pub user_id: Option<String>,
 }
 
@@ -79,6 +81,17 @@ pub struct PlaceCluster {
     pub key: String,
     pub label: String,
     pub count: u64,
+    pub lat: f64,
+    pub lon: f64,
+    pub cover_thumb: String,
+}
+
+/// One GPS-tagged photo for map clustering (leaf node at max zoom).
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaceMarker {
+    pub key: String,
+    pub id: String,
+    pub label: String,
     pub lat: f64,
     pub lon: f64,
     pub cover_thumb: String,
@@ -754,6 +767,11 @@ fn query_drive_photos(
     let from = filter.from.unwrap_or(0);
     let to = filter.to.unwrap_or(0);
     let place = filter.place.clone().unwrap_or_default();
+    let (bbox_min_lon, bbox_min_lat, bbox_max_lon, bbox_max_lat) = filter
+        .place_bbox
+        .map(|[min_lon, min_lat, max_lon, max_lat]| (min_lon, min_lat, max_lon, max_lat))
+        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+    let bbox_active = if filter.place_bbox.is_some() { 1i64 } else { 0i64 };
     let fav_only = if filter.favorites_user.is_some() {
         1i64
     } else {
@@ -771,9 +789,25 @@ fn query_drive_photos(
            AND (?4 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) <= ?4)
            AND (?5 = '' OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
                 AND printf('%.1f,%.1f', p.lat, p.lon) = ?5))
-           AND (?6 = 0 OR f.path IS NOT NULL)",
+           AND (?6 = 0 OR f.path IS NOT NULL)
+           AND (?7 = 0 OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
+                AND p.lon >= ?8 AND p.lon <= ?9 AND p.lat >= ?10 AND p.lat <= ?11))",
     )?;
-    let rows = stmt.query_map(params![uid, q_pat, from, to, place, fav_only], |row| {
+    let rows = stmt.query_map(
+        params![
+            uid,
+            q_pat,
+            from,
+            to,
+            place,
+            fav_only,
+            bbox_active,
+            bbox_min_lon,
+            bbox_max_lon,
+            bbox_min_lat,
+            bbox_max_lat,
+        ],
+        |row| {
         let path: String = row.get(0)?;
         let has_thumb: i64 = row.get(10)?;
         let favorited: i64 = row.get(11)?;
@@ -866,6 +900,54 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
     }
     let mut out: Vec<_> = map.into_values().collect();
     out.sort_by(|a, b| b.count.cmp(&a.count));
+    Ok(out)
+}
+
+pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceMarker>> {
+    let mut out = Vec::new();
+    for (drive_id, root) in mounts {
+        if !gallery_db_path(root).exists() {
+            continue;
+        }
+        let conn = match open_drive_db(root) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut stmt = conn.prepare(
+            "SELECT lat, lon, place_label, path, has_thumb FROM photos
+             WHERE lat IS NOT NULL AND lon IS NOT NULL
+             ORDER BY taken_at DESC, mtime DESC, path",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, f64>(0)?,
+                row.get::<_, f64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })?;
+        for row in rows.flatten() {
+            let (lat, lon, label, path, has_thumb) = row;
+            let key = place_key(lat, lon);
+            out.push(PlaceMarker {
+                key: key.clone(),
+                id: format!("{drive_id}:{path}"),
+                label: if label.is_empty() {
+                    "Photos from this place".into()
+                } else {
+                    label
+                },
+                lat,
+                lon,
+                cover_thumb: if has_thumb != 0 {
+                    thumb_url(drive_id, &path)
+                } else {
+                    String::new()
+                },
+            });
+        }
+    }
     Ok(out)
 }
 
@@ -1526,5 +1608,12 @@ mod tests {
 
         let places = list_places(&mounts).unwrap();
         assert!(places.len() >= 3, "expected place clusters, got {}", places.len());
+
+        let markers = list_place_markers(&mounts).unwrap();
+        assert!(
+            markers.len() >= 20,
+            "expected individual GPS markers, got {}",
+            markers.len()
+        );
     }
 }
