@@ -81,12 +81,12 @@ and are ignored by the Luna updater. Release assets:
 - `luna-os-x86_64.img` — OS cuts only (raw A/B slot image; no Luna state)
 - `luna-rapidinstall-x86_64.iso` — OS cuts only (factory / recovery USB)
 - `SHA256SUMS.txt` (required)
-- `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/releases.minisign.pub`)
+- `SHA256SUMS.txt.minisig` (required — minisign, public key in `keys/lsluna.minisign.pub`)
 
 Before you `dd` an ISO, verify the checksums file:
 
 ```sh
-minisign -Vm SHA256SUMS.txt -p keys/releases.minisign.pub
+minisign -Vm SHA256SUMS.txt -p keys/lsluna.minisign.pub
 sha256sum -c SHA256SUMS.txt
 ```
 

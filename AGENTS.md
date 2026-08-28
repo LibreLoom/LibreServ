@@ -6,6 +6,7 @@
 |---------|-------------|
 | `./ci` | Interactive CI runner (auto-builds if needed) |
 | `./ci run -profile full` | Run full CI suite non-interactively |
+| `./ci run -profile libreserv` | LibreServ release gate (backend + frontend; no Luna/Connect) |
 | `./ci run -profile luna` | Luna only (`luna/ci.sh`: Rust, web, desktop, mobile) |
 | `cd server/backend && make lint` | Format check + vet Go code |
 | `cd server/frontend && npm run lint && npm run typecheck` | Lint + typecheck frontend |
