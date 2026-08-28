@@ -3,11 +3,11 @@
 //! Run: `cargo test -p lunad --lib runtime_perf -- --nocapture`
 //! Prefer `--release` for wall-clock numbers closer to the appliance.
 //!
-//! These measure the cost of holding the global SQLite mutex across disk work:
-//! a sampler thread hammers `list_photos` while a background job runs, and we
-//! report the max wait observed.
+//! Gallery indexes live on each data drive under `.lunagallery/`, so holding the
+//! global `luna.db` mutex must not stall `list_photos`. These tests also measure
+//! index/scrub contention against the OS DB.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -57,14 +57,12 @@ fn nest_dirs(root: &Path, depth: usize, width: usize) {
 }
 
 /// Sample `list_photos` latency until `done` flips; return (samples, max_ms, p50_ms).
-fn sample_list_waits(db: &Arc<Mutex<Connection>>, done: &AtomicBool) -> (usize, u128, u128) {
+fn sample_list_waits(mounts: &[(String, PathBuf)], done: &AtomicBool) -> (usize, u128, u128) {
     let mut samples = Vec::new();
     while !done.load(Ordering::SeqCst) {
         let start = Instant::now();
-        {
-            let conn = db.lock().unwrap();
-            let _ = gallery::list_photos(&conn, Some("d1"), 20, 0).unwrap();
-        }
+        let _ = gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0)
+            .unwrap();
         samples.push(start.elapsed().as_millis());
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -78,7 +76,12 @@ fn sample_list_waits(db: &Arc<Mutex<Connection>>, done: &AtomicBool) -> (usize, 
     (samples.len(), max, p50)
 }
 
-fn list_latency_while_locked(db: &Arc<Mutex<Connection>>, hold_ms: u64) -> u128 {
+/// Holding `luna.db` must not stall on-drive gallery list.
+fn list_latency_while_luna_locked(
+    db: &Arc<Mutex<Connection>>,
+    mounts: &[(String, PathBuf)],
+    hold_ms: u64,
+) -> u128 {
     let blocker = db.clone();
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let handle = std::thread::spawn(move || {
@@ -88,10 +91,8 @@ fn list_latency_while_locked(db: &Arc<Mutex<Connection>>, hold_ms: u64) -> u128 
     });
     rx.recv().unwrap();
     let start = Instant::now();
-    {
-        let conn = db.lock().unwrap();
-        let _ = gallery::list_photos(&conn, Some("d1"), 20, 0).unwrap();
-    }
+    let _ = gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0)
+        .unwrap();
     let waited = start.elapsed().as_millis();
     handle.join().unwrap();
     waited
@@ -129,27 +130,34 @@ fn runtime_perf_numbers() {
         }
     }
 
+    let photo_mounts = vec![("d1".to_string(), photos.clone())];
+
     // --- Gallery ---
     let t0 = Instant::now();
-    let first = gallery::scan_drive(&db, "d1", &photos).unwrap();
+    let first = gallery::scan_drive("d1", &photos).unwrap();
     let first_ms = t0.elapsed().as_millis();
     assert_eq!(first.found, 120);
     assert!(
         gallery::thumbs_dir(&photos).read_dir().unwrap().next().is_some(),
         "thumbs must be on the photo drive"
     );
+    assert!(
+        gallery::gallery_db_path(&photos).exists(),
+        "gallery index must live under .lunagallery on the photo drive"
+    );
 
     let t1 = Instant::now();
-    let second = gallery::scan_drive(&db, "d1", &photos).unwrap();
+    let second = gallery::scan_drive("d1", &photos).unwrap();
     let second_ms = t1.elapsed().as_millis();
     assert_eq!(second.thumbnailed, 0);
 
     // --- Index contention: locked full walk vs unlocked ---
+    // Gallery list no longer touches luna.db, so waits stay low either way.
     let (index_locked_n, index_locked_max, index_locked_p50) = {
         let done = Arc::new(AtomicBool::new(false));
-        let db_s = db.clone();
+        let mounts = photo_mounts.clone();
         let done_s = done.clone();
-        let sampler = std::thread::spawn(move || sample_list_waits(&db_s, &done_s));
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
         let db_j = db.clone();
         let tree_j = tree.clone();
         let job = std::thread::spawn(move || {
@@ -168,9 +176,9 @@ fn runtime_perf_numbers() {
     }
     let (index_unlocked_n, index_unlocked_max, index_unlocked_p50) = {
         let done = Arc::new(AtomicBool::new(false));
-        let db_s = db.clone();
+        let mounts = photo_mounts.clone();
         let done_s = done.clone();
-        let sampler = std::thread::spawn(move || sample_list_waits(&db_s, &done_s));
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
         let db_j = db.clone();
         let tree_j = tree.clone();
         let job = std::thread::spawn(move || {
@@ -184,9 +192,9 @@ fn runtime_perf_numbers() {
     // --- Scrub contention ---
     let (scrub_locked_n, scrub_locked_max, scrub_locked_p50, scrub_locked_wall) = {
         let done = Arc::new(AtomicBool::new(false));
-        let db_s = db.clone();
+        let mounts = photo_mounts.clone();
         let done_s = done.clone();
-        let sampler = std::thread::spawn(move || sample_list_waits(&db_s, &done_s));
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
         let db_j = db.clone();
         let files_j = files.clone();
         let start = Instant::now();
@@ -208,9 +216,9 @@ fn runtime_perf_numbers() {
     }
     let (scrub_unlocked_n, scrub_unlocked_max, scrub_unlocked_p50, scrub_unlocked_wall) = {
         let done = Arc::new(AtomicBool::new(false));
-        let db_s = db.clone();
+        let mounts = photo_mounts.clone();
         let done_s = done.clone();
-        let sampler = std::thread::spawn(move || sample_list_waits(&db_s, &done_s));
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
         let db_j = db.clone();
         let files_j = files.clone();
         let start = Instant::now();
@@ -237,9 +245,9 @@ fn runtime_perf_numbers() {
     };
     let (_, upload_locked_max, _) = {
         let done = Arc::new(AtomicBool::new(false));
-        let db_s = db.clone();
+        let mounts = photo_mounts.clone();
         let done_s = done.clone();
-        let sampler = std::thread::spawn(move || sample_list_waits(&db_s, &done_s));
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
         let db_j = db.clone();
         let job = std::thread::spawn(move || {
             // Model the old write_chunk: hold mutex across a disk-sized sleep.
@@ -253,9 +261,9 @@ fn runtime_perf_numbers() {
     let chunk = vec![0xCDu8; 512 * 1024];
     let (upload_unlocked_n, upload_unlocked_max, upload_unlocked_p50, upload_wall) = {
         let done = Arc::new(AtomicBool::new(false));
-        let db_s = db.clone();
+        let mounts = photo_mounts.clone();
         let done_s = done.clone();
-        let sampler = std::thread::spawn(move || sample_list_waits(&db_s, &done_s));
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
         let db_j = db.clone();
         let id = upload_id.clone();
         let start = Instant::now();
@@ -271,7 +279,7 @@ fn runtime_perf_numbers() {
         (n, max, p50, wall)
     };
 
-    let synthetic = list_latency_while_locked(&db, 200);
+    let synthetic = list_latency_while_luna_locked(&db, &photo_mounts, 200);
 
     eprintln!("PERF gallery_first_scan_ms={first_ms} photos={}", first.found);
     eprintln!("PERF gallery_rescan_ms={second_ms} thumbnailed={}", second.thumbnailed);
@@ -296,7 +304,7 @@ fn runtime_perf_numbers() {
     eprintln!(
         "PERF upload_unlocked_wall_ms={upload_wall} list_max_ms={upload_unlocked_max} p50_ms={upload_unlocked_p50} samples={upload_unlocked_n}"
     );
-    eprintln!("PERF list_photos_wait_synthetic_200ms_lock_ms={synthetic}");
+    eprintln!("PERF list_photos_wait_while_luna_db_locked_200ms={synthetic}");
     eprintln!("PERF dhcp_boot_budget_before_s=15");
     eprintln!("PERF dhcp_boot_budget_after_s=3");
     eprintln!("PERF dhcp_boot_budget_saved_s=12");
@@ -305,20 +313,38 @@ fn runtime_perf_numbers() {
         (scrub_locked_max as f64) / (scrub_unlocked_max.max(1) as f64)
     );
 
-    // --- eMMC write budget: thumbs must not land under OS data_dir ---
+    // --- eMMC write budget: thumbs + gallery DB must not land under OS data_dir ---
     let os_data = dir.path().join("os-data");
     std::fs::create_dir_all(&os_data).unwrap();
     let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos));
+    let gallery_bytes_on_drive = dir_byte_size(&gallery::gallery_dir(&photos));
     let thumb_bytes_on_os = dir_byte_size(&os_data.join("thumbs"));
+    let gallery_bytes_on_os = dir_byte_size(&os_data.join(gallery::GALLERY_DIR_NAME));
     eprintln!("PERF emmc_thumb_bytes_on_photo_drive={thumb_bytes_on_drive}");
+    eprintln!("PERF emmc_gallery_db_bytes_on_photo_drive={gallery_bytes_on_drive}");
     eprintln!("PERF emmc_thumb_bytes_under_os_data_dir={thumb_bytes_on_os}");
+    eprintln!("PERF emmc_gallery_bytes_under_os_data_dir={gallery_bytes_on_os}");
     assert_eq!(
         thumb_bytes_on_os, 0,
         "gallery thumbs must not write under the OS data dir"
     );
+    assert_eq!(
+        gallery_bytes_on_os, 0,
+        "gallery index must not write under the OS data dir"
+    );
     assert!(
         thumb_bytes_on_drive > 0,
         "gallery thumbs must land under .lunathumbs on the photo drive"
+    );
+    assert!(
+        gallery_bytes_on_drive > 0,
+        "gallery index must land under .lunagallery on the photo drive"
+    );
+
+    // Holding luna.db must not stall on-drive gallery list.
+    assert!(
+        synthetic < 80,
+        "on-drive gallery list must not wait on luna.db lock (got {synthetic}ms)"
     );
 
     // Device-token: 20 rapid notes must not create 20 usage rows.
@@ -387,21 +413,18 @@ fn runtime_perf_numbers() {
         second_ms * 3 < first_ms || second_ms < 80,
         "rescan must be much cheaper than first scan: first={first_ms}ms second={second_ms}ms"
     );
+    // Gallery list is on-drive now — luna.db locks must not inflate list latency.
     assert!(
-        scrub_unlocked_max * 3 < scrub_locked_max || scrub_unlocked_max < 30,
-        "unlocked scrub must slash list_photos stalls: unlocked_max={scrub_unlocked_max} locked_max={scrub_locked_max}"
+        scrub_locked_max < 80 && scrub_unlocked_max < 80,
+        "on-drive gallery list must stay responsive during scrub: unlocked_max={scrub_unlocked_max} locked_max={scrub_locked_max}"
     );
     assert!(
-        index_unlocked_max <= index_locked_max || index_unlocked_max < 30,
-        "unlocked index must not worsen list stalls: unlocked_max={index_unlocked_max} locked_max={index_locked_max}"
+        index_locked_max < 80 && index_unlocked_max < 80,
+        "on-drive gallery list must stay responsive during index: unlocked_max={index_unlocked_max} locked_max={index_locked_max}"
     );
     assert!(
-        upload_unlocked_max < 40 || upload_unlocked_max * 2 < upload_locked_max,
-        "upload chunks must not hold DB across writes: unlocked_max={upload_unlocked_max} locked_max={upload_locked_max}"
-    );
-    assert!(
-        synthetic >= 150,
-        "sanity: holding the mutex 200ms must delay list_photos (got {synthetic}ms)"
+        upload_unlocked_max < 80 && upload_locked_max < 80,
+        "on-drive gallery list must stay responsive during upload: unlocked_max={upload_unlocked_max} locked_max={upload_locked_max}"
     );
 }
 

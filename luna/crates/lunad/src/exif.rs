@@ -1,4 +1,4 @@
-//! Capture-date helpers for the gallery timeline.
+//! Capture-date and GPS helpers for the gallery timeline / Places map.
 //!
 //! JPEG/TIFF EXIF is read with `kamadak-exif`. HEIC/HEIF stores the same TIFF
 //! payload inside an ISOBMFF item; [`crate::heif`] extracts those bytes.
@@ -12,6 +12,12 @@ use exif::{In, Reader, Tag, Value};
 /// Best capture time for `path`: DateTimeOriginal, then Digitised, then
 /// DateTime. Falls back to `None` when the file has no usable EXIF date.
 pub fn capture_unix(path: &Path) -> Option<i64> {
+    capture_meta(path).and_then(|(ts, _, _)| ts)
+}
+
+/// Capture time plus GPS when present. Returns `None` only when the file cannot
+/// be opened / parsed at all; individual fields may still be `None`.
+pub fn capture_meta(path: &Path) -> Option<(Option<i64>, Option<f64>, Option<f64>)> {
     if crate::heif::is_heif(path) {
         let max = crate::budget::limits().source_max_bytes;
         let meta = std::fs::metadata(path).ok()?;
@@ -19,10 +25,11 @@ pub fn capture_unix(path: &Path) -> Option<i64> {
             return None;
         }
         if let Ok(bytes) = std::fs::read(path)
-            && let Some(exif) = crate::heif::exif_tiff_from_heif(&bytes)
-            && let Some(ts) = unix_from_tiff_bytes(&exif)
+            && let Some(tiff) = crate::heif::exif_tiff_from_heif(&bytes)
+            && let Ok(exif) = Reader::new().read_raw(tiff)
         {
-            return Some(ts);
+            let (lat, lon) = gps_from_exif(&exif);
+            return Some((unix_from_exif(&exif), lat, lon));
         }
         return None;
     }
@@ -30,7 +37,8 @@ pub fn capture_unix(path: &Path) -> Option<i64> {
     let exif = Reader::new()
         .read_from_container(&mut BufReader::new(file))
         .ok()?;
-    unix_from_exif(&exif)
+    let (lat, lon) = gps_from_exif(&exif);
+    Some((unix_from_exif(&exif), lat, lon))
 }
 
 pub fn unix_from_tiff_bytes(tiff: &[u8]) -> Option<i64> {
@@ -47,6 +55,39 @@ fn unix_from_exif(exif: &exif::Exif) -> Option<i64> {
         }
     }
     None
+}
+
+fn gps_from_exif(exif: &exif::Exif) -> (Option<f64>, Option<f64>) {
+    let lat = gps_coord(exif, Tag::GPSLatitude, Tag::GPSLatitudeRef);
+    let lon = gps_coord(exif, Tag::GPSLongitude, Tag::GPSLongitudeRef);
+    (lat, lon)
+}
+
+fn gps_coord(exif: &exif::Exif, coord: Tag, reference: Tag) -> Option<f64> {
+    let field = exif.get_field(coord, In::PRIMARY)?;
+    let deg = dms_to_decimal(&field.value)?;
+    let refer = exif
+        .get_field(reference, In::PRIMARY)
+        .map(|f| value_as_ascii(&f.value))
+        .unwrap_or_default();
+    let refer = refer.trim().chars().next().unwrap_or('N');
+    if refer == 'S' || refer == 'W' {
+        Some(-deg)
+    } else {
+        Some(deg)
+    }
+}
+
+fn dms_to_decimal(value: &Value) -> Option<f64> {
+    match value {
+        Value::Rational(vals) if vals.len() >= 3 => {
+            let d = vals[0].num as f64 / vals[0].denom.max(1) as f64;
+            let m = vals[1].num as f64 / vals[1].denom.max(1) as f64;
+            let s = vals[2].num as f64 / vals[2].denom.max(1) as f64;
+            Some(d + m / 60.0 + s / 3600.0)
+        }
+        _ => None,
+    }
 }
 
 fn value_as_ascii(value: &Value) -> String {

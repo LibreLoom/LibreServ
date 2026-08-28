@@ -218,6 +218,8 @@ pub fn inline_safe(mime: &str) -> bool {
 pub fn is_internal_temp(name: &str) -> bool {
     let base = name.rsplit('/').next().unwrap_or(name);
     base == crate::gallery::THUMBS_DIR_NAME
+        || base == crate::gallery::GALLERY_DIR_NAME
+        || base == crate::gallery::SHARED_ALBUMS_DIR_NAME
         || base.starts_with(".luna-upload.")
         || (base.starts_with('.') && base.ends_with(".part"))
 }

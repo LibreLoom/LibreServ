@@ -158,26 +158,13 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             window_start INTEGER NOT NULL,
             locked_until INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS photos (
-            drive_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            name TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            mtime INTEGER NOT NULL,
-            width INTEGER NOT NULL DEFAULT 0,
-            height INTEGER NOT NULL DEFAULT 0,
-            thumb TEXT NOT NULL DEFAULT '',
-            taken_at INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (drive_id, path)
-        );
-        CREATE INDEX IF NOT EXISTS photos_timeline
-            ON photos(drive_id, taken_at DESC, mtime DESC);
         CREATE INDEX IF NOT EXISTS index_entries_name
             ON index_entries(name COLLATE NOCASE);",
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(&conn, "photos", "taken_at", "INTEGER NOT NULL DEFAULT 0")?;
+    // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
+    let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
         &conn,
         "users",
@@ -321,7 +308,6 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
         "DELETE FROM indexed_dirs WHERE drive_id = ?1",
         "DELETE FROM file_hashes WHERE drive_id = ?1",
         "DELETE FROM protections WHERE source_drive = ?1 OR target_drive = ?1",
-        "DELETE FROM photos WHERE drive_id = ?1",
     ];
     for sql in statements {
         match tx.execute(sql, params![id]) {
@@ -342,8 +328,9 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 
 /// Wipe all user data and return the box to first-run state, keeping the
 /// schema. Clears users/grants/shares/device-tokens, uploads/jobs, the file
-/// index/hashes/protections/photos, drives, and resets setup + the JWT and BLE
-/// setup secrets.
+/// index/hashes/protections, drives, and resets setup + the JWT and BLE
+/// setup secrets. Gallery indexes live on each data drive under `.lunagallery/`
+/// and are not part of `luna.db`.
 pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
     for table in [
         "users",
@@ -357,7 +344,6 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "indexed_dirs",
         "file_hashes",
         "protections",
-        "photos",
         "drives",
         "device_token_usage",
         "rate_limit_buckets",
