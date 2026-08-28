@@ -97,7 +97,7 @@ export default function RemoteCategory() {
           )}
         </SettingsCard>
 
-        <SettingsCard icon={ShieldOff} title="Your own way">
+        <SettingsCard icon={ShieldOff} title="Other options">
           <ul className="space-y-3 text-sm text-primary">
             <li className="flex items-start gap-2">
               <Unplug size={14} className="text-accent mt-1 shrink-0" />
