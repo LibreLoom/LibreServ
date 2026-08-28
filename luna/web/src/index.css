@@ -995,19 +995,9 @@ body {
   box-shadow: none;
 }
 
+/* Compact card has Open; Leaflet's × overlaps the pill and adds noise. */
 .places-map .leaflet-popup-close-button {
-  top: 6px;
-  right: 6px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  font: 700 16px/20px var(--font-mono);
-  color: var(--color-primary);
-}
-
-.places-map .leaflet-popup-close-button:hover,
-.places-map .leaflet-popup-close-button:focus-visible {
-  color: var(--color-accent);
+  display: none;
 }
 
 /* Cluster count label centered on blob */
