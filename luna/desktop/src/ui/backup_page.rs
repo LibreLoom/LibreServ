@@ -256,10 +256,7 @@ fn backup_status_icon(
     progress: &luna_desktop::backup::BackupProgress,
 ) -> (&'static str, String) {
     if !progress.error.is_empty() {
-        return (
-            "dialog-warning-symbolic",
-            plain_error(&progress.error),
-        );
+        return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
     if progress.running && (!progress.current.is_empty() || progress.bytes > 0) {
         return (
@@ -273,10 +270,7 @@ fn backup_status_icon(
             "This folder is being correctly backed up.".to_string(),
         );
     }
-    (
-        "content-loading-symbolic",
-        "Waiting to start…".to_string(),
-    )
+    ("content-loading-symbolic", "Waiting to start…".to_string())
 }
 
 fn plain_error(raw: &str) -> String {

@@ -37,9 +37,8 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
         return Ok(());
     }
     let dir = autostart_dir();
-    fs::create_dir_all(&dir).map_err(|_| {
-        "Couldn't create the start-on-boot folder on this computer.".to_string()
-    })?;
+    fs::create_dir_all(&dir)
+        .map_err(|_| "Couldn't create the start-on-boot folder on this computer.".to_string())?;
     let exec = exec_path();
     let body = format!(
         "[Desktop Entry]\n\

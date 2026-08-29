@@ -184,10 +184,7 @@ fn leaf(path: &str) -> &str {
 }
 
 fn short_name(path: &str) -> String {
-    let name = path
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(path);
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
     if name.len() > 48 {
         format!("{}…", &name[..45])
     } else {

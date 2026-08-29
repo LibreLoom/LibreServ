@@ -260,10 +260,7 @@ fn sync_status_icon(
     progress: &luna_desktop::sync::SyncProgress,
 ) -> (&'static str, String) {
     if !progress.error.is_empty() {
-        return (
-            "dialog-warning-symbolic",
-            plain_error(&progress.error),
-        );
+        return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
     if progress.running && !progress.current.is_empty() {
         return (
@@ -277,10 +274,7 @@ fn sync_status_icon(
             "This folder is staying in sync.".to_string(),
         );
     }
-    (
-        "content-loading-symbolic",
-        "Waiting to start…".to_string(),
-    )
+    ("content-loading-symbolic", "Waiting to start…".to_string())
 }
 
 fn plain_error(raw: &str) -> String {

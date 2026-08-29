@@ -520,7 +520,10 @@ mod tests {
                             .contains("authorization: bearer device-tok-456"),
                         "auth/me must send Bearer access token"
                     );
-                    (200, r#"{"id":"u1","username":"max","role":"admin"}"#.to_string())
+                    (
+                        200,
+                        r#"{"id":"u1","username":"max","role":"admin"}"#.to_string(),
+                    )
                 } else if req.contains("/api/v1/auth/logout") {
                     assert!(
                         req.to_ascii_lowercase().contains("x-csrf-token: csrf-tok"),
