@@ -1,15 +1,19 @@
 package net.plainskill.luna
 
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.provider.MediaStore
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 
 /**
- * Backs up photos taken since the last run to Luna's first drive under
- * `Phone Backup/<year>/<month>/`. Runs on unmetered networks while charging,
- * resumes across runs, and reports its outcome through the photo-backup
- * notification channel instead of failing silently.
+ * Backs up photos taken since the last run to the chosen drive under
+ * `<folder>/<year>/<month>/`. Runs under WorkManager constraints, promotes
+ * itself to a data-sync foreground job so Android does not kill the upload,
+ * and only alerts when backup cannot continue.
  */
 class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -17,13 +21,19 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         val context = applicationContext
         val token = BackupPrefs.token(context)
         val baseUrl = BackupPrefs.baseUrl(context)
-        if (token == null || baseUrl == null) {
+        if (token == null || baseUrl == null || !BackupPrefs.backupEnabled(context)) {
             return Result.success()
         }
         val notifier = BackupNotifications(context)
+        try {
+            setForeground(foregroundInfo("Checking for new photos…"))
+        } catch (_: Exception) {
+            // Notification permission denied — still try the backup.
+        }
 
         return try {
-            val driveId = LunaApi.firstDriveId(baseUrl, token)
+            val driveId = LunaApi.resolveDriveId(baseUrl, token, BackupPrefs.driveId(context))
+            val folder = BackupPrefs.folderPrefix(context)
             val since = BackupPrefs.lastBackupAt(context) / 1000
             val projection = arrayOf(
                 MediaStore.Images.Media._ID,
@@ -46,6 +56,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
                 var remaining = cursor.count
                 while (cursor.moveToNext()) {
+                    if (isStopped) return Result.retry()
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol).ifEmpty { "photo-$id.jpg" }
                     val size = cursor.getLong(sizeCol)
@@ -53,11 +64,17 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                     val uri = android.content.ContentUris.withAppendedId(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
                     )
-                    if (remaining > 0) notifier.showProgress(remaining)
+                    if (remaining > 0) {
+                        try {
+                            setForeground(foregroundInfo(progressText(remaining)))
+                        } catch (_: Exception) {
+                            notifier.showProgress(remaining)
+                        }
+                    }
                     context.contentResolver.openInputStream(uri)?.use { stream ->
                         val month = java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.US)
                             .format(java.util.Date(date * 1000))
-                        LunaApi.uploadStream(baseUrl, token, driveId, "Phone Backup/$month", name, size, stream)
+                        LunaApi.uploadStream(baseUrl, token, driveId, "$folder/$month", name, size, stream)
                         uploaded++
                         newest = maxOf(newest, date)
                     }
@@ -69,19 +86,49 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             Result.success()
         } catch (e: LunaApi.ApiException) {
             if (e.unauthorized) {
-                // The token was revoked or the account removed. Don't keep
-                // retrying — clear the credential and tell the user to set up
-                // again.
-                BackupPrefs.clearToken(context)
-                notifier.showFailure("Your Luna sign-in expired. Reconnect once to start backing up again.")
+                BackupPrefs.clearSession(context)
+                notifier.clearProgress()
+                notifier.showFailure("Your Luna access token expired. Sign in again to keep backing up.")
                 Result.failure()
             } else {
                 notifier.clearProgress()
-                if (runAttemptCount < 3) Result.retry() else Result.failure()
+                if (runAttemptCount < 3) Result.retry() else {
+                    notifier.showFailure(e.message ?: "Photo backup could not finish. Open Luna on this phone and try again.")
+                    Result.failure()
+                }
             }
         } catch (e: Exception) {
             notifier.clearProgress()
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+            if (runAttemptCount < 3) Result.retry() else {
+                notifier.showFailure("Photo backup could not finish. Check that this phone can reach Luna.")
+                Result.failure()
+            }
         }
+    }
+
+    private fun progressText(remaining: Int): String =
+        if (remaining == 1) "Saving 1 photo to Luna…"
+        else "Saving $remaining photos to Luna…"
+
+    private fun foregroundInfo(text: String): ForegroundInfo {
+        val note = NotificationCompat.Builder(applicationContext, BackupNotifications.PROGRESS_CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle("Backing up photos")
+            .setContentText(text)
+            .setProgress(0, 0, true)
+            .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        return if (Build.VERSION.SDK_INT >= 29) {
+            ForegroundInfo(FOREGROUND_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(FOREGROUND_ID, note)
+        }
+    }
+
+    companion object {
+        private const val FOREGROUND_ID = 2002
     }
 }

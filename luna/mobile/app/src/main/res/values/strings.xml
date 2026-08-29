@@ -1,5 +1,25 @@
 <resources>
     <string name="app_name">Luna</string>
-    <string name="setup_code_hint">Setup code from your device</string>
-    <string name="connect">Connect</string>
+    <string name="login_subtitle">Sign in with an access token from Luna. Open Luna in a browser → Settings → Apps and access tokens → Create access token, then paste it here — or tap Scan QR code.</string>
+    <string name="luna_address_hint">Luna address (for example http://luna.local)</string>
+    <string name="access_token_hint">Access token</string>
+    <string name="scan_qr">Scan QR code</string>
+    <string name="sign_in">Sign in</string>
+    <string name="sign_out">Sign out</string>
+    <string name="nav_backup">Backup</string>
+    <string name="nav_settings">Settings</string>
+    <string name="backup_blurb">Photos save to Luna automatically. Choose when and where in Settings.</string>
+    <string name="backup_automatically">Back up automatically</string>
+    <string name="allow_background">Allow background backup</string>
+    <string name="when_to_backup">When to back up</string>
+    <string name="require_wifi">Unmetered Wi-Fi only</string>
+    <string name="require_wifi_help">On: wait for Wi-Fi that does not use mobile data. Off: any network, including mobile data.</string>
+    <string name="require_charging">Only while charging</string>
+    <string name="require_charging_help">On: wait until this phone is plugged in. Off: back up on battery too.</string>
+    <string name="where_to_save">Where to save</string>
+    <string name="drive_label">Drive</string>
+    <string name="folder_label">Folder</string>
+    <string name="folder_hint">Phone Backup</string>
+    <string name="folder_help">Photos go into this folder, then year and month (for example Phone Backup/2026/08).</string>
+    <string name="background_heading">Background</string>
 </resources>

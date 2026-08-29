@@ -1,7 +1,7 @@
 package net.plainskill.luna
 
 import android.Manifest
-import android.app.Notification
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -10,8 +10,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
 /**
- * Small notification surface for photo backup. Keeps the user informed of the
- * worker's outcome without pulling them into the app.
+ * Quiet photo-backup notifications. Progress is silent and updates in place.
+ * Alerts fire only when backup cannot continue (expired token or last retry).
  */
 class BackupNotifications(private val context: Context) {
 
@@ -23,66 +23,34 @@ class BackupNotifications(private val context: Context) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
 
-    fun showActivated(address: String, deviceName: String) {
-        if (!allowed()) return
-        val note = NotificationCompat.Builder(context, "luna-backup")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Luna photo backup is on")
-            .setContentText("$deviceName will back up new photos over Wi-Fi while charging.")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .build()
-        try {
-            manager.notify(STATUS_ID, note)
-        } catch (_: SecurityException) {
-            // POST_NOTIFICATIONS permission revoked between check and post.
-        }
-    }
-
-    fun showStopped() {
-        if (!allowed()) return
-        val note = NotificationCompat.Builder(context, "luna-backup")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Luna photo backup is off")
-            .setContentText("New photos will stay only on this phone.")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .build()
-        try {
-            manager.notify(STATUS_ID, note)
-        } catch (_: SecurityException) {
-            // Same as above.
-        }
-    }
-
     fun showProgress(remaining: Int) {
         if (!allowed()) return
-        val note = NotificationCompat.Builder(context, "luna-backup")
+        val note = NotificationCompat.Builder(context, PROGRESS_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("Backing up photos")
-            .setContentText("Saving $remaining photo(s) to Luna…")
+            .setContentText(
+                if (remaining == 1) "Saving 1 photo to Luna…"
+                else "Saving $remaining photos to Luna…"
+            )
             .setProgress(0, 0, true)
             .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        try {
-            manager.notify(PROGRESS_ID, note)
-        } catch (_: SecurityException) {
-        }
+        notify(PROGRESS_ID, note)
     }
 
     fun showFailure(message: String) {
         if (!allowed()) return
-        val note = NotificationCompat.Builder(context, "luna-backup")
+        val note = NotificationCompat.Builder(context, ALERT_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentTitle("Luna photo backup had a problem")
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
-        try {
-            manager.notify(STATUS_ID, note)
-        } catch (_: SecurityException) {
-        }
+        notify(STATUS_ID, note)
     }
 
     fun clearProgress() {
@@ -92,12 +60,41 @@ class BackupNotifications(private val context: Context) {
         }
     }
 
+    private fun notify(id: Int, note: android.app.Notification) {
+        try {
+            manager.notify(id, note)
+        } catch (_: SecurityException) {
+        }
+    }
+
     companion object {
+        const val PROGRESS_CHANNEL = "luna-backup-progress"
+        const val ALERT_CHANNEL = "luna-backup-alerts"
         private const val STATUS_ID = 2001
         private const val PROGRESS_ID = 2002
 
-        fun safe(context: Context): BackupNotifications {
-            return BackupNotifications(context)
+        fun ensureChannels(context: Context) {
+            if (Build.VERSION.SDK_INT < 26) return
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    PROGRESS_CHANNEL,
+                    "Photo backup progress",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "Quiet progress while photos save to Luna"
+                    setShowBadge(false)
+                }
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    ALERT_CHANNEL,
+                    "Photo backup alerts",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply {
+                    description = "Only when photo backup needs you to sign in again"
+                }
+            )
         }
     }
 }

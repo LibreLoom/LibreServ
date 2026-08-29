@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 
 object BackupPrefs {
     private const val NAME = "luna_backup"
+    const val DEFAULT_FOLDER = "Phone Backup"
 
     /**
      * The bearer token grants access to the user's files, so it is stored
@@ -25,38 +26,80 @@ object BackupPrefs {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
 
     fun token(context: Context): String? = prefs(context)?.getString("token", null)
-    fun tokenId(context: Context): String? = prefs(context)?.getString("token_id", null)
-    fun deviceName(context: Context): String? = prefs(context)?.getString("device_name", null)
+    fun username(context: Context): String? = prefs(context)?.getString("username", null)
     fun baseUrl(context: Context): String? = prefs(context)?.getString("base_url", null)
+    fun driveId(context: Context): String? = prefs(context)?.getString("drive_id", null)
+    fun driveLabel(context: Context): String? = prefs(context)?.getString("drive_label", null)
+    fun folderPrefix(context: Context): String =
+        prefs(context)?.getString("folder_prefix", DEFAULT_FOLDER)?.ifBlank { DEFAULT_FOLDER }
+            ?: DEFAULT_FOLDER
+    fun requireUnmetered(context: Context): Boolean =
+        prefs(context)?.getBoolean("require_unmetered", true) ?: true
+    fun requireCharging(context: Context): Boolean =
+        prefs(context)?.getBoolean("require_charging", true) ?: true
+    fun backupEnabled(context: Context): Boolean =
+        prefs(context)?.getBoolean("backup_enabled", true) ?: true
+    fun askedBattery(context: Context): Boolean =
+        prefs(context)?.getBoolean("asked_battery", false) ?: false
     fun lastBackupAt(context: Context): Long = prefs(context)?.getLong("last_backup_at", 0L) ?: 0L
+
+    fun signedIn(context: Context): Boolean = !token(context).isNullOrBlank()
 
     fun saveSession(
         context: Context,
         baseUrl: String,
         token: String,
-        deviceName: String? = null,
-        tokenId: String? = null,
+        username: String,
+        driveId: String? = null,
+        driveLabel: String? = null,
     ) {
         val p = prefs(context)
             ?: throw IllegalStateException("This phone couldn't store the sign-in safely. Photo backup can't start.")
         p.edit()
             .putString("base_url", baseUrl)
             .putString("token", token)
+            .putString("username", username)
+            .putBoolean("backup_enabled", true)
             .apply {
-                if (deviceName != null) putString("device_name", deviceName)
-                if (tokenId != null) putString("token_id", tokenId)
-                apply()
+                if (driveId != null) putString("drive_id", driveId)
+                if (driveLabel != null) putString("drive_label", driveLabel)
             }
+            .apply()
     }
 
-    fun clearToken(context: Context) {
-        prefs(context)?.edit()?.remove("token")?.remove("token_id")?.remove("device_name")?.apply()
+    fun setBackupEnabled(context: Context, enabled: Boolean) {
+        prefs(context)?.edit()?.putBoolean("backup_enabled", enabled)?.apply()
+    }
+
+    fun setRequireUnmetered(context: Context, value: Boolean) {
+        prefs(context)?.edit()?.putBoolean("require_unmetered", value)?.apply()
+    }
+
+    fun setRequireCharging(context: Context, value: Boolean) {
+        prefs(context)?.edit()?.putBoolean("require_charging", value)?.apply()
+    }
+
+    fun setDrive(context: Context, id: String, label: String) {
+        prefs(context)?.edit()?.putString("drive_id", id)?.putString("drive_label", label)?.apply()
+    }
+
+    fun setFolderPrefix(context: Context, folder: String) {
+        val clean = folder.trim().trim('/').ifBlank { DEFAULT_FOLDER }
+        prefs(context)?.edit()?.putString("folder_prefix", clean)?.apply()
+    }
+
+    fun setAskedBattery(context: Context, asked: Boolean) {
+        prefs(context)?.edit()?.putBoolean("asked_battery", asked)?.apply()
+    }
+
+    fun clearSession(context: Context) {
+        prefs(context)?.edit()?.clear()?.apply()
     }
 
     fun markBackedUp(context: Context, time: Long) {

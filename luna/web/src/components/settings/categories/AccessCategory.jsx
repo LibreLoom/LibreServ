@@ -6,6 +6,7 @@ import Button from "../../ui/Button";
 import CopyableValue from "../../ui/CopyableValue";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
+import PairingQrModal from "../PairingQrModal.jsx";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
 import PageNotice from "../../common/PageNotice";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
@@ -91,6 +92,7 @@ export default function AccessCategory() {
   const [tokenName, setTokenName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState("");
   const [newToken, setNewToken] = useState(null);
+  const [showQr, setShowQr] = useState(false);
   const [usageFor, setUsageFor] = useState(null);
 
   const tokens = useQuery({
@@ -117,6 +119,7 @@ export default function AccessCategory() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setNewToken(data);
+      setShowQr(false);
       setTokenName("");
       setExpiresInDays("");
       setError(null);
@@ -204,7 +207,8 @@ export default function AccessCategory() {
         {newToken?.token && (
           <div className="mt-4 rounded-large-element bg-primary text-secondary p-4 space-y-3">
             <p className="text-sm">
-              Copy this now. Luna will not show it again.
+              Copy this now. Luna will not show it again. Paste it into Luna
+              Desktop or the phone app, or show it as a QR code for the phone.
             </p>
             <CopyableValue
               value={newToken.token}
@@ -212,6 +216,18 @@ export default function AccessCategory() {
               ariaLabel="Access token"
               surface="primary"
               multiline
+            />
+            <Button
+              variant="outline"
+              surface="primary"
+              onClick={() => setShowQr(true)}
+            >
+              Show as QR code
+            </Button>
+            <PairingQrModal
+              open={showQr}
+              token={newToken.token}
+              onClose={() => setShowQr(false)}
             />
           </div>
         )}

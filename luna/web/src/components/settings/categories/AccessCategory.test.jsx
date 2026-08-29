@@ -138,4 +138,37 @@ describe("AccessCategory", () => {
     expect(screen.queryByText(/list — Photos/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Usage log/i })).toBeTruthy();
   });
+
+  it("offers a QR code after creating an access token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      const method = init?.method || "GET";
+      if (u.includes("/device-tokens") && method === "POST") {
+        return new Response(JSON.stringify({ id: "t2", token: "secret-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/device-tokens") && method === "GET") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    renderAccess();
+    expect(await screen.findByRole("button", { name: /Create access token/i })).toBeTruthy();
+
+    await user.type(screen.getByLabelText(/Name this app/i), "Sam's phone");
+    await user.click(screen.getByRole("button", { name: /Create access token/i }));
+
+    expect(await screen.findByRole("button", { name: /Show as QR code/i })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Show as QR code/i }));
+    expect(await screen.findByRole("heading", { name: /Show as QR code/i })).toBeTruthy();
+    expect(screen.getByText(/tap Scan QR code/i)).toBeTruthy();
+  });
 });

@@ -1,6 +1,5 @@
 package net.plainskill.luna
 
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -9,8 +8,9 @@ import java.net.Socket
 import java.net.URL
 
 /**
- * Minimal Luna HTTP client for the backup worker. Speaks the same chunked
- * upload protocol as the web app: create → PUT ranges → complete.
+ * Minimal Luna HTTP client for photo backup. Sign-in is a pasted (or scanned)
+ * access token, same as Luna Desktop. Uploads use the chunked protocol:
+ * create → PUT ranges → complete.
  */
 object LunaApi {
     const val CHUNK_SIZE = 1024 * 1024 // 1 MiB
@@ -19,66 +19,60 @@ object LunaApi {
         val unauthorized get() = code == 401
     }
 
-    /** A named token the server tracks so it can be revoked separately from the password. */
-    class DeviceToken(val id: String, val token: String)
+    data class UserInfo(val id: String, val username: String)
+    data class Drive(val id: String, val label: String)
 
-    /**
-     * Sign in with a one-shot cookie session, mint a long-lived access token,
-     * then drop the cookie session. Only the access token is kept.
-     */
-    fun mintAccessToken(baseUrl: String, username: String, password: String, name: String): DeviceToken {
-        val cookie = loginSessionCookie(baseUrl, username, password)
-        val device = createDeviceToken(baseUrl, cookie, name)
-        try {
-            post(baseUrl, "/api/v1/auth/logout", "", bearer = null, cookie = cookie)
-        } catch (_: Exception) {
-            // Cookie session is unused after mint; ignore logout failures.
+    fun authMe(baseUrl: String, token: String): UserInfo {
+        val result = exchange(baseUrl, "/api/v1/auth/me", "GET", token, null, null)
+        if (result.code == 401) {
+            throw ApiException(401, badTokenMessage())
         }
-        return device
-    }
-
-    fun loginSessionCookie(baseUrl: String, username: String, password: String): String {
-        val body = JSONObject().apply {
-            put("username", username)
-            put("password", password)
+        if (result.code !in 200..299) {
+            throw ApiException(result.code, "Luna couldn't check that access token. Try again.")
         }
-        val bytes = body.toString().toByteArray(Charsets.UTF_8)
-        val extra = mapOf("Content-Type" to "application/json")
-        val result = exchange(baseUrl, "/api/v1/auth/login", "POST", null, bytes, extra, null)
-        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
-        return parseLunaSessionCookie(result.setCookie)
-            ?: throw ApiException(401, "Luna did not set a session cookie")
+        return parseUser(String(result.body, Charsets.UTF_8))
     }
 
-    fun createDeviceToken(baseUrl: String, cookie: String, name: String): DeviceToken {
-        val body = JSONObject().apply { put("name", name) }
-        val json = post(baseUrl, "/api/v1/device-tokens", body.toString(), bearer = null, cookie = cookie)
-        val id = json.optString("id").ifEmpty { throw ApiException(500, "No device-token id in reply") }
-        val raw = json.optString("token").ifEmpty { throw ApiException(500, "No device-token value in reply") }
-        return DeviceToken(id, raw)
+    fun listDrives(baseUrl: String, token: String): List<Drive> {
+        val result = exchange(baseUrl, "/api/v1/drives", "GET", token, null, null)
+        if (result.code == 401) throw ApiException(401, badTokenMessage())
+        if (result.code !in 200..299) {
+            throw ApiException(result.code, "Luna couldn't list your drives. Try again.")
+        }
+        return parseDrives(String(result.body, Charsets.UTF_8))
     }
 
-    fun parseLunaSessionCookie(setCookie: String?): String? {
-        if (setCookie.isNullOrBlank()) return null
-        val pair = setCookie.split(';').first().trim()
-        return if (pair.startsWith("luna_session=")) pair else null
+    fun resolveDriveId(baseUrl: String, token: String, preferredId: String?): String {
+        val drives = listDrives(baseUrl, token)
+        if (drives.isEmpty()) {
+            throw ApiException(404, "No drives found on Luna. Add a drive in Luna first.")
+        }
+        if (!preferredId.isNullOrBlank()) {
+            val match = drives.firstOrNull { it.id == preferredId }
+            if (match != null) return match.id
+        }
+        return drives[0].id
     }
 
-    fun revokeToken(baseUrl: String, sessionToken: String, deviceId: String): Boolean {
-        val result = exchange(baseUrl, "/api/v1/device-tokens/$deviceId", "DELETE", sessionToken, null, null)
-        return result.code in 200..299
+    fun parseUser(body: String): UserInfo {
+        val trimmed = body.trim()
+        if (trimmed.isEmpty() || trimmed == "null") {
+            throw ApiException(401, badTokenMessage())
+        }
+        val username = JsonFields.string(trimmed, "username").orEmpty()
+        if (username.isEmpty()) throw ApiException(401, badTokenMessage())
+        return UserInfo(JsonFields.string(trimmed, "id").orEmpty(), username)
     }
 
-    fun firstDriveId(baseUrl: String, token: String): String {
-        val drives = getArray(baseUrl, "/api/v1/drives", token)
-        val first = drives.optJSONObject(0) ?: throw ApiException(404, "No drives found on Luna")
-        return first.optString("id").ifEmpty { throw ApiException(404, "No drives found on Luna") }
-    }
-
-    private fun getArray(baseUrl: String, path: String, token: String): JSONArray {
-        val result = exchange(baseUrl, path, "GET", token, null, null)
-        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
-        return JSONArray(String(result.body, Charsets.UTF_8))
+    fun parseDrives(body: String): List<Drive> {
+        val out = ArrayList<Drive>()
+        for (obj in JsonFields.objects(body)) {
+            val id = JsonFields.string(obj, "id").orEmpty()
+            if (id.isEmpty()) continue
+            val label = JsonFields.string(obj, "label").orEmpty().ifEmpty { id }
+            out.add(Drive(id, label))
+        }
+        return out
     }
 
     fun createUpload(baseUrl: String, token: String, driveId: String, destPath: String, name: String, size: Long): String {
@@ -118,6 +112,9 @@ object LunaApi {
         }
         completeUpload(baseUrl, token, uploadId)
     }
+
+    private fun badTokenMessage() =
+        "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
 
     private data class HttpResult(val code: Int, val body: ByteArray, val setCookie: String? = null) {
         fun errorText(): String {
