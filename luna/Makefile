@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev ensure-web-dist mock-pssd mock-pssd-photos
+.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -66,12 +66,20 @@ clean:
 	rm -rf web/node_modules web/dist crates/lunad/web/dist
 
 # Linux desktop (GTK 4 + libadwaita). See desktop/README.md for packages.
+# Ship: Flatpak on Linux, .exe installer on Windows. AppImage is demo/CI only.
 desktop-dev:
 	cd desktop && cargo run
 
 desktop:
 	cd desktop && cargo test && cargo build --release
 
-desktop-bundle: desktop
-	@echo "Install: cp desktop/target/release/luna-desktop to a bin dir on PATH."
-	@echo "Optional: copy desktop/resources/org.libreloom.LunaDesktop.desktop to /usr/share/applications/"
+desktop-appimage: desktop
+	cd desktop && bash packaging/appimage/build.sh
+
+desktop-flatpak:
+	cd desktop/packaging/flatpak && flatpak-builder --user --force-clean --install-deps-from=flathub build-dir org.libreloom.LunaDesktop.yml
+
+desktop-bundle: desktop-appimage
+	@echo "Demo AppImage: desktop/release/"
+	@echo "Preferred Linux ship: make desktop-flatpak"
+	@echo "Windows: see desktop/packaging/windows/README.md"

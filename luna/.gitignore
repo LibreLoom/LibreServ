@@ -10,6 +10,9 @@
 /desktop/target
 /desktop/node_modules
 /desktop/dist
+/desktop/release
+/desktop/packaging/flatpak/build-dir
+/desktop/packaging/flatpak/.flatpak-builder
 
 # local luna dev data dir
 /dev

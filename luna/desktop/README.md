@@ -12,9 +12,17 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
    Desktop creates a child folder there and keeps both sides in sync. If both
    sides change the same file, both copies are kept with a clear conflict name.
-4. **Settings** — optional start on boot (XDG autostart).
+4. **Settings** — optional start on boot (XDG autostart on Linux).
 
-## Build (Linux)
+## Distribution
+
+| Platform | Ship as |
+|----------|---------|
+| Linux | **Flatpak** (`packaging/flatpak/`) — preferred |
+| Windows | **`.exe` installer** (`packaging/windows/`) — preferred |
+| Linux (demo / CI) | AppImage (`packaging/appimage/build.sh`) |
+
+## Build from source (Linux)
 
 Needs GTK 4 and libadwaita development packages, for example:
 
@@ -30,6 +38,8 @@ sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 # From luna/
 make desktop-dev    # cargo run
 make desktop        # tests + release binary → desktop/target/release/luna-desktop
+make desktop-appimage   # demo AppImage → desktop/release/
+make desktop-flatpak    # Flatpak (needs flatpak-builder + GNOME SDK)
 ```
 
 Or from `luna/desktop`:
@@ -38,6 +48,7 @@ Or from `luna/desktop`:
 cargo test
 cargo run
 cargo build --release
+bash packaging/appimage/build.sh
 ```
 
 ## Soak / unit tests
