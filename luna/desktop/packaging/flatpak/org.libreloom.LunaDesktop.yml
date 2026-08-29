@@ -21,11 +21,14 @@ modules:
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
+      # Cargo needs crates.io during the cut (sources are a dir, not cargo-vendor).
+      build-args:
+        - --share=network
       env:
         CARGO_HOME: /run/build/luna-desktop/cargo
     build-commands:
-      - cargo --offline fetch --manifest-path Cargo.toml || cargo fetch --manifest-path Cargo.toml
-      - cargo --offline build --release --manifest-path Cargo.toml || cargo build --release --manifest-path Cargo.toml
+      - cargo fetch --manifest-path Cargo.toml
+      - cargo build --release --manifest-path Cargo.toml
       - install -Dm755 target/release/luna-desktop /app/bin/luna-desktop
       - install -Dm644 resources/org.libreloom.LunaDesktop.desktop /app/share/applications/org.libreloom.LunaDesktop.desktop
       - install -Dm644 resources/icon.png /app/share/icons/hicolor/256x256/apps/org.libreloom.LunaDesktop.png
