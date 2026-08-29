@@ -24,7 +24,7 @@ describe("DevicesCategory", () => {
     expect(screen.queryByText(/from the same place you downloaded/i)).toBeNull();
     expect(screen.queryByText(/^Computers: use the Luna Desktop app\.$/i)).toBeNull();
 
-    expect(screen.getByText(/Luna app for Android/i)).toBeTruthy();
+    expect(screen.getByText(/copies new photos from the phone/i)).toBeTruthy();
     expect(screen.getByText(/no iPhone app yet/i)).toBeTruthy();
     expect(screen.getByText(/pick a drive and a folder/i)).toBeTruthy();
     expect(screen.getByText(/year and month/i)).toBeTruthy();
