@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info, ExternalLink } from "lucide-react";
+import { Download, CheckCircle, AlertCircle, RefreshCw, Info, ExternalLink } from "lucide-react";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../cards/ConfirmModal";
@@ -117,14 +117,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
             <Button
               variant="primary"
               onClick={() => checkForUpdates(true, true)}
-              disabled={checking || updating}
+              loading={checking}
+              disabled={updating}
               className="min-w-[160px]"
             >
               {checking ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
-                  Checking...
-                </>
+                "Checking..."
               ) : (
                 <>
                   <RefreshCw size={16} />
@@ -179,14 +177,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
               <Button
                 variant="primary"
                 onClick={() => setShowUpdateModal(true)}
-                disabled={updating}
-                className="w-full"
+                loading={updating}
+                fullWidth
               >
                 {updating ? (
-                  <>
-                    <Loader2 className="animate-spin" size={16} />
-                    Updating...
-                  </>
+                  "Updating..."
                 ) : (
                   <>
                     <Download size={16} />
