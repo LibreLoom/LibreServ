@@ -54,6 +54,10 @@ func tokenAccountID(t issuedToken) string {
 	return ""
 }
 
+func tokenNeedsOwner(kind string) bool {
+	return kind == "oss" || kind == "remint"
+}
+
 func sessionAccountID(s *sessionRow) string {
 	if s != nil && s.accountID.Valid {
 		return s.accountID.String
@@ -91,7 +95,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acct, hasAcct := AccountFrom(r.Context())
-	if tok.Kind == "oss" {
+	if tokenNeedsOwner(tok.Kind) {
 		if !hasAcct {
 			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this code, then type it again.")
 			return
@@ -189,6 +193,12 @@ func (h OnboardingHandler) AttachAccount(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusForbidden, "This setup page is already tied to another account. Sign in to that account to continue.")
 		return
 	}
+	if tok, ok := lookupIssuedByHash(h.DB, sess.tokenHash); ok && (tok.Status == "issued" || tok.Status == "claimed") {
+		activateAccount(h.DB, acct.ID)
+		if tokenAccountID(tok) == "" {
+			_, _ = h.DB.Exec(`UPDATE issued_tokens SET account_id = ? WHERE token_hash = ? AND (account_id IS NULL OR account_id = '')`, acct.ID, sess.tokenHash)
+		}
+	}
 	setSetupSessionCookie(w, newID)
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "session_id": newID})
 }
@@ -217,7 +227,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
 		return
 	}
-	if tok.Kind == "oss" && tokenAccountID(tok) != acct.ID {
+	if tokenNeedsOwner(tok.Kind) && tokenAccountID(tok) != acct.ID {
 		JSONError(w, http.StatusForbidden, "That code belongs to a different account. Sign in to the account that created it, then try again.")
 		return
 	}
@@ -308,7 +318,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
 	if err != nil {
 		return err
 	}
-	res, err := tx.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ? WHERE token_hash = ? AND status = 'issued'`, id, sess.tokenHash)
+	res, err := tx.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ?, account_id = COALESCE(NULLIF(account_id, ''), ?) WHERE token_hash = ? AND status = 'issued'`, id, accountID, sess.tokenHash)
 	if err != nil {
 		return err
 	}
@@ -319,7 +329,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
 	if _, err := tx.Exec(`UPDATE setup_sessions SET status = 'claimed', account_id = ? WHERE id = ?`, accountID, sess.id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	activateAccount(h.DB, accountID)
+	return nil
 }
 
 func (h OnboardingHandler) pushClaimed(tokenHash, deviceToken, hostname, tunnelToken, setupSecret, subdomain string) bool {
@@ -394,6 +408,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	var existing string
 	err := h.DB.QueryRow(`SELECT payment_intent_id FROM oss_payments WHERE account_id = ? AND status = 'succeeded'`, acct.ID).Scan(&existing)
 	if err == nil && existing != "" {
+		activateAccount(h.DB, acct.ID)
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": okMsg})
 		return
 	}
@@ -424,6 +439,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
 ON CONFLICT(account_id) DO UPDATE SET payment_intent_id=excluded.payment_intent_id, status='succeeded'`,
 		acct.ID, pi, time.Now().Unix())
+	activateAccount(h.DB, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": okMsg,

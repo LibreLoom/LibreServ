@@ -26,6 +26,20 @@ const authAttemptWindow = 15 * 60
 // Matches lunad's 7-day session cap so a stolen cookie does not live a month.
 const SessionTTL = 7 * 24 * time.Hour
 
+// PairingTokenTTL is how long a reminted setup code stays usable after a
+// factory reset or a bring-your-own install. Longer than a first OSS mint so
+// the owner can flash the box and type the code without racing a 15-minute clock.
+const PairingTokenTTL = 24 * time.Hour
+const pairingTokenMax = 5
+const pairingTokenWindow = 3600
+
+func activateAccount(db *sql.DB, id string) {
+	if db == nil || id == "" {
+		return
+	}
+	_, _ = db.Exec(`UPDATE accounts SET activated_at = ? WHERE id = ? AND COALESCE(activated_at, 0) = 0`, time.Now().Unix(), id)
+}
+
 func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -105,6 +119,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
 		"email":                  acct.Email,
+		"activated":              acct.Activated,
 		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
 		"billing_status":         acct.BillingStatus,
 		"stored_bytes":           bytes,
@@ -210,6 +225,38 @@ func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
 	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code (****-****-****-****-****), and pick a name.")
 }
 
+func (h AccountHandler) PairingToken(w http.ResponseWriter, r *http.Request) {
+	acct, ok := AccountFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	if !acct.Activated {
+		JSONError(w, http.StatusForbidden, "Finish setup first. Use the booklet code, or the “I set this computer up myself” path, then you can make a new setup code here.")
+		return
+	}
+	if !allowGuess(h.DB, "remint:"+acct.ID, pairingTokenMax, pairingTokenWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many new setup codes on this account. Wait an hour, then try again.")
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind = 'remint' AND status = 'issued'`, acct.ID)
+	code := security.OSSHexToken()
+	norm := security.NormalizeToken(code)
+	id := security.NewID("tok")
+	exp := time.Now().Add(PairingTokenTTL).Unix()
+	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at, token_hint)
+VALUES (?, ?, 'remint', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix(), security.TokenHint(norm))
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not make a setup code. Try again.")
+		return
+	}
+	JSON(w, http.StatusCreated, map[string]any{
+		"code":       code,
+		"expires_in": int(PairingTokenTTL.Seconds()),
+		"message":    "On Luna, open the address on the screen and enter this code (****-****-****-****-****). After a factory reset, enter the new code the same way.",
+	})
+}
+
 func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("luna_connect_session"); err == nil {
 		_, _ = h.DB.Exec(`DELETE FROM sessions WHERE token_hash = ?`, security.HashToken(c.Value))
@@ -276,17 +323,18 @@ func (h AccountHandler) AccountAuth(next http.Handler) http.Handler {
 		}
 		var id, email, status, cust, sub string
 		var has int
+		var activated int64
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), COALESCE(a.activated_at, 0)
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub)
+			Scan(&id, &email, &has, &status, &cust, &sub, &activated)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
 		})))
 	})
 }
@@ -300,17 +348,18 @@ func (h AccountHandler) OptionalAccountAuth(next http.Handler) http.Handler {
 		}
 		var id, email, status, cust, sub string
 		var has int
+		var activated int64
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), COALESCE(a.activated_at, 0)
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub)
+			Scan(&id, &email, &has, &status, &cust, &sub, &activated)
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
 		})))
 	})
 }

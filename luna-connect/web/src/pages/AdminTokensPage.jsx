@@ -185,7 +185,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Lost booklet code</CardTitle>
           <CardDescription>
-            We need a way to mint a new official booklet token for a device that no longer has the old one. For now: the owner should contact support and refer to their order id. Support then issues a replacement official token (single token below). Paste it on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition (factory magazine), or use a one-shot setup-token file next to the ISO payload.
+            Activated owners (booklet setup or bring-your-own) mint a new pairing code on their own Luna Connect page. Use this page when there is no account yet, or the booklet was lost before first setup. The owner should contact support and refer to their order id. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition (factory magazine), or use a one-shot setup-token file next to the ISO payload.
           </CardDescription>
         </CardHeader>
       </Card>

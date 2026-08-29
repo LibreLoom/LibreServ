@@ -43,10 +43,10 @@ beforeEach(() => {
   };
 });
 
-function mount() {
+function mount(path = "/onboarding") {
   return render(
     <ThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <OnboardingPage />
       </MemoryRouter>
     </ThemeProvider>,
@@ -88,6 +88,13 @@ describe("OnboardingPage OSS verify", () => {
     expect(screen.getByRole("heading", { name: /Set up Luna Connect/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /I have a booklet/i })).toBeTruthy();
     expect(screen.queryByLabelText(/email/i)).toBeNull();
+  });
+
+  it("starts /register on the bring-your-own account step", () => {
+    mount("/register");
+    expect(screen.getByRole("heading", { name: /Set up your own hardware/i })).toBeTruthy();
+    expect(screen.getByLabelText(/email address/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /I have a booklet/i })).toBeNull();
   });
 
   it("does not call verify-human before a card action when Stripe looks configured", async () => {

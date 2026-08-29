@@ -93,6 +93,7 @@ func (s *Server) routes() {
 					r.Get("/billing/usage", acct.Usage)
 					r.Post("/billing/attach-card", acct.AttachCard)
 					r.Post("/account/pair", acct.Pair)
+					r.Post("/account/pairing-token", acct.PairingToken)
 					r.Get("/account/devices", acct.Devices)
 					r.Get("/backups", bak.List)
 					r.Post("/backups/download", bak.Download)

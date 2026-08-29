@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { Button } from "../components/ui/button.jsx";
@@ -163,9 +163,14 @@ export default function OnboardingPage() {
   const { isAuthenticated, register, login, me } = useAuth();
   const { toggle } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const byoEntry = location.pathname === "/register";
   const saved = useRef(loadProgress());
-  const [step, setStep] = useState(saved.current?.step || "welcome");
-  const [path, setPath] = useState(saved.current?.path || "official");
+  const resumeByo = Boolean(byoEntry && saved.current?.path === "oss");
+  const [step, setStep] = useState(
+    byoEntry && !resumeByo ? "account" : saved.current?.step || (byoEntry ? "account" : "welcome"),
+  );
+  const [path, setPath] = useState(byoEntry && !resumeByo ? "oss" : saved.current?.path || (byoEntry ? "oss" : "official"));
   const [direction, setDirection] = useState("right");
   const [error, setError] = useState("");
   const { outerRef, innerRef } = useAnimatedHeight();
@@ -459,7 +464,10 @@ export default function OnboardingPage() {
   );
 
   const renderAccount = () => (
-    <StepShell icon={User} title={isLoginMode ? "Welcome back" : "Create your account"}>
+    <StepShell
+      icon={User}
+      title={isLoginMode ? "Welcome back" : path === "oss" ? "Set up your own hardware" : "Create your account"}
+    >
       <div className="w-full mb-10">
         <div className="flex items-center justify-between mb-2.5">
           <span className="text-xs font-mono text-muted-foreground">

@@ -31,6 +31,7 @@ type Account struct {
 	ID             string
 	Email          string
 	HasCard        bool
+	Activated      bool
 	BillingStatus  string
 	StripeCustomer string
 	StripeSub      string
