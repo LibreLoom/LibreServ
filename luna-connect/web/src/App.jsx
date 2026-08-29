@@ -4,7 +4,6 @@ import { useAuth } from "./context/AuthContext.jsx";
 import { useAdminAuth } from "./context/AdminAuthContext.jsx";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
-const Register = lazy(() => import("./pages/Register.jsx"));
 const LunaPage = lazy(() => import("./pages/LunaPage.jsx"));
 const BackupsPage = lazy(() => import("./pages/BackupsPage.jsx"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage.jsx"));
@@ -50,15 +49,20 @@ function Loading() {
 }
 
 export default function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, ready } = useAuth();
   const { isAuthenticated: adminAuthed } = useAdminAuth();
   return (
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
-        <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <Register />} />
+        <Route path="/register" element={<Navigate to="/onboarding" replace />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
-        <Route path="/" element={<Protected><LunaPage /></Protected>} />
+        <Route
+          path="/"
+          element={
+            !ready ? <Loading /> : isAuthenticated ? <LunaPage /> : <Navigate to="/onboarding" replace />
+          }
+        />
         <Route path="/backups" element={<Protected><BackupsPage /></Protected>} />
         <Route path="/admin/login" element={adminAuthed ? <Navigate to="/admin" replace /> : <AdminLogin />} />
         <Route path="/admin" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} />

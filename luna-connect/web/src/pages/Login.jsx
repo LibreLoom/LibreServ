@@ -62,7 +62,7 @@ export default function Login() {
           </form>
           <p className="mt-4 text-sm text-muted-foreground text-center">
             New here?{" "}
-            <Link to="/register" className="font-mono text-foreground underline-offset-4 hover:underline">Create an account</Link>
+            <Link to="/onboarding" className="font-mono text-foreground underline-offset-4 hover:underline">Set up Luna</Link>
           </p>
         </CardContent>
       </Card>
