@@ -48,7 +48,8 @@ func OSSHexToken() string {
 	return OfficialBookletToken()
 }
 
-// FactoryHexToken is a 6-digit uppercase hex code for the LUNAASSETS TOKENS magazine.
+// FactoryHexToken is a legacy 6-digit uppercase hex helper. New mints use
+// OfficialBookletToken (Crockford) for both single remint and TOKENS lists.
 func FactoryHexToken() string {
 	b := make([]byte, 3)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {

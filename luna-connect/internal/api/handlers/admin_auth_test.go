@@ -70,7 +70,7 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 	}
 	for _, raw := range tokens {
 		s, _ := raw.(string)
-		if !security.IsOSSHex(security.NormalizeToken(s)) {
+		if !security.IsOfficialShape(security.NormalizeToken(s)) {
 			t.Fatalf("token shape %q", s)
 		}
 		if s != toUpperASCII(s) {

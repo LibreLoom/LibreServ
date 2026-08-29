@@ -526,14 +526,14 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 			JSONError(w, http.StatusInternalServerError, "Could not finish the token list. Try a smaller number.")
 			return
 		}
-		display := security.FactoryHexToken()
+		display := security.OfficialBookletToken()
 		norm := security.NormalizeToken(display)
 		id := security.NewID("tok")
 		_, err := h.DB.Exec(
 			`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint) VALUES (?, ?, 'official', 'issued', ?, ?)`,
 			id, security.HashToken(norm), now, security.TokenHint(norm))
 		if err != nil {
-			// Collision on 6-hex space — try another.
+			// Extremely unlikely hash/id collision — try another.
 			continue
 		}
 		tokens = append(tokens, display)
@@ -543,7 +543,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		"tokens":   tokens,
 		"filename": "TOKENS",
 		"kind":     "official",
-		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one code per line, uppercase).",
+		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one booklet code per line).",
 	})
 }
 

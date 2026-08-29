@@ -222,7 +222,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Bulk factory tokens</CardTitle>
           <CardDescription>
-            Create many 6-digit uppercase hex codes for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
+            Create many booklet codes (same long format as a single remint) for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
