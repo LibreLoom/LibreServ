@@ -46,11 +46,12 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
          Type=Application\n\
          Name=Luna Desktop\n\
          Comment=Back up and sync folders with Luna\n\
-         Exec={exec}\n\
+         Exec={exec} --background\n\
          Icon=org.libreloom.LunaDesktop\n\
          Terminal=false\n\
          Categories=Utility;FileTools;\n\
-         X-GNOME-Autostart-enabled=true\n"
+         X-GNOME-Autostart-enabled=true\n\
+         X-GNOME-UsesNotifications=true\n"
     );
     let tmp = dir.join(format!("{DESKTOP_ID}.tmp"));
     {
@@ -84,6 +85,8 @@ mod tests {
         assert!(is_enabled());
         let text = fs::read_to_string(desktop_path()).unwrap();
         assert!(text.contains("Name=Luna Desktop"));
+        assert!(text.contains("--background"));
+        assert!(text.contains("X-GNOME-UsesNotifications=true"));
         set_enabled(false).unwrap();
         assert!(!is_enabled());
         unsafe {

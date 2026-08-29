@@ -74,12 +74,14 @@ impl SyncPage {
             let list = list.clone();
             let empty = empty.clone();
             let toast = toast.clone();
+            let outer = outer.clone();
             let refresh_slot = refresh_slot.clone();
             Rc::new(move || {
                 let state = state.clone();
                 let list = list.clone();
                 let empty = empty.clone();
                 let toast = toast.clone();
+                let outer = outer.clone();
                 let refresh_slot = refresh_slot.clone();
                 let state_for_ui = state.clone();
                 spawn_blocking(
@@ -96,9 +98,6 @@ impl SyncPage {
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
-                        let is_empty = pairs.is_empty();
-                        empty.set_visible(is_empty);
-                        list.set_visible(!is_empty);
                         let refresh = refresh_slot
                             .borrow()
                             .clone()
@@ -108,11 +107,15 @@ impl SyncPage {
                             list.append(&build_row(
                                 state_for_ui.clone(),
                                 toast.clone(),
+                                &outer,
                                 pair,
                                 &p,
                                 refresh.clone(),
                             ));
                         }
+                        let is_empty = list.row_at_index(0).is_none();
+                        empty.set_visible(is_empty);
+                        list.set_visible(!is_empty);
                     },
                 );
             }) as Rc<dyn Fn()>
@@ -161,88 +164,73 @@ impl SyncPage {
     }
 }
 
+fn human_remote_subtitle(remote_path: &str) -> String {
+    let parts: Vec<&str> = remote_path
+        .trim_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.is_empty() {
+        "Luna folder".to_string()
+    } else {
+        parts.join(" / ")
+    }
+}
+
 fn build_row(
     state: Arc<AppState>,
     toast: Rc<adw::ToastOverlay>,
+    parent: &gtk::Box,
     pair: SyncPair,
     progress: &luna_desktop::sync::SyncProgress,
     refresh: Rc<dyn Fn()>,
 ) -> adw::ActionRow {
-    let title = if pair.remote_path.is_empty() {
-        "Sync".to_string()
-    } else {
-        pair.remote_path.clone()
+    let title = {
+        let base = luna_desktop::dest::luna_folder_basename(&pair.remote_path);
+        if base.is_empty() {
+            "Sync".to_string()
+        } else {
+            base
+        }
     };
-    let subtitle = format!(
-        "Luna {}/{}\nThis computer: {}",
-        pair.drive_id, pair.remote_path, pair.local_path
-    );
+    let subtitle = human_remote_subtitle(&pair.remote_path);
     let row = adw::ActionRow::builder()
         .title(&title)
         .subtitle(&subtitle)
         .build();
+    row.set_title_lines(1);
+    row.set_subtitle_lines(1);
 
-    let mut status = if pair.running || progress.running {
-        if progress.phase.is_empty() {
-            "Running".to_string()
-        } else {
-            progress.phase.clone()
-        }
-    } else {
-        "Paused".to_string()
-    };
-    if progress.uploaded > 0 {
-        status.push_str(&format!(" · {} uploaded", progress.uploaded));
-    }
-    if progress.downloaded > 0 {
-        status.push_str(&format!(" · {} downloaded", progress.downloaded));
-    }
-    if progress.conflicts > 0 {
-        status.push_str(&format!(" · {} conflicts", progress.conflicts));
-    }
-    if !progress.error.is_empty() {
-        status.push_str(&format!(" · {}", progress.error));
-    }
-    let status_lbl = gtk::Label::new(Some(&status));
-    status_lbl.add_css_class("caption");
-    row.add_suffix(&status_lbl);
+    let (icon_name, tip) = sync_status_icon(pair.running || progress.running, progress);
+    let icon = gtk::Image::from_icon_name(icon_name);
+    icon.set_icon_size(gtk::IconSize::Normal);
+    icon.set_tooltip_text(Some(tip.as_str()));
+    row.add_prefix(&icon);
 
-    let toggle = gtk::Button::with_label(if pair.running { "Pause" } else { "Start" });
-    toggle.add_css_class("flat");
-    let id = pair.id.clone();
-    let running = pair.running;
-    toggle.connect_clicked({
+    let edit = gtk::Button::from_icon_name("document-edit-symbolic");
+    edit.add_css_class("flat");
+    edit.set_tooltip_text(Some("Edit"));
+    edit.connect_clicked({
         let state = state.clone();
         let toast = toast.clone();
         let refresh = refresh.clone();
+        let parent = parent.clone();
+        let pair = pair.clone();
         move |_| {
-            let state = state.clone();
-            let id = id.clone();
-            spawn_blocking(
-                move || {
-                    if running {
-                        luna_desktop::stop_sync_pair(&state, &id)
-                    } else {
-                        luna_desktop::start_sync_pair(&state, &id)
-                    }
-                },
-                {
-                    let toast = toast.clone();
-                    let refresh = refresh.clone();
-                    move |r| {
-                        if let Err(e) = r {
-                            toast_error(&toast, e);
-                        }
-                        refresh();
-                    }
-                },
+            open_editor(
+                &parent,
+                state.clone(),
+                toast.clone(),
+                pair.clone(),
+                refresh.clone(),
             );
         }
     });
-    row.add_suffix(&toggle);
+    row.add_suffix(&edit);
 
     let delete = gtk::Button::from_icon_name("user-trash-symbolic");
     delete.add_css_class("flat");
+    delete.set_tooltip_text(Some("Delete"));
     let id = pair.id.clone();
     delete.connect_clicked({
         let state = state.clone();
@@ -265,6 +253,48 @@ fn build_row(
     });
     row.add_suffix(&delete);
     row
+}
+
+fn sync_status_icon(
+    active: bool,
+    progress: &luna_desktop::sync::SyncProgress,
+) -> (&'static str, String) {
+    if !progress.error.is_empty() {
+        return (
+            "dialog-warning-symbolic",
+            plain_error(&progress.error),
+        );
+    }
+    if progress.running && !progress.current.is_empty() {
+        return (
+            "emblem-synchronizing-symbolic",
+            "Updating files…".to_string(),
+        );
+    }
+    if active || progress.running {
+        return (
+            "emblem-ok-symbolic",
+            "This folder is staying in sync.".to_string(),
+        );
+    }
+    (
+        "content-loading-symbolic",
+        "Waiting to start…".to_string(),
+    )
+}
+
+fn plain_error(raw: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty() {
+        return "Something went wrong with this sync. Try editing it and saving again.".into();
+    }
+    if t == "unauthorized" {
+        return "Your sign-in expired. Sign out and sign in again.".into();
+    }
+    if t.contains("connection") || t.contains("timed out") || t.contains("Connection") {
+        return "Couldn't reach Luna. Check that it's on and try again.".into();
+    }
+    t.to_string()
 }
 
 fn open_editor(
@@ -385,21 +415,28 @@ fn open_editor(
                 remote_path: remote_path.borrow().clone(),
                 local_parent: local_parent.borrow().clone(),
                 local_path: String::new(),
-                running: false,
+                running: true,
             };
             let state = state.clone();
-            spawn_blocking(move || luna_desktop::save_sync_pair(&state, draft), {
-                let toast = toast.clone();
-                let refresh = refresh.clone();
-                let dialog = dialog.clone();
-                move |r| match r {
-                    Ok(_) => {
-                        dialog.close();
-                        refresh();
+            spawn_blocking(
+                move || {
+                    let saved = luna_desktop::save_sync_pair(&state, draft)?;
+                    luna_desktop::start_sync_pair(&state, &saved.id)?;
+                    Ok::<_, String>(saved)
+                },
+                {
+                    let toast = toast.clone();
+                    let refresh = refresh.clone();
+                    let dialog = dialog.clone();
+                    move |r| match r {
+                        Ok(_) => {
+                            dialog.close();
+                            refresh();
+                        }
+                        Err(e) => toast_error(&toast, e),
                     }
-                    Err(e) => toast_error(&toast, e),
-                }
-            });
+                },
+            );
         }
     });
 

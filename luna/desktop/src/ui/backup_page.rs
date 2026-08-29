@@ -151,9 +151,6 @@ fn make_refresh(
                 while let Some(row) = list.row_at_index(0) {
                     list.remove(&row);
                 }
-                let is_empty = jobs.is_empty();
-                empty.set_visible(is_empty);
-                list.set_visible(!is_empty);
                 let refresh = refresh_slot
                     .borrow()
                     .clone()
@@ -170,6 +167,9 @@ fn make_refresh(
                     );
                     list.append(&row);
                 }
+                let is_empty = list.row_at_index(0).is_none();
+                empty.set_visible(is_empty);
+                list.set_visible(!is_empty);
             },
         );
     })
@@ -188,73 +188,20 @@ fn build_job_row(
     } else {
         job.name.clone()
     };
-    let subtitle = format!(
-        "{} folder{} → {}{}",
-        job.sources.len(),
-        if job.sources.len() == 1 { "" } else { "s" },
-        job.drive_id,
-        if job.remote_path.is_empty() {
-            String::new()
-        } else {
-            format!(" / {}", job.remote_path)
-        }
-    );
+    let n = job.sources.len();
+    let subtitle = format!("{} folder{}", n, if n == 1 { "" } else { "s" });
     let row = adw::ActionRow::builder()
         .title(&title)
         .subtitle(&subtitle)
         .build();
+    row.set_title_lines(1);
+    row.set_subtitle_lines(1);
 
-    let mut status = if job.running || progress.running {
-        "Running".to_string()
-    } else {
-        "Paused".to_string()
-    };
-    if progress.uploaded > 0 {
-        status.push_str(&format!(" · {} files", progress.uploaded));
-    }
-    if !progress.current.is_empty() {
-        status.push_str(&format!(" · {}", progress.current));
-    }
-    if !progress.error.is_empty() {
-        status.push_str(&format!(" · {}", progress.error));
-    }
-    let status_lbl = gtk::Label::new(Some(&status));
-    status_lbl.add_css_class("caption");
-    row.add_suffix(&status_lbl);
-
-    let toggle = gtk::Button::with_label(if job.running { "Pause" } else { "Start" });
-    toggle.add_css_class("flat");
-    let id = job.id.clone();
-    let running = job.running;
-    toggle.connect_clicked({
-        let state = state.clone();
-        let toast = toast.clone();
-        let refresh = refresh.clone();
-        move |_| {
-            let state = state.clone();
-            let id = id.clone();
-            spawn_blocking(
-                move || {
-                    if running {
-                        luna_desktop::stop_backup_job(&state, &id)
-                    } else {
-                        luna_desktop::start_backup_job(&state, &id)
-                    }
-                },
-                {
-                    let toast = toast.clone();
-                    let refresh = refresh.clone();
-                    move |r| {
-                        if let Err(e) = r {
-                            toast_error(&toast, e);
-                        }
-                        refresh();
-                    }
-                },
-            );
-        }
-    });
-    row.add_suffix(&toggle);
+    let (icon_name, tip) = backup_status_icon(job.running || progress.running, progress);
+    let icon = gtk::Image::from_icon_name(icon_name);
+    icon.set_icon_size(gtk::IconSize::Normal);
+    icon.set_tooltip_text(Some(tip.as_str()));
+    row.add_prefix(&icon);
 
     let edit = gtk::Button::from_icon_name("document-edit-symbolic");
     edit.add_css_class("flat");
@@ -279,6 +226,7 @@ fn build_job_row(
 
     let delete = gtk::Button::from_icon_name("user-trash-symbolic");
     delete.add_css_class("flat");
+    delete.set_tooltip_text(Some("Delete"));
     let id = job.id.clone();
     delete.connect_clicked({
         let state = state.clone();
@@ -301,6 +249,49 @@ fn build_job_row(
     });
     row.add_suffix(&delete);
     row
+}
+
+fn backup_status_icon(
+    active: bool,
+    progress: &luna_desktop::backup::BackupProgress,
+) -> (&'static str, String) {
+    if !progress.error.is_empty() {
+        return (
+            "dialog-warning-symbolic",
+            plain_error(&progress.error),
+        );
+    }
+    if progress.running && (!progress.current.is_empty() || progress.bytes > 0) {
+        return (
+            "emblem-synchronizing-symbolic",
+            "Copying files to Luna…".to_string(),
+        );
+    }
+    if active || progress.running {
+        return (
+            "emblem-ok-symbolic",
+            "This folder is being correctly backed up.".to_string(),
+        );
+    }
+    (
+        "content-loading-symbolic",
+        "Waiting to start…".to_string(),
+    )
+}
+
+fn plain_error(raw: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty() {
+        return "Something went wrong with this backup. Try editing it and saving again.".into();
+    }
+    // Prefer already-plain messages from the backend; soften a few raw leftovers.
+    if t == "unauthorized" {
+        return "Your sign-in expired. Sign out and sign in again.".into();
+    }
+    if t.contains("connection") || t.contains("timed out") || t.contains("Connection") {
+        return "Couldn't reach Luna. Check that it's on and try again.".into();
+    }
+    t.to_string()
 }
 
 fn open_editor(
@@ -347,43 +338,50 @@ fn open_editor(
                 sources_list.remove(&row);
             }
             let snapshot = sources.borrow().clone();
+            sources_list.set_visible(!snapshot.is_empty());
             for (i, s) in snapshot.iter().enumerate() {
                 let row = adw::ActionRow::builder().title(s).build();
+                row.set_title_lines(1);
                 let rm = gtk::Button::from_icon_name("list-remove-symbolic");
                 rm.add_css_class("flat");
                 rm.connect_clicked({
                     let sources = sources.clone();
-                    let sources_list = sources_list.clone();
+                    let redraw_list = sources_list.clone();
                     move |_| {
                         if i < sources.borrow().len() {
                             sources.borrow_mut().remove(i);
                         }
-                        // rebuild
-                        while let Some(r) = sources_list.row_at_index(0) {
-                            sources_list.remove(&r);
+                        while let Some(r) = redraw_list.row_at_index(0) {
+                            redraw_list.remove(&r);
                         }
-                        for (j, path) in sources.borrow().iter().enumerate() {
+                        let snap = sources.borrow().clone();
+                        redraw_list.set_visible(!snap.is_empty());
+                        for (j, path) in snap.iter().enumerate() {
                             let r = adw::ActionRow::builder().title(path).build();
+                            r.set_title_lines(1);
                             let btn = gtk::Button::from_icon_name("list-remove-symbolic");
                             btn.add_css_class("flat");
                             btn.connect_clicked({
                                 let sources = sources.clone();
-                                let sources_list = sources_list.clone();
+                                let redraw_list = redraw_list.clone();
                                 move |_| {
                                     if j < sources.borrow().len() {
                                         sources.borrow_mut().remove(j);
                                     }
-                                    while let Some(x) = sources_list.row_at_index(0) {
-                                        sources_list.remove(&x);
+                                    while let Some(x) = redraw_list.row_at_index(0) {
+                                        redraw_list.remove(&x);
                                     }
-                                    for p in sources.borrow().iter() {
-                                        sources_list
-                                            .append(&adw::ActionRow::builder().title(p).build());
+                                    let snap2 = sources.borrow().clone();
+                                    redraw_list.set_visible(!snap2.is_empty());
+                                    for p in snap2.iter() {
+                                        let row = adw::ActionRow::builder().title(p).build();
+                                        row.set_title_lines(1);
+                                        redraw_list.append(&row);
                                     }
                                 }
                             });
                             r.add_suffix(&btn);
-                            sources_list.append(&r);
+                            redraw_list.append(&r);
                         }
                     }
                 });
@@ -477,21 +475,28 @@ fn open_editor(
                 sources: sources.borrow().clone(),
                 drive_id: drive_id.borrow().clone(),
                 remote_path: remote_path.borrow().clone(),
-                running: false,
+                running: true,
             };
             let state = state.clone();
-            spawn_blocking(move || luna_desktop::save_backup_job(&state, draft), {
-                let toast = toast.clone();
-                let refresh = refresh.clone();
-                let dialog = dialog.clone();
-                move |r| match r {
-                    Ok(_) => {
-                        dialog.close();
-                        refresh();
+            spawn_blocking(
+                move || {
+                    let saved = luna_desktop::save_backup_job(&state, draft)?;
+                    luna_desktop::start_backup_job(&state, &saved.id)?;
+                    Ok::<_, String>(saved)
+                },
+                {
+                    let toast = toast.clone();
+                    let refresh = refresh.clone();
+                    let dialog = dialog.clone();
+                    move |r| match r {
+                        Ok(_) => {
+                            dialog.close();
+                            refresh();
+                        }
+                        Err(e) => toast_error(&toast, e),
                     }
-                    Err(e) => toast_error(&toast, e),
-                }
-            });
+                },
+            );
         }
     });
 

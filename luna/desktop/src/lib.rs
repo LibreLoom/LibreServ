@@ -6,6 +6,7 @@ pub mod dest;
 pub mod luna;
 pub mod session;
 pub mod sync;
+pub mod tray;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -353,6 +354,17 @@ pub fn stop_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
         p.running = false;
     }
     sync::save_pairs(&pairs)
+}
+
+/// Start every configured backup and sync. Already-running jobs are skipped.
+/// Call after sign-in / session restore so configured jobs stay active.
+pub fn start_all_jobs(state: &AppState) {
+    for job in backup::load_jobs() {
+        let _ = start_backup_job(state, &job.id);
+    }
+    for pair in sync::load_pairs() {
+        let _ = start_sync_pair(state, &pair.id);
+    }
 }
 
 pub fn unique_id() -> String {

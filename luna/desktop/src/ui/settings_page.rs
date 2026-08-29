@@ -18,12 +18,12 @@ impl SettingsPage {
         let group = adw::PreferencesGroup::new();
         group.set_title("This computer");
         group.set_description(Some(
-            "Choose whether Luna Desktop opens when you sign in to this computer.",
+            "Choose whether Luna Desktop starts when you sign in to this computer. It runs in the background so backup and sync can keep going.",
         ));
 
         let row = adw::SwitchRow::builder()
             .title("Start on boot")
-            .subtitle("Open Luna Desktop after you sign in")
+            .subtitle("Start in the background after you sign in")
             .build();
         row.set_active(autostart::is_enabled());
 

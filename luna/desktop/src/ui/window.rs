@@ -9,6 +9,7 @@ use luna_desktop::{AppState, SessionInfo};
 use super::backup_page::BackupPage;
 use super::settings_page::SettingsPage;
 use super::spawn_blocking;
+use super::status_page::StatusPage;
 use super::sync_page::SyncPage;
 use super::toast_error;
 
@@ -16,6 +17,7 @@ use super::toast_error;
 enum Page {
     Backup,
     Sync,
+    Status,
     Settings,
 }
 
@@ -45,6 +47,17 @@ impl ShellView {
     ) -> Self {
         let username = info.username.clone();
 
+        // Resume configured jobs whenever the shell appears (sign-in or restore).
+        {
+            let state = state.clone();
+            spawn_blocking(
+                move || {
+                    luna_desktop::start_all_jobs(&state);
+                },
+                |_| {},
+            );
+        }
+
         let split = adw::NavigationSplitView::new();
         split.set_min_sidebar_width(200.0);
         split.set_max_sidebar_width(280.0);
@@ -61,9 +74,11 @@ impl ShellView {
 
         let row_backup = nav_row("Backup", "folder-download-symbolic");
         let row_sync = nav_row("Sync", "emblem-synchronizing-symbolic");
+        let row_status = nav_row("Status", "view-list-symbolic");
         let row_settings = nav_row("Settings", "preferences-system-symbolic");
         list.append(&row_backup);
         list.append(&row_sync);
+        list.append(&row_status);
         list.append(&row_settings);
         list.select_row(Some(&row_backup));
 
@@ -105,7 +120,6 @@ impl ShellView {
 
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
-        // Sidebar windows should stay Flat — no persistent under-header line.
         sidebar_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         sidebar_toolbar.set_content(Some(&sidebar_inner));
 
@@ -120,10 +134,12 @@ impl ShellView {
 
         let backup = BackupPage::new(state.clone(), toast.clone());
         let sync = SyncPage::new(state.clone(), toast.clone());
+        let status = StatusPage::new(state.clone());
         let settings = SettingsPage::new(toast.clone());
 
         content_stack.add_named(backup.root(), Some("backup"));
         content_stack.add_named(sync.root(), Some("sync"));
+        content_stack.add_named(status.root(), Some("status"));
         content_stack.add_named(settings.root(), Some("settings"));
         content_stack.set_visible_child_name("backup");
 
@@ -134,7 +150,6 @@ impl ShellView {
 
         let content_toolbar = adw::ToolbarView::new();
         content_toolbar.add_top_bar(&content_header);
-        // Flat: no persistent raised separator under the header above page content.
         content_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         content_toolbar.set_content(Some(&content_stack));
 
@@ -154,12 +169,15 @@ impl ShellView {
             let page_state = page_state.clone();
             let row_backup = row_backup.clone();
             let row_sync = row_sync.clone();
+            let row_status = row_status.clone();
             let row_settings = row_settings.clone();
             move |_, row| {
                 let (name, label, page) = if row == row_backup.upcast_ref::<gtk::ListBoxRow>() {
                     ("backup", "Backup", Page::Backup)
                 } else if row == row_sync.upcast_ref::<gtk::ListBoxRow>() {
                     ("sync", "Sync", Page::Sync)
+                } else if row == row_status.upcast_ref::<gtk::ListBoxRow>() {
+                    ("status", "Status", Page::Status)
                 } else if row == row_settings.upcast_ref::<gtk::ListBoxRow>() {
                     ("settings", "Settings", Page::Settings)
                 } else {

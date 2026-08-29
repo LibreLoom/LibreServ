@@ -2,33 +2,90 @@ mod backup_page;
 mod folder_browser;
 mod login;
 mod settings_page;
+mod status_page;
 mod sync_page;
 mod window;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::glib;
 
+use luna_desktop::tray::{TrayCmd, TrayHandle, spawn_tray};
 use luna_desktop::AppState;
 
 use login::LoginView;
 use window::ShellView;
 
+/// Owns the application hold and tray so the process stays alive while hidden.
+struct KeepAlive {
+    _hold: gtk::gio::ApplicationHoldGuard,
+    _tray: TrayHandle,
+}
+
 pub fn run() -> glib::ExitCode {
+    let mut args: Vec<String> = std::env::args().collect();
+    let background = args.iter().any(|a| a == "--background" || a == "-b");
+    args.retain(|a| a != "--background" && a != "-b");
+
     let app = adw::Application::builder()
         .application_id("org.libreloom.LunaDesktop")
         .build();
 
     let state = Arc::new(AppState::default());
-    app.connect_activate(move |app| {
-        build_ui(app, state.clone());
+    let window_slot: Rc<RefCell<Option<adw::ApplicationWindow>>> = Rc::new(RefCell::new(None));
+    let keep_alive: Rc<RefCell<Option<KeepAlive>>> = Rc::new(RefCell::new(None));
+
+    app.connect_activate({
+        let state = state.clone();
+        let window_slot = window_slot.clone();
+        let keep_alive = keep_alive.clone();
+        move |app| {
+            // Second launch (same application_id): show the existing window.
+            if let Some(win) = window_slot.borrow().as_ref() {
+                win.set_visible(true);
+                win.present();
+                return;
+            }
+            let win = build_ui(app, state.clone());
+            *window_slot.borrow_mut() = Some(win.clone());
+
+            // Tray + hold only when a StatusNotifier host is available; otherwise
+            // closing the window should quit normally so the user is not stuck.
+            if keep_alive.borrow().is_none() {
+                let window_slot = window_slot.clone();
+                let app_for_tray = app.clone();
+                if let Some(tray) = spawn_tray(move |cmd| match cmd {
+                    TrayCmd::Show => {
+                        if let Some(w) = window_slot.borrow().as_ref() {
+                            w.set_visible(true);
+                            w.present();
+                        }
+                    }
+                    TrayCmd::Quit => {
+                        app_for_tray.quit();
+                    }
+                }) {
+                    win.set_hide_on_close(true);
+                    *keep_alive.borrow_mut() = Some(KeepAlive {
+                        _hold: app.hold(),
+                        _tray: tray,
+                    });
+                }
+            }
+
+            if !background {
+                win.present();
+            }
+        }
     });
-    app.run()
+
+    app.run_with_args(&args)
 }
 
-fn build_ui(app: &adw::Application, state: Arc<AppState>) {
+fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWindow {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("Luna")
@@ -94,7 +151,7 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) {
         },
     );
 
-    window.present();
+    window
 }
 
 /// Run `work` on a background thread; call `then` on the GTK main thread.

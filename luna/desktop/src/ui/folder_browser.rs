@@ -24,7 +24,6 @@ impl FolderBrowser {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
 
         let drive_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        drive_box.set_homogeneous(false);
         let path_bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         let folder_list = gtk::ListBox::new();
         folder_list.set_selection_mode(gtk::SelectionMode::None);
@@ -51,20 +50,41 @@ impl FolderBrowser {
 
         let browse_path = Rc::new(RefCell::new(remote_path.borrow().clone()));
 
+        let refresh_use_btn = {
+            let use_btn = use_btn.clone();
+            let browse_path = browse_path.clone();
+            let remote_path = remote_path.clone();
+            Rc::new(move || {
+                let using = *browse_path.borrow() == *remote_path.borrow();
+                if using {
+                    use_btn.set_label("Using this folder");
+                    use_btn.remove_css_class("suggested-action");
+                    use_btn.set_sensitive(false);
+                } else {
+                    use_btn.set_label("Use this folder");
+                    use_btn.add_css_class("suggested-action");
+                    use_btn.set_sensitive(true);
+                }
+            })
+        };
+
         let update_selected = {
             let drive_id = drive_id.clone();
             let remote_path = remote_path.clone();
             let selected_lbl = selected_lbl.clone();
+            let refresh_use_btn = refresh_use_btn.clone();
             Rc::new(move || {
                 let d = drive_id.borrow().clone();
                 let p = remote_path.borrow().clone();
                 if d.is_empty() {
                     selected_lbl.set_text("Select a drive and folder.");
                 } else if p.is_empty() {
-                    selected_lbl.set_text(&format!("Selected: {d} (drive root)"));
+                    selected_lbl.set_text("Selected: drive root");
                 } else {
-                    selected_lbl.set_text(&format!("Selected: {d} / {p}"));
+                    let leaf = p.rsplit('/').next().unwrap_or(p.as_str());
+                    selected_lbl.set_text(&format!("Selected: {leaf}"));
                 }
+                refresh_use_btn();
             })
         };
         update_selected();
@@ -78,10 +98,11 @@ impl FolderBrowser {
             let browse_path = browse_path.clone();
             let folder_list = folder_list.clone();
             let path_bar = path_bar.clone();
-            let remote_path = remote_path.clone();
             let update_selected = update_selected.clone();
             let reload_folders = reload_folders.clone();
+            let refresh_use_btn = refresh_use_btn.clone();
             Rc::new(move || {
+                refresh_use_btn();
                 let d = drive_id.borrow().clone();
                 if d.is_empty() {
                     while let Some(row) = folder_list.row_at_index(0) {
@@ -93,7 +114,6 @@ impl FolderBrowser {
                     return;
                 }
                 let path = browse_path.borrow().clone();
-                // Path bar
                 while let Some(c) = path_bar.first_child() {
                     path_bar.remove(&c);
                 }
@@ -102,8 +122,10 @@ impl FolderBrowser {
                 root_btn.connect_clicked({
                     let browse_path = browse_path.clone();
                     let reload = reload_folders.clone();
+                    let refresh_use_btn = refresh_use_btn.clone();
                     move |_| {
                         *browse_path.borrow_mut() = String::new();
+                        refresh_use_btn();
                         if let Some(f) = reload.borrow().as_ref() {
                             f();
                         }
@@ -123,8 +145,10 @@ impl FolderBrowser {
                     btn.connect_clicked({
                         let browse_path = browse_path.clone();
                         let reload = reload_folders.clone();
+                        let refresh_use_btn = refresh_use_btn.clone();
                         move |_| {
                             *browse_path.borrow_mut() = next.clone();
+                            refresh_use_btn();
                             if let Some(f) = reload.borrow().as_ref() {
                                 f();
                             }
@@ -137,7 +161,6 @@ impl FolderBrowser {
                 let toast = toast.clone();
                 let folder_list = folder_list.clone();
                 let browse_path = browse_path.clone();
-                let remote_path = remote_path.clone();
                 let update_selected = update_selected.clone();
                 let reload_folders = reload_folders.clone();
                 let drive = d.clone();
@@ -152,41 +175,37 @@ impl FolderBrowser {
                                 let dirs: Vec<_> =
                                     entries.into_iter().filter(|e| e.kind == "dir").collect();
                                 if dirs.is_empty() {
-                                    let row = adw::ActionRow::builder()
-                                        .title("No folders here yet")
-                                        .subtitle("Create one with Create folder")
-                                        .build();
-                                    folder_list.append(&row);
-                                }
-                                for e in dirs {
-                                    let full = {
-                                        let bp = browse_path.borrow();
-                                        if bp.is_empty() {
-                                            e.name.clone()
-                                        } else {
-                                            format!("{bp}/{}", e.name)
-                                        }
-                                    };
-                                    let row = adw::ActionRow::builder()
-                                        .title(&format!("{}/", e.name))
-                                        .activatable(true)
-                                        .build();
-                                    row.connect_activated({
-                                        let browse_path = browse_path.clone();
-                                        let remote_path = remote_path.clone();
-                                        let update_selected = update_selected.clone();
-                                        let reload = reload_folders.clone();
-                                        let full = full.clone();
-                                        move |_| {
-                                            *browse_path.borrow_mut() = full.clone();
-                                            *remote_path.borrow_mut() = full.clone();
-                                            update_selected();
-                                            if let Some(f) = reload.borrow().as_ref() {
-                                                f();
+                                    folder_list.set_visible(false);
+                                } else {
+                                    folder_list.set_visible(true);
+                                    for e in dirs {
+                                        let full = {
+                                            let bp = browse_path.borrow();
+                                            if bp.is_empty() {
+                                                e.name.clone()
+                                            } else {
+                                                format!("{bp}/{}", e.name)
                                             }
-                                        }
-                                    });
-                                    folder_list.append(&row);
+                                        };
+                                        let row = adw::ActionRow::builder()
+                                            .title(&format!("{}/", e.name))
+                                            .activatable(true)
+                                            .build();
+                                        row.connect_activated({
+                                            let browse_path = browse_path.clone();
+                                            let update_selected = update_selected.clone();
+                                            let reload = reload_folders.clone();
+                                            let full = full.clone();
+                                            move |_| {
+                                                *browse_path.borrow_mut() = full.clone();
+                                                update_selected();
+                                                if let Some(f) = reload.borrow().as_ref() {
+                                                    f();
+                                                }
+                                            }
+                                        });
+                                        folder_list.append(&row);
+                                    }
                                 }
                             }
                             Err(e) => toast_error(&toast, e),
@@ -197,7 +216,6 @@ impl FolderBrowser {
         };
         *reload_folders.borrow_mut() = Some(do_reload.clone());
 
-        // Load drives
         {
             let state = state.clone();
             let toast = toast.clone();
@@ -225,7 +243,6 @@ impl FolderBrowser {
                                     if !b.is_active() {
                                         return;
                                     }
-                                    // Deactivate siblings
                                     let mut child = drive_box.first_child();
                                     while let Some(c) = child {
                                         if let Ok(tb) = c.clone().downcast::<gtk::ToggleButton>() {
@@ -243,7 +260,6 @@ impl FolderBrowser {
                             drive_box.append(&btn);
                         }
                         if drive_id.borrow().is_empty() {
-                            // Auto-select first
                             if let Some(first) = drive_box.first_child() {
                                 if let Ok(tb) = first.downcast::<gtk::ToggleButton>() {
                                     tb.set_active(true);
