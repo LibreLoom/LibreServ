@@ -30,7 +30,7 @@ function formatWhen(unix) {
 }
 
 function kindLabel(kind) {
-  if (kind === "oss") return "Short code";
+  if (kind === "oss") return "Website";
   if (kind === "official") return "Official";
   return kind || "—";
 }
@@ -193,7 +193,7 @@ export default function AdminTokensPage() {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Single booklet code</CardTitle>
-          <CardDescription>Create one long code to print in a box or give as a remint. Copy it now — it will not be shown again in full.</CardDescription>
+          <CardDescription>Create one booklet code to print in a box or give as a remint (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button

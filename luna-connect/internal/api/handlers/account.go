@@ -207,7 +207,7 @@ func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code, and pick a name.")
+	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code (****-****-****-****-****), and pick a name.")
 }
 
 func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {

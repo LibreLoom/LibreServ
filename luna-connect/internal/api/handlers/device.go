@@ -26,7 +26,7 @@ func (h DeviceHandler) Available(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Luna no longer creates a remote address by itself. Open connect.luna.libreloom.org, type the device code, and pick a name there.")
+	JSONError(w, http.StatusGone, "Luna no longer creates a remote address by itself. Open connect.luna.libreloom.org, type the device code (****-****-****-****-****), and pick a name there.")
 }
 
 func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
