@@ -136,20 +136,13 @@ impl ConnectService {
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
         let norm = normalize_setup_code(code);
-        // Booklet / website codes are long Crockford groups. Legacy 6-hex still accepted.
-        let ok = is_booklet_code(&norm) || is_legacy_hex6(&norm);
-        if !ok {
+        if !is_booklet_code(&norm) {
             return Err(ConnectError::Other(
                 "That code should look like ****-****-****-****-**** from the Luna Connect site (or the printed booklet).".into(),
             ));
         }
-        let display = if is_booklet_code(&norm) {
-            group_booklet(&norm)
-        } else {
-            norm
-        };
         *self.ephemeral.lock().unwrap() = Some(Ephemeral {
-            code: display,
+            code: group_booklet(&norm),
             until: Instant::now() + OSS_TTL,
         });
         Ok(())
@@ -563,13 +556,9 @@ fn normalize_setup_code(raw: &str) -> String {
     out
 }
 
-fn is_legacy_hex6(norm: &str) -> bool {
-    norm.len() == 6 && norm.chars().all(|c| c.is_ascii_hexdigit())
-}
-
 fn is_booklet_code(norm: &str) -> bool {
     let len = norm.len();
-    if !(16..=32).contains(&len) || is_legacy_hex6(norm) {
+    if !(16..=32).contains(&len) {
         return false;
     }
     norm.bytes().all(|b| CROCKFORD.contains(&b))
@@ -636,9 +625,10 @@ mod tests {
             service.status_for(false).setup_code.is_none(),
             "non-admin must never see a live pairing code"
         );
-        // Legacy 6-hex still accepted until old magazines disappear.
-        service.set_oss_code("a1b2c3").unwrap();
-        assert_eq!(service.status().setup_code.as_deref(), Some("A1B2C3"));
+        assert!(
+            service.set_oss_code("a1b2c3").is_err(),
+            "short hex must be rejected"
+        );
     }
 
     #[test]

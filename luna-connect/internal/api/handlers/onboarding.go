@@ -438,7 +438,7 @@ func (h OnboardingHandler) MintOSS(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusPaymentRequired, "Pay one dollar first so we know this is a real person. It counts toward cloud backup if you turn it on.")
 		return
 	}
-	code := security.OSSHexToken()
+	code := security.WebsiteSetupToken()
 	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
 	exp := time.Now().Add(15 * time.Minute).Unix()

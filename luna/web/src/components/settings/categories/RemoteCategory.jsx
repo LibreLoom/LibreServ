@@ -89,7 +89,7 @@ export default function RemoteCategory() {
                 />
               </SettingsRow>
               <div className="px-4 pb-4 flex flex-col gap-2">
-                <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.replace(/[-_\s]/g, "").length < 6} onClick={() => saveCode.mutate()}>
+                <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.replace(/[-_\s]/g, "").length < 16} onClick={() => saveCode.mutate()}>
                   Save code
                 </Button>
                 <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>

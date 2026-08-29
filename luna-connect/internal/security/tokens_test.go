@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-func TestOSSTokenMatchesOfficialStrength(t *testing.T) {
-	a := NormalizeToken(OSSHexToken())
+func TestWebsiteTokenMatchesOfficialStrength(t *testing.T) {
+	a := NormalizeToken(WebsiteSetupToken())
 	b := NormalizeToken(OfficialBookletToken())
 	if len(a) < 16 || len(a) != len(b) {
-		t.Fatalf("oss %q official %q", a, b)
+		t.Fatalf("website %q official %q", a, b)
 	}
 	if strings.Contains(a, "-") {
 		t.Fatalf("normalized still grouped: %s", a)
@@ -21,14 +21,7 @@ func TestOfficialShape(t *testing.T) {
 	if !IsOfficialShape(tok) {
 		t.Fatalf("official shape %s", tok)
 	}
-}
-
-func TestFactoryHexToken(t *testing.T) {
-	tok := FactoryHexToken()
-	if !IsOSSHex(NormalizeToken(tok)) {
-		t.Fatalf("factory hex shape %q", tok)
-	}
-	if tok != strings.ToUpper(tok) {
-		t.Fatalf("expected uppercase %q", tok)
+	if IsOfficialShape("A1B2C3") {
+		t.Fatal("short hex must not look official")
 	}
 }
