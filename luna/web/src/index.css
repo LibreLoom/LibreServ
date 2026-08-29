@@ -880,12 +880,18 @@ body {
     }
     to {
         opacity: 1;
-        transform: translateY(0);
+        /* end at `none` (not translateY(0)): any non-none transform on the
+           page shell becomes a containing block for position:fixed
+           descendants (e.g. the Users page + FAB), so they stick to the
+           scrolling content instead of the viewport and vanish on scroll. */
+        transform: none;
     }
 }
 
 .animate-page-enter {
-    animation: page-enter 320ms var(--motion-easing-emphasized-decelerate) both;
+    /* `backwards`, not `both`: same reason as .pop-in — don't hold a
+       transform after the animation finishes. */
+    animation: page-enter 320ms var(--motion-easing-emphasized-decelerate) backwards;
     will-change: transform, opacity;
 }
 

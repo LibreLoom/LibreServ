@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Shield, Trash2, User, UserPlus } from "lucide-react";
 import Page from "../components/ui/Page";
@@ -200,11 +201,17 @@ export default function UsersPage() {
           </section>
         )}
 
-        {showList && (
+      </Page>
+
+      {/* Portal + raise above the bottom nav: page-enter / pop-in transforms
+          otherwise trap position:fixed to the scrolling shell, and the
+          desktop nav's full-width hit layer (z-50) eats clicks at z-40. */}
+      {showList &&
+        createPortal(
           <Button
             variant="secondary"
             surface="primary"
-            className="fixed bottom-8 right-8 z-40 rounded-full p-4 hover:scale-110"
+            className="fixed bottom-28 right-8 z-[60] rounded-full p-4 hover:scale-110"
             aria-label="Add user"
             onClick={() => {
               setError(null);
@@ -212,9 +219,9 @@ export default function UsersPage() {
             }}
           >
             <Plus size={32} aria-hidden="true" />
-          </Button>
+          </Button>,
+          document.body,
         )}
-      </Page>
 
       <CreateUserModal
         open={creating}

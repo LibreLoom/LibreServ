@@ -173,7 +173,9 @@ describe("UsersPage", () => {
     expect(add.textContent?.trim()).toBe("");
     expect(within(add).queryByText(/Add user/i)).toBeNull();
     expect(add.className).toMatch(/fixed/);
-    expect(add.className).toMatch(/bottom-8/);
+    expect(add.className).toMatch(/bottom-28/);
     expect(add.className).toMatch(/right-8/);
+    // Portaled to body so page-enter transforms cannot trap position:fixed.
+    expect(add.parentElement).toBe(document.body);
   });
 });
