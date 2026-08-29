@@ -6,7 +6,6 @@ import {
   Download,
   CheckCircle,
   AlertCircle,
-  Loader2,
   RefreshCw,
   Info,
   ExternalLink,
@@ -90,14 +89,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
             <Button
               variant="primary"
               onClick={checkForUpdates}
-              disabled={checking || updating}
+              disabled={updating}
+              loading={checking}
               className="min-w-[160px]"
             >
               {checking ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} aria-hidden="true" />
-                  Checking…
-                </>
+                "Checking…"
               ) : (
                 <>
                   <RefreshCw size={16} aria-hidden="true" />
@@ -159,14 +156,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
               <Button
                 variant="primary"
                 onClick={() => setShowUpdateModal(true)}
-                disabled={updating}
+                loading={updating}
                 fullWidth
               >
                 {updating ? (
-                  <>
-                    <Loader2 className="animate-spin" size={16} aria-hidden="true" />
-                    Updating…
-                  </>
+                  "Updating…"
                 ) : (
                   <>
                     <Download size={16} aria-hidden="true" />

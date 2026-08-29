@@ -71,7 +71,11 @@ describe("AboutCategory", () => {
   it("shows Luna branding, device info, and the update card", async () => {
     renderPage(stubFetch());
     expect(await screen.findByText(/home file box/i)).toBeTruthy();
-    expect(await screen.findByText("Living Room Luna")).toBeTruthy();
+    const deviceRow = await screen.findByText("This Luna");
+    expect(deviceRow.closest("[data-slot='value-display']")).toBeTruthy();
+    const deviceValue = screen.getByText("Living Room Luna");
+    expect(deviceValue.className).toMatch(/rounded-pill/);
+    expect(screen.queryByText("Software")).toBeNull();
     expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(await screen.findByText("Default source")).toBeTruthy();
