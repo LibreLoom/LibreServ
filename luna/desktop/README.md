@@ -1,41 +1,91 @@
 # Luna Desktop
 
-Tauri 2 app: folder backup and one-click WebDAV mounts.
+Native **GTK 4 + libadwaita** app for **Backup** (one-way copy of folders onto
+Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
-- Backup uses Luna's resumable chunked upload API, watches the chosen folder,
-  and retries changed files.
-- "Open as folder" mounts `/dav/{drive_id}` with the OS-native WebDAV client.
-  Sign in once; Luna mints an access token. Use that token as the WebDAV
-  password — never the Luna password.
+## What it does
 
-## Linux package (this repo's supported path)
+1. **Sign in** once with an **access token** from Luna (Settings → Apps and access
+   tokens → Create access token). Luna Desktop remembers it on this computer.
+   Your Luna password is not stored.
+2. **Backup** — pick folders on this computer and a folder on Luna (create one
+   if you need). You can run several backup jobs to different destinations.
+3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
+   Desktop creates a child folder there and keeps both sides in sync. If both
+   sides change the same file, both copies are kept with a clear conflict name.
+4. **Settings** — optional start on boot (XDG autostart on Linux).
 
-Apple and Windows installers are **not** required here and need platform
-certs if you ever build them yourself. On Linux:
+## Distribution
+
+| Platform | Ship as |
+|----------|---------|
+| Linux | **Flatpak** (`packaging/flatpak/`) — preferred |
+| Windows | **`.exe` installer** (`packaging/windows/`) — preferred |
+| Linux (demo / CI) | AppImage (`packaging/appimage/build.sh`) |
+
+## Build from source (Linux)
+
+Needs GTK 4 and libadwaita development packages, for example:
 
 ```sh
-# From luna/
-make desktop          # tests + unbundled binary
-make desktop-bundle   # .deb + AppImage (one command)
+# Debian / Ubuntu
+sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
+
+# Fedora
+sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 ```
+
+## Rapid development (GTK)
+
+Two terminals:
+
+```sh
+# Terminal A — Luna API (once)
+cd luna && make dev-daemon          # http://127.0.0.1:8090
+
+# Terminal B — Desktop app (watch + inspector + auto sign-in)
+cd luna && make desktop-dev
+```
+
+What `make desktop-dev` does:
+
+1. Checks Luna is up on `:8090`
+2. Mints (or reuses) an access token for user `desktop` / `hunter22hunter1`
+3. Prefills login and **auto-signs in** so you land on Backup
+4. Runs `cargo watch -x run` — save a file under `desktop/src/` to rebuild/restart
+5. Opens **GTK Inspector** (`GTK_DEBUG=interactive`)
+
+Useful env vars:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `LUNA_DESKTOP_AUTO_LOGIN` | `1` | Set `0` to exercise the login UI |
+| `LUNA_DESKTOP_URL` | `http://127.0.0.1:8090` | Luna address |
+| `LUNA_DESKTOP_DEV_USER` | `desktop` | User used to mint the token |
+| `LUNA_DESKTOP_DEV_PASS` | `hunter22hunter1` | Password for that user |
+| `GTK_DEBUG` | `interactive` | Set empty to hide the inspector |
+
+```sh
+# Test the login form without auto sign-in
+make desktop-dev-login
+```
+
+Token cache lives in `desktop/.dev/` (gitignored).
 
 Or from `luna/desktop`:
 
 ```sh
-npm install
-npm run tauri -- build --bundles deb,appimage
+cargo test
+cargo run
+cargo build --release
+bash packaging/appimage/build.sh
 ```
 
-System packages (Fedora/Debian names vary): `webkit2gtk4.1` / `libwebkit2gtk-4.1-dev`,
-`librsvg2`, `openssl-devel`, a C compiler, and `patchelf` for AppImage.
-
-Outputs land in `desktop/src-tauri/target/release/bundle/`.
-
-## Soak test (fake Luna API)
-
-`cargo test` in `desktop/src-tauri` hits a local fake Luna HTTP API (login +
-drive list, repeated). No running lunad required.
+## Soak / unit tests
 
 ```sh
-cd desktop/src-tauri && cargo test
+cd desktop && cargo test
 ```
+
+Fake Luna HTTP coverage includes login, drive list, folder list, and mkdir.
+Autostart writes an XDG `.desktop` file under `$XDG_CONFIG_HOME/autostart`.

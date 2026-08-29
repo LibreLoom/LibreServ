@@ -589,6 +589,42 @@ pub fn purge_trash(
     Ok(())
 }
 
+/// Create a directory at `rel`. The parent must already exist. Never overwrites.
+pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(), FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    if rel.is_empty() || rel == "." {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cannot create the drive root",
+        )));
+    }
+    let path = luna_core::path::resolve_for_create_nofollow(&root, rel)?;
+    // Reject creating more than one missing component (parent must exist).
+    let parent = path.parent().ok_or_else(|| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no parent",
+        ))
+    })?;
+    if !parent.is_dir() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "parent folder does not exist",
+        )));
+    }
+    match std::fs::create_dir(&path) {
+        Ok(()) => {
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
+        Err(e) => Err(FilesError::Io(e)),
+    }
+}
+
 /// Rename a file or folder within its current directory. Never overwrites.
 pub fn rename(
     conn: &rusqlite::Connection,
@@ -684,6 +720,32 @@ mod tests {
         assert!(safe_name("../x").is_err());
         assert!(safe_name("a/b").is_err());
         assert_eq!(safe_name("photo.jpg").unwrap(), "photo.jpg");
+    }
+
+    #[test]
+    fn mkdir_creates_and_rejects_escape_and_conflict() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+
+        mkdir(&conn, &id, "family").unwrap();
+        assert!(root.join("family").is_dir());
+
+        assert!(matches!(
+            mkdir(&conn, &id, "family"),
+            Err(FilesError::Io(ref e)) if e.kind() == std::io::ErrorKind::AlreadyExists
+        ));
+        assert!(matches!(
+            mkdir(&conn, &id, "../outside"),
+            Err(FilesError::Path(_))
+        ));
+        assert!(matches!(
+            mkdir(&conn, &id, "missing-parent/child"),
+            Err(FilesError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound
+        ));
+
+        mkdir(&conn, &id, "family/album").unwrap();
+        assert!(root.join("family/album").is_dir());
     }
 
     #[test]

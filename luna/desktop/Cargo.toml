@@ -1,0 +1,28 @@
+[package]
+name = "luna-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "Luna Desktop — backup and sync with GTK 4 + libadwaita"
+license = "AGPL-3.0-or-later"
+
+# Standalone crate (not part of the luna workspace — needs GTK/libadwaita).
+[workspace]
+
+[[bin]]
+name = "luna-desktop"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+blake3 = "1"
+glib = "0.20"
+gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] }
+adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
+notify = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "3", features = ["json"] }
+ksni = { version = "0.3", features = ["blocking"] }
+
+[dev-dependencies]
+tempfile = "3"

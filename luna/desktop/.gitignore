@@ -1,0 +1,7 @@
+/target/
+/release/
+/.dev/
+/node_modules/
+/dist/
+/packaging/flatpak/build-dir/
+/packaging/flatpak/.flatpak-builder/
