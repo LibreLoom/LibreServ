@@ -137,12 +137,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Mobile App" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Desktop App" })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
-    expect(screen.getByRole("link", { name: /Download the Luna app for phones/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Download the Luna app for Android/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Download Luna Desktop/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Create an access token on Security/i })).toHaveAttribute(
-      "href",
-      "/settings#security",
-    );
+    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
+    expect(tokenLinks).toHaveLength(2);
+    expect(tokenLinks[0]).toHaveAttribute("href", "/settings#security");
   });
 
   it("hides admin-only categories from a member", async () => {
