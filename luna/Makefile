@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos
+.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -67,8 +67,14 @@ clean:
 
 # Linux desktop (GTK 4 + libadwaita). See desktop/README.md for packages.
 # Ship: Flatpak on Linux, .exe installer on Windows. AppImage is demo/CI only.
+# Rapid GTK loop: cargo-watch + GTK Inspector + auto sign-in to local Luna.
+# Needs lunad on :8090 (make dev-daemon). Default user: desktop / hunter22hunter1.
 desktop-dev:
-	cd desktop && cargo run
+	chmod +x desktop/scripts/dev.sh desktop/scripts/ensure-dev-token.sh
+	cd desktop && bash scripts/dev.sh
+
+desktop-dev-login:
+	LUNA_DESKTOP_AUTO_LOGIN=0 $(MAKE) desktop-dev
 
 desktop:
 	cd desktop && cargo test && cargo build --release

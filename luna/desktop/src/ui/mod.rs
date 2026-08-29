@@ -9,7 +9,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
-use gtk::gio;
 use gtk::glib;
 
 use luna_desktop::AppState;

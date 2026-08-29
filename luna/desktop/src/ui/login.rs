@@ -7,6 +7,24 @@ use luna_desktop::AppState;
 use super::spawn_blocking;
 use super::toast_error;
 
+fn env_or(key: &str, fallback: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn auto_login_enabled() -> bool {
+    matches!(
+        std::env::var("LUNA_DESKTOP_AUTO_LOGIN")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
 pub struct LoginView {
     root: gtk::Widget,
 }
@@ -32,7 +50,7 @@ impl LoginView {
         title.set_halign(gtk::Align::Start);
 
         let subtitle = gtk::Label::new(Some(
-            "Sign in to back up folders to Luna and keep folders in sync.",
+            "Sign in with an access token from Luna. Open Luna in a browser → Settings → Apps and access tokens → Create access token, then paste it here.",
         ));
         subtitle.set_wrap(true);
         subtitle.set_halign(gtk::Align::Start);
@@ -40,15 +58,20 @@ impl LoginView {
 
         let group = adw::PreferencesGroup::new();
 
+        let default_url = env_or("LUNA_DESKTOP_URL", "http://127.0.0.1:8090");
+        let default_token = env_or("LUNA_DESKTOP_TOKEN", "");
+
         let url_row = adw::EntryRow::builder().title("Luna address").build();
-        url_row.set_text("http://127.0.0.1:8090");
+        url_row.set_text(&default_url);
         group.add(&url_row);
 
-        let user_row = adw::EntryRow::builder().title("Username").build();
-        group.add(&user_row);
-
-        let pass_row = adw::PasswordEntryRow::builder().title("Password").build();
-        group.add(&pass_row);
+        let token_row = adw::PasswordEntryRow::builder()
+            .title("Access token")
+            .build();
+        if !default_token.is_empty() {
+            token_row.set_text(&default_token);
+        }
+        group.add(&token_row);
 
         let sign_in = gtk::Button::builder()
             .label("Sign in")
@@ -71,17 +94,17 @@ impl LoginView {
         clamp.set_child(Some(&box_));
 
         let busy = Rc::new(std::cell::Cell::new(false));
-        sign_in.connect_clicked({
+
+        let do_sign_in = {
             let state = state.clone();
             let toast = toast.clone();
             let on_signed_in = on_signed_in.clone();
             let url_row = url_row.clone();
-            let user_row = user_row.clone();
-            let pass_row = pass_row.clone();
+            let token_row = token_row.clone();
             let status = status.clone();
             let sign_in = sign_in.clone();
             let busy = busy.clone();
-            move |_| {
+            Rc::new(move || {
                 if busy.get() {
                     return;
                 }
@@ -91,12 +114,11 @@ impl LoginView {
                 status.set_visible(false);
 
                 let base_url = url_row.text().to_string();
-                let username = user_row.text().to_string();
-                let password = pass_row.text().to_string();
+                let access_token = token_row.text().to_string();
                 let state = state.clone();
                 spawn_blocking(
                     move || -> Result<luna_desktop::SessionInfo, String> {
-                        luna_desktop::login(&state, &base_url, &username, &password)
+                        luna_desktop::login(&state, &base_url, &access_token)
                     },
                     {
                         let toast = toast.clone();
@@ -119,16 +141,23 @@ impl LoginView {
                         }
                     },
                 );
-            }
+            })
+        };
+
+        sign_in.connect_clicked({
+            let do_sign_in = do_sign_in.clone();
+            move |_| do_sign_in()
         });
 
-        // Enter in password submits.
-        pass_row.connect_entry_activated({
-            let sign_in = sign_in.clone();
-            move |_| {
-                sign_in.emit_clicked();
-            }
+        token_row.connect_entry_activated({
+            let do_sign_in = do_sign_in.clone();
+            move |_| do_sign_in()
         });
+
+        // Dev loop: skip the form when a token was injected.
+        if auto_login_enabled() && !default_token.is_empty() {
+            do_sign_in();
+        }
 
         Self {
             root: clamp.upcast(),

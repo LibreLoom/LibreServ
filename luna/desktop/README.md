@@ -5,8 +5,9 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
 ## What it does
 
-1. **Sign in** once. Luna Desktop mints a device access token and remembers it
-   on this computer. Your Luna password is not stored.
+1. **Sign in** once with an **access token** from Luna (Settings → Apps and access
+   tokens → Create access token). Luna Desktop remembers it on this computer.
+   Your Luna password is not stored.
 2. **Backup** — pick folders on this computer and a folder on Luna (create one
    if you need). You can run several backup jobs to different destinations.
 3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
@@ -34,13 +35,42 @@ sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
 sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 ```
 
+## Rapid development (GTK)
+
+Two terminals:
+
 ```sh
-# From luna/
-make desktop-dev    # cargo run
-make desktop        # tests + release binary → desktop/target/release/luna-desktop
-make desktop-appimage   # demo AppImage → desktop/release/
-make desktop-flatpak    # Flatpak (needs flatpak-builder + GNOME SDK)
+# Terminal A — Luna API (once)
+cd luna && make dev-daemon          # http://127.0.0.1:8090
+
+# Terminal B — Desktop app (watch + inspector + auto sign-in)
+cd luna && make desktop-dev
 ```
+
+What `make desktop-dev` does:
+
+1. Checks Luna is up on `:8090`
+2. Mints (or reuses) an access token for user `desktop` / `hunter22hunter1`
+3. Prefills login and **auto-signs in** so you land on Backup
+4. Runs `cargo watch -x run` — save a file under `desktop/src/` to rebuild/restart
+5. Opens **GTK Inspector** (`GTK_DEBUG=interactive`)
+
+Useful env vars:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `LUNA_DESKTOP_AUTO_LOGIN` | `1` | Set `0` to exercise the login UI |
+| `LUNA_DESKTOP_URL` | `http://127.0.0.1:8090` | Luna address |
+| `LUNA_DESKTOP_DEV_USER` | `desktop` | User used to mint the token |
+| `LUNA_DESKTOP_DEV_PASS` | `hunter22hunter1` | Password for that user |
+| `GTK_DEBUG` | `interactive` | Set empty to hide the inspector |
+
+```sh
+# Test the login form without auto sign-in
+make desktop-dev-login
+```
+
+Token cache lives in `desktop/.dev/` (gitignored).
 
 Or from `luna/desktop`:
 
