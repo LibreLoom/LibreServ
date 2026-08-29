@@ -165,7 +165,16 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 	var raw json.RawMessage
 	_ = json.NewDecoder(r.Body).Decode(&raw)
 	pm := paymentMethodFromJSON(raw)
-	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
+	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
+	if err != nil {
+		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
+		return
+	}
+	if cust != acct.StripeCustomer {
+		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		acct.StripeCustomer = cust
+	}
+	sub, item, err := billing.Subscribe(cust, pm)
 	if err != nil {
 		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
 		return
@@ -194,7 +203,7 @@ func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
 		JSONError(w, http.StatusPaymentRequired, "The card was saved but the monthly bill is not active yet. Check the card and try again.")
 		return
 	}
-	JSONError(w, http.StatusBadGateway, fallback)
+	JSONError(w, http.StatusBadRequest, fallback)
 }
 
 func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {

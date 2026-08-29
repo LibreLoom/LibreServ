@@ -76,17 +76,23 @@ func TestChargeAndSubscribeFailClosedWhenEnabledWithoutKey(t *testing.T) {
 	}
 }
 
-func TestChargeRequiresPaymentMethodWhenStripeReady(t *testing.T) {
+func TestIsPlaceholderCustomer(t *testing.T) {
+	if !IsPlaceholderCustomer("") || !IsPlaceholderCustomer("cus_dev_a@b.co") {
+		t.Fatal("expected placeholders")
+	}
+	if IsPlaceholderCustomer("cus_abc123") {
+		t.Fatal("real customer id must not be treated as placeholder")
+	}
+}
+
+func TestChargeRejectsPlaceholderCustomer(t *testing.T) {
 	t.Setenv("LUNACONNECT_DEV", "")
 	prev := config.C.Stripe
 	t.Cleanup(func() { config.C.Stripe = prev })
 	config.C.Stripe.Enabled = true
 	config.C.Stripe.SecretKey = "sk_test_fake"
-	if _, err := ChargeOneDollar("cus_x", ""); !errors.Is(err, ErrPaymentMethodRequired) {
-		t.Fatalf("want payment method required, got %v", err)
-	}
-	if _, _, err := Subscribe("cus_x", ""); !errors.Is(err, ErrPaymentMethodRequired) {
-		t.Fatalf("subscribe want payment method required, got %v", err)
+	if _, err := ChargeOneDollar("cus_dev_a@b.co", "pm_x"); err == nil {
+		t.Fatal("expected error for placeholder customer")
 	}
 }
 

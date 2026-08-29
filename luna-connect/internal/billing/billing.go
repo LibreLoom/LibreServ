@@ -92,6 +92,22 @@ func CreateCustomer(email string) (string, error) {
 	return c.ID, nil
 }
 
+// IsPlaceholderCustomer is true for local/dev fake IDs (cus_dev_…) that are not
+// real Stripe customers. Accounts created before Stripe was configured often have these.
+func IsPlaceholderCustomer(customerID string) bool {
+	id := strings.TrimSpace(customerID)
+	return id == "" || strings.HasPrefix(id, "cus_dev_")
+}
+
+// EnsureCustomer returns a usable Stripe customer id. If existing is a real
+// Stripe customer it is reused; placeholders are replaced by CreateCustomer.
+func EnsureCustomer(email, existing string) (string, error) {
+	if !IsPlaceholderCustomer(existing) {
+		return strings.TrimSpace(existing), nil
+	}
+	return CreateCustomer(email)
+}
+
 func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string, err error) {
 	if DevBypass() {
 		return "pi_dev_verify_" + customerID, nil
@@ -102,18 +118,21 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 	if paymentMethodID == "" {
 		return "", ErrPaymentMethodRequired
 	}
+	if IsPlaceholderCustomer(customerID) {
+		return "", fmt.Errorf("stripe customer missing")
+	}
 	stripe.Key = config.C.Stripe.SecretKey
+	_, _ = paymentmethod.Attach(paymentMethodID, &stripe.PaymentMethodAttachParams{
+		Customer: stripe.String(customerID),
+	})
 	params := &stripe.PaymentIntentParams{
 		Amount:        stripe.Int64(100),
 		Currency:      stripe.String(string(stripe.CurrencyUSD)),
 		Customer:      stripe.String(customerID),
 		PaymentMethod: stripe.String(paymentMethodID),
 		Confirm:       stripe.Bool(true),
-		AutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
-			Enabled:        stripe.Bool(true),
-			AllowRedirects: stripe.String("never"),
-		},
-		Description: stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
+		OffSession:    stripe.Bool(false),
+		Description:   stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
 	}
 	pi, err := paymentintent.New(params)
 	if err != nil {

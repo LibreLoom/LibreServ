@@ -453,6 +453,7 @@ export default function OnboardingPage() {
           <VerifyHumanCard
             account={me}
             loading={loading}
+            description=""
             onConfirm={async (paymentMethodId) => {
               setError("");
               setLoading(true);

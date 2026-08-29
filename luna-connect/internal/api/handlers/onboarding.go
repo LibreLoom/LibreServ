@@ -361,7 +361,16 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	if pm == "" {
 		pm = strings.TrimSpace(req.PaymentMethodID)
 	}
-	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
+	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
+	if err != nil {
+		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
+		return
+	}
+	if cust != acct.StripeCustomer {
+		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		acct.StripeCustomer = cust
+	}
+	sub, item, err := billing.Subscribe(cust, pm)
 	if err != nil {
 		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
 		return
@@ -404,7 +413,20 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	if pm == "" {
 		pm = strings.TrimSpace(req.PaymentMethodID)
 	}
-	pi, err := billing.ChargeOneDollar(acct.StripeCustomer, pm)
+	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
+	if err != nil {
+		if errors.Is(err, billing.ErrNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
+			return
+		}
+		JSONError(w, http.StatusBadRequest, "Could not set up card billing for this account. Try again in a few minutes.")
+		return
+	}
+	if cust != acct.StripeCustomer {
+		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		acct.StripeCustomer = cust
+	}
+	pi, err := billing.ChargeOneDollar(cust, pm)
 	if err != nil {
 		if errors.Is(err, billing.ErrPaymentMethodRequired) {
 			JSONError(w, http.StatusBadRequest, "Add a card on this page first, then try again.")
