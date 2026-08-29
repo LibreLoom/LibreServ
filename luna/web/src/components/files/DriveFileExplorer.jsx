@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, FilePlus, FolderInput, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { Copy, FolderInput, Pencil, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
 import FolderPickerModal from "./FolderPickerModal.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
+import NewItemMenu from "./NewItemMenu.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
@@ -204,7 +205,7 @@ export default function DriveFileExplorer({
   const [viewerPath, setViewerPath] = useState(/** @type {string|null} */ (null));
   const [accessTarget, setAccessTarget] = useState(/** @type {null|{ path: string, kind: string }} */ (null));
   const [protectTarget, setProtectTarget] = useState(/** @type {null|{ path: string }} */ (null));
-  const [createKind, setCreateKind] = useState(/** @type {null|"folder"|"file"} */ (null));
+  const [createKind, setCreateKind] = useState(/** @type {import("../../lib/createKinds.js").CreateKind|null} */ (null));
   const [createName, setCreateName] = useState("");
   const selectedRef = useRef(/** @type {string[]} */ ([]));
 
@@ -398,61 +399,32 @@ export default function DriveFileExplorer({
       postJson(`/api/v1/drives/${driveId}/files/create`, { path: fullPath }),
     onSuccess: (_data, fullPath) => {
       invalidate();
-      setViewerPath(fullPath);
+      if (createKind?.openAfter === "text") setViewerPath(fullPath);
     },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't create that file. Try another name.")),
   });
 
-  function openCreateFolder() {
+  function openCreate(kind) {
     setActionError(null);
-    setCreateName("");
-    setCreateKind("folder");
-  }
-
-  function openCreateFile() {
-    setActionError(null);
-    setCreateName("note.txt");
-    setCreateKind("file");
+    setCreateName(kind.defaultName || "");
+    setCreateKind(kind);
   }
 
   function submitCreate() {
-    const parsed = parseCreateName(createName, createKind === "file" ? { defaultExt: ".txt" } : {});
+    if (!createKind) return Promise.reject(new Error("Choose what to create."));
+    const parsed = parseCreateName(
+      createName,
+      createKind.defaultExt ? { defaultExt: createKind.defaultExt } : {},
+    );
     if (parsed.error) {
       setActionError(parsed.error);
       return Promise.reject(new Error(parsed.error));
     }
     const fullPath = joinPath(path, parsed.name);
-    if (createKind === "file") {
+    if (createKind.action === "create-file") {
       return createFileMutation.mutateAsync(fullPath);
     }
     return mkdirMutation.mutateAsync(fullPath);
-  }
-
-  function newItemButtons() {
-    return (
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button
-          variant="outline"
-          surface="secondary"
-          size="sm"
-          type="button"
-          onClick={openCreateFolder}
-        >
-          <FolderPlus size={14} aria-hidden="true" />
-          New folder
-        </Button>
-        <Button
-          variant="outline"
-          surface="secondary"
-          size="sm"
-          type="button"
-          onClick={openCreateFile}
-        >
-          <FilePlus size={14} aria-hidden="true" />
-          New text file
-        </Button>
-      </div>
-    );
   }
 
   const renameMutation = useMutation({
@@ -551,8 +523,12 @@ export default function DriveFileExplorer({
           setRenameValue(ctx.entry.name);
         }}
         onDelete={setDeletePaths}
-        folderActions={newItemButtons()}
-        emptyAction={newItemButtons()}
+        folderActions={<NewItemMenu onPick={openCreate} />}
+        emptyAction={(
+          <div className="flex justify-center">
+            <NewItemMenu onPick={openCreate} />
+          </div>
+        )}
         breadcrumbExtra={(
           <>
             <AccessButton
@@ -708,12 +684,12 @@ export default function DriveFileExplorer({
 
       <CreateNameModal
         open={createKind != null}
-        title={createKind === "file" ? "New text file" : "New folder"}
-        label={createKind === "file" ? "Name for this text file" : "Name for this folder"}
+        title={createKind?.title || "New"}
+        label={createKind?.nameLabel || "Name"}
         hint="Luna will put it in the folder you are in now."
         value={createName}
         onChange={setCreateName}
-        confirmLabel={createKind === "file" ? "Create file" : "Create folder"}
+        confirmLabel={createKind?.confirmLabel || "Create"}
         busy={mkdirMutation.isPending || createFileMutation.isPending}
         error={actionError}
         onSubmit={submitCreate}

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderPlus } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
 import FileBrowser from "./FileBrowser.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
+import NewItemMenu from "./NewItemMenu.jsx";
 import { apiErrorMessage, postJson } from "../../lib/api.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { joinPath } from "../../lib/paths.js";
@@ -81,6 +81,12 @@ export default function FolderPickerModal({
     }
   }
 
+  function openCreateFolder() {
+    setCreateError(null);
+    setCreateName("");
+    setCreating(true);
+  }
+
   return (
     <ModalCard open={open} title={title} size="lg" onClose={onClose}>
       {({ close }) => (
@@ -114,37 +120,11 @@ export default function FolderPickerModal({
               enableDownload={false}
               enableUploadDrop={false}
               dense
-              folderActions={(
-                <Button
-                  variant="outline"
-                  surface="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() => {
-                    setCreateError(null);
-                    setCreateName("");
-                    setCreating(true);
-                  }}
-                >
-                  <FolderPlus size={14} aria-hidden="true" />
-                  New folder
-                </Button>
-              )}
+              folderActions={<NewItemMenu ids={["folder"]} onPick={openCreateFolder} />}
               emptyAction={(
-                <Button
-                  variant="outline"
-                  surface="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() => {
-                    setCreateError(null);
-                    setCreateName("");
-                    setCreating(true);
-                  }}
-                >
-                  <FolderPlus size={14} aria-hidden="true" />
-                  New folder
-                </Button>
+                <div className="flex justify-center">
+                  <NewItemMenu ids={["folder"]} onPick={openCreateFolder} />
+                </div>
               )}
             />
           ) : (

@@ -235,7 +235,8 @@ describe("FilesPage", () => {
     });
     renderFiles();
     expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Folder" }));
     expect(await screen.findByRole("heading", { name: "New folder" })).toBeInTheDocument();
     expect(screen.getByText(/Luna will put it in the folder you are in now/i)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Name for this folder/i), { target: { value: "Album" } });
@@ -255,7 +256,8 @@ describe("FilesPage", () => {
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
     });
     renderFiles();
-    fireEvent.click(await screen.findByRole("button", { name: "New text file" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Text file" }));
     expect(await screen.findByRole("heading", { name: "New text file" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("note.txt")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create file" }));
@@ -278,6 +280,7 @@ describe("FilesPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Copy photo.jpg" }));
     const dialog = await screen.findByRole("dialog", { name: /Copy photo.jpg/i });
     expect(within(dialog).getByRole("button", { name: "New folder" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "New" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "New text file" })).not.toBeInTheDocument();
   });
 });
