@@ -37,8 +37,9 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
         return Ok(());
     }
     let dir = autostart_dir();
-    fs::create_dir_all(&dir)
-        .map_err(|_| "Couldn't create the start-on-boot folder on this computer.".to_string())?;
+    fs::create_dir_all(&dir).map_err(|_| {
+        "Couldn't create the start-on-boot folder on this computer.".to_string()
+    })?;
     let exec = exec_path();
     let body = format!(
         "[Desktop Entry]\n\
@@ -70,13 +71,10 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn toggle_autostart_file() {
-        let _g = LOCK.lock().unwrap();
+        let _g = crate::session::test_env::lock();
         let dir = tempfile::tempdir().unwrap();
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", dir.path());

@@ -522,6 +522,7 @@ mod tests {
 
     #[test]
     fn pairs_round_trip() {
+        let _g = crate::session::test_env::lock();
         let dir = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
         let pairs = vec![SyncPair {

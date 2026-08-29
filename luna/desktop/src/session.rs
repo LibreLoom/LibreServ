@@ -56,15 +56,24 @@ pub fn clear() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
+pub mod test_env {
+    use std::sync::{Mutex, MutexGuard};
 
     static LOCK: Mutex<()> = Mutex::new(());
 
+    /// Serialize tests that mutate `LUNA_DESKTOP_DATA` / related env.
+    pub fn lock() -> MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
     #[test]
     fn round_trip_session() {
-        let _g = LOCK.lock().unwrap();
+        let _g = test_env::lock();
         let dir = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
         let s = SessionData {
