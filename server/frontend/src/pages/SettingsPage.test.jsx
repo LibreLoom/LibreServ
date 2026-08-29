@@ -143,11 +143,11 @@ describe("SettingsPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("settings-content")).toHaveTextContent("general");
+      expect(screen.getAllByTestId("settings-content").every((el) => el.textContent === "general")).toBe(true);
     });
     await user.click(screen.getByRole("link", { name: /Go to security hash/i }));
     await waitFor(() => {
-      expect(screen.getByTestId("settings-content")).toHaveTextContent("security");
+      expect(screen.getAllByTestId("settings-content").every((el) => el.textContent === "security")).toBe(true);
     });
   });
 });
