@@ -117,7 +117,7 @@ export function BackupBrowser({ objects = [], onError }) {
               <span className="flex-1">Name</span>
               <span className="w-24 text-right">Size</span>
               <span className="w-28 text-right">Updated</span>
-              <span className="w-24" aria-hidden="true" />
+              <span className="w-10" aria-hidden="true" />
             </li>
             {entries.map((entry) => {
               const isOpen = openFile && openFile.path === entry.path && openFile.device_id === (entry.device_id || "");
@@ -157,17 +157,17 @@ export function BackupBrowser({ objects = [], onError }) {
                   <span className="text-xs w-28 text-right hidden sm:block shrink-0 font-mono">
                     {fmtWhen(entry.updated_at)}
                   </span>
-                  <div className="shrink-0 w-24 flex justify-end">
+                  <div className="shrink-0 w-10 flex justify-end">
                     {entry.kind === "file" && (
                       <Button
                         type="button"
-                        variant="outline"
-                        size="sm"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
                         aria-label={`Download ${entry.name}`}
                         onClick={() => downloadOne(entry)}
                       >
                         <Download className="h-4 w-4" />
-                        Download
                       </Button>
                     )}
                   </div>
@@ -253,9 +253,14 @@ function BackupPreview({ file, onClose, onError, onDownload }) {
           {preview.text}
         </pre>
       )}
-      <Button type="button" variant="secondary" size="sm" onClick={onDownload}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={`Download ${file.name}`}
+        onClick={onDownload}
+      >
         <Download className="h-4 w-4" />
-        Download
       </Button>
     </Card>
   );

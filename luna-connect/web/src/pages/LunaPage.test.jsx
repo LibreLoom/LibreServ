@@ -43,6 +43,7 @@ describe("LunaPage one Luna", () => {
     expect(screen.getByRole("link", { name: /Start setup/i }).getAttribute("href")).toBe("/onboarding");
     expect(screen.getByRole("link", { name: /I set this computer up myself/i }).getAttribute("href")).toBe("/register");
     expect(screen.queryByRole("button", { name: /Get a new setup code/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Setup" })).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
     expect(screen.queryByText(/Loading your Lunas/i)).toBeNull();

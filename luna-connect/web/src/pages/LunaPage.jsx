@@ -77,7 +77,7 @@ export default function LunaPage() {
         <CardHeader>
           <CardTitle>This Luna</CardTitle>
           <CardDescription>
-            One Luna, one address. Open Setup and type the device code from the booklet, this site, or a transfer code.
+            One Luna, one address. Start setup with the booklet code, a code from this site, or a transfer code.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

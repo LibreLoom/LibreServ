@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { BackupBrowser } from "./BackupBrowser.jsx";
 import { downloadBackup, fetchBackupBlob } from "../api.js";
 
@@ -37,6 +37,7 @@ describe("BackupBrowser", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /↑ Up one folder/i }));
     expect(screen.getByText("notes.txt")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download notes.txt" }).textContent).toBe("");
   });
 
   it("opens a file to check what it is and can download it", async () => {
@@ -48,7 +49,7 @@ describe("BackupBrowser", () => {
       expect(fetchBackupBlob).toHaveBeenCalledWith("d1", "notes.txt");
     });
     expect(await screen.findByText("hello")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    fireEvent.click(within(screen.getByTestId("backup-preview")).getByRole("button", { name: "Download notes.txt" }));
     await waitFor(() => {
       expect(downloadBackup).toHaveBeenCalledWith("d1", "notes.txt");
     });
