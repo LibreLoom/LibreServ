@@ -14,6 +14,26 @@ import java.net.URL
  */
 object LunaApi {
     const val CHUNK_SIZE = 1024 * 1024 // 1 MiB
+    private val deadlineMs = ThreadLocal<Long?>()
+
+    fun <T> withDeadline(ms: Long, block: () -> T): T {
+        val previous = deadlineMs.get()
+        deadlineMs.set(System.currentTimeMillis() + ms)
+        return try {
+            block()
+        } finally {
+            if (previous == null) deadlineMs.remove() else deadlineMs.set(previous)
+        }
+    }
+
+    private fun remainingTimeoutMs(fallback: Int): Int {
+        val deadline = deadlineMs.get() ?: return fallback
+        val left = deadline - System.currentTimeMillis()
+        if (left <= 0L) {
+            throw java.io.IOException("timed out")
+        }
+        return left.toInt().coerceAtMost(fallback).coerceAtLeast(250)
+    }
 
     class ApiException(val code: Int, message: String) : Exception(message) {
         val unauthorized get() = code == 401
@@ -156,7 +176,7 @@ object LunaApi {
      */
     fun probeWrite(baseUrl: String, token: String, driveId: String, destPath: String) {
         val id = try {
-            createUpload(baseUrl, token, driveId, destPath, ".luna-android-check", 1)
+            createUpload(baseUrl, token, driveId, destPath, "LunaWriteCheck.jpg", 1)
         } catch (e: ApiException) {
             throw when (e.code) {
                 401 -> ApiException(401, badTokenMessage())
@@ -184,7 +204,11 @@ object LunaApi {
     fun describeError(error: Exception): String = when (error) {
         is ApiException -> error.message ?: badTokenMessage()
         is java.io.IOException ->
-            "Luna couldn't be reached. Check the address and that this phone is on the same network as Luna, then try again."
+            if (error.message == "timed out") {
+                "Luna didn't finish answering in time. Check that this phone is on the same network as Luna, and that the drive is working in Luna's Drives page, then try again."
+            } else {
+                "Luna couldn't be reached. Check the address and that this phone is on the same network as Luna, then try again."
+            }
         is IllegalStateException ->
             error.message
                 ?: "This phone couldn't store the sign-in safely. Photo backup can't start. Try signing in again."
@@ -292,8 +316,8 @@ object LunaApi {
         }
         val conn = url.openConnection() as HttpURLConnection
         try {
-            conn.connectTimeout = 15000
-            conn.readTimeout = 60000
+            conn.connectTimeout = remainingTimeoutMs(15000)
+            conn.readTimeout = remainingTimeoutMs(60000)
             conn.requestMethod = method
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
             if (body != null) {
@@ -321,8 +345,8 @@ object LunaApi {
     ): HttpResult {
         val port = if (url.port == -1) 80 else url.port
         Socket().use { sock ->
-            sock.connect(InetSocketAddress(url.host, port), 15000)
-            sock.soTimeout = 60000
+            sock.connect(InetSocketAddress(url.host, port), remainingTimeoutMs(15000))
+            sock.soTimeout = remainingTimeoutMs(15000)
             val path = if (url.file.isNullOrEmpty()) "/" else url.file
             val hdr = StringBuilder()
             headers.forEach { (k, v) -> hdr.append("$k: $v\r\n") }
@@ -333,33 +357,9 @@ object LunaApi {
             out.write(req.toByteArray(Charsets.ISO_8859_1))
             if (body != null) out.write(body)
             out.flush()
-            val raw = sock.getInputStream().readBytes()
-            val split = indexOfHeaderEnd(raw)
-            val head = String(raw, 0, split.coerceAtLeast(0), Charsets.ISO_8859_1)
-            val rest = if (split >= 0) raw.copyOfRange(split + 4, raw.size) else ByteArray(0)
-            val status = head.lineSequence().firstOrNull()
-                ?.split(' ')
-                ?.getOrNull(1)
-                ?.toIntOrNull() ?: 0
-            val setCookie = head.lineSequence()
-                .firstOrNull { it.startsWith("Set-Cookie:", ignoreCase = true) }
-                ?.substringAfter(':')
-                ?.trim()
-            return HttpResult(status, rest, setCookie)
+            val parsed = HttpIo.readResponse(sock.getInputStream())
+            return HttpResult(parsed.code, parsed.body, parsed.setCookie)
         }
-    }
-
-    private fun indexOfHeaderEnd(raw: ByteArray): Int {
-        var i = 0
-        while (i + 3 < raw.size) {
-            if (raw[i] == '\r'.code.toByte() && raw[i + 1] == '\n'.code.toByte()
-                && raw[i + 2] == '\r'.code.toByte() && raw[i + 3] == '\n'.code.toByte()
-            ) {
-                return i
-            }
-            i++
-        }
-        return -1
     }
 
     private fun post(
