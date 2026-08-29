@@ -571,7 +571,7 @@ build_binaries() {
         fi
         FLATPAK_OUT="luna/desktop/release/luna-desktop-x86_64.flatpak"
         rm -f "$FLATPAK_OUT"
-        if ! (cd luna && make desktop-flatpak FLATPAK_BUNDLE="$(pwd)/desktop/release/luna-desktop-x86_64.flatpak"); then
+        if ! (cd luna && make desktop-flatpak); then
             log_error "Flatpak build failed"
             rm -rf "$BUILD_DIR"
             exit 1
