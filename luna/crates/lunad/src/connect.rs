@@ -49,6 +49,7 @@ pub struct ConnectService {
     child: Arc<Mutex<Option<Child>>>,
     ephemeral: Mutex<Option<Ephemeral>>,
     redeem: Mutex<bool>,
+    local_port: u16,
 }
 
 impl ConnectService {
@@ -64,7 +65,15 @@ impl ConnectService {
             child: Arc::new(Mutex::new(None)),
             ephemeral: Mutex::new(None),
             redeem: Mutex::new(false),
+            local_port: 8090,
         }
+    }
+
+    pub fn with_local_port(mut self, port: u16) -> Self {
+        if port > 0 {
+            self.local_port = port;
+        }
+        self
     }
 
     pub fn status(&self) -> ConnectStatus {
@@ -206,7 +215,11 @@ impl ConnectService {
         if obj.remove("first_user_secret").is_none() {
             return Ok(());
         }
-        self.save(&state)
+        self.save(&state)?;
+        if let Ok(token) = self.token() {
+            let _ = self.call_json("POST", "/api/v1/first-user", Some(&token), None);
+        }
+        Ok(())
     }
 
     pub fn public_hostname(&self) -> Option<String> {
@@ -224,7 +237,7 @@ impl ConnectService {
             .filter(|s| !s.is_empty())
     }
 
-    fn setup_hello_token(&self, setup_completed: bool) -> Option<(String, &'static str)> {
+    fn setup_hello_token(&self, _setup_completed: bool) -> Option<(String, &'static str)> {
         if self.status().enabled {
             return None;
         }
@@ -237,10 +250,8 @@ impl ConnectService {
         if *self.redeem.lock().unwrap() {
             return Some((factory, "settings"));
         }
-        if setup_completed {
-            // Official disk that finished local setup: no anonymous hello.
-            return None;
-        }
+        // Keep helloing with the factory booklet until Connect claims this Luna.
+        // Finishing the local wizard must not hide the box from the booklet site.
         Some((factory, "anonymous"))
     }
 
@@ -255,7 +266,7 @@ impl ConnectService {
         let hello = json!({
             "type": "hello",
             "token": token,
-            "local_port": 8090,
+            "local_port": self.local_port,
             "source": source,
         });
         if socket
@@ -642,16 +653,27 @@ mod tests {
     }
 
     #[test]
-    fn local_complete_stops_anonymous_factory_hello() {
+    fn local_complete_still_hellos_until_claimed() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-IJKM-NPQR-STUV").unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         assert!(service.setup_hello_token(false).is_some());
-        assert!(service.setup_hello_token(true).is_none());
+        assert!(
+            service.setup_hello_token(true).is_some(),
+            "local setup must not stop booklet hello until Connect claims the box"
+        );
         service.redeem_booklet().unwrap();
         let (code, source) = service.setup_hello_token(true).unwrap();
         assert_eq!(source, "settings");
         assert!(code.contains("ABCD"));
+    }
+
+    #[test]
+    fn hello_uses_configured_listen_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()))
+            .with_local_port(80);
+        assert_eq!(service.local_port, 80);
     }
 
     #[test]

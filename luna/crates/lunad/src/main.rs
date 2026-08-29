@@ -34,10 +34,13 @@ async fn main() -> anyhow::Result<()> {
         let detected = lunad::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
         drive_manager.reconcile(&conn, &detected)?;
     }
-    let connect = std::sync::Arc::new(lunad::connect::ConnectService::new(
-        &cfg.data_dir,
-        std::env::var("LUNA_CONNECT_URL").ok(),
-    ));
+    let connect = std::sync::Arc::new(
+        lunad::connect::ConnectService::new(
+            &cfg.data_dir,
+            std::env::var("LUNA_CONNECT_URL").ok(),
+        )
+        .with_local_port(cfg.port),
+    );
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
     // Catch-up gallery index for every adopted mount already on disk.
