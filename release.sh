@@ -560,9 +560,32 @@ build_binaries() {
         fi
         cp "$OS_IMG" "$BUILD_DIR/luna-os-x86_64.img"
 
+        log_info "Building Luna Desktop Flatpak..."
+        if ! command -v flatpak-builder >/dev/null 2>&1; then
+            log_error "flatpak-builder is required for Luna Desktop Flatpak releases"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if ! flatpak remote-list --user 2>/dev/null | grep -q '^flathub'; then
+            flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        fi
+        FLATPAK_OUT="luna/desktop/release/luna-desktop-x86_64.flatpak"
+        rm -f "$FLATPAK_OUT"
+        if ! (cd luna && make desktop-flatpak FLATPAK_BUNDLE="$(pwd)/desktop/release/luna-desktop-x86_64.flatpak"); then
+            log_error "Flatpak build failed"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if [ ! -f "$FLATPAK_OUT" ]; then
+            log_error "Flatpak missing at $FLATPAK_OUT"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$FLATPAK_OUT" "$BUILD_DIR/luna-desktop-x86_64.flatpak"
+
         log_info "Generating SHA256 checksums..."
         cd "$BUILD_DIR"
-        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso > SHA256SUMS.txt
+        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso luna-desktop-x86_64.flatpak > SHA256SUMS.txt
         cd ..
         sign_checksums "$BUILD_DIR"
         log_info "Luna assets built successfully"
@@ -696,28 +719,23 @@ create_release_notes() {
         RELEASE_NOTES="$(cat <<EOF
 ## What's Changed
 
-Pre-release ${VERSION_TAG}. Automated cut for the Luna rapidinstall ISO rehearsal on a mini PC.
+Pre-release ${VERSION_TAG}. Luna Server OS cut plus Luna Desktop Flatpak.
 
-## New Features
+## Assets
 
-- Luna rapidinstall ISO is pinned to Alpine 3.24 (same as the rootfs).
-- ISO build now emits 32-bit UEFI GRUB when Alpine ships i386-efi modules.
-- \`./os/build-iso.sh\` builds the web UI, musl lunad, rootfs, and hybrid ISO in one step.
-- \`./release.sh --with-iso\` attaches \`luna-rapidinstall-x86_64.iso\` (and musl \`lunad-linux-amd64\`) to the Forgejo release.
-
-## Bug Fixes
-
-- ISO builder no longer defaults to \`alpine:latest\`.
-
-## Breaking Changes
-
-None.
+- \`lunad-linux-amd64\` — musl daemon binary
+- \`luna-os-x86_64.img\` — A/B slot OS image for OTA
+- \`luna-rapidinstall-x86_64.iso\` — factory USB installer
+- \`luna-desktop-x86_64.flatpak\` — Luna Desktop (Linux)
+- \`SHA256SUMS.txt\` + \`SHA256SUMS.txt.minisig\` — signed checksums
 
 ## Upgrade Notes
 
 **Already running Luna:** Settings → Software updates → Install update. Luna applies the new \`lunad\` binary and, when this release includes a newer OS slot image, writes it to the inactive slot and reboots.
 
 **Factory install or recovery USB:** Write \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
+
+**Luna Desktop (Linux):** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
 
 ## Commits Since Last Release
 
@@ -894,7 +912,7 @@ upload_assets() {
     echo ""
     
     if [ "$LUNA_RELEASE" = true ]; then
-        REQUIRED_ASSETS=(lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso SHA256SUMS.txt SHA256SUMS.txt.minisig)
+        REQUIRED_ASSETS=(lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso luna-desktop-x86_64.flatpak SHA256SUMS.txt SHA256SUMS.txt.minisig)
     else
         REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt SHA256SUMS.txt.minisig)
     fi
