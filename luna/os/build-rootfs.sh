@@ -90,7 +90,7 @@ case "$ARCH" in
     aarch64|arm64) _cf_arch=arm64 ;;
     *) _cf_arch=amd64 ;;
 esac
-mkdir -p "$ROOTFS/usr/local/bin"
+mkdir -p "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
 curl -fsSL -o "$ROOTFS/usr/local/bin/cloudflared" \
     "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${_cf_arch}"
 chmod 755 "$ROOTFS/usr/local/bin/cloudflared"
