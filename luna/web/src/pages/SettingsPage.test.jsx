@@ -133,9 +133,10 @@ describe("SettingsPage", () => {
     await screen.findByText("max");
 
     await user.click(screen.getByRole("button", { name: /^Devices$/i }));
-    expect(await screen.findByRole("heading", { name: "Mobile App" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Desktop App" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Devices" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Mobile App" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Desktop App" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
     expect(screen.getByRole("link", { name: /Download the Luna app for phones/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Download Luna Desktop/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Create an access token on Security/i })).toHaveAttribute(
