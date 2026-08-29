@@ -53,7 +53,10 @@ func (h AccountHandler) cancelSubscription(raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &sub); err != nil || sub.ID == "" {
 		return
 	}
+	var accountID, email string
+	_ = h.DB.QueryRow(`SELECT id, email FROM accounts WHERE stripe_subscription_id = ?`, sub.ID).Scan(&accountID, &email)
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE stripe_subscription_id = ?`, sub.ID)
+	beginBackupPurgeForAccount(h.Deps, accountID, email)
 }
 
 func (h AccountHandler) lockFromSubscriptionJSON(raw json.RawMessage, status string) {
@@ -62,6 +65,7 @@ func (h AccountHandler) lockFromSubscriptionJSON(raw json.RawMessage, status str
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ?`, status, sub.ID)
+	beginBackupPurgeForSubscription(h.Deps, sub.ID)
 }
 
 func (h AccountHandler) lockFromInvoiceJSON(raw json.RawMessage, status string) {
@@ -77,6 +81,7 @@ func (h AccountHandler) lockFromInvoiceJSON(raw json.RawMessage, status string) 
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ?`, status, subID)
+	beginBackupPurgeForSubscription(h.Deps, subID)
 }
 
 func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) {
@@ -109,9 +114,9 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) {
 		return
 	}
 	if itemID != "" {
-		_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_item_id = ? WHERE stripe_subscription_id = ?`,
+		_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`,
 			status, itemID, subID)
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ? WHERE stripe_subscription_id = ?`, status, subID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`, status, subID)
 }

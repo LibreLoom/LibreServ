@@ -82,6 +82,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	srv := api.NewServer(db, st)
+
 	go accounts.RunCleanupLoop(context.Background(), db)
 
 	go func() {
@@ -92,7 +94,14 @@ func main() {
 		}
 	}()
 
-	srv := api.NewServer(db, st)
+	go func() {
+		srv.ProcessRetention(time.Now().Unix())
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for range t.C {
+			srv.ProcessRetention(time.Now().Unix())
+		}
+	}()
 	bind := net.JoinHostPort(config.C.Server.Address, strconv.Itoa(config.C.Server.Port))
 	httpServer := &http.Server{
 		Addr:              bind,

@@ -26,6 +26,20 @@ const authAttemptWindow = 15 * 60
 // Matches lunad's 7-day session cap so a stolen cookie does not live a month.
 const SessionTTL = 7 * 24 * time.Hour
 
+// PairingTokenTTL is how long a reminted setup code stays usable after a
+// factory reset or a bring-your-own install. Longer than a first OSS mint so
+// the owner can flash the box and type the code without racing a 15-minute clock.
+const PairingTokenTTL = 24 * time.Hour
+const pairingTokenMax = 5
+const pairingTokenWindow = 3600
+
+func activateAccount(db *sql.DB, id string) {
+	if db == nil || id == "" {
+		return
+	}
+	_, _ = db.Exec(`UPDATE accounts SET activated_at = ? WHERE id = ? AND COALESCE(activated_at, 0) = 0`, time.Now().Unix(), id)
+}
+
 func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -105,8 +119,10 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
 		"email":                  acct.Email,
+		"activated":              acct.Activated,
 		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
 		"billing_status":         acct.BillingStatus,
+		"backup_purge_after":     acct.BackupPurgeAfter,
 		"stored_bytes":           bytes,
 		"estimated_month":        billing.EstimateUSD(bytes),
 		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on how much is stored right now.",
@@ -171,9 +187,31 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		status = "dev"
 		out["dev"] = true
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ?`,
 		status, sub, item, acct.ID)
 	JSON(w, http.StatusOK, out)
+}
+
+func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
+	acct, ok := AccountFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	if acct.StripeSub != "" {
+		if err := billing.CancelSubscription(acct.StripeSub); err != nil {
+			writeBillingErr(w, err, "Could not turn off payment. Try again in a few minutes.")
+			return
+		}
+	}
+	deadline := scheduleBackupPurge(h.DB, acct.ID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE id = ?`, acct.ID)
+	markAndSendPurgeWarning(h.Deps, acct.ID, acct.Email, 0, deadline)
+	JSON(w, http.StatusOK, map[string]any{
+		"ok":                 true,
+		"backup_purge_after": deadline,
+		"message":            "Payment is off. We keep your cloud copies for 30 days. Download anything you need before then.",
+	})
 }
 
 func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
@@ -210,6 +248,81 @@ func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
 	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code (****-****-****-****-****), and pick a name.")
 }
 
+func (h AccountHandler) PairingToken(w http.ResponseWriter, r *http.Request) {
+	acct, ok := AccountFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	if !acct.Activated {
+		JSONError(w, http.StatusForbidden, "Finish setup first. Use the booklet code, or the “I set this computer up myself” path, then you can make a new setup code here.")
+		return
+	}
+	if !allowGuess(h.DB, "remint:"+acct.ID, pairingTokenMax, pairingTokenWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many new setup codes on this account. Wait an hour, then try again.")
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind = 'remint' AND status = 'issued'`, acct.ID)
+	code := security.OSSHexToken()
+	norm := security.NormalizeToken(code)
+	id := security.NewID("tok")
+	exp := time.Now().Add(PairingTokenTTL).Unix()
+	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at, token_hint)
+VALUES (?, ?, 'remint', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix(), security.TokenHint(norm))
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not make a setup code. Try again.")
+		return
+	}
+	JSON(w, http.StatusCreated, map[string]any{
+		"code":       code,
+		"expires_in": int(PairingTokenTTL.Seconds()),
+		"message":    "On Luna, open the address on the screen and enter this code (****-****-****-****-****). After a factory reset, enter the new code the same way.",
+	})
+}
+
+const transferTokenMax = 3
+const transferTokenWindow = 30 * 24 * 3600
+
+func (h AccountHandler) TransferToken(w http.ResponseWriter, r *http.Request) {
+	acct, ok := AccountFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	if !acct.Activated {
+		JSONError(w, http.StatusForbidden, "Finish setup first. Pair this Luna, then you can transfer it.")
+		return
+	}
+	if !allowGuess(h.DB, "transfer:"+acct.ID, transferTokenMax, transferTokenWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many transfer codes on this account. Wait a month, then try again.")
+		return
+	}
+	var dev Device
+	var account sql.NullString
+	err := h.DB.QueryRow(`SELECT id, account_id, subdomain, COALESCE(tunnel_id,''), COALESCE(name,'') FROM devices WHERE account_id = ?`, acct.ID).
+		Scan(&dev.ID, &account, &dev.Subdomain, &dev.TunnelID, &dev.Name)
+	if err != nil {
+		JSONError(w, http.StatusConflict, "Pair this Luna first. A transfer code is for a Luna that is already connected.")
+		return
+	}
+	dev.AccountID = account
+	teardownDevice(h.Deps, dev)
+	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind IN ('transfer','remint') AND status = 'issued'`, acct.ID)
+	code := security.OSSHexToken()
+	norm := security.NormalizeToken(code)
+	id := security.NewID("tok")
+	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint)
+VALUES (?, ?, 'transfer', 'issued', ?, ?)`, id, security.HashToken(norm), time.Now().Unix(), security.TokenHint(norm))
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not make a transfer code. Try again.")
+		return
+	}
+	JSON(w, http.StatusCreated, map[string]any{
+		"code":    code,
+		"message": "Give this code to the new owner. They type it on connect.luna.libreloom.org the same way as a booklet code. The public address is gone. Your cloud copies stay here and stay billed until you turn payment off.",
+	})
+}
+
 func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("luna_connect_session"); err == nil {
 		_, _ = h.DB.Exec(`DELETE FROM sessions WHERE token_hash = ?`, security.HashToken(c.Value))
@@ -227,19 +340,27 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	rows, err := h.DB.Query(`SELECT id, name, subdomain FROM devices WHERE account_id = ?`, acct.ID)
+	rows, err := h.DB.Query(`SELECT id, name, subdomain, COALESCE(setup_secret,'') FROM devices WHERE account_id = ?`, acct.ID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not list Lunas.")
+		JSONError(w, http.StatusInternalServerError, "Could not load this Luna.")
 		return
 	}
 	defer rows.Close()
-	out := []map[string]string{}
+	out := []map[string]any{}
 	for rows.Next() {
-		var id, name, sub string
-		_ = rows.Scan(&id, &name, &sub)
-		out = append(out, map[string]string{
+		var id, name, sub, sealed string
+		_ = rows.Scan(&id, &name, &sub, &sealed)
+		item := map[string]any{
 			"id": id, "name": name, "hostname": sub + "." + config.C.Server.PublicZone, "subdomain": sub,
-		})
+		}
+		if sealed != "" {
+			secret := sealed
+			if opened, err := security.OpenString(sealed); err == nil && opened != "" {
+				secret = opened
+			}
+			item["setup_secret"] = secret
+		}
+		out = append(out, item)
 	}
 	JSON(w, http.StatusOK, map[string]any{"devices": out})
 }
@@ -268,17 +389,18 @@ func (h AccountHandler) AccountAuth(next http.Handler) http.Handler {
 		}
 		var id, email, status, cust, sub string
 		var has int
+		var activated, purgeAfter int64
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), COALESCE(a.activated_at, 0), COALESCE(a.backup_purge_after, 0)
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub)
+			Scan(&id, &email, &has, &status, &cust, &sub, &activated, &purgeAfter)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status, StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter,
 		})))
 	})
 }
@@ -292,17 +414,18 @@ func (h AccountHandler) OptionalAccountAuth(next http.Handler) http.Handler {
 		}
 		var id, email, status, cust, sub string
 		var has int
+		var activated, purgeAfter int64
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), COALESCE(a.activated_at, 0), COALESCE(a.backup_purge_after, 0)
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub)
+			Scan(&id, &email, &has, &status, &cust, &sub, &activated, &purgeAfter)
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status, StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter,
 		})))
 	})
 }

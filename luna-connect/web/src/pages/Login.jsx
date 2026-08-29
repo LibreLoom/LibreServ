@@ -60,9 +60,15 @@ export default function Login() {
             {error && <p className="text-sm text-error">{error}</p>}
             <Button type="submit" className="w-full" loading={loading}>Sign in</Button>
           </form>
-          <p className="mt-4 text-sm text-muted-foreground text-center">
-            New here?{" "}
-            <Link to="/register" className="font-mono text-foreground underline-offset-4 hover:underline">Create an account</Link>
+          <p className="mt-4 text-sm text-muted-foreground text-center space-y-1">
+            <span className="block">
+              New here?{" "}
+              <Link to="/onboarding" className="font-mono text-foreground underline-offset-4 hover:underline">Set up Luna</Link>
+            </span>
+            <span className="block">
+              Installing on your own computer?{" "}
+              <Link to="/register" className="font-mono text-foreground underline-offset-4 hover:underline">Bring your own device</Link>
+            </span>
           </p>
         </CardContent>
       </Card>

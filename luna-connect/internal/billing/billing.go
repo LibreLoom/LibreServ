@@ -146,6 +146,18 @@ func Subscribe(customerID, paymentMethodID string) (subID, itemID string, err er
 	return s.ID, s.Items.Data[0].ID, nil
 }
 
+func CancelSubscription(subID string) error {
+	if subID == "" || DevBypass() {
+		return nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return err
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	_, err := subscription.Cancel(subID, nil)
+	return err
+}
+
 func ReportUsage(db *sql.DB) {
 	if !config.C.Stripe.Ready() {
 		return

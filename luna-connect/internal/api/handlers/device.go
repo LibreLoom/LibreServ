@@ -100,16 +100,38 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h DeviceHandler) FirstUserUsed(w http.ResponseWriter, r *http.Request) {
+	dev, ok := DeviceFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE devices SET setup_secret = NULL WHERE id = ?`, dev.ID)
+	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
 		return
 	}
-	_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, dev.TunnelID)
-	_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone))
-	_, _ = h.DB.Exec(`DELETE FROM devices WHERE id = ?`, dev.ID)
+	teardownDevice(h.Deps, dev)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// teardownDevice removes the Cloudflare tunnel, public DNS name, and devices
+// row. Backup objects stay so a seller can still download billed copies.
+func teardownDevice(deps Deps, d Device) {
+	if deps.Tunnel != nil && d.TunnelID != "" {
+		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
+	}
+	if deps.DNS != nil && d.Subdomain != "" {
+		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
+	}
+	if deps.DB != nil && d.ID != "" {
+		_, _ = deps.DB.Exec(`DELETE FROM devices WHERE id = ?`, d.ID)
+	}
 }
 
 func itoa(n int) string {

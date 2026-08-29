@@ -22,7 +22,11 @@ Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1
 
 ## Official booklet codes
 
-Official units that lost their setup file cannot start on their own. There is no public “I lost my code” form. The owner contacts support and refers to their order id. Support then issues a replacement official token (admin New token page at `/admin/login`). Put it on Luna, or add it as a line in `TOKENS` on the installer USB’s **LUNAASSETS** partition (factory magazine: each flash peels the first line). A one-shot `setup-token` file next to the ISO payload still works for a single unit.
+A Luna Connect account becomes usable after official onboarding with a valid booklet code, or after the bring-your-own-device path (`/register`). Those accounts can mint a new pairing code on the site after a factory reset — they do not need support.
+
+Each account has one Luna. To sell the unit, the owner mints a **transfer code** on the Away from home page. That tears down the public address and the tunnel. Cloud copies stay on the seller account and stay billed until they turn payment off. The buyer types the transfer code in the same booklet field on this site, then picks a new name.
+
+Units that never finished that first pairing, or that lost the booklet before an account existed, still need staff. There is no public “I lost my code” form. The owner contacts support and refers to their order id. Support then issues a replacement official token (admin New token page at `/admin/login`). Put it on Luna, or add it as a line in `TOKENS` on the installer USB’s **LUNAASSETS** partition (factory magazine: each flash peels the first line). A one-shot `setup-token` file next to the ISO payload still works for a single unit.
 
 Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Setup codes, Accounts, Security. Bulk factory lists download as a file named **`TOKENS`** (Crockford booklet codes, one per line — same format as a single remint).
 
