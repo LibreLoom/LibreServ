@@ -49,10 +49,10 @@ function stubFetch(role = "admin") {
   }));
 }
 
-function renderPage() {
+function renderPage(initialPath = "/settings") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath]}>
       <ThemeProvider>
         <QueryClientProvider client={client}>
           <AuthProvider>
@@ -152,6 +152,30 @@ describe("SettingsPage", () => {
     const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
     expect(tokenLinks).toHaveLength(2);
     expect(tokenLinks[0]).toHaveAttribute("href", "/settings#security");
+  });
+
+  it("opens Security from a /settings#security location", async () => {
+    stubFetch("admin");
+    renderPage("/settings#security");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
+  });
+
+  it("switches to Security when the Devices access-token link is clicked", async () => {
+    stubFetch("admin");
+    const user = userEvent.setup();
+    renderPage("/settings#devices");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
+    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
+    await user.click(tokenLinks[0]);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
 
   it("hides admin-only categories from a member", async () => {

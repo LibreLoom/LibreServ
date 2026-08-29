@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
@@ -6,6 +7,12 @@ import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
+
+/** Hash without `#`. In-app Links use history.push, so we read the router location. */
+function categoryFromHash(hash, allowedCategoryIds) {
+  const id = String(hash || "").replace(/^#/, "");
+  return allowedCategoryIds.includes(id) ? id : null;
+}
 
 function useIsDesktop() {
   // jsdom has no layout CSS, so we pick one chrome with matchMedia. If
@@ -27,42 +34,41 @@ function useIsDesktop() {
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const isDesktop = useIsDesktop();
   const isAdmin = user?.role === "admin";
   const allowedCategoryIds = useMemo(
     () => visibleCategories(isAdmin).map((c) => c.id),
     [isAdmin],
   );
+  const defaultCategory = "appearance";
+  const hashCategory = categoryFromHash(location.hash, allowedCategoryIds);
 
-  const [selectedCategory, setSelectedCategory] = useState(() => {
-    const hash = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
-    if (hash) return hash;
-    return "appearance";
-  });
+  const [selectedCategory, setSelectedCategory] = useState(
+    () => categoryFromHash(location.hash, allowedCategoryIds) || defaultCategory,
+  );
   const activeCategory = allowedCategoryIds.includes(selectedCategory)
     ? selectedCategory
-    : "appearance";
-  const [showMobileContent, setShowMobileContent] = useState(false);
+    : defaultCategory;
+  const [showMobileContent, setShowMobileContent] = useState(() => Boolean(hashCategory));
 
+  // React Router Link updates location.hash via pushState — no hashchange event —
+  // and Settings stays mounted (same pathname). Follow the router hash.
   useEffect(() => {
-    window.history.replaceState(null, "", `#${activeCategory}`);
-  }, [activeCategory]);
+    if (!hashCategory) return;
+    setSelectedCategory(hashCategory);
+    setShowMobileContent(true);
+  }, [hashCategory]);
 
-  useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      if (allowedCategoryIds.includes(hash)) {
-        setSelectedCategory(hash);
-        setShowMobileContent(true);
-      }
-    };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [allowedCategoryIds]);
-
-  const handleCategoryChange = (category) => {
+  const selectCategory = (category) => {
     setSelectedCategory(category);
     setShowMobileContent(true);
+    if (location.hash.replace(/^#/, "") === category) return;
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: category },
+      { replace: true },
+    );
   };
 
   return (
@@ -76,7 +82,7 @@ export default function SettingsPage() {
             <SettingsSidebar
               user={user}
               activeCategory={activeCategory}
-              onCategoryChange={setSelectedCategory}
+              onCategoryChange={selectCategory}
             />
           </div>
           <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
@@ -93,7 +99,7 @@ export default function SettingsPage() {
               <SettingsSidebar
                 user={user}
                 activeCategory={activeCategory}
-                onCategoryChange={handleCategoryChange}
+                onCategoryChange={selectCategory}
               />
             </div>
           ) : (
