@@ -126,14 +126,13 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 		Customer: stripe.String(customerID),
 	})
 	params := &stripe.PaymentIntentParams{
-		Amount:             stripe.Int64(100),
-		Currency:           stripe.String(string(stripe.CurrencyUSD)),
-		Customer:           stripe.String(customerID),
-		PaymentMethod:      stripe.String(paymentMethodID),
-		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
-		Confirm:            stripe.Bool(true),
-		ReturnURL:          stripe.String(paymentReturnURL()),
-		Description:        stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
+		Amount:        stripe.Int64(100),
+		Currency:      stripe.String(string(stripe.CurrencyUSD)),
+		Customer:      stripe.String(customerID),
+		PaymentMethod: stripe.String(paymentMethodID),
+		Confirm:       stripe.Bool(true),
+		ReturnURL:     stripe.String(paymentReturnURL()),
+		Description:   stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
 	}
 	pi, err := paymentintent.New(params)
 	if err != nil {
