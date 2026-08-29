@@ -238,7 +238,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	var n int
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, acct.ID).Scan(&n)
 	if n >= setuphub.MaxDevicesPerAccount {
-		JSONError(w, http.StatusConflict, "This account already has as many Lunas as it can hold. Remove one first, or use another account.")
+		JSONError(w, http.StatusConflict, "This account already has a Luna. Transfer it first, or use another account.")
 		return
 	}
 	var req struct {
@@ -390,7 +390,7 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		status = "dev"
 		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ?`,
 		status, sub, item, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"ok": true, "enabled": true,

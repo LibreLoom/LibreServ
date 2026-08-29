@@ -9,7 +9,7 @@ const (
 	SessionTTL           = 15 * time.Minute
 	MaxUnclaimedGlobal   = 200
 	MaxUnclaimedPerIP    = 8
-	MaxDevicesPerAccount = 2
+	MaxDevicesPerAccount = 1
 )
 
 type Message struct {

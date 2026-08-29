@@ -418,7 +418,7 @@ export default function OnboardingPage() {
   const renderCode = () => (
     <StepShell icon={BookOpen} title="Type the booklet code">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        Groups of letters and numbers, the same as the printed booklet. HDMI on Luna shows the same code if you lost the paper.
+        Groups of letters and numbers, the same as the printed booklet. HDMI on Luna shows the same code if you lost the paper. A transfer code from the previous owner goes in this same field.
       </p>
       <form
         className="space-y-5 text-left"

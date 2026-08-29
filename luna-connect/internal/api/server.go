@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
@@ -32,7 +33,7 @@ func NewServer(db *sql.DB, objectStore store.Store) *Server {
 	s := &Server{
 		db: db,
 		deps: handlers.Deps{
-			DB: db, Store: objectStore, Tunnel: tunnel, DNS: dns, Hub: setuphub.New(),
+			DB: db, Store: objectStore, Tunnel: tunnel, DNS: dns, Hub: setuphub.New(), Mail: mail.New(),
 		},
 	}
 	s.routes()
@@ -40,6 +41,10 @@ func NewServer(db *sql.DB, objectStore store.Store) *Server {
 }
 
 func (s *Server) Router() http.Handler { return s.router }
+
+func (s *Server) ProcessRetention(now int64) {
+	handlers.ProcessRetention(s.deps, now)
+}
 
 func (s *Server) routes() {
 	r := chi.NewRouter()
@@ -92,8 +97,10 @@ func (s *Server) routes() {
 					r.Post("/account/logout", acct.Logout)
 					r.Get("/billing/usage", acct.Usage)
 					r.Post("/billing/attach-card", acct.AttachCard)
+					r.Post("/billing/cancel", acct.CancelBilling)
 					r.Post("/account/pair", acct.Pair)
 					r.Post("/account/pairing-token", acct.PairingToken)
+					r.Post("/account/transfer-token", acct.TransferToken)
 					r.Get("/account/devices", acct.Devices)
 					r.Get("/backups", bak.List)
 					r.Post("/backups/download", bak.Download)

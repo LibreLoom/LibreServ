@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   has_card INTEGER NOT NULL DEFAULT 0,
   billing_status TEXT NOT NULL DEFAULT 'none',
   activated_at INTEGER,
+  backup_purge_after INTEGER,
+  purge_mail_day INTEGER,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS devices (
@@ -135,5 +137,7 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE issued_tokens ADD COLUMN token_hint TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN activated_at INTEGER`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_purge_after INTEGER`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN purge_mail_day INTEGER`)
 	return nil
 }
