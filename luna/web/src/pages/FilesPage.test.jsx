@@ -68,6 +68,7 @@ describe("FilesPage", () => {
     expect(screen.queryByRole("button", { name: "Protect photo.jpg" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Share this folder/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Open as a folder on a computer/i })).not.toBeInTheDocument();
   });
 
   it("shows a separate Protect button for folders", async () => {

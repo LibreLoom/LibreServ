@@ -164,9 +164,7 @@ export default function AccessCategory() {
       <SettingsCard icon={Smartphone} title="Apps and access tokens" index={1}>
         <p className="text-primary text-sm">
           A phone app, desktop app, or script can keep working without typing
-          your password each time. Folder mounts (Finder, Explorer) use this access
-          token as the password — never your Luna password. The mount shows the
-          folders you can already open in Luna.
+          your password each time.
         </p>
 
         <div className="mt-4 flex flex-col gap-2">
@@ -206,8 +204,7 @@ export default function AccessCategory() {
         {newToken?.token && (
           <div className="mt-4 rounded-large-element bg-primary text-secondary p-4 space-y-3">
             <p className="text-sm">
-              Copy this now. Luna will not show it again. Use it as the password when a computer
-              asks to open your files as a folder.
+              Copy this now. Luna will not show it again.
             </p>
             <CopyableValue
               value={newToken.token}
