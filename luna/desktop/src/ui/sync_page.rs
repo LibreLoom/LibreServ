@@ -300,7 +300,7 @@ fn plain_error(raw: &str) -> String {
 fn open_editor(
     parent: &impl IsA<gtk::Widget>,
     state: Arc<AppState>,
-    toast: Rc<adw::ToastOverlay>,
+    _window_toast: Rc<adw::ToastOverlay>,
     pair: SyncPair,
     refresh: Rc<dyn Fn()>,
 ) {
@@ -312,6 +312,9 @@ fn open_editor(
     });
     dialog.set_content_width(520);
     dialog.set_content_height(560);
+
+    // ToastOverlay must live inside the dialog so errors appear above it, not behind.
+    let toast = Rc::new(adw::ToastOverlay::new());
 
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&adw::HeaderBar::new());
@@ -397,7 +400,8 @@ fn open_editor(
         .vexpand(true)
         .build();
     toolbar.set_content(Some(&scrolled));
-    dialog.set_child(Some(&toolbar));
+    toast.set_child(Some(&toolbar));
+    dialog.set_child(Some(toast.as_ref()));
 
     let pair_id = pair.id.clone();
     save.connect_clicked({

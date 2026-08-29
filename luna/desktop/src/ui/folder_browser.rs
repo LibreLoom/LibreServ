@@ -304,6 +304,8 @@ impl FolderBrowser {
                 dialog.set_title("Create folder");
                 dialog.set_content_width(360);
 
+                let dialog_toast = Rc::new(adw::ToastOverlay::new());
+
                 let toolbar = adw::ToolbarView::new();
                 toolbar.add_top_bar(&adw::HeaderBar::new());
 
@@ -325,7 +327,8 @@ impl FolderBrowser {
                 page.append(&create);
 
                 toolbar.set_content(Some(&page));
-                dialog.set_child(Some(&toolbar));
+                dialog_toast.set_child(Some(&toolbar));
+                dialog.set_child(Some(dialog_toast.as_ref()));
 
                 let parent = btn
                     .root()
@@ -335,7 +338,7 @@ impl FolderBrowser {
 
                 create.connect_clicked({
                     let state = state.clone();
-                    let toast = toast.clone();
+                    let toast = dialog_toast.clone();
                     let drive_id = drive_id.clone();
                     let browse_path = browse_path.clone();
                     let remote_path = remote_path.clone();
