@@ -10,7 +10,7 @@
  * - Toggle: `?mockUnknownDrive=1|0` or `localStorage.luna.mockUnknownDrive=1|0`.
  */
 
-/** @type {const} */
+/** @type {"sdmock"} */
 export const MOCK_UNKNOWN_PSSD_NAME = "sdmock";
 
 /** ~64 GB (decimal), matching the sizeLabel helper on DrivesPage. */

@@ -171,7 +171,8 @@ describe("FileBrowser", () => {
   });
 
   it("shows a spinner beside the current folder while listing loads", async () => {
-    let resolveListing;
+    /** @type {(value?: any) => void} */
+    let resolveListing = () => {};
     vi.stubGlobal(
       "fetch",
       vi.fn(

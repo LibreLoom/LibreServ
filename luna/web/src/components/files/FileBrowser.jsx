@@ -170,6 +170,7 @@ export default function FileBrowser({
 
   useEffect(() => {
     if (controlledSelected !== undefined) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
     setInnerSelected((prev) => prev.filter((p) => {
       const parent = parentPath(p);
       if (parent === path || (parent === "" && path === "")) {

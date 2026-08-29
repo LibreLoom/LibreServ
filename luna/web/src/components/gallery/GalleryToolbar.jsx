@@ -30,6 +30,9 @@ const searchFieldShell = "relative flex-1 min-w-0 bg-primary text-secondary roun
 const searchInputClass =
   "w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm";
 
+/**
+ * @param {{ id: string, value: string, onChange: (e: any) => void, placeholder: string, className?: string }} props
+ */
 function GallerySearchInput({ id, value, onChange, placeholder, className }) {
   return (
     <div className={cn(searchFieldShell, className)}>

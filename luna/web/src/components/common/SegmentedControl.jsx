@@ -3,7 +3,13 @@ import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics";
 
 /**
- * @param {"default"|"secondary"} [surface]
+ * @param {object} props
+ * @param {{ value: string, label?: string, icon?: import('react').ComponentType<any>, disabled?: boolean, title?: string }[]} props.options
+ * @param {string} props.value
+ * @param {(value: string) => void} props.onChange
+ * @param {(value: string) => void} [props.onDisabledClick]
+ * @param {string} [props.className]
+ * @param {"default"|"secondary"} [props.surface]
  *   Backdrop the control sits on. `"secondary"` uses a primary selected pill
  *   (Apps / Gallery layered search-bar pattern) so a large accent indicator
  *   does not read as the toolbar background.

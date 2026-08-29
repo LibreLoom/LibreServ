@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -596,6 +597,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
 
   useEffect(() => {
     if (open && drive) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setLabel(drive.model || "My Drive");
       setConfirmErase(false);
     }

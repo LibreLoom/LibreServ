@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,7 +39,10 @@ const DEFAULT_SEGMENT = "library";
 
 /** Build the gallery list URL. Bool query flags must be `true`/`false` —
  *  lunad's serde query parser rejects `1`/`0` (Favorites used to 400). */
-export function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset }) {
+/**
+ * @param {{ q?: string, favorites?: boolean, albumId?: string, albumHome?: string, place?: string, placeBbox?: string, offset?: number }} opts
+ */
+export function galleryUrl({ q, favorites, albumId, albumHome, place, placeBbox, offset } = {}) {
   const params = new URLSearchParams();
   params.set("limit", "80");
   params.set("offset", String(offset || 0));

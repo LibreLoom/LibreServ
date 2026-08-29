@@ -31,7 +31,7 @@ function readEntry(entry, prefix = "") {
     }
     const dir = /** @type {FileSystemDirectoryEntry} */ (entry);
     const reader = dir.createReader();
-    /** @type {File[][]} */
+    /** @type {Promise<File[]>[]} */
     const batches = [];
     const nextPrefix = prefix ? `${prefix}/${dir.name}` : dir.name;
 

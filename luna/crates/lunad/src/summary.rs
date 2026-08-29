@@ -89,10 +89,7 @@ pub fn top_level_shortcuts(root: &Path) -> Vec<String> {
         if name.starts_with('.') {
             continue;
         }
-        if SKIP_FOLDERS
-            .iter()
-            .any(|s| s.eq_ignore_ascii_case(&name))
-        {
+        if SKIP_FOLDERS.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
             continue;
         }
         names.push(name);

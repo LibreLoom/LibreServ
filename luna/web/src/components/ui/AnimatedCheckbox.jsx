@@ -70,7 +70,7 @@ export default function AnimatedCheckbox({
         aria-label={ariaLabel}
         onChange={(e) => {
           if (disabled) return;
-          haptic("tap");
+          haptic("selection");
           onChange(e.target.checked, e);
         }}
         onClick={(e) => e.stopPropagation()}

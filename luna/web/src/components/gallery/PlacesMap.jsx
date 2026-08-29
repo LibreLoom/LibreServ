@@ -207,6 +207,7 @@ function ClusterMarkers({ markers, onSelect }) {
   });
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
     refreshClusters();
   }, [refreshClusters]);
 
@@ -291,6 +292,7 @@ export default function PlacesMap({ places, onSelect }) {
     );
   }
 
+  /** @type {[number, number]} */
   const center = [markers[0].lat, markers[0].lon];
 
   return (

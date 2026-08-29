@@ -391,7 +391,9 @@ func addIntegrationTests() {
 		Description: "Build the container image with podman (runs on host)",
 		Type:        TestTypeIntegration,
 		Container:   "host",
-		Command:     "podman build --ulimit nofile=1048576:1048576 -t libreserv:test .",
+		// Do not raise nofile above the host hard limit — crun setrlimit fails
+		// with EPERM on restricted environments (e.g. Cloud Agent VMs at 524288).
+		Command:     "podman build -t libreserv:test .",
 		WorkDir:     "/repo",
 		Timeout:     20 * time.Minute,
 	})

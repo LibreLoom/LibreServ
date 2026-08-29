@@ -30,6 +30,7 @@ pub struct JailedFs {
 }
 
 impl JailedFs {
+    #[allow(dead_code)] // kept for unit tests / simple jail without gallery hooks
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
@@ -215,11 +216,7 @@ impl DavDirEntry for DirEntry {
 }
 
 fn open_write_requested(options: &OpenOptions) -> bool {
-    options.write
-        || options.append
-        || options.truncate
-        || options.create
-        || options.create_new
+    options.write || options.append || options.truncate || options.create || options.create_new
 }
 
 impl DavFileSystem for JailedFs {

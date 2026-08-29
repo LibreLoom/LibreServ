@@ -223,7 +223,12 @@ mod tests {
         http
     }
 
-    fn req_body(method: Method, uri: &str, auth: Option<&str>, body: &'static [u8]) -> HttpReq<Body> {
+    fn req_body(
+        method: Method,
+        uri: &str,
+        auth: Option<&str>,
+        body: &'static [u8],
+    ) -> HttpReq<Body> {
         let mut builder = HttpReq::builder().method(method).uri(uri);
         if let Some(a) = auth {
             builder = builder.header("authorization", a);
@@ -291,9 +296,7 @@ mod tests {
             json_req(
                 Method::POST,
                 "/api/v1/auth/login",
-                &format!(
-                    r#"{{"username":"{username}","password":"{password}"}}"#
-                ),
+                &format!(r#"{{"username":"{username}","password":"{password}"}}"#),
                 None,
                 None,
             ),
@@ -382,19 +385,11 @@ mod tests {
 
         {
             let conn = state.db.lock().unwrap();
-            crate::db::insert_grant(
-                &conn,
-                "g-sam",
-                &sam_id,
-                "photos",
-                grant_path,
-                permission,
-            )
-            .unwrap();
+            crate::db::insert_grant(&conn, "g-sam", &sam_id, "photos", grant_path, permission)
+                .unwrap();
         }
 
-        let member_token =
-            login_and_token(app, "sam", "hunter22hunter1", "Sam's laptop").await;
+        let member_token = login_and_token(app, "sam", "hunter22hunter1", "Sam's laptop").await;
         (admin_token, member_token, sam_id)
     }
 
@@ -549,12 +544,15 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), 200);
-        let member_token =
-            login_and_token(&app, "sam", "hunter22hunter1", "Sam no grant").await;
+        let member_token = login_and_token(&app, "sam", "hunter22hunter1", "Sam no grant").await;
 
         let res = call(
             &app,
-            req(Method::GET, "/dav/photos/", Some(&basic("sam", &member_token))),
+            req(
+                Method::GET,
+                "/dav/photos/",
+                Some(&basic("sam", &member_token)),
+            ),
         )
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
