@@ -22,7 +22,7 @@ describe("RemoteCategory", () => {
     ));
     renderPage();
     expect(await screen.findByRole("button", { name: /Save code/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use booklet code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use booklet code on this Luna/i })).toBeTruthy();
     expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
     expect(screen.getByText(/free forever/i)).toBeTruthy();
   });
@@ -38,7 +38,7 @@ describe("RemoteCategory", () => {
     expect(row?.className).toMatch(/flex-col/);
     expect(row?.className).toMatch(/lg:flex-row/);
 
-    const input = screen.getByPlaceholderText(/Six letters from the site/i);
+    const input = screen.getByPlaceholderText(/\*\*\*\*-\*\*\*\*-\*\*\*\*-\*\*\*\*-\*\*\*\*/);
     expect(input.className).toMatch(/w-full/);
     expect(input.className).toMatch(/min-w-0/);
   });

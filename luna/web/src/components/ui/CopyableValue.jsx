@@ -15,9 +15,9 @@ import { cn } from "../../lib/utils";
  * @param {string} [props.copyLabel="Copy"]
  * @param {string} [props.copiedLabel="Copied"]
  * @param {string} [props.ariaLabel]
- * @param {"primary"|"secondary"} [props.surface="secondary"] — backdrop the control sits on
+ * @param {"primary"|"secondary"} [props.surface="secondary"] Backdrop the control sits on.
  * @param {string} [props.className]
- * @param {boolean} [props.multiline=false] — use a textarea for long values
+ * @param {boolean} [props.multiline=false] Use a textarea for long values.
  */
 export default function CopyableValue({
   value,

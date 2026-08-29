@@ -12,6 +12,17 @@ if [ ! -w "${CARGO_HOME:-$HOME/.cargo}" ]; then
 fi
 mkdir -p "$CARGO_HOME"
 
+# Cloud Agent / CI host shells often skip /etc/profile.d. Pick up the SDK
+# install.sh provisions so mobile unit tests can find it.
+if [ -z "${ANDROID_HOME:-}" ] && [ -d /usr/local/android-sdk ]; then
+  export ANDROID_HOME=/usr/local/android-sdk
+  export ANDROID_SDK_ROOT=/usr/local/android-sdk
+  export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+fi
+if [ -n "${ANDROID_HOME:-}" ] && [ ! -f mobile/local.properties ]; then
+  echo "sdk.dir=${ANDROID_HOME}" > mobile/local.properties
+fi
+
 echo "==> cargo fmt"
 cargo fmt --all --check
 

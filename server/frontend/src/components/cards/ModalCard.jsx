@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- useModalClose is the paired hook for ModalCard */
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";

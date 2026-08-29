@@ -19,7 +19,7 @@ describe("Cloud backups tab", () => {
       />,
     );
     expect(screen.getByTestId("backups-gated")).toBeTruthy();
-    expect(screen.getByText(/\$7 per terabyte each month/i)).toBeTruthy();
+    expect(screen.getByText(/\$8 per terabyte each month/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
   });
 

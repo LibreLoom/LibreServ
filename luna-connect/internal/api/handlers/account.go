@@ -109,7 +109,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"billing_status":         acct.BillingStatus,
 		"stored_bytes":           bytes,
 		"estimated_month":        billing.EstimateUSD(bytes),
-		"price_copy":             "Cloud backup costs $7 per terabyte each month, based on how much is stored right now.",
+		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on how much is stored right now.",
 		"stripe_publishable_key": stripePublishableKey(),
 		"stripe_enabled":         config.C.Stripe.Enabled,
 	})
@@ -207,7 +207,7 @@ func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code, and pick a name.")
+	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code (****-****-****-****-****), and pick a name.")
 }
 
 func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {

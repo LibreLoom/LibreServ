@@ -56,7 +56,12 @@ describe("OnboardingPage OSS verify", () => {
     stripeLooksConfigured.mockReturnValue(false);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verify-human") return { ok: true };
-      if (path === "/api/v1/account/oss-token") return { code: "A1B2C3", message: "Enter this on Luna." };
+      if (path === "/api/v1/account/oss-token") {
+        return {
+          code: "3097-V4YK-3HYX-2E3P-V4B3",
+          message: "On Luna, open the address on the screen and enter this code (****-****-****-****-****).",
+        };
+      }
       if (path === "/api/v1/onboarding/bind") return { message: "ok" };
       if (path === "/api/v1/onboarding/attach-account") return { ok: true };
       return {};
@@ -82,7 +87,7 @@ describe("OnboardingPage OSS verify", () => {
         body: JSON.stringify({ payment_method_id: "pm_test_oss" }),
       });
     });
-    expect(await screen.findByText("A1B2C3")).toBeTruthy();
+    expect(await screen.findByText("3097-V4YK-3HYX-2E3P-V4B3")).toBeTruthy();
   });
 
   it("skips the card step when Stripe is not configured and still mints a code", async () => {
@@ -96,7 +101,7 @@ describe("OnboardingPage OSS verify", () => {
         body: "{}",
       });
     });
-    expect(await screen.findByText("A1B2C3")).toBeTruthy();
+    expect(await screen.findByText("3097-V4YK-3HYX-2E3P-V4B3")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
@@ -104,7 +109,7 @@ describe("OnboardingPage OSS verify", () => {
     stripeLooksConfigured.mockReturnValue(true);
     mount();
     fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCDEF" } });
+    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
@@ -146,13 +151,13 @@ describe("OnboardingPage done card", () => {
   it("shows the hostname and one-time code after name is taken", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCDEF" } });
+    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Name$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/Name for this Luna/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/^Name$/i), { target: { value: "kitchen" } });
+    fireEvent.change(screen.getByLabelText(/Name for this Luna/i), { target: { value: "kitchen" } });
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {

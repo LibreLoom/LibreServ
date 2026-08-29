@@ -124,7 +124,9 @@ pub fn spawn_tray(on_cmd: impl Fn(TrayCmd) + 'static) -> Option<TrayHandle> {
     let handle = match tray.assume_sni_available(true).spawn() {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("luna-desktop: system tray unavailable ({e}); close the window to quit");
+            eprintln!(
+                "luna-desktop: system tray unavailable ({e}); window close hides — use Settings → Quit Luna Desktop to stop"
+            );
             return None;
         }
     };

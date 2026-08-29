@@ -56,7 +56,7 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !backupUnlocked(h.Deps, dev.AccountID.String) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store a cloud backup. It costs $7 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store a cloud backup. It costs $8 per terabyte each month.")
 		return
 	}
 	rel := objectPath(r)

@@ -69,7 +69,11 @@ pub fn build_exif_app1(datetime: &str, gps: Option<(f64, f64)>) -> anyhow::Resul
     Ok(app1)
 }
 
-pub fn inject_exif_jpeg(path: &Path, datetime: &str, gps: Option<(f64, f64)>) -> anyhow::Result<()> {
+pub fn inject_exif_jpeg(
+    path: &Path,
+    datetime: &str,
+    gps: Option<(f64, f64)>,
+) -> anyhow::Result<()> {
     let mut data = std::fs::read(path)?;
     anyhow::ensure!(data.starts_with(&[0xFF, 0xD8]), "not a JPEG");
     let mut pos = 2usize;
@@ -127,12 +131,7 @@ mod tests {
             ];
             f.write_all(&jpeg).unwrap();
         }
-        inject_exif_jpeg(
-            &path,
-            "2023:07:14 09:15:22",
-            Some((37.8651, -119.5383)),
-        )
-        .unwrap();
+        inject_exif_jpeg(&path, "2023:07:14 09:15:22", Some((37.8651, -119.5383))).unwrap();
         let meta = crate::exif::capture_meta(&path).expect("read injected exif");
         assert!(meta.0.is_some());
         assert!(meta.1.is_some() && meta.2.is_some(), "{meta:?}");

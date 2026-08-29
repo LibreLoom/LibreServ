@@ -17,7 +17,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
-const DollarsPerTB = 7.0
+const DollarsPerTB = 8.0
 const BytesPerTB = 1_000_000_000_000
 
 var (

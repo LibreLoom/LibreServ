@@ -72,9 +72,7 @@ fn discard_max_bytes(device: &Path) -> anyhow::Result<u64> {
         .and_then(|n| n.to_str())
         .ok_or_else(|| anyhow::anyhow!("bad device"))?;
     let sys_name = resolve_sys_block_name(name);
-    let path = PathBuf::from(format!(
-        "/sys/block/{sys_name}/queue/discard_max_bytes"
-    ));
+    let path = PathBuf::from(format!("/sys/block/{sys_name}/queue/discard_max_bytes"));
     let raw = std::fs::read_to_string(path)?;
     Ok(raw.trim().parse().unwrap_or(0))
 }

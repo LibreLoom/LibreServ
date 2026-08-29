@@ -482,12 +482,12 @@ ActionTooltipGroup.propTypes = {
  *   className?: string,
  * }} props
  */
-export function Tooltip({ content, children, surface = "secondary", delayMs, className = "" }) {
+export function Tooltip({ content, children, surface: _surface = "secondary", delayMs, className = "" }) {
   const group = useContext(TooltipGroupContext);
   const localId = useId();
   const tooltipId = useId();
   const triggerRef = useRef(/** @type {HTMLElement | null} */ (null));
-  const popupRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const popupRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const openTimer = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const closeTimer = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const [soloOpen, setSoloOpen] = useState(false);

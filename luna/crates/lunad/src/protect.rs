@@ -80,7 +80,9 @@ pub fn sync_all(db: &std::sync::Mutex<Connection>) -> anyhow::Result<u64> {
             let drive = files::drive_root(&conn, &row.target_drive)?;
             let root = std::path::PathBuf::from(&drive.mount_point);
             let target_root = luna_core::path::resolve_for_create_nofollow(&root, &row.target_path)
-                .map_err(|e| anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}"))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("Luna couldn't open the protected-copy folder: {e}")
+                })?;
             (src_root, target_root)
         };
         match sync_trees(&src_root, &target_root) {

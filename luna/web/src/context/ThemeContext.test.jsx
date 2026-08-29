@@ -32,6 +32,7 @@ describe("ThemeProvider", () => {
   });
 
   it("defaults to system and applies resolved class", () => {
+    /** @type {ReturnType<typeof useTheme>} */
     let api;
     render(
       <ThemeProvider>
@@ -44,6 +45,7 @@ describe("ThemeProvider", () => {
   });
 
   it("persists theme choice to localStorage", () => {
+    /** @type {ReturnType<typeof useTheme>} */
     let api;
     render(
       <ThemeProvider>
@@ -63,6 +65,7 @@ describe("ThemeProvider", () => {
 
   it("restores stored theme on mount", () => {
     localStorage.setItem("theme", "dark");
+    /** @type {ReturnType<typeof useTheme>} */
     let api;
     render(
       <ThemeProvider>

@@ -72,7 +72,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	norm := security.NormalizeToken(req.Code)
 	if norm == "" {
-		JSONError(w, http.StatusBadRequest, "Type the device code from the booklet, or the short code from this website.")
+		JSONError(w, http.StatusBadRequest, "Type the device code from the booklet, or the code from this website (****-****-****-****-****).")
 		return
 	}
 	if !allowGuess(h.DB, clientKeyIP(r), 8, 15*60) {
@@ -93,11 +93,11 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	acct, hasAcct := AccountFrom(r.Context())
 	if tok.Kind == "oss" {
 		if !hasAcct {
-			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this short code, then type it again.")
+			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this code, then type it again.")
 			return
 		}
 		if tokenAccountID(tok) != acct.ID {
-			JSONError(w, http.StatusForbidden, "That short code belongs to a different account. Sign in to the account that created it, then try again.")
+			JSONError(w, http.StatusForbidden, "That code belongs to a different account. Sign in to the account that created it, then try again.")
 			return
 		}
 	}
@@ -218,7 +218,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tok.Kind == "oss" && tokenAccountID(tok) != acct.ID {
-		JSONError(w, http.StatusForbidden, "That short code belongs to a different account. Sign in to the account that created it, then try again.")
+		JSONError(w, http.StatusForbidden, "That code belongs to a different account. Sign in to the account that created it, then try again.")
 		return
 	}
 	if h.Hub == nil || !h.Hub.HasLive(sess.tokenHash) {
@@ -367,10 +367,10 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := "active"
-	price := "Cloud backup costs $7 per terabyte each month."
+	price := "Cloud backup costs $8 per terabyte each month."
 	if billing.DevBypass() {
 		status = "dev"
-		price = "Cloud backup costs $7 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
+		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
 		status, sub, item, acct.ID)
@@ -438,12 +438,12 @@ func (h OnboardingHandler) MintOSS(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusPaymentRequired, "Pay one dollar first so we know this is a real person. It counts toward cloud backup if you turn it on.")
 		return
 	}
-	code := security.OSSHexToken()
+	code := security.WebsiteSetupToken()
 	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
 	exp := time.Now().Add(15 * time.Minute).Unix()
-	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at)
-VALUES (?, ?, 'oss', 'issued', ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix())
+	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at, token_hint)
+VALUES (?, ?, 'oss', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix(), security.TokenHint(norm))
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not make a setup code. Try again.")
 		return
@@ -451,7 +451,7 @@ VALUES (?, ?, 'oss', 'issued', ?, ?, ?)`, id, security.HashToken(norm), acct.ID,
 	JSON(w, http.StatusCreated, map[string]any{
 		"code":       code,
 		"expires_in": 15 * 60,
-		"message":    "On Luna, open the address on the screen and enter this code.",
+		"message":    "On Luna, open the address on the screen and enter this code (****-****-****-****-****).",
 	})
 }
 
@@ -477,8 +477,9 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	display := security.OfficialBookletToken()
 	norm := security.NormalizeToken(display)
 	id := security.NewID("tok")
-	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at) VALUES (?, ?, 'official', 'issued', ?)`,
-		id, security.HashToken(norm), time.Now().Unix())
+	hint := security.TokenHint(norm)
+	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint) VALUES (?, ?, 'official', 'issued', ?, ?)`,
+		id, security.HashToken(norm), time.Now().Unix(), hint)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not mint a booklet code.")
 		return
@@ -486,6 +487,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]any{
 		"id":     id,
 		"token":  display,
+		"hint":   hint,
 		"kind":   "official",
 		"status": "issued",
 	})
@@ -524,14 +526,14 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 			JSONError(w, http.StatusInternalServerError, "Could not finish the token list. Try a smaller number.")
 			return
 		}
-		display := security.FactoryHexToken()
+		display := security.OfficialBookletToken()
 		norm := security.NormalizeToken(display)
 		id := security.NewID("tok")
 		_, err := h.DB.Exec(
-			`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at) VALUES (?, ?, 'official', 'issued', ?)`,
-			id, security.HashToken(norm), now)
+			`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint) VALUES (?, ?, 'official', 'issued', ?, ?)`,
+			id, security.HashToken(norm), now, security.TokenHint(norm))
 		if err != nil {
-			// Collision on 6-hex space — try another.
+			// Extremely unlikely hash/id collision — try another.
 			continue
 		}
 		tokens = append(tokens, display)
@@ -541,7 +543,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		"tokens":   tokens,
 		"filename": "TOKENS",
 		"kind":     "official",
-		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one code per line, uppercase).",
+		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one booklet code per line).",
 	})
 }
 

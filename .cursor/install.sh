@@ -161,7 +161,81 @@ npm ci
 # the Vite dev server from the `terminals` config.
 npm run build
 
-# ── 7. Luna (Rust daemon + web) ───────────────────────────────────────────────
+# ── 7. Tauri Linux deps (Luna desktop CI) ─────────────────────────────────────
+# luna/ci.sh builds desktop/src-tauri (GTK + WebKit). Without these, gdk-sys
+# fails at pkg-config time on a stock Cloud Agent image.
+install_tauri_linux_deps() {
+  if pkg-config --exists gdk-3.0 webkit2gtk-4.1 2>/dev/null; then
+    echo ">> Tauri Linux deps already present (gdk-3.0 + webkit2gtk-4.1)"
+    return
+  fi
+  echo ">> Installing Tauri Linux build dependencies"
+  as_root apt-get update -qq
+  as_root env DEBIAN_FRONTEND=noninteractive \
+    apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+    install -y -qq \
+      build-essential \
+      pkg-config \
+      libgtk-3-dev \
+      libwebkit2gtk-4.1-dev \
+      libayatana-appindicator3-dev \
+      librsvg2-dev \
+      patchelf \
+      libssl-dev \
+      libxdo-dev
+}
+install_tauri_linux_deps
+
+# ── 8. Android SDK (Luna mobile unit tests) ───────────────────────────────────
+# luna/ci.sh runs ./gradlew testDebugUnitTest. Unit tests need platform +
+# build-tools; no emulator.
+install_android_sdk() {
+  local sdk_root="/usr/local/android-sdk"
+  local tools_zip="commandlinetools-linux-11076708_latest.zip"
+  local tools_url="https://dl.google.com/android/repository/${tools_zip}"
+
+  if [ -x "${sdk_root}/cmdline-tools/latest/bin/sdkmanager" ] \
+    && [ -d "${sdk_root}/platforms/android-34" ] \
+    && [ -d "${sdk_root}/build-tools/34.0.0" ]; then
+    echo ">> Android SDK already installed at ${sdk_root}"
+  else
+    echo ">> Installing Android SDK cmdline-tools + platform 34"
+    as_root apt-get update -qq
+    as_root env DEBIAN_FRONTEND=noninteractive \
+      apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+      install -y -qq unzip openjdk-17-jdk-headless
+    local tmp; tmp="$(mktemp -d)"
+    curl -fsSL -o "${tmp}/${tools_zip}" "${tools_url}"
+    as_root mkdir -p "${sdk_root}/cmdline-tools"
+    as_root unzip -q "${tmp}/${tools_zip}" -d "${sdk_root}/cmdline-tools"
+    if [ -d "${sdk_root}/cmdline-tools/cmdline-tools" ]; then
+      as_root rm -rf "${sdk_root}/cmdline-tools/latest"
+      as_root mv "${sdk_root}/cmdline-tools/cmdline-tools" "${sdk_root}/cmdline-tools/latest"
+    fi
+    rm -rf "${tmp}"
+    yes | as_root env JAVA_HOME="${JAVA_HOME:-}" \
+      "${sdk_root}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${sdk_root}" --licenses \
+      >/tmp/android-sdk-licenses.log 2>&1 || true
+    as_root "${sdk_root}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${sdk_root}" \
+      "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+    as_root chmod -R a+rX "${sdk_root}"
+  fi
+
+  as_root tee /etc/profile.d/android-sdk.sh >/dev/null <<EOF
+export ANDROID_HOME=${sdk_root}
+export ANDROID_SDK_ROOT=${sdk_root}
+export PATH="\${ANDROID_HOME}/cmdline-tools/latest/bin:\${ANDROID_HOME}/platform-tools:\${PATH}"
+EOF
+  as_root chmod 0644 /etc/profile.d/android-sdk.sh
+  # shellcheck disable=SC1091
+  . /etc/profile.d/android-sdk.sh
+
+  mkdir -p "${REPO_ROOT}/luna/mobile"
+  echo "sdk.dir=${sdk_root}" > "${REPO_ROOT}/luna/mobile/local.properties"
+}
+install_android_sdk
+
+# ── 9. Luna (Rust daemon + web) ───────────────────────────────────────────────
 # lunad embeds crates/lunad/web/dist at compile time (include_dir). build.rs
 # writes a stub "build the web app first" page when dist is missing — so we MUST
 # run the Vite production build before cargo, or :8090 serves that stub forever.

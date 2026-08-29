@@ -47,7 +47,7 @@ LibreServ/
 │       └── index.css         # Theme variables + Tailwind config
 │
 ├── luna/                     # Luna file box: lunad (Rust) + web. Setup is Ethernet-only; there is no setup AP.
-├── luna-connect/             # Luna Connect cloud app (independent Go 1.26). Host: connect.luna.libreloom.org. Device names: *.luna.servers.libreloom.org. Stripe $7/TB/month backups.
+├── luna-connect/             # Luna Connect cloud app (independent Go 1.26). Host: connect.luna.libreloom.org. Device names: *.luna.servers.libreloom.org. Stripe $8/TB/month backups.
 ├── connect/                  # Cloud SaaS companion (LibreServ Connect). Independent Go 1.26 module
 │                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
 │                             # LibreServ devices: email relay, DNS/domain, cloud backups, tunnel access,

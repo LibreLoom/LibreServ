@@ -165,8 +165,8 @@ export default function AccessCategory() {
         <p className="text-primary text-sm">
           A phone app, desktop app, or script can keep working without typing
           your password each time. Folder mounts (Finder, Explorer) use this access
-          token as the password — never your Luna password. Only an admin can mount the
-          whole drive as a folder.
+          token as the password — never your Luna password. The mount shows the
+          folders you can already open in Luna.
         </p>
 
         <div className="mt-4 flex flex-col gap-2">

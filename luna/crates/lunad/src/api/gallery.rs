@@ -14,6 +14,9 @@ use crate::gallery::{self, ListFilter};
 
 const THUMB_CACHE_CONTROL: &str = "private, no-store";
 
+type ApiError = (StatusCode, Json<Value>);
+type DriveMounts = Vec<(String, PathBuf)>;
+
 #[derive(Deserialize)]
 struct GalleryQuery {
     #[serde(default)]
@@ -38,7 +41,10 @@ struct GalleryQuery {
 }
 
 fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
-    let parts: Vec<f64> = raw.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    let parts: Vec<f64> = raw
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
     if parts.len() != 4 {
         return None;
     }
@@ -146,10 +152,7 @@ pub fn router() -> Router<AppState> {
             delete(delete_invite),
         )
         .route("/api/v1/public/albums/{token}", get(public_album))
-        .route(
-            "/api/v1/public/albums/{token}/thumb",
-            get(public_thumb),
-        )
+        .route("/api/v1/public/albums/{token}/thumb", get(public_thumb))
         .route(
             "/api/v1/public/albums/{token}/upload",
             post(public_upload).layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
@@ -160,7 +163,7 @@ fn accessible_mounts(
     state: &AppState,
     user: &crate::auth::CurrentUser,
     only: Option<&str>,
-) -> Result<Vec<(String, PathBuf)>, (StatusCode, Json<Value>)> {
+) -> Result<DriveMounts, ApiError> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -191,7 +194,7 @@ fn accessible_mounts(
     Ok(out)
 }
 
-fn all_mounted(state: &AppState) -> Result<Vec<(String, PathBuf)>, (StatusCode, Json<Value>)> {
+fn all_mounted(state: &AppState) -> Result<DriveMounts, ApiError> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -211,10 +214,7 @@ fn all_mounted(state: &AppState) -> Result<Vec<(String, PathBuf)>, (StatusCode, 
         .collect())
 }
 
-fn resolve_mount(
-    state: &AppState,
-    drive_id: &str,
-) -> Result<PathBuf, (StatusCode, Json<Value>)> {
+fn resolve_mount(state: &AppState, drive_id: &str) -> Result<PathBuf, (StatusCode, Json<Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -272,25 +272,16 @@ async fn timeline(
         album_id: query.album_id,
         album_home_drive: query.album_home,
         place: query.place,
-        place_bbox: query
-            .place_bbox
-            .as_deref()
-            .and_then(parse_place_bbox),
+        place_bbox: query.place_bbox.as_deref().and_then(parse_place_bbox),
         user_id: Some(user.id.clone()),
     };
-    let page = gallery::list_photos(
-        &mounts,
-        query.drive_id.as_deref(),
-        &filter,
-        limit,
-        offset,
-    )
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open the gallery.",
-        )
-    })?;
+    let page = gallery::list_photos(&mounts, query.drive_id.as_deref(), &filter, limit, offset)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't open the gallery.",
+            )
+        })?;
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -474,15 +465,12 @@ async fn create_album(
     }
     let mounts = accessible_mounts(&state, &user, None)?;
     let (drive_id, root) = if let Some(id) = body.home_drive_id.as_deref() {
-        mounts
-            .into_iter()
-            .find(|(d, _)| d == id)
-            .ok_or_else(|| {
-                json_error(
-                    StatusCode::FORBIDDEN,
-                    "You don't have a writable drive for this album.",
-                )
-            })?
+        mounts.into_iter().find(|(d, _)| d == id).ok_or_else(|| {
+            json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have a writable drive for this album.",
+            )
+        })?
     } else {
         mounts.into_iter().next().ok_or_else(|| {
             json_error(
@@ -548,7 +536,10 @@ async fn patch_album(
     gallery::update_album(
         &root,
         &id,
-        body.name.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+        body.name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
         body.shared,
         body.allow_uploads,
     )
@@ -1013,10 +1004,7 @@ async fn public_upload(
             safe
         };
         let bytes = field.bytes().await.map_err(|_| {
-            json_error(
-                StatusCode::BAD_REQUEST,
-                "Could not read the uploaded file.",
-            )
+            json_error(StatusCode::BAD_REQUEST, "Could not read the uploaded file.")
         })?;
         let dest_rel = format!("{}/{}", album.contrib_path, safe);
         let dest = root.join(&dest_rel);
@@ -1030,11 +1018,7 @@ async fn public_upload(
             )
         })?;
         if let Ok(Some(photo)) = gallery::index_one(&home, &root, &dest_rel) {
-            let _ = gallery::add_album_items(
-                &root,
-                &album.id,
-                &[(home.clone(), dest_rel.clone())],
-            );
+            let _ = gallery::add_album_items(&root, &album.id, &[(home.clone(), dest_rel.clone())]);
             saved.push(photo);
         }
     }

@@ -197,7 +197,6 @@ func TestLogoutWithoutUser(t *testing.T) {
 	}
 }
 
-
 func TestClearAuthCookiesMatchesSecureFlag(t *testing.T) {
 	// Over plain HTTP, both cookies were set with Secure:false. Clearing must
 	// use the same Secure flag or the browser keeps the refresh cookie.

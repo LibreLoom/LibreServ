@@ -124,9 +124,12 @@ describe("DrivesPage", () => {
 
   it("keeps Look-inside loading copy short while inspect is pending", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
-    let finishInspect;
+    /** @type {() => void} */
+    let finishInspect = () => {};
     const inspectGate = new Promise((resolve) => {
-      finishInspect = resolve;
+      finishInspect = () => {
+        resolve(undefined);
+      };
     });
     stubDrivesApi({
       fetch: (u) => {

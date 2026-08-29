@@ -35,6 +35,9 @@ fn main() -> anyhow::Result<()> {
         lunad::fixture_exif::inject_exif_jpeg(&path, &entry.datetime, gps)?;
         injected += 1;
     }
-    eprintln!("injected EXIF into {injected} JPEG(s) under {}", root.display());
+    eprintln!(
+        "injected EXIF into {injected} JPEG(s) under {}",
+        root.display()
+    );
     Ok(())
 }

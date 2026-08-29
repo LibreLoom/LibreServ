@@ -221,7 +221,10 @@ mod tests {
         }
         let meta = capture_meta(&sample).expect("read fixture exif");
         assert!(meta.0.is_some(), "DateTimeOriginal missing");
-        assert!(meta.1.is_some() && meta.2.is_some(), "GPS missing: {meta:?}");
+        assert!(
+            meta.1.is_some() && meta.2.is_some(),
+            "GPS missing: {meta:?}"
+        );
     }
 
     #[test]

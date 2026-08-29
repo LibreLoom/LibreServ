@@ -379,10 +379,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
         let rows = stmt.query_map([], |row| row.get(0))?;
         rows.filter_map(|r| r.ok()).collect()
     };
-    let stale: Vec<String> = existing
-        .into_iter()
-        .filter(|p| !seen.contains(p))
-        .collect();
+    let stale: Vec<String> = existing.into_iter().filter(|p| !seen.contains(p)).collect();
     if !stale.is_empty() {
         let tx = conn.unchecked_transaction()?;
         for path in &stale {
@@ -528,17 +525,18 @@ pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()
     let conn = open_drive_db(root)?;
     conn.execute(
         "UPDATE photos SET width = ?1, height = ?2, has_thumb = ?3 WHERE path = ?4",
-        params![width as i64, height as i64, if has_thumb { 1 } else { 0 }, rel],
+        params![
+            width as i64,
+            height as i64,
+            if has_thumb { 1 } else { 0 },
+            rel
+        ],
     )?;
     Ok(())
 }
 
 /// Index a single media file (meta + thumb). Used by shared-album uploads and tests.
-pub fn index_one(
-    drive_id: &str,
-    root: &Path,
-    rel: &str,
-) -> anyhow::Result<Option<Photo>> {
+pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Option<Photo>> {
     if index_one_meta(drive_id, root, rel)?.is_none() {
         return Ok(None);
     }
@@ -677,12 +675,7 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
         std::fs::create_dir_all(parent)?;
     }
     let status = std::process::Command::new(ffmpeg)
-        .args([
-            "-y",
-            "-ss",
-            "0",
-            "-i",
-        ])
+        .args(["-y", "-ss", "0", "-i"])
         .arg(src)
         .args([
             "-frames:v",
@@ -863,7 +856,10 @@ fn query_drive_photos(
     let q_pat = filter
         .q
         .as_ref()
-        .map(|q| format!("%{}%", q.replace('%', "").replace('_', "")))
+        .map(|q| {
+            let scrubbed: String = q.chars().filter(|c| *c != '%' && *c != '_').collect();
+            format!("%{scrubbed}%")
+        })
         .unwrap_or_default();
     let from = filter.from.unwrap_or(0);
     let to = filter.to.unwrap_or(0);
@@ -872,7 +868,11 @@ fn query_drive_photos(
         .place_bbox
         .map(|[min_lon, min_lat, max_lon, max_lat]| (min_lon, min_lat, max_lon, max_lat))
         .unwrap_or((0.0, 0.0, 0.0, 0.0));
-    let bbox_active = if filter.place_bbox.is_some() { 1i64 } else { 0i64 };
+    let bbox_active = if filter.place_bbox.is_some() {
+        1i64
+    } else {
+        0i64
+    };
     let fav_only = if filter.favorites_user.is_some() {
         1i64
     } else {
@@ -909,34 +909,35 @@ fn query_drive_photos(
             bbox_max_lat,
         ],
         |row| {
-        let path: String = row.get(0)?;
-        let has_thumb: i64 = row.get(10)?;
-        let favorited: i64 = row.get(11)?;
-        let place_label: String = row.get(9)?;
-        Ok(Photo {
-            drive_id: drive_id.to_string(),
-            path: path.clone(),
-            name: row.get(1)?,
-            size: row.get::<_, i64>(2)? as u64,
-            taken_at: row.get(3)?,
-            width: row.get::<_, i64>(4)? as u32,
-            height: row.get::<_, i64>(5)? as u32,
-            thumb: if has_thumb != 0 {
-                thumb_url(drive_id, &path)
-            } else {
-                String::new()
-            },
-            kind: row.get(6)?,
-            lat: row.get(7)?,
-            lon: row.get(8)?,
-            place_label: if place_label.is_empty() {
-                None
-            } else {
-                Some(place_label)
-            },
-            favorited: favorited != 0,
-        })
-    })?;
+            let path: String = row.get(0)?;
+            let has_thumb: i64 = row.get(10)?;
+            let favorited: i64 = row.get(11)?;
+            let place_label: String = row.get(9)?;
+            Ok(Photo {
+                drive_id: drive_id.to_string(),
+                path: path.clone(),
+                name: row.get(1)?,
+                size: row.get::<_, i64>(2)? as u64,
+                taken_at: row.get(3)?,
+                width: row.get::<_, i64>(4)? as u32,
+                height: row.get::<_, i64>(5)? as u32,
+                thumb: if has_thumb != 0 {
+                    thumb_url(drive_id, &path)
+                } else {
+                    String::new()
+                },
+                kind: row.get(6)?,
+                lat: row.get(7)?,
+                lon: row.get(8)?,
+                place_label: if place_label.is_empty() {
+                    None
+                } else {
+                    Some(place_label)
+                },
+                favorited: favorited != 0,
+            })
+        },
+    )?;
 
     let mut photos = Vec::new();
     for row in rows {
@@ -1000,7 +1001,7 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
         }
     }
     let mut out: Vec<_> = map.into_values().collect();
-    out.sort_by(|a, b| b.count.cmp(&a.count));
+    out.sort_by_key(|b| std::cmp::Reverse(b.count));
     Ok(out)
 }
 
@@ -1071,12 +1072,7 @@ fn urlencode(input: &str) -> String {
 
 // --- Favorites / albums (on-drive library) ---
 
-pub fn set_favorite(
-    root: &Path,
-    user_id: &str,
-    path: &str,
-    on: bool,
-) -> anyhow::Result<()> {
+pub fn set_favorite(root: &Path, user_id: &str, path: &str, on: bool) -> anyhow::Result<()> {
     let conn = open_drive_db(root)?;
     if on {
         let now = now_unix();
@@ -1152,7 +1148,7 @@ pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Resul
             out.push(row?);
         }
     }
-    out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
     Ok(out)
 }
 
@@ -1186,7 +1182,11 @@ pub fn create_album(
     })
 }
 
-pub fn get_album(root: &Path, home_drive_id: &str, album_id: &str) -> anyhow::Result<Option<Album>> {
+pub fn get_album(
+    root: &Path,
+    home_drive_id: &str,
+    album_id: &str,
+) -> anyhow::Result<Option<Album>> {
     let conn = open_drive_db(root)?;
     conn.query_row(
         "SELECT id, owner_user_id, name, created_at, cover_path, shared, allow_uploads, contrib_path,
@@ -1250,9 +1250,18 @@ pub fn update_album(
 pub fn delete_album(root: &Path, album_id: &str) -> anyhow::Result<()> {
     let conn = open_drive_db(root)?;
     let tx = conn.unchecked_transaction()?;
-    tx.execute("DELETE FROM album_items WHERE album_id = ?1", params![album_id])?;
-    tx.execute("DELETE FROM album_members WHERE album_id = ?1", params![album_id])?;
-    tx.execute("DELETE FROM album_invites WHERE album_id = ?1", params![album_id])?;
+    tx.execute(
+        "DELETE FROM album_items WHERE album_id = ?1",
+        params![album_id],
+    )?;
+    tx.execute(
+        "DELETE FROM album_members WHERE album_id = ?1",
+        params![album_id],
+    )?;
+    tx.execute(
+        "DELETE FROM album_invites WHERE album_id = ?1",
+        params![album_id],
+    )?;
     tx.execute("DELETE FROM albums WHERE id = ?1", params![album_id])?;
     tx.commit()?;
     Ok(())
@@ -1316,8 +1325,7 @@ pub struct AlbumMember {
 
 pub fn list_members(root: &Path, album_id: &str) -> anyhow::Result<Vec<AlbumMember>> {
     let conn = open_drive_db(root)?;
-    let mut stmt =
-        conn.prepare("SELECT user_id, role FROM album_members WHERE album_id = ?1")?;
+    let mut stmt = conn.prepare("SELECT user_id, role FROM album_members WHERE album_id = ?1")?;
     let rows = stmt.query_map(params![album_id], |row| {
         Ok(AlbumMember {
             user_id: row.get(0)?,
@@ -1386,7 +1394,10 @@ pub fn create_invite(
 
 pub fn delete_invite(root: &Path, invite_id: &str) -> anyhow::Result<()> {
     let conn = open_drive_db(root)?;
-    conn.execute("DELETE FROM album_invites WHERE id = ?1", params![invite_id])?;
+    conn.execute(
+        "DELETE FROM album_invites WHERE id = ?1",
+        params![invite_id],
+    )?;
     Ok(())
 }
 
@@ -1438,11 +1449,7 @@ pub fn find_invite(
     Ok(None)
 }
 
-pub fn user_can_access_album(
-    root: &Path,
-    album: &Album,
-    user_id: &str,
-) -> anyhow::Result<bool> {
+pub fn user_can_access_album(root: &Path, album: &Album, user_id: &str) -> anyhow::Result<bool> {
     if album.owner_user_id == user_id {
         return Ok(true);
     }
@@ -1455,11 +1462,7 @@ pub fn user_can_access_album(
     Ok(n > 0)
 }
 
-pub fn user_can_contribute(
-    root: &Path,
-    album: &Album,
-    user_id: &str,
-) -> anyhow::Result<bool> {
+pub fn user_can_contribute(root: &Path, album: &Album, user_id: &str) -> anyhow::Result<bool> {
     if album.owner_user_id == user_id {
         return Ok(true);
     }
@@ -1686,14 +1689,14 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let vol = dir.path().join("vol");
-        copy_fixture_tree(
-            &fixture,
-            &vol,
-            &["DCIM", "Photos", "Pictures", ".Trashes"],
-        );
+        copy_fixture_tree(&fixture, &vol, &["DCIM", "Photos", "Pictures", ".Trashes"]);
 
         let report = scan_drive("mock", &vol).expect("scan mock PSSD fixtures");
-        assert!(report.found >= 60, "expected many photos, found {}", report.found);
+        assert!(
+            report.found >= 60,
+            "expected many photos, found {}",
+            report.found
+        );
         assert!(
             report.thumbnailed >= 55,
             "expected most thumbnails, got {}",
@@ -1708,7 +1711,11 @@ mod tests {
         assert!(with_gps >= 20, "expected GPS photos, got {with_gps}");
 
         let places = list_places(&mounts).unwrap();
-        assert!(places.len() >= 3, "expected place clusters, got {}", places.len());
+        assert!(
+            places.len() >= 3,
+            "expected place clusters, got {}",
+            places.len()
+        );
 
         let markers = list_place_markers(&mounts).unwrap();
         assert!(

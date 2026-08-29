@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- useModalClose is the paired hook for ModalCard */
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -108,6 +109,7 @@ export default function ModalCard({
     if (open) {
       clearExitTimer();
       isClosingRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setIsClosing(false);
       setPresent(true);
       return;

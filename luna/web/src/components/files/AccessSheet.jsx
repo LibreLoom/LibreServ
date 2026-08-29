@@ -44,6 +44,9 @@ function grantCovers(grant, driveId, path) {
   return target === granted || target.startsWith(`${granted}/`);
 }
 
+/**
+ * @param {{ label: string, onClick: () => void, surface?: "primary"|"secondary" }} props
+ */
 export function AccessButton({ label, onClick, surface = "secondary" }) {
   return (
     <Tooltip content="Share">
@@ -60,7 +63,7 @@ export function AccessButton({ label, onClick, surface = "secondary" }) {
   );
 }
 
-export default function AccessSheet({ driveId, path = "", kind = "folder", onClose, open = true }) {
+export default function AccessSheet({ driveId, path = "", kind: _kind = "folder", onClose, open = true }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
@@ -96,6 +99,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const addablePeople = members.filter((u) => !grantedUserIds.has(u.id));
   const noPeopleToAdd = users.isSuccess && addablePeople.length === 0;
 
+  /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { user_id: string, drive_id: string, path: string, permission: string }, unknown>} */
   const grantMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/grants", body),
     onSuccess: () => {
@@ -105,6 +109,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
+  /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { id: string, permission: string }, unknown>} */
   const updateGrant = useMutation({
     mutationFn: ({ id, permission: next }) => patchJson(`/api/v1/grants/${id}`, { permission: next }),
     onMutate: ({ id }) => setUpdatingGrantId(id),

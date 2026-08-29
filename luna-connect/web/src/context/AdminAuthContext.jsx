@@ -119,8 +119,16 @@ export function AdminAuthProvider({ children }) {
     setAccount(null);
   }, []);
 
+  const updateAccount = useCallback((updater) => {
+    setAccount((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : { ...prev, ...updater };
+      localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   return (
-    <AdminAuthContext.Provider value={{ ready, isAuthenticated, account, loading, login, seedAdmin, logout }}>
+    <AdminAuthContext.Provider value={{ ready, isAuthenticated, account, loading, login, seedAdmin, logout, updateAccount }}>
       {children}
     </AdminAuthContext.Provider>
   );

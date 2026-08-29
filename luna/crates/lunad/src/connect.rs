@@ -135,14 +135,14 @@ impl ConnectService {
     }
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
-        let code = code.trim().to_uppercase();
-        if code.len() != 6 || !code.chars().all(|c| c.is_ascii_hexdigit()) {
+        let norm = normalize_setup_code(code);
+        if !is_booklet_code(&norm) {
             return Err(ConnectError::Other(
-                "That code should be six letters and numbers from the Luna Connect site.".into(),
+                "That code should look like ****-****-****-****-**** from the Luna Connect site (or the printed booklet).".into(),
             ));
         }
         *self.ephemeral.lock().unwrap() = Some(Ephemeral {
-            code,
+            code: group_booklet(&norm),
             until: Instant::now() + OSS_TTL,
         });
         Ok(())
@@ -536,6 +536,46 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
     }
 }
 
+/// Crockford base32 without I, L, O, U (same alphabet as Luna Connect).
+const CROCKFORD: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+fn normalize_setup_code(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        if matches!(c, '-' | ' ' | '_') {
+            continue;
+        }
+        let c = c.to_ascii_uppercase();
+        let c = match c {
+            'I' | 'L' => '1',
+            'O' => '0',
+            _ => c,
+        };
+        out.push(c);
+    }
+    out
+}
+
+fn is_booklet_code(norm: &str) -> bool {
+    let len = norm.len();
+    if !(16..=32).contains(&len) {
+        return false;
+    }
+    norm.bytes().all(|b| CROCKFORD.contains(&b))
+}
+
+fn group_booklet(norm: &str) -> String {
+    let mut parts = Vec::new();
+    let bytes = norm.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let end = (i + 4).min(bytes.len());
+        parts.push(std::str::from_utf8(&bytes[i..end]).unwrap_or(""));
+        i = end;
+    }
+    parts.join("-")
+}
+
 pub fn is_idle(last_io_unix: i64, now_unix: i64) -> bool {
     now_unix.saturating_sub(last_io_unix) >= 30
 }
@@ -573,12 +613,21 @@ mod tests {
     fn oss_code_is_memory_only() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("a1b2c3").unwrap();
+        service
+            .set_oss_code("3097-v4yk-3hyx-2e3p-v4b3")
+            .unwrap();
         assert!(!dir.path().join("setup-token").exists());
-        assert_eq!(service.status().setup_code.as_deref(), Some("A1B2C3"));
+        assert_eq!(
+            service.status().setup_code.as_deref(),
+            Some("3097-V4YK-3HYX-2E3P-V4B3")
+        );
         assert!(
             service.status_for(false).setup_code.is_none(),
             "non-admin must never see a live pairing code"
+        );
+        assert!(
+            service.set_oss_code("a1b2c3").is_err(),
+            "short hex must be rejected"
         );
     }
 

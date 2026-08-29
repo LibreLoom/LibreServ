@@ -23,11 +23,7 @@ use crate::uploads;
 fn write_pngs(dir: &Path, n: usize) {
     std::fs::create_dir_all(dir).unwrap();
     for i in 0..n {
-        let img = image::RgbaImage::from_pixel(
-            64,
-            64,
-            image::Rgba([(i % 255) as u8, 40, 80, 255]),
-        );
+        let img = image::RgbaImage::from_pixel(64, 64, image::Rgba([(i % 255) as u8, 40, 80, 255]));
         img.save(dir.join(format!("p{i:04}.png"))).unwrap();
     }
 }
@@ -91,8 +87,8 @@ fn list_latency_while_luna_locked(
     });
     rx.recv().unwrap();
     let start = Instant::now();
-    let _ = gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0)
-        .unwrap();
+    let _ =
+        gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0).unwrap();
     let waited = start.elapsed().as_millis();
     handle.join().unwrap();
     waited
@@ -138,7 +134,11 @@ fn runtime_perf_numbers() {
     let first_ms = t0.elapsed().as_millis();
     assert_eq!(first.found, 120);
     assert!(
-        gallery::thumbs_dir(&photos).read_dir().unwrap().next().is_some(),
+        gallery::thumbs_dir(&photos)
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_some(),
         "thumbs must be on the photo drive"
     );
     assert!(
@@ -281,8 +281,14 @@ fn runtime_perf_numbers() {
 
     let synthetic = list_latency_while_luna_locked(&db, &photo_mounts, 200);
 
-    eprintln!("PERF gallery_first_scan_ms={first_ms} photos={}", first.found);
-    eprintln!("PERF gallery_rescan_ms={second_ms} thumbnailed={}", second.thumbnailed);
+    eprintln!(
+        "PERF gallery_first_scan_ms={first_ms} photos={}",
+        first.found
+    );
+    eprintln!(
+        "PERF gallery_rescan_ms={second_ms} thumbnailed={}",
+        second.thumbnailed
+    );
     eprintln!(
         "PERF gallery_rescan_speedup_x={:.1}",
         (first_ms as f64) / (second_ms.max(1) as f64)
@@ -350,24 +356,8 @@ fn runtime_perf_numbers() {
     // Device-token: 20 rapid notes must not create 20 usage rows.
     {
         let conn = db.lock().unwrap();
-        crate::db::insert_user(
-            &conn,
-            "u1",
-            "admin",
-            "Admin",
-            "hash",
-            "admin",
-        )
-        .unwrap();
-        crate::db::insert_device_token(
-            &conn,
-            "dt1",
-            "u1",
-            "phone",
-            "deadbeef",
-            None,
-        )
-        .unwrap();
+        crate::db::insert_user(&conn, "u1", "admin", "Admin", "hash", "admin").unwrap();
+        crate::db::insert_device_token(&conn, "dt1", "u1", "phone", "deadbeef", None).unwrap();
         for _ in 0..20 {
             crate::db::note_device_token_activity(&conn, "dt1", 0).unwrap();
         }

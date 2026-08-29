@@ -3,11 +3,14 @@
 //! dav-server's LocalFs uses ordinary `open`/`metadata`, which follow
 //! symlinks. This backend resolves every path with `resolve_child_nofollow`
 //! and opens files with `O_NOFOLLOW`.
+//!
+//! [`GrantFs`] wraps [`JailedFs`] and enforces the same folder grants as the
+//! file API (admins see everything; members only what they were granted).
 
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use bytes::{Buf, Bytes};
@@ -17,50 +20,20 @@ use dav_server::fs::{
     OpenOptions, ReadDirMeta,
 };
 use luna_core::path::{PathError, resolve_child_nofollow, resolve_for_create_nofollow};
+use rusqlite::Connection;
+
+use crate::auth::{CurrentUser, can_access, can_browse_path};
 
 #[derive(Clone)]
 pub struct JailedFs {
     root: PathBuf,
-    drive_id: Option<String>,
-    gallery: Option<Arc<crate::gallery_indexer::GalleryIndexer>>,
 }
 
 impl JailedFs {
+    #[allow(dead_code)] // kept for unit tests / simple jail without gallery hooks
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
-            drive_id: None,
-            gallery: None,
-        }
-    }
-
-    pub fn with_gallery(
-        root: impl AsRef<Path>,
-        drive_id: String,
-        gallery: Arc<crate::gallery_indexer::GalleryIndexer>,
-    ) -> Self {
-        Self {
-            root: root.as_ref().to_path_buf(),
-            drive_id: Some(drive_id),
-            gallery: Some(gallery),
-        }
-    }
-
-    fn notify_upsert(&self, rel: &str) {
-        if let (Some(drive_id), Some(gallery)) = (&self.drive_id, &self.gallery) {
-            gallery.upsert(drive_id, rel);
-        }
-    }
-
-    fn notify_remove(&self, rel: &str) {
-        if let (Some(drive_id), Some(gallery)) = (&self.drive_id, &self.gallery) {
-            gallery.remove(drive_id, rel);
-        }
-    }
-
-    fn notify_rename(&self, from: &str, to: &str) {
-        if let (Some(drive_id), Some(gallery)) = (&self.drive_id, &self.gallery) {
-            gallery.rename(drive_id, from, to);
         }
     }
 
@@ -75,6 +48,78 @@ impl JailedFs {
             PathError::NotFound(_) => FsError::NotFound,
             PathError::Io(e) => io_to_fs(e),
         }
+    }
+}
+
+/// Drive-jailed FS plus per-user grant checks.
+#[derive(Clone)]
+pub struct GrantFs {
+    inner: JailedFs,
+    user: CurrentUser,
+    drive_id: String,
+    db: Arc<Mutex<Connection>>,
+}
+
+impl GrantFs {
+    pub fn new(
+        root: impl AsRef<Path>,
+        user: CurrentUser,
+        drive_id: impl Into<String>,
+        db: Arc<Mutex<Connection>>,
+    ) -> Self {
+        Self {
+            inner: JailedFs::new(root),
+            user,
+            drive_id: drive_id.into(),
+            db,
+        }
+    }
+
+    fn rel(path: &DavPath) -> FsResult<String> {
+        JailedFs::rel(path)
+    }
+
+    fn join_child(parent: &str, name: &str) -> String {
+        if parent.is_empty() {
+            name.to_string()
+        } else {
+            format!("{parent}/{name}")
+        }
+    }
+
+    fn require_read(&self, rel: &str) -> FsResult<()> {
+        let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
+        if can_access(&self.user, &conn, &self.drive_id, rel, false) {
+            Ok(())
+        } else {
+            Err(FsError::Forbidden)
+        }
+    }
+
+    fn require_write(&self, rel: &str) -> FsResult<()> {
+        let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
+        if can_access(&self.user, &conn, &self.drive_id, rel, true) {
+            Ok(())
+        } else {
+            Err(FsError::Forbidden)
+        }
+    }
+
+    fn require_browse(&self, rel: &str) -> FsResult<()> {
+        let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
+        if can_browse_path(&self.user, &conn, &self.drive_id, rel) {
+            Ok(())
+        } else {
+            Err(FsError::Forbidden)
+        }
+    }
+
+    fn may_browse_child(&self, parent: &str, name: &str) -> bool {
+        let child = Self::join_child(parent, name);
+        let Ok(conn) = self.db.lock() else {
+            return false;
+        };
+        can_browse_path(&self.user, &conn, &self.drive_id, &child)
     }
 }
 
@@ -168,6 +213,10 @@ impl DavDirEntry for DirEntry {
         let meta = self.meta.clone();
         Box::pin(async move { Ok(Box::new(Meta(meta)) as Box<dyn DavMetaData>) })
     }
+}
+
+fn open_write_requested(options: &OpenOptions) -> bool {
+    options.write || options.append || options.truncate || options.create || options.create_new
 }
 
 impl DavFileSystem for JailedFs {
@@ -277,9 +326,7 @@ impl DavFileSystem for JailedFs {
         Box::pin(async move {
             let rel = Self::rel(path)?;
             let disk = resolve_child_nofollow(&self.root, &rel).map_err(Self::map_err)?;
-            std::fs::remove_file(&disk).map_err(io_to_fs)?;
-            self.notify_remove(&rel);
-            Ok(())
+            std::fs::remove_file(&disk).map_err(io_to_fs)
         })
     }
 
@@ -289,9 +336,7 @@ impl DavFileSystem for JailedFs {
             let to_rel = Self::rel(to)?;
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
-            std::fs::rename(&src, &dest).map_err(io_to_fs)?;
-            self.notify_rename(&from_rel, &to_rel);
-            Ok(())
+            std::fs::rename(&src, &dest).map_err(io_to_fs)
         })
     }
 
@@ -302,8 +347,109 @@ impl DavFileSystem for JailedFs {
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
             std::fs::copy(&src, &dest).map_err(io_to_fs)?;
-            self.notify_upsert(&to_rel);
             Ok(())
+        })
+    }
+}
+
+impl DavFileSystem for GrantFs {
+    fn open<'a>(
+        &'a self,
+        path: &'a DavPath,
+        options: OpenOptions,
+    ) -> FsFuture<'a, Box<dyn DavFile>> {
+        Box::pin(async move {
+            let rel = Self::rel(path)?;
+            if open_write_requested(&options) {
+                self.require_write(&rel)?;
+            } else {
+                self.require_read(&rel)?;
+            }
+            self.inner.open(path, options).await
+        })
+    }
+
+    fn read_dir<'a>(
+        &'a self,
+        path: &'a DavPath,
+        meta: ReadDirMeta,
+    ) -> FsFuture<'a, FsStream<Box<dyn DavDirEntry>>> {
+        Box::pin(async move {
+            let rel = Self::rel(path)?;
+            self.require_browse(&rel)?;
+            let stream = self.inner.read_dir(path, meta).await?;
+            // Filter to grant-visible children (ancestors + granted trees).
+            use futures_util::StreamExt;
+            let mut entries: Vec<FsResult<Box<dyn DavDirEntry>>> = Vec::new();
+            let mut pinned = stream;
+            while let Some(item) = pinned.next().await {
+                match item {
+                    Ok(ent) => {
+                        let name = String::from_utf8_lossy(&ent.name()).into_owned();
+                        if self.may_browse_child(&rel, &name) {
+                            entries.push(Ok(ent));
+                        }
+                    }
+                    Err(e) => entries.push(Err(e)),
+                }
+            }
+            Ok(Box::pin(futures_util::stream::iter(entries)) as FsStream<Box<dyn DavDirEntry>>)
+        })
+    }
+
+    fn metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
+        self.symlink_metadata(path)
+    }
+
+    fn symlink_metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
+        Box::pin(async move {
+            let rel = Self::rel(path)?;
+            self.require_browse(&rel)?;
+            self.inner.symlink_metadata(path).await
+        })
+    }
+
+    fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
+        Box::pin(async move {
+            let rel = Self::rel(path)?;
+            self.require_write(&rel)?;
+            self.inner.create_dir(path).await
+        })
+    }
+
+    fn remove_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
+        Box::pin(async move {
+            let rel = Self::rel(path)?;
+            self.require_write(&rel)?;
+            self.inner.remove_dir(path).await
+        })
+    }
+
+    fn remove_file<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
+        Box::pin(async move {
+            let rel = Self::rel(path)?;
+            self.require_write(&rel)?;
+            self.inner.remove_file(path).await
+        })
+    }
+
+    fn rename<'a>(&'a self, from: &'a DavPath, to: &'a DavPath) -> FsFuture<'a, ()> {
+        Box::pin(async move {
+            let from_rel = Self::rel(from)?;
+            let to_rel = Self::rel(to)?;
+            self.require_write(&from_rel)?;
+            self.require_write(&to_rel)?;
+            self.inner.rename(from, to).await
+        })
+    }
+
+    fn copy<'a>(&'a self, from: &'a DavPath, to: &'a DavPath) -> FsFuture<'a, ()> {
+        Box::pin(async move {
+            let from_rel = Self::rel(from)?;
+            let to_rel = Self::rel(to)?;
+            self.require_read(&from_rel)?;
+            self.require_write(&to_rel)?;
+            self.inner.copy(from, to).await
         })
     }
 }

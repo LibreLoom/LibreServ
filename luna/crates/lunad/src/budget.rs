@@ -84,13 +84,8 @@ pub fn limits_from(available_bytes: u64, total_bytes: u64) -> Limits {
         8192
     };
 
-    let heif_concurrency = if avail < 384 * MIB {
-        1
-    } else if avail < 1024 * MIB {
-        1
-    } else {
-        2
-    };
+    // Below 1 GiB free: one HEIF decode at a time. Above that, allow two.
+    let heif_concurrency = if avail < 1024 * MIB { 1 } else { 2 };
 
     let _ = total_bytes; // reserved for future total-based policy
     Limits {

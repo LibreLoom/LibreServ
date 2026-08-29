@@ -395,8 +395,8 @@ func TestTokenHelpers(t *testing.T) {
 	if !strings.Contains(n, "1") { // I,L → 1
 		t.Fatalf("crockford map %s", n)
 	}
-	if !security.IsOSSHex("A1B2C3") {
-		t.Fatal("oss hex")
+	if !security.IsOfficialShape(security.NormalizeToken("3097-V4YK-3HYX-2E3P-V4B3")) {
+		t.Fatal("booklet shape")
 	}
 }
 
