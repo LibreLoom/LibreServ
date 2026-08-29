@@ -199,4 +199,30 @@ describe("FileBrowser", () => {
     renderBrowser({ multiSelect: false });
     expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
   });
+
+  it("renders folderActions next to Upload", async () => {
+    stubListing({
+      "": [{ name: "photo.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      multiSelect: false,
+      enableUploadDrop: true,
+      onUploadFiles: vi.fn(),
+      folderActions: <button type="button">New folder</button>,
+    });
+    expect(await screen.findByRole("button", { name: "New folder" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Upload/i })).toBeInTheDocument();
+  });
+
+  it("shows folderActions in picker mode without Upload", async () => {
+    stubListing({ "": [] });
+    renderBrowser({
+      pickerMode: "folder",
+      multiSelect: false,
+      enableUploadDrop: false,
+      folderActions: <button type="button">New folder</button>,
+    });
+    expect(await screen.findByRole("button", { name: "New folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+  });
 });

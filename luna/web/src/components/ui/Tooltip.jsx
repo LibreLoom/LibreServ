@@ -328,7 +328,7 @@ export function TermHint({ children, content, surface = "secondary", delayMs, cl
       delayMs={delayMs}
       className={className}
       dataSlot="term-hint"
-      popupClassName="max-w-xs rounded-pill px-3 py-1.5 text-xs leading-snug"
+      popupClassName="max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug"
       renderTrigger={({
         triggerRef,
         open,
@@ -602,7 +602,7 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
             style={{ position: "fixed", top: position.top, left: position.left }}
             className={cn(
               "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
-              "max-w-xs rounded-pill px-3 py-1.5 text-xs leading-snug pointer-events-auto",
+              "max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug pointer-events-auto",
               "motion-safe:transition-opacity motion-safe:duration-150",
             )}
           >
