@@ -137,6 +137,16 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Mobile App" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Desktop App" })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
+    expect(
+      screen.getByText("Back up your photos from your phone onto your Luna."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Backup folders onto your Luna and access your Luna's files directly from your computer.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/copies new photos from the phone/i)).toBeNull();
+    expect(screen.queryByText(/no iPhone app yet/i)).toBeNull();
     expect(screen.getByRole("link", { name: /Download the Luna app for Android/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Download Luna Desktop/i })).toBeTruthy();
     const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
