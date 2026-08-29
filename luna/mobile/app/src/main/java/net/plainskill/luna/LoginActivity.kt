@@ -94,7 +94,8 @@ class LoginActivity : AppCompatActivity() {
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
             .setPrompt("Point at the QR code in Luna → Settings → Apps and access tokens")
             .setBeepEnabled(false)
-            .setOrientationLocked(true)
+            .setOrientationLocked(false)
+            .setCaptureActivity(PortraitCaptureActivity::class.java)
             .setBarcodeImageEnabled(false)
         qrLauncher.launch(options)
     }
