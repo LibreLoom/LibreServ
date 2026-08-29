@@ -19,10 +19,10 @@ use luna_desktop::AppState;
 use login::LoginView;
 use window::ShellView;
 
-/// Owns the application hold and tray so the process stays alive while hidden.
+/// Keeps the process alive while the window is hidden (backup/sync continue).
 struct KeepAlive {
     _hold: gtk::gio::ApplicationHoldGuard,
-    _tray: TrayHandle,
+    _tray: Option<TrayHandle>,
 }
 
 pub fn run() -> glib::ExitCode {
@@ -43,7 +43,6 @@ pub fn run() -> glib::ExitCode {
         let window_slot = window_slot.clone();
         let keep_alive = keep_alive.clone();
         move |app| {
-            // Second launch (same application_id): show the existing window.
             if let Some(win) = window_slot.borrow().as_ref() {
                 win.set_visible(true);
                 win.present();
@@ -52,12 +51,17 @@ pub fn run() -> glib::ExitCode {
             let win = build_ui(app, state.clone());
             *window_slot.borrow_mut() = Some(win.clone());
 
-            // Tray + hold only when a StatusNotifier host is available; otherwise
-            // closing the window should quit normally so the user is not stuck.
+            // Always hide on close so backup/sync keep running.
+            win.set_hide_on_close(true);
+            win.connect_close_request(|w| {
+                w.set_visible(false);
+                glib::Propagation::Stop
+            });
+
             if keep_alive.borrow().is_none() {
                 let window_slot = window_slot.clone();
                 let app_for_tray = app.clone();
-                if let Some(tray) = spawn_tray(move |cmd| match cmd {
+                let tray = spawn_tray(move |cmd| match cmd {
                     TrayCmd::Show => {
                         if let Some(w) = window_slot.borrow().as_ref() {
                             w.set_visible(true);
@@ -67,13 +71,16 @@ pub fn run() -> glib::ExitCode {
                     TrayCmd::Quit => {
                         app_for_tray.quit();
                     }
-                }) {
-                    win.set_hide_on_close(true);
-                    *keep_alive.borrow_mut() = Some(KeepAlive {
-                        _hold: app.hold(),
-                        _tray: tray,
-                    });
+                });
+                if tray.is_none() {
+                    eprintln!(
+                        "luna-desktop: no system tray host; window close still hides — relaunch Luna or use Settings to quit later"
+                    );
                 }
+                *keep_alive.borrow_mut() = Some(KeepAlive {
+                    _hold: app.hold(),
+                    _tray: tray,
+                });
             }
 
             if !background {

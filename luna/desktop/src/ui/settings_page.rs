@@ -53,6 +53,23 @@ impl SettingsPage {
         data_group.add(&data_row);
         page.add(&data_group);
 
+        let quit_group = adw::PreferencesGroup::new();
+        quit_group.set_title("Quit");
+        quit_group.set_description(Some(
+            "Closing the window keeps Luna running in the background. Use Quit only when you want backup and sync to stop.",
+        ));
+        let quit_row = adw::ActionRow::builder()
+            .title("Quit Luna Desktop")
+            .activatable(true)
+            .build();
+        quit_row.connect_activated(|_| {
+            if let Some(app) = gtk::gio::Application::default() {
+                app.quit();
+            }
+        });
+        quit_group.add(&quit_row);
+        page.add(&quit_group);
+
         let scrolled = gtk::ScrolledWindow::builder()
             .child(&page)
             .hscrollbar_policy(gtk::PolicyType::Never)
