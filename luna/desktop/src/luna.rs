@@ -150,6 +150,44 @@ fn auth_get(
         .map_err(|e| plain_connect_error(&e))
 }
 
+/// Who this access token belongs to. Used when signing in with a pasted token.
+pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> {
+    let mut resp = auth_get(base_url, token, "/api/v1/auth/me")?;
+    if resp.status() == 401 {
+        return Err(
+            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+                .into(),
+        );
+    }
+    if !resp.status().is_success() {
+        return Err("Luna couldn't check that access token. Try again.".into());
+    }
+    let value: serde_json::Value = resp
+        .body_mut()
+        .read_json()
+        .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
+    if value.is_null() {
+        return Err(
+            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+                .into(),
+        );
+    }
+    let username = value
+        .get("username")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+                .to_string()
+        })?
+        .to_string();
+    let id = value
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok((username, id))
+}
+
 pub fn list_drives(base_url: &str, token: &str) -> Result<Vec<Drive>, String> {
     let mut resp = auth_get(base_url, token, "/api/v1/drives")?;
     if resp.status() == 401 {
@@ -476,6 +514,13 @@ mod tests {
                         r#"{"ok":true,"id":"u1","username":"max","display_name":"Max","role":"admin"}"#
                             .to_string(),
                     )
+                } else if req.contains("/api/v1/auth/me") {
+                    assert!(
+                        req.to_ascii_lowercase()
+                            .contains("authorization: bearer device-tok-456"),
+                        "auth/me must send Bearer access token"
+                    );
+                    (200, r#"{"id":"u1","username":"max","role":"admin"}"#.to_string())
                 } else if req.contains("/api/v1/auth/logout") {
                     assert!(
                         req.to_ascii_lowercase().contains("x-csrf-token: csrf-tok"),
@@ -532,6 +577,18 @@ mod tests {
         let drives = list_drives(&base, &token).unwrap();
         assert_eq!(drives.len(), 1);
         assert_eq!(drives[0].id, "a");
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(handle);
+    }
+
+    #[test]
+    fn access_token_auth_me_and_drives() {
+        let (base, handle, stop) = spawn_server();
+        let (username, id) = auth_me(&base, "device-tok-456").unwrap();
+        assert_eq!(username, "max");
+        assert_eq!(id, "u1");
+        let drives = list_drives(&base, "device-tok-456").unwrap();
+        assert_eq!(drives[0].label, "Photos Drive");
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
     }

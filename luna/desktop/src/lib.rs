@@ -98,20 +98,24 @@ pub fn restore_session(state: &AppState) -> Result<Option<SessionInfo>, String> 
 pub fn login(
     state: &AppState,
     base_url: &str,
-    username: &str,
-    password: &str,
+    access_token: &str,
 ) -> Result<SessionInfo, String> {
     let base_url = base_url.trim().trim_end_matches('/').to_string();
     if base_url.is_empty() {
         return Err("Enter your Luna address (for example http://luna.local).".into());
     }
-    if username.trim().is_empty() || password.is_empty() {
-        return Err("Enter your username and password.".into());
+    let token = access_token.trim().to_string();
+    if token.is_empty() {
+        return Err(
+            "Paste an access token from Luna → Settings → Apps and access tokens.".into(),
+        );
     }
-    let token = luna::login(&base_url, username.trim(), password)?;
+    let (username, _) = luna::auth_me(&base_url, &token)?;
+    // Confirm the token can see drives (same check restore_session uses).
+    luna::list_drives(&base_url, &token)?;
     let data = session::SessionData {
         base_url: base_url.clone(),
-        username: username.trim().to_string(),
+        username: username.clone(),
         token,
     };
     session::save(&data).map_err(|_| "Couldn't save your sign-in on this computer.".to_string())?;
