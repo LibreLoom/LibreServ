@@ -79,6 +79,22 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
+# Disable getty so lunad owns tty1 (IP + booklet code). Recovery uses evdev.
+if [ -f "$ROOTFS/etc/inittab" ]; then
+    sed -i -E 's/^[[:space:]]*tty[0-9]+::.*getty/# &/' "$ROOTFS/etc/inittab"
+fi
+
+# cloudflared is not in Alpine 3.24; official Go binaries are static.
+CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.7.3}"
+case "$ARCH" in
+    aarch64|arm64) _cf_arch=arm64 ;;
+    *) _cf_arch=amd64 ;;
+esac
+mkdir -p "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
+curl -fsSL -o "$ROOTFS/usr/local/bin/cloudflared" \
+    "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${_cf_arch}"
+chmod 755 "$ROOTFS/usr/local/bin/cloudflared"
+
 # Prefer a daemon-only OTA binary on the data partition over the image bake.
 cat > "$ROOTFS/usr/local/sbin/luna-run" <<'RUN'
 #!/bin/sh

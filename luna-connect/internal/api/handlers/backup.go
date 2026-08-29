@@ -35,12 +35,15 @@ func backupUnlocked(h Deps, accountID string) bool {
 	return err == nil && billing.BackupsUnlocked(has == 1, status)
 }
 
-func ownedDeviceID(h Deps, accountID, deviceID string) (string, bool) {
-	if accountID == "" || !opaquePathID(deviceID) {
+// ownedBackupObject authorizes account reads after transfer: the device row
+// may be gone, but the copies still belong to this account.
+func ownedBackupObject(h Deps, accountID, deviceID, rel string) (string, bool) {
+	if accountID == "" || !opaquePathID(deviceID) || strings.TrimSpace(rel) == "" {
 		return "", false
 	}
 	var id string
-	err := h.DB.QueryRow(`SELECT id FROM devices WHERE id = ? AND account_id = ?`, deviceID, accountID).Scan(&id)
+	err := h.DB.QueryRow(`SELECT device_id FROM backup_objects WHERE account_id = ? AND device_id = ? AND relative_path = ?`,
+		accountID, deviceID, rel).Scan(&id)
 	return id, err == nil && id != ""
 }
 
@@ -188,7 +191,7 @@ func (h BackupHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deviceID, rel := backupObjectRef(r)
-	owned, ok := ownedDeviceID(h.Deps, acct.ID, deviceID)
+	owned, ok := ownedBackupObject(h.Deps, acct.ID, deviceID, rel)
 	if !ok {
 		JSONError(w, http.StatusNotFound, "That file is not in cloud backup.")
 		return
@@ -221,7 +224,7 @@ func (h BackupHandler) DeleteAccountObject(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	deviceID, rel := backupObjectRef(r)
-	owned, ok := ownedDeviceID(h.Deps, acct.ID, deviceID)
+	owned, ok := ownedBackupObject(h.Deps, acct.ID, deviceID, rel)
 	if !ok {
 		JSONError(w, http.StatusNotFound, "That file is not in cloud backup.")
 		return

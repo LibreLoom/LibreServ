@@ -4,31 +4,14 @@ import { MemoryRouter } from "react-router-dom";
 import OnboardingPage from "./OnboardingPage.jsx";
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
+import { ThemeProvider } from "../context/ThemeContext.jsx";
 
 const register = vi.fn();
+const login = vi.fn();
+const refresh = vi.fn();
 const markEmailVerified = vi.fn();
 const updateAccountEmail = vi.fn();
 const authState = vi.hoisted(() => ({ isAuthenticated: false, me: null }));
-const memoryStore = vi.hoisted(() => /** @type {Record<string, string>} */ ({}));
-
-function resetStorage() {
-  for (const k of Object.keys(memoryStore)) delete memoryStore[k];
-  Object.defineProperty(globalThis, "localStorage", {
-    configurable: true,
-    value: {
-      getItem: (key) => (key in memoryStore ? memoryStore[key] : null),
-      setItem: (key, value) => {
-        memoryStore[key] = String(value);
-      },
-      removeItem: (key) => {
-        delete memoryStore[key];
-      },
-      clear: () => {
-        for (const k of Object.keys(memoryStore)) delete memoryStore[k];
-      },
-    },
-  });
-}
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
@@ -50,66 +33,134 @@ vi.mock("../context/AuthContext.jsx", () => ({
   useAuth: () => ({
     isAuthenticated: authState.isAuthenticated,
     register,
+    login,
     me: authState.me,
-    refresh: vi.fn(async () => authState.me),
+    refresh,
     markEmailVerified,
     updateAccountEmail,
   }),
 }));
 
-function mount() {
+beforeEach(() => {
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
+
+function mount(path = "/onboarding") {
   return render(
-    <MemoryRouter>
-      <OnboardingPage />
-    </MemoryRouter>,
+    <ThemeProvider>
+      <MemoryRouter initialEntries={[path]}>
+        <OnboardingPage />
+      </MemoryRouter>
+    </ThemeProvider>,
   );
 }
 
-async function createOssAccount() {
-  fireEvent.click(screen.getByRole("button", { name: /I built it myself/i }));
-  fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
-  fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "longenough" } });
+async function fillAccount(email, password) {
+  fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: email } });
+  fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+  fireEvent.change(await screen.findByLabelText(/password/i), { target: { value: password } });
   fireEvent.click(screen.getByRole("button", { name: /create account/i }));
+}
+
+async function createOssAccount() {
+  fireEvent.click(screen.getByRole("button", { name: /I set this computer up myself/i }));
+  await fillAccount("me@example.com", "password1234");
 }
 
 describe("OnboardingPage OSS verify", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetStorage();
+    localStorage.clear();
     authState.isAuthenticated = false;
     authState.me = null;
-    register.mockImplementation(async () => {
-      authState.isAuthenticated = true;
-      authState.me = { email: "me@example.com", email_verified: true };
-      return authState.me;
-    });
+    register.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    login.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    refresh.mockImplementation(async () => authState.me);
+    updateAccountEmail.mockResolvedValue({});
     stripeLooksConfigured.mockReturnValue(false);
     api.mockImplementation(async (path) => {
-      if (path === "/api/v1/account/verification-status") return { email_verified: true };
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
       if (path === "/api/v1/account/verify-human") return { ok: true };
-      if (path === "/api/v1/account/oss-token") {
-        return {
-          code: "3097-V4YK-3HYX-2E3P-V4B3",
-          message: "You can enter this code during the installer process, or you can edit the setup code on your device through About → Advanced.",
-        };
-      }
+      if (path === "/api/v1/account/oss-token") return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", message: "Enter this on Luna." };
       if (path === "/api/v1/onboarding/bind") return { message: "ok" };
       if (path === "/api/v1/onboarding/attach-account") return { ok: true };
       return {};
     });
   });
 
+  it("waits for email verification before continuing a new account", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    mount();
+    await createOssAccount();
+
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/oss-token");
+  });
+
+  it("continues after the email verification check succeeds", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: true };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/oss-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", message: "Enter this on Luna." };
+      }
+      return {};
+    });
+    mount();
+    await createOssAccount();
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(markEmailVerified).toHaveBeenCalled();
+  });
+
+  it("does not charge again when the signed-in account is already human-verified", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      human_verified: true,
+      stripe_publishable_key: "pk_test_x",
+    };
+    stripeLooksConfigured.mockReturnValue(true);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /I set this computer up myself/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
+  });
+
+  it("starts on a welcome step, not a register form", () => {
+    mount();
+    expect(screen.getByRole("heading", { name: /Set up Luna Connect/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /I have a booklet/i })).toBeTruthy();
+    expect(screen.queryByLabelText(/email/i)).toBeNull();
+  });
+
+  it("starts /register on the bring-your-own account step", () => {
+    mount("/register");
+    expect(screen.getByRole("heading", { name: /Set up your own hardware/i })).toBeTruthy();
+    expect(screen.getByLabelText(/email address/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /I have a booklet/i })).toBeNull();
+  });
+
   it("does not call verify-human before a card action when Stripe looks configured", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     mount();
-    expect(screen.getByText(/Where did this Luna originate/i)).toBeTruthy();
     await createOssAccount();
 
     await waitFor(() => {
       expect(register).toHaveBeenCalled();
     });
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
-    expect(await screen.findByRole("button", { name: /confirm with a dollar/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /confirm with a dollar/i })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /confirm with a dollar/i }));
 
@@ -119,7 +170,7 @@ describe("OnboardingPage OSS verify", () => {
         body: JSON.stringify({ payment_method_id: "pm_test_oss" }),
       });
     });
-    expect(await screen.findByText("3097-V4YK-3HYX-2E3P-V4B3")).toBeTruthy();
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
   });
 
   it("skips the card step when Stripe is not configured and still mints a code", async () => {
@@ -133,62 +184,21 @@ describe("OnboardingPage OSS verify", () => {
         body: "{}",
       });
     });
-    expect(await screen.findByText("3097-V4YK-3HYX-2E3P-V4B3")).toBeTruthy();
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
-  it("lets a signed-in person continue the built-myself path to the dollar check", async () => {
-    authState.isAuthenticated = true;
-    authState.me = { email: "max@example.com", stripe_publishable_key: "pk_test_x", email_verified: true };
+  it("keeps the booklet path free of a card step", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /I built it myself/i }));
-
-    expect(await screen.findByRole("button", { name: /^Continue/i })).toBeTruthy();
-    expect(screen.getByText("max@example.com")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
-
-    expect(await screen.findByRole("button", { name: /confirm with a dollar/i })).toBeTruthy();
-    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
-  });
-
-  it("regenerates an OSS setup code without charging when already human-verified", async () => {
-    authState.isAuthenticated = true;
-    authState.me = {
-      email: "max@example.com",
-      stripe_publishable_key: "pk_test_x",
-      human_verified: true,
-      email_verified: true,
-    };
-    stripeLooksConfigured.mockReturnValue(true);
-    mount();
-    fireEvent.click(screen.getByRole("button", { name: /I built it myself/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
-
-    expect(await screen.findByText("3097-V4YK-3HYX-2E3P-V4B3")).toBeTruthy();
-    expect(api.mock.calls.map((c) => c[0])).toContain("/api/v1/account/oss-token");
-    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
-    expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
-  });
-
-  it("keeps the purchased path free of a card step", async () => {
-    stripeLooksConfigured.mockReturnValue(true);
-    register.mockImplementation(async () => {
-      authState.isAuthenticated = true;
-      authState.me = { email: "book@example.com", email_verified: true };
-      return authState.me;
-    });
-    mount();
-    fireEvent.click(screen.getByRole("button", { name: /Purchased from LibreLoom/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
+    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/email/i)).toBeTruthy();
+      expect(screen.getByLabelText(/email address/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "book@example.com" } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "longenough" } });
-    fireEvent.click(screen.getByRole("button", { name: /create account/i }));
+    await fillAccount("book@example.com", "password1234");
 
     await waitFor(() => {
       expect(api).toHaveBeenCalledWith("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
@@ -201,7 +211,7 @@ describe("OnboardingPage OSS verify", () => {
 describe("OnboardingPage done card", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetStorage();
+    localStorage.clear();
     authState.isAuthenticated = true;
     authState.me = { email: "owner@example.com", email_verified: true };
     api.mockImplementation(async (path) => {
@@ -222,21 +232,14 @@ describe("OnboardingPage done card", () => {
 
   it("shows the hostname and one-time code after name is taken", async () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /Purchased from LibreLoom/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
+    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /Plug Luna in/i })).toBeTruthy();
+      expect(screen.getByLabelText(/^Name$/i)).toBeTruthy();
     });
-    const pluggedIn = screen.getByRole("button", { name: /Luna is plugged in/i });
-    expect(pluggedIn.disabled).toBe(false);
-    fireEvent.click(pluggedIn);
-
-    await waitFor(() => {
-      expect(screen.getByLabelText(/Name for this Luna/i)).toBeTruthy();
-    });
-    fireEvent.change(screen.getByLabelText(/Name for this Luna/i), { target: { value: "kitchen" } });
+    fireEvent.change(screen.getByLabelText(/^Name$/i), { target: { value: "kitchen" } });
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {
@@ -247,40 +250,7 @@ describe("OnboardingPage done card", () => {
     expect(await screen.findByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByText("once-only-code")).toBeTruthy();
     expect(screen.getByText(/paste this one-time code/i)).toBeTruthy();
+    expect(screen.getByText(/Create your Luna login and paste the code once/i)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/\?setup=/);
-  });
-});
-
-describe("OnboardingPage resume", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetStorage();
-    authState.isAuthenticated = true;
-    authState.me = { email: "owner@example.com", human_verified: true, email_verified: true };
-    api.mockImplementation(async (path) => {
-      if (path === "/api/v1/onboarding/session") {
-        throw new Error("no session");
-      }
-      return {};
-    });
-  });
-
-  it("restores the plug step from localStorage", async () => {
-    globalThis.localStorage.setItem(
-      "luna-connect-onboarding-progress",
-      JSON.stringify({
-        step: "plug",
-        path: "oss",
-        code: "",
-        email: "owner@example.com",
-        name: "",
-        ossCode: "3097-V4YK-3HYX-2E3P-V4B3",
-        hostname: "",
-        setupSecret: "",
-      }),
-    );
-    mount();
-    expect(await screen.findByRole("heading", { name: /Plug Luna in/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Not plugged in yet/i })).toBeTruthy();
   });
 });

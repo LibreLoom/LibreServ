@@ -122,17 +122,17 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 		return "", fmt.Errorf("stripe customer missing")
 	}
 	stripe.Key = config.C.Stripe.SecretKey
-	_, _ = paymentmethod.Attach(paymentMethodID, &stripe.PaymentMethodAttachParams{
-		Customer: stripe.String(customerID),
-	})
 	params := &stripe.PaymentIntentParams{
 		Amount:        stripe.Int64(100),
 		Currency:      stripe.String(string(stripe.CurrencyUSD)),
 		Customer:      stripe.String(customerID),
 		PaymentMethod: stripe.String(paymentMethodID),
 		Confirm:       stripe.Bool(true),
-		ReturnURL:     stripe.String(paymentReturnURL()),
-		Description:   stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
+		AutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
+			Enabled:        stripe.Bool(true),
+			AllowRedirects: stripe.String("never"),
+		},
+		Description: stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
 	}
 	pi, err := paymentintent.New(params)
 	if err != nil {
@@ -143,18 +143,6 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 	}
 	return pi.ID, nil
 }
-
-// paymentReturnURL is required by Stripe when confirming a PaymentIntent, even
-// for cards that do not redirect. Points at onboarding so a rare redirect lands
-// somewhere sensible.
-func paymentReturnURL() string {
-	base := strings.TrimRight(strings.TrimSpace(config.C.Server.BaseURL), "/")
-	if base == "" {
-		base = "https://connect.luna.libreloom.org"
-	}
-	return base + "/onboarding"
-}
-
 func Subscribe(customerID, paymentMethodID string) (subID, itemID string, err error) {
 	if DevBypass() {
 		return "sub_dev", "si_dev", nil
@@ -193,4 +181,16 @@ func Subscribe(customerID, paymentMethodID string) (subID, itemID string, err er
 		return "", "", fmt.Errorf("subscription item missing")
 	}
 	return s.ID, s.Items.Data[0].ID, nil
+}
+
+func CancelSubscription(subID string) error {
+	if subID == "" || DevBypass() {
+		return nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return err
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	_, err := subscription.Cancel(subID, nil)
+	return err
 }

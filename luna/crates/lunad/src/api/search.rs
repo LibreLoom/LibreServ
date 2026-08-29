@@ -267,7 +267,6 @@ mod tests {
         let connect = std::sync::Arc::new(crate::connect::ConnectService::new(
             dir,
             Some("http://127.0.0.1:1".into()),
-            8090,
         ));
         let state = crate::AppState::new(conn, drive_manager, dir).with_connect(connect);
         api::router()
@@ -327,7 +326,7 @@ mod tests {
     async fn factory_reset_requires_confirm_and_tears_down_connect() {
         let dir = tempfile::tempdir().unwrap();
         let connect =
-            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()), 8090);
+            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         connect
             .apply_claimed(&serde_json::json!({
                 "device_token": "tok",

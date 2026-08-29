@@ -54,6 +54,10 @@ func tokenAccountID(t issuedToken) string {
 	return ""
 }
 
+func tokenNeedsOwner(kind string) bool {
+	return kind == "oss" || kind == "remint"
+}
+
 func sessionAccountID(s *sessionRow) string {
 	if s != nil && s.accountID.Valid {
 		return s.accountID.String
@@ -91,7 +95,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acct, hasAcct := AccountFrom(r.Context())
-	if tok.Kind == "oss" {
+	if tokenNeedsOwner(tok.Kind) {
 		if !hasAcct {
 			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this code, then type it again.")
 			return
@@ -189,6 +193,12 @@ func (h OnboardingHandler) AttachAccount(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusForbidden, "This setup page is already tied to another account. Sign in to that account to continue.")
 		return
 	}
+	if tok, ok := lookupIssuedByHash(h.DB, sess.tokenHash); ok && (tok.Status == "issued" || tok.Status == "claimed") {
+		activateAccount(h.DB, acct.ID)
+		if tokenAccountID(tok) == "" {
+			_, _ = h.DB.Exec(`UPDATE issued_tokens SET account_id = ? WHERE token_hash = ? AND (account_id IS NULL OR account_id = '')`, acct.ID, sess.tokenHash)
+		}
+	}
 	setSetupSessionCookie(w, newID)
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "session_id": newID})
 }
@@ -217,7 +227,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from your Luna (purchased from LibreLoom) or the Luna Connect site.")
 		return
 	}
-	if tok.Kind == "oss" && tokenAccountID(tok) != acct.ID {
+	if tokenNeedsOwner(tok.Kind) && tokenAccountID(tok) != acct.ID {
 		JSONError(w, http.StatusForbidden, "That code belongs to a different account. Sign in to the account that created it, then try again.")
 		return
 	}
@@ -228,7 +238,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	var n int
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, acct.ID).Scan(&n)
 	if n >= setuphub.MaxDevicesPerAccount {
-		JSONError(w, http.StatusConflict, "This account already has as many Lunas as it can hold. Remove one first, or use another account.")
+		JSONError(w, http.StatusConflict, "This account already has a Luna. Transfer it first, or use another account.")
 		return
 	}
 	var req struct {
@@ -280,7 +290,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not finish setup. Contact support to resolve this issue.")
 		return
 	}
-	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, sealedTunnel, port); err != nil {
+	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, sealedTunnel, setupSecret, port); err != nil {
 		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 		return
@@ -292,19 +302,23 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, nameResult(id, hostname, sub, setupSecret))
 }
 
-func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, sealedTunnelToken string, port int) error {
+func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, sealedTunnelToken, setupSecret string, port int) error {
 	tx, err := h.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	_, err = tx.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, device_token, setup_secret, local_port, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
-		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, sealedTunnelToken, port, time.Now().Unix())
+	sealedSecret, err := security.SealString(setupSecret)
 	if err != nil {
 		return err
 	}
-	res, err := tx.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ? WHERE token_hash = ? AND status = 'issued'`, id, sess.tokenHash)
+	_, err = tx.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, device_token, setup_secret, local_port, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, sealedTunnelToken, sealedSecret, port, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	res, err := tx.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ?, account_id = COALESCE(NULLIF(account_id, ''), ?) WHERE token_hash = ? AND status = 'issued'`, id, accountID, sess.tokenHash)
 	if err != nil {
 		return err
 	}
@@ -315,7 +329,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
 	if _, err := tx.Exec(`UPDATE setup_sessions SET status = 'claimed', account_id = ? WHERE id = ?`, accountID, sess.id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	activateAccount(h.DB, accountID)
+	return nil
 }
 
 func (h OnboardingHandler) pushClaimed(tokenHash, deviceToken, hostname, tunnelToken, setupSecret, subdomain string) bool {
@@ -381,7 +399,7 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		status = "dev"
 		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ?`,
 		status, sub, item, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"ok": true, "enabled": true,
@@ -399,6 +417,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	var existing string
 	err := h.DB.QueryRow(`SELECT payment_intent_id FROM oss_payments WHERE account_id = ? AND status = 'succeeded'`, acct.ID).Scan(&existing)
 	if err == nil && existing != "" {
+		activateAccount(h.DB, acct.ID)
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": okMsg})
 		return
 	}
@@ -442,6 +461,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
 ON CONFLICT(account_id) DO UPDATE SET payment_intent_id=excluded.payment_intent_id, status='succeeded'`,
 		acct.ID, pi, time.Now().Unix())
+	activateAccount(h.DB, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": okMsg,

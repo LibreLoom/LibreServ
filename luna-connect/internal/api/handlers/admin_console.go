@@ -168,7 +168,7 @@ ORDER BY t.created_at DESC`
 		})
 	}
 	JSON(w, http.StatusOK, map[string]any{
-		"tokens": list,
+		"tokens":  list,
 		"limited": !all,
 		"limit":   500,
 	})

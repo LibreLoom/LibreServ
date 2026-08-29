@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -114,4 +115,35 @@ func (s *B2) Delete(accountID, deviceID, relPath string) error {
 		return err
 	}
 	return s.Client.DeleteFile(bucket.KeyID, bucket.Key, bucket.BucketID, key)
+}
+
+func (s *B2) DeleteAccount(accountID string) error {
+	if !opaqueIDOK(accountID) {
+		return fmt.Errorf("that account is not allowed")
+	}
+	rows, err := s.DB.Query(`
+SELECT device_id, relative_path
+FROM backup_objects
+WHERE account_id = ? AND COALESCE(storage_backend, 'local') = ?`,
+		accountID, BackendB2)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var errs []error
+	for rows.Next() {
+		var deviceID, relPath string
+		if err := rows.Scan(&deviceID, &relPath); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := s.Delete(accountID, deviceID, relPath); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }

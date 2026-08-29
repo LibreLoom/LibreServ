@@ -54,3 +54,8 @@ backup:
   driver: "auto"
   max_object_bytes: 1073741824
   max_account_bytes: 2000000000000
+
+# Server-only transactional mail (billing warnings). The website never talks to Resend.
+mail:
+  resend_api_key: ""
+  from: "Luna Connect <noreply@connect.luna.libreloom.org>"

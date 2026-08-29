@@ -1,39 +1,46 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
+  BookOpen,
   Cable,
-  CreditCard,
   Check,
   ChevronLeft,
-  ChevronRight,
-  Cloud,
-  Hammer,
-  KeyRound,
+  Copy,
+  Globe,
+  HardDrive,
+  Key,
   Loader2,
   MailOpen,
-  Package,
+  Moon,
   Sparkles,
+  Sun,
   User,
   X,
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { Button } from "../components/ui/button.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
-import { Label } from "../components/ui/label.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useTheme } from "../context/ThemeContext.jsx";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import { cn } from "../lib/utils.js";
 
-/** @typedef {"path"|"code"|"account"|"verify"|"card"|"oss-code"|"plug"|"name"|"copies"|"done"} OnboardingStep */
-/** @typedef {"official"|"oss"} OnboardingPath */
+const STEPS = [
+  { id: "welcome", label: "Welcome" },
+  { id: "code", label: "Code" },
+  { id: "account", label: "Account" },
+  { id: "wait", label: "Connect" },
+  { id: "name", label: "Name" },
+  { id: "copies", label: "Backup" },
+  { id: "done", label: "Done" },
+];
 
 const PROGRESS_KEY = "luna-connect-onboarding-progress";
-const VALID_STEPS = new Set([
-  "path", "code", "account", "verify", "card", "oss-code", "plug", "name", "copies", "done",
-]);
-const VALID_PATHS = new Set(["official", "oss"]);
+const PUBLIC_ZONE = "luna.servers.libreloom.org";
 
 function loadProgress() {
   try {
@@ -44,7 +51,6 @@ function loadProgress() {
   }
 }
 
-/** @param {Record<string, unknown>} data */
 function saveProgress(data) {
   try {
     localStorage.setItem(PROGRESS_KEY, JSON.stringify(data));
@@ -61,96 +67,63 @@ function clearProgress() {
   }
 }
 
-/**
- * @param {unknown} saved
- * @param {boolean} humanVerified
- */
-function seedFromProgress(saved, humanVerified) {
-  const s = saved && typeof saved === "object" ? /** @type {Record<string, unknown>} */ (saved) : {};
-  let step = typeof s.step === "string" && VALID_STEPS.has(s.step) ? /** @type {OnboardingStep} */ (s.step) : "path";
-  let path = typeof s.path === "string" && VALID_PATHS.has(s.path) ? /** @type {OnboardingPath} */ (s.path) : "official";
-  if (step === "card" && humanVerified) step = "account";
-  if (step === "oss-code" && !(typeof s.ossCode === "string" && s.ossCode)) step = "account";
-  return {
-    step,
-    path,
-    code: typeof s.code === "string" ? s.code : "",
-    email: typeof s.email === "string" ? s.email : "",
-    name: typeof s.name === "string" ? s.name : "",
-    ossCode: typeof s.ossCode === "string" ? s.ossCode : "",
-    hostname: typeof s.hostname === "string" ? s.hostname : "",
-    setupSecret: typeof s.setupSecret === "string" ? s.setupSecret : "",
-  };
+function passwordOk(pw) {
+  return pw.length >= 12 && /[A-Za-z]/.test(pw) && /\d/.test(pw);
 }
 
-/**
- * @param {OnboardingPath} path
- * @param {boolean} includeCard
- */
-function stepsForPath(path, includeCard) {
-  if (path === "oss") {
-    return [
-      { id: "path", label: "Start" },
-      { id: "account", label: "Account" },
-      { id: "verify", label: "Email" },
-      ...(includeCard ? [{ id: "card", label: "Verify" }] : []),
-      { id: "oss-code", label: "Code" },
-      { id: "plug", label: "Plug in" },
-      { id: "name", label: "Name" },
-      { id: "copies", label: "Backup" },
-      { id: "done", label: "Done" },
-    ];
-  }
-  return [
-    { id: "path", label: "Start" },
-    { id: "code", label: "Code" },
-    { id: "account", label: "Account" },
-    { id: "verify", label: "Email" },
-    { id: "plug", label: "Plug in" },
-    { id: "name", label: "Name" },
-    { id: "copies", label: "Backup" },
-    { id: "done", label: "Done" },
-  ];
+function emailOk(email) {
+  return /^\S+@\S+\.\S+$/.test(email.trim());
 }
 
-/** @param {{ steps: Array<{id: string, label: string}>, stepIndex: number }} props */
-function ProgressBar({ steps, stepIndex }) {
+function progressIndex(step, path) {
+  if (step === "welcome") return 0;
+  if (step === "code") return 1;
+  if (step === "account" || step === "verify" || step === "card") return 2;
+  if (step === "wait" || step === "oss-code") return 3;
+  if (step === "name") return 4;
+  if (step === "copies") return 5;
+  if (step === "done") return 6;
+  return path === "oss" ? 2 : 0;
+}
+
+function ProgressBar({ stepId, path }) {
+  const step = progressIndex(stepId, path);
   return (
     <div className="flex items-center justify-center pt-10 pb-8 px-4" role="list" aria-label="Setup progress">
-      {steps.map((s, i) => (
+      {STEPS.map((s, i) => (
         <div key={s.id} className="flex items-center" role="listitem">
           <div className="flex flex-col items-center gap-2">
             <div
               className={cn(
                 "relative flex items-center justify-center w-9 h-9 rounded-full text-xs font-mono motion-safe:transition-all motion-safe:duration-300",
-                i < stepIndex
+                i < step
                   ? "bg-foreground text-background"
-                  : i === stepIndex
+                  : i === step
                     ? "bg-foreground text-background scale-110 shadow-[0_0_0_5px_var(--ring-soft)]"
                     : "bg-muted text-muted-foreground",
               )}
-              aria-current={i === stepIndex ? "step" : undefined}
+              aria-current={i === step ? "step" : undefined}
             >
-              {i < stepIndex ? (
+              {i < step ? (
                 <Check className="w-4 h-4 animate-check-pop" />
               ) : (
-                <span className={cn(i === stepIndex && "animate-fade-in")}>{i + 1}</span>
+                <span className={cn(i === step && "animate-fade-in")}>{i + 1}</span>
               )}
             </div>
             <span
               className={cn(
                 "hidden sm:block text-[11px] font-mono motion-safe:transition-colors motion-safe:duration-300",
-                i === stepIndex ? "text-foreground" : "text-muted-foreground",
+                i === step ? "text-foreground" : "text-muted-foreground",
               )}
             >
               {s.label}
             </span>
           </div>
-          {i < steps.length - 1 && (
+          {i < STEPS.length - 1 && (
             <div className="relative w-6 sm:w-12 h-0.5 mx-2 mb-0 sm:mb-6 bg-muted overflow-hidden rounded-full">
               <div
                 className="absolute inset-y-0 left-0 bg-foreground motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
-                style={{ width: i < stepIndex ? "100%" : "0%" }}
+                style={{ width: i < step ? "100%" : "0%" }}
               />
             </div>
           )}
@@ -160,22 +133,22 @@ function ProgressBar({ steps, stepIndex }) {
   );
 }
 
-/** @param {{ error: string, onDismiss: () => void }} props */
 function ErrorBanner({ error, onDismiss }) {
   if (!error) return null;
   return (
     <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-4 flex items-start gap-3 mb-8 animate-fade-in-up">
       <X className="w-4 h-4 text-error mt-0.5 shrink-0" />
-      <p className="text-sm text-error flex-1 leading-relaxed text-left">{error}</p>
-      <button type="button" onClick={onDismiss} className="text-error hover:opacity-80 motion-safe:transition-opacity" aria-label="Dismiss error">
-        <X className="w-4 h-4" />
-      </button>
+      <p className="text-sm text-error flex-1 leading-relaxed">{error}</p>
+      {onDismiss && (
+        <button type="button" onClick={onDismiss} className="text-error/60 hover:text-error motion-safe:transition-colors" aria-label="Dismiss error">
+          <X className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 }
 
-/** @param {{ icon: import("lucide-react").LucideIcon, title: string, children: import("react").ReactNode, wide?: boolean }} props */
-function StepShell({ icon: Icon, title, children, wide = false }) {
+function StepShell({ icon: Icon, title, children }) {
   return (
     <div className="flex flex-col items-center text-center">
       <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-6 animate-step-icon">
@@ -184,63 +157,123 @@ function StepShell({ icon: Icon, title, children, wide = false }) {
       <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3 text-balance">
         {title}
       </h1>
-      <div className={cn("w-full", wide ? "max-w-md" : "max-w-sm")}>
-        {children}
-      </div>
+      <div className="w-full max-w-sm">{children}</div>
     </div>
   );
 }
 
 export default function OnboardingPage() {
-  const { isAuthenticated, register, me, refresh, markEmailVerified, updateAccountEmail } = useAuth();
+  const {
+    isAuthenticated,
+    register,
+    login,
+    me,
+    refresh,
+    markEmailVerified,
+    updateAccountEmail,
+  } = useAuth();
+  const { toggle } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const byoEntry = location.pathname === "/register";
   const saved = useRef(loadProgress());
-  const seed = seedFromProgress(saved.current, Boolean(me?.human_verified));
-  /** @type {[OnboardingStep, function(OnboardingStep): void]} */
-  const [step, setStep] = useState(seed.step);
-  /** @type {[OnboardingPath, function(OnboardingPath): void]} */
-  const [path, setPath] = useState(seed.path);
+  const resumeByo = Boolean(byoEntry && saved.current?.path === "oss");
+  const [step, setStep] = useState(
+    byoEntry && !resumeByo ? "account" : saved.current?.step || (byoEntry ? "account" : "welcome"),
+  );
+  const [path, setPath] = useState(byoEntry && !resumeByo ? "oss" : saved.current?.path || (byoEntry ? "oss" : "official"));
   const [direction, setDirection] = useState("right");
-  const [code, setCode] = useState(seed.code);
-  const [email, setEmail] = useState(seed.email);
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState(seed.name);
-  const [ossCode, setOssCode] = useState(seed.ossCode);
-  const [hostname, setHostname] = useState(seed.hostname);
-  const [setupSecret, setSetupSecret] = useState(seed.setupSecret);
   const [error, setError] = useState("");
+  const { outerRef, innerRef } = useAnimatedHeight();
+
+  const [code, setCode] = useState(saved.current?.code || "");
+  const [email, setEmail] = useState(saved.current?.email || "");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState(saved.current?.name || "");
+  const [ossCode, setOssCode] = useState(saved.current?.ossCode || "");
+  const [hostname, setHostname] = useState(saved.current?.hostname || "");
+  const [setupSecret, setSetupSecret] = useState(saved.current?.setupSecret || "");
   const [waitMsg, setWaitMsg] = useState("");
-  const [lunaOnline, setLunaOnline] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isLoginMode, setIsLoginMode] = useState(false);
+  const [authSubStep, setAuthSubStep] = useState(0);
+  const [authSubDir, setAuthSubDir] = useState("right");
+  const [copied, setCopied] = useState("");
   const [checkingVerification, setCheckingVerification] = useState(false);
   const [resendState, setResendState] = useState("idle");
   const [cooldown, setCooldown] = useState(0);
-  const { outerRef, innerRef } = useAnimatedHeight();
 
-  const includeCard = path === "oss" && stripeLooksConfigured(me) && !me?.human_verified;
-  const steps = stepsForPath(path, includeCard || step === "card");
-  const stepIndex = Math.max(0, steps.findIndex((s) => s.id === step));
   const emailVerified = Boolean(me?.email_verified);
 
-  /** @param {OnboardingStep} next */
-  function goTo(next, dir = "right") {
+  const goTo = useCallback((next, dir = "right") => {
     setDirection(dir);
     setStep(next);
-    setError("");
-  }
+  }, []);
+
+  useEffect(() => {
+    if (step === "welcome" && !email && !code) return;
+    saveProgress({
+      step,
+      path,
+      code,
+      email,
+      name,
+      ossCode,
+      hostname,
+      setupSecret,
+    });
+  }, [step, path, code, email, name, ossCode, hostname, setupSecret]);
+
+  useEffect(() => {
+    if (step !== "wait" && step !== "code" && step !== "name") return undefined;
+    const t = setInterval(async () => {
+      try {
+        const s = await api("/api/v1/onboarding/session");
+        setWaitMsg(s.message || "");
+        if (s.status === "attached" && step === "wait") goTo("name");
+        if (s.status === "attached" && step === "code" && isAuthenticated && emailVerified) goTo("wait");
+      } catch {
+        /* waiting room is optional until bind */
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [step, isAuthenticated, emailVerified, goTo]);
+
+  useEffect(() => {
+    if (step !== "verify" || emailVerified) return undefined;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const status = await api("/api/v1/account/verification-status");
+        if (!cancelled && status.email_verified) {
+          markEmailVerified?.();
+          const account = await refresh();
+          if (!cancelled) await continueAfterVerification(account);
+        }
+      } catch {
+        /* keep waiting */
+      }
+    };
+    check();
+    const timer = setInterval(check, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // continueAfterVerification intentionally uses the current path and code.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, emailVerified, markEmailVerified, refresh]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const timer = setTimeout(() => setCooldown((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   async function bindCode(value) {
     const s = await api("/api/v1/onboarding/bind", { method: "POST", body: JSON.stringify({ code: value }) });
     setWaitMsg(s.message || "");
-    if (s.status === "attached" || s.live === true) setLunaOnline(true);
     return s;
-  }
-
-  async function mintOssCode() {
-    const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
-    setOssCode(minted.code);
-    setWaitMsg(minted.message);
-    goTo("oss-code");
   }
 
   async function finishOssVerify(paymentMethodId) {
@@ -252,684 +285,699 @@ export default function OnboardingPage() {
     await mintOssCode();
   }
 
+  async function mintOssCode() {
+    const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
+    setOssCode(minted.code);
+    setWaitMsg(minted.message);
+    goTo("oss-code");
+  }
+
   async function afterOssAccount(account) {
-    const acct = account || me;
-    if (acct?.human_verified) {
+    const current = account || me;
+    if (current?.human_verified) {
       await mintOssCode();
       return;
     }
-    if (stripeLooksConfigured(acct)) {
+    if (stripeLooksConfigured(current)) {
       goTo("card");
       return;
     }
     await finishOssVerify();
   }
 
-  async function afterEmailVerified(account) {
-    const acct = account || me;
-    if (path === "oss") {
-      await afterOssAccount(acct);
-      return;
-    }
-    if (code) await bindCode(code);
+  async function afterOfficialAccount() {
+    const session = code ? await bindCode(code) : null;
     await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-    goTo("plug");
+    goTo(session?.status === "attached" ? "name" : "wait");
   }
 
-  useEffect(() => {
-    if (step === "path" && !code && !email && !name && !ossCode) return;
-    saveProgress({ step, path, code, email, name, ossCode, hostname, setupSecret });
-  }, [step, path, code, email, name, ossCode, hostname, setupSecret]);
-
-  useEffect(() => {
-    if (me?.human_verified && step === "card") setStep("account");
-  }, [me?.human_verified, step]);
-
-  useEffect(() => {
-    if (!emailVerified || step !== "verify") return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (!cancelled) await afterEmailVerified(me);
-      } catch (err) {
-        if (!cancelled) setError(err.message || "Could not continue. Try again.");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emailVerified, step]);
-
-  useEffect(() => {
-    if (step !== "verify" || emailVerified) return undefined;
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await api("/api/v1/account/verification-status");
-        if (!cancelled && res.email_verified) {
-          markEmailVerified?.();
-          await refresh();
-        }
-      } catch {
-        /* keep waiting */
-      }
-    };
-    tick();
-    const t = setInterval(tick, 4000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [step, emailVerified, markEmailVerified, refresh]);
-
-  useEffect(() => {
-    if (cooldown <= 0) return undefined;
-    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
-
-  useEffect(() => {
-    if (step !== "code" && step !== "plug") return undefined;
-    const poll = async () => {
-      try {
-        const s = await api("/api/v1/onboarding/session");
-        setWaitMsg(s.message || "");
-        const online = s.status === "attached" || s.live === true;
-        if (online) setLunaOnline(true);
-        if (s.status === "attached" && step === "code" && isAuthenticated && emailVerified) {
-          setDirection("right");
-          setStep("plug");
-        }
-      } catch {
-        /* waiting room is optional until bind */
-      }
-    };
-    poll();
-    const t = setInterval(poll, 3000);
-    return () => clearInterval(t);
-  }, [step, isAuthenticated, emailVerified]);
-
-  function handleBack() {
-    if (step === "path") {
-      navigate("/");
+  async function continueAfterVerification(account) {
+    if (path === "oss") {
+      await afterOssAccount(account);
       return;
     }
-    if (step === "code") {
-      goTo("path", "left");
-      return;
-    }
-    if (step === "account") {
-      goTo(path === "oss" ? "path" : "code", "left");
-      return;
-    }
-    if (step === "verify") {
-      goTo("account", "left");
-      return;
-    }
-    if (step === "card") {
-      goTo("verify", "left");
-      return;
-    }
-    if (step === "oss-code") {
-      goTo(includeCard || (stripeLooksConfigured(me) && !me?.human_verified) ? "card" : "verify", "left");
-      return;
-    }
-    if (step === "plug") {
-      if (path === "oss") goTo("oss-code", "left");
-      else goTo(isAuthenticated ? (emailVerified ? "code" : "verify") : "account", "left");
-      return;
-    }
-    if (step === "name") {
-      goTo("plug", "left");
-      return;
-    }
-    if (step === "copies") {
-      goTo("name", "left");
-    }
+    await afterOfficialAccount();
   }
 
-  /** @returns {import("react").ReactNode} */
-  function renderStep() {
-    if (step === "path") {
-      return (
-        <StepShell icon={Sparkles} title="Set up Luna" wide>
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-            Where did this Luna originate?
-          </p>
-          <div className="w-full max-w-md mx-auto space-y-3 mb-8">
-            <button
-              type="button"
-              className="w-full rounded-large-element border-2 border-border bg-card text-card-foreground p-4 text-left motion-safe:transition-all motion-safe:duration-200 hover:border-foreground/40 hover:bg-accent cursor-pointer"
-              onClick={() => {
-                setPath("official");
-                goTo("code");
-              }}
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <Package size={18} className="text-foreground" strokeWidth={1.75} />
-                </div>
-                <div>
-                  <span className="font-mono text-sm text-card-foreground block">Purchased from LibreLoom</span>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    You bought this Luna and have a device code that came with it (also shown on the screen).
-                  </p>
-                </div>
-              </div>
-            </button>
-            <button
-              type="button"
-              className="w-full rounded-large-element border-2 border-border bg-card text-card-foreground p-4 text-left motion-safe:transition-all motion-safe:duration-200 hover:border-foreground/40 hover:bg-accent cursor-pointer"
-              onClick={() => {
-                setPath("oss");
-                goTo("account");
-              }}
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <Hammer size={18} className="text-foreground" strokeWidth={1.75} />
-                </div>
-                <div>
-                  <span className="font-mono text-sm text-card-foreground block">I built it myself</span>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    You installed Luna on your own computer. We will give you a setup code on the next screens.
-                  </p>
-                </div>
-              </div>
-            </button>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed text-pretty max-w-md mx-auto">
-            You will plug Luna into power and into your router in a later step.
-          </p>
-        </StepShell>
-      );
-    }
+  const authFields = isLoginMode
+    ? [
+        {
+          id: "onb-email",
+          question: "What's your email address?",
+          hint: "The one you used for Luna Connect.",
+          value: email,
+          setValue: setEmail,
+          type: "email",
+          placeholder: "you@example.com",
+          autoComplete: "username",
+          valid: emailOk(email),
+        },
+        {
+          id: "onb-password",
+          question: "And your password?",
+          value: password,
+          setValue: setPassword,
+          type: "password",
+          placeholder: "Your password",
+          autoComplete: "current-password",
+          valid: password.length > 0,
+        },
+      ]
+    : [
+        {
+          id: "onb-email",
+          question: "What's your email address?",
+          hint: "This is how you sign in to Luna Connect. It is separate from the login you will create on Luna itself.",
+          value: email,
+          setValue: setEmail,
+          type: "email",
+          placeholder: "you@example.com",
+          autoComplete: "username",
+          valid: emailOk(email),
+        },
+        {
+          id: "onb-password",
+          question: "Choose a password",
+          hint: "At least 12 characters, including a letter and a number. That is so a stolen password list is less likely to open this account.",
+          value: password,
+          setValue: setPassword,
+          type: "password",
+          placeholder: "At least 12 characters, with a letter and a number",
+          autoComplete: "new-password",
+          valid: passwordOk(password),
+        },
+      ];
 
-    if (step === "code") {
-      return (
-        <StepShell icon={KeyRound} title="Enter your device code">
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-            Type the device code that came with your Luna (groups of letters and numbers). The same code is on the screen if you need it.
-          </p>
-          <form
-            className="space-y-4 text-left"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setError("");
-              setLoading(true);
-              try {
-                await bindCode(code);
-                if (isAuthenticated && emailVerified) goTo("plug");
-                else if (isAuthenticated && !emailVerified) goTo("verify");
-                else goTo("account");
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setLoading(false);
+  const currentAuthField = authFields[authSubStep] || authFields[0];
+  const isLastAuthSubStep = authSubStep === authFields.length - 1;
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    if (!currentAuthField.valid || loading) return;
+    if (!isLastAuthSubStep) {
+      setAuthSubDir("right");
+      setAuthSubStep((s) => s + 1);
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const account = isLoginMode
+        ? await login(email.trim(), password)
+        : await register(email.trim(), password);
+      if (!account?.email_verified) {
+        goTo("verify");
+        return;
+      }
+      await continueAfterVerification(account);
+    } catch (err) {
+      setError(err.message || "Could not continue. Check your details and try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = async (label, text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(""), 2000);
+    } catch {
+      setError("Could not copy. Select the text and copy it yourself.");
+    }
+  };
+
+  const handleBack = () => {
+    setError("");
+    if (step === "welcome") {
+      if (isAuthenticated) navigate("/");
+      return;
+    }
+    if (step === "account" && authSubStep > 0) {
+      setAuthSubDir("left");
+      setAuthSubStep((s) => s - 1);
+      return;
+    }
+    const back = {
+      code: "welcome",
+      account: path === "oss" ? "welcome" : "code",
+      verify: "account",
+      card: "account",
+      "oss-code": "account",
+      wait: path === "oss" ? "oss-code" : "account",
+      name: "wait",
+      copies: "name",
+      done: "copies",
+    };
+    goTo(back[step] || "welcome", "left");
+  };
+
+  const renderWelcome = () => (
+    <StepShell icon={Sparkles} title="Set up Luna Connect">
+      <div className="space-y-4 mb-10 text-left">
+        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+          The booklet sent you here so we can give this Luna a name on the internet. That address is free.
+        </p>
+        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+          Stay on your home internet. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.
+        </p>
+      </div>
+      <div className="space-y-3">
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={() => {
+            setPath("official");
+            goTo("code");
+          }}
+        >
+          I have a booklet <ArrowRight className="w-5 h-5" />
+        </Button>
+        <Button
+          size="lg"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            setPath("oss");
+            setAuthSubStep(0);
+            goTo("account");
+          }}
+        >
+          I set this computer up myself
+        </Button>
+      </div>
+    </StepShell>
+  );
+
+  const renderCode = () => (
+    <StepShell icon={BookOpen} title="Type the booklet code">
+      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+        Groups of letters and numbers, the same as the printed booklet. HDMI on Luna shows the same code if you lost the paper. A transfer code from the previous owner goes in this same field.
+      </p>
+      <form
+        className="space-y-5 text-left"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError("");
+          setLoading(true);
+          try {
+            const s = await bindCode(code);
+            if (isAuthenticated) {
+              if (!emailVerified) {
+                goTo("verify");
+                return;
               }
+              await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
+              goTo(s.status === "attached" ? "name" : "wait");
+            } else {
+              setAuthSubStep(0);
+              goTo("account");
+            }
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        }}
+      >
+        <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+          Device code from the booklet
+        </label>
+        <Input
+          id="code"
+          className="font-mono uppercase tracking-widest"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="****-****-****-****-****"
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+        />
+        {waitMsg && <p className="text-sm text-foreground">{waitMsg}</p>}
+        <Button type="submit" size="lg" className="w-full" loading={loading} disabled={code.trim().length < 6}>
+          Continue <ArrowRight className="w-4 h-4" />
+        </Button>
+      </form>
+    </StepShell>
+  );
+
+  const renderAccount = () => (
+    <StepShell
+      icon={User}
+      title={isLoginMode ? "Welcome back" : path === "oss" ? "Set up your own hardware" : "Create your account"}
+    >
+      <div className="w-full mb-10">
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-xs font-mono text-muted-foreground">
+            {authSubStep + 1} of {authFields.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setIsLoginMode(!isLoginMode);
+              setError("");
+              setAuthSubStep(0);
+              setAuthSubDir("left");
             }}
+            className="text-xs text-muted-foreground hover:text-card-foreground underline underline-offset-4 motion-safe:transition-colors"
           >
-            <div>
-              <Label htmlFor="code">Device code</Label>
-              <Input
-                id="code"
-                className="font-mono uppercase tracking-widest h-12"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="****-****-****-****-****"
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
+            {isLoginMode ? "Need an account? Register" : "Already have an account? Sign in"}
+          </button>
+        </div>
+        <div className="flex gap-1.5">
+          {authFields.map((f, i) => (
+            <div key={f.id} className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-foreground motion-safe:transition-[width] motion-safe:duration-500"
+                style={{ width: i <= authSubStep ? "100%" : "0%" }}
               />
             </div>
-            {waitMsg && <p className="text-sm text-foreground">{waitMsg}</p>}
-            <Button type="submit" className="w-full" size="lg" loading={loading}>
-              Continue <ChevronRight className="w-4 h-4 ml-1" />
-            </Button>
-          </form>
-        </StepShell>
-      );
-    }
+          ))}
+        </div>
+      </div>
+      <form onSubmit={handleAuth} className="w-full text-left">
+        <div
+          key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
+          className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+          style={{ animationDuration: "300ms", animationFillMode: "both" }}
+        >
+          <label htmlFor={currentAuthField.id} className="block font-mono text-xl text-card-foreground mb-5 leading-snug">
+            {currentAuthField.question}
+          </label>
+          <Input
+            id={currentAuthField.id}
+            type={currentAuthField.type}
+            value={currentAuthField.value}
+            onChange={(e) => currentAuthField.setValue(e.target.value)}
+            placeholder={currentAuthField.placeholder}
+            autoComplete={currentAuthField.autoComplete}
+            autoFocus
+          />
+          {currentAuthField.hint && (
+            <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
+          )}
+        </div>
+        <Button
+          type="submit"
+          size="lg"
+          className="w-full mt-8"
+          loading={loading}
+          disabled={!currentAuthField.valid}
+        >
+          {isLastAuthSubStep ? (isLoginMode ? "Sign in" : "Create account") : "Continue"}
+          <ArrowRight className="w-4 h-4" />
+        </Button>
+      </form>
+    </StepShell>
+  );
 
-    if (step === "account" && isAuthenticated && emailVerified) {
+  const renderSignedInAccount = () => {
+    if (!emailVerified) {
       return (
-        <StepShell icon={User} title="Continue with your account">
+        <StepShell icon={User} title="Check your email address">
           <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
-            {path === "oss"
-              ? me?.human_verified
-                ? "You are already signed in. Continue to get a new setup code for this Luna — we will not charge another dollar."
-                : "You are already signed in. Next we confirm you are a real person with a one-dollar card check, then give you a setup code for this Luna."
-              : "You are already signed in. Next you will plug Luna in, then name it."}
-          </p>
-          <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
-          <Button
-            className="w-full"
-            size="lg"
-            loading={loading}
-            onClick={async () => {
-              setError("");
-              setLoading(true);
-              try {
-                await afterEmailVerified(me);
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Continue <ChevronRight className="w-4 h-4 ml-1" />
-          </Button>
-        </StepShell>
-      );
-    }
-
-    if (step === "account") {
-      return (
-        <StepShell icon={User} title={isAuthenticated && !emailVerified ? "Fix your email" : "Create your Luna Connect account"}>
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-            {isAuthenticated && !emailVerified
-              ? "Update the address if there was a typo. We will send a new verification link."
-              : "This account is for Luna Connect — opening Luna when you are away, and optional cloud backup."}
+            We need to verify your email before setup continues. Fix the address here if there is a typo.
           </p>
           <form
             className="space-y-4 text-left"
-            onSubmit={async (e) => {
-              e.preventDefault();
+            onSubmit={async (event) => {
+              event.preventDefault();
               setError("");
               setLoading(true);
               try {
-                if (isAuthenticated && !emailVerified) {
-                  await updateAccountEmail(email, "onboarding");
-                  goTo("verify");
-                  return;
+                const nextEmail = (email || me?.email || "").trim();
+                if (nextEmail !== me?.email) {
+                  await updateAccountEmail(nextEmail, "onboarding");
                 }
-                await register(email, password);
                 goTo("verify");
               } catch (err) {
-                setError(err.message);
+                setError(err.message || "Could not update your email. Check it and try again.");
               } finally {
                 setLoading(false);
               }
             }}
           >
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
-            </div>
-            {!(isAuthenticated && !emailVerified) && (
-              <div>
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 12 characters, with a letter and a number"
-                />
-                <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                  At least 12 characters, including a letter and a number. That is so a stolen password list is less likely to open this account.
-                </p>
-              </div>
-            )}
-            <Button type="submit" className="w-full" size="lg" loading={loading}>
-              {isAuthenticated && !emailVerified ? "Update email" : "Create account"}
+            <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+              Email address
+            </label>
+            <Input
+              id="signed-in-email"
+              type="email"
+              value={email || me?.email || ""}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+            />
+            <Button type="submit" size="lg" className="w-full" loading={loading}>
+              {(email || me?.email || "").trim() === me?.email
+                ? "Continue to verification"
+                : "Update email and send link"}
             </Button>
-            {!(isAuthenticated && !emailVerified) && (
-              <p className="text-sm text-muted-foreground text-center">
-                Already have an account?{" "}
-                <Link className="underline underline-offset-4 hover:text-card-foreground" to="/login">
-                  Sign in
-                </Link>
-              </p>
-            )}
           </form>
         </StepShell>
       );
     }
 
-    if (step === "verify") {
-      const displayEmail = email || me?.email || "";
-      return (
-        <StepShell icon={MailOpen} title="Check your inbox">
-          <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
-            We sent a verification link to{" "}
-            <span className="font-mono text-card-foreground">{displayEmail}</span>. Open the email from Luna Connect and click{" "}
-            <span className="font-mono text-card-foreground">Verify my email</span> — this page unlocks by itself when you are done.
-          </p>
-          <div className="w-full max-w-sm mx-auto space-y-6 animate-fade-in-up">
-            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Waiting for verification…
-            </div>
-            <div className="flex items-center gap-3">
-              <Button type="button" variant="outline" size="lg" onClick={handleBack} aria-label="Go back" className="shrink-0">
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <Button
-                size="lg"
-                className="flex-1"
-                loading={checkingVerification}
-                onClick={async () => {
-                  setCheckingVerification(true);
-                  setError("");
-                  try {
-                    const res = await api("/api/v1/account/verification-status");
-                    if (res.email_verified) {
-                      markEmailVerified?.();
-                      await refresh();
-                    } else {
-                      setError(
-                        "We do not see the verification yet. Click the link in the email first, then try again — or resend it below.",
-                      );
-                    }
-                  } catch {
-                    setError("Could not check your verification status. Try again in a moment.");
-                  } finally {
-                    setCheckingVerification(false);
-                  }
-                }}
-              >
-                Check Again
-              </Button>
-            </div>
-            <p className="text-center text-sm text-muted-foreground">
-              {resendState === "sent" ? (
-                "Verification email sent — check your inbox (and spam folder)."
-              ) : (
-                <>
-                  Did not get it? Check your spam folder, or{" "}
-                  <button
-                    type="button"
-                    disabled={cooldown > 0 || resendState === "sending"}
-                    className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors disabled:opacity-60 disabled:pointer-events-none"
-                    onClick={async () => {
-                      setResendState("sending");
-                      setError("");
-                      try {
-                        await api("/api/v1/account/resend-verification", {
-                          method: "POST",
-                          body: JSON.stringify({ source: "onboarding" }),
-                        });
-                        setResendState("sent");
-                        setCooldown(60);
-                      } catch (err) {
-                        setError(err.message || "Could not resend the email. Try again.");
-                        setResendState("idle");
-                      }
-                    }}
-                  >
-                    {resendState === "sending"
-                      ? "Sending…"
-                      : cooldown > 0
-                        ? `Resend in ${cooldown}s`
-                        : "Resend Verification Email"}
-                  </button>
-                  .
-                </>
-              )}
-            </p>
-          </div>
-        </StepShell>
-      );
-    }
+    return (
+      <StepShell icon={User} title="Continue with your account">
+        <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
+          {path === "oss"
+            ? me?.human_verified
+              ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
+              : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
+            : "You are already signed in. Continue to connect and name this Luna."}
+        </p>
+        <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
+        <Button
+          size="lg"
+          className="w-full"
+          loading={loading}
+          onClick={async () => {
+            setError("");
+            setLoading(true);
+            try {
+              await continueAfterVerification(me);
+            } catch (err) {
+              setError(err.message || "Could not continue. Try again.");
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
+          Continue <ArrowRight className="w-4 h-4" />
+        </Button>
+      </StepShell>
+    );
+  };
 
-    if (step === "card") {
-      return (
-        <StepShell icon={CreditCard} title="Confirm you are a real person">
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-            A dollar confirms this is a real person. It counts toward cloud backup if you turn that on later.
-          </p>
-          <VerifyHumanCard
-            account={me}
-            loading={loading}
-            description=""
-            onConfirm={async (paymentMethodId) => {
-              setError("");
-              setLoading(true);
-              try {
-                await finishOssVerify(paymentMethodId);
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setLoading(false);
-              }
-            }}
-          />
-        </StepShell>
-      );
-    }
-
-    if (step === "oss-code") {
-      return (
-        <StepShell icon={KeyRound} title="Your setup code">
-          <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
-            You can enter this code during the installer process, or you can edit the setup code on your device through About → Advanced.
-          </p>
-          <p className="font-mono text-xl sm:text-2xl tracking-widest text-center break-all mb-8 animate-fade-in-up">
-            {ossCode}
-          </p>
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={async () => {
-              try {
-                await bindCode(ossCode);
-                goTo("plug");
-              } catch (err) {
-                setError(err.message);
-              }
-            }}
-          >
-            I entered it on Luna <ChevronRight className="w-4 h-4 ml-1" />
-          </Button>
-        </StepShell>
-      );
-    }
-
-    if (step === "plug") {
-      return (
-        <StepShell icon={Cable} title="Plug Luna in">
-          <div className="space-y-4 text-left mb-8">
-            <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-              Stay on your home internet for this step. Do this before you name Luna:
-            </p>
-            <ol className="list-decimal list-inside space-y-3 text-sm text-card-foreground leading-relaxed">
-              <li>Plug Luna into power with the included power cord.</li>
-              <li>
-                Plug Luna into your router or modem with the included RJ45 (ethernet) cable.
-              </li>
-              <li>Wait until Luna’s screen shows it is online, or until this page says Luna is connected.</li>
-            </ol>
-            <p
-              className={cn(
-                "rounded-large-element border px-4 py-3 text-sm leading-relaxed",
-                lunaOnline
-                  ? "border-success/30 bg-success/20 text-card-foreground"
-                  : "border-border bg-muted text-muted-foreground",
-              )}
-            >
-              {lunaOnline
-                ? "Luna is connected. You can continue."
-                : waitMsg || "Waiting for Luna to come online… Keep this page open."}
-            </p>
+  const renderVerify = () => {
+    const displayEmail = me?.email || email;
+    return (
+      <StepShell icon={MailOpen} title="Check your inbox">
+        <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+          We sent a verification link to <span className="font-mono text-card-foreground">{displayEmail}</span>.
+          Open the email from Luna Connect and choose <span className="font-mono text-card-foreground">Verify my email</span>.
+          This page continues by itself when you are done.
+        </p>
+        <div className="space-y-5">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Waiting for verification…
           </div>
           <Button
-            className="w-full"
             size="lg"
-            loading={loading}
-            disabled={!lunaOnline}
+            className="w-full"
+            loading={checkingVerification}
             onClick={async () => {
+              setCheckingVerification(true);
               setError("");
-              setLoading(true);
               try {
-                const s = await api("/api/v1/onboarding/session");
-                if (s.status !== "attached" && s.live !== true) {
-                  setLunaOnline(false);
-                  setWaitMsg(s.message || "Luna is not online yet. Check power and the ethernet cable, then wait.");
-                  setError("Luna is not online yet. Check power and the ethernet cable, then wait.");
+                const status = await api("/api/v1/account/verification-status");
+                if (!status.email_verified) {
+                  setError("We do not see the verification yet. Open the link in the email, then try again.");
                   return;
                 }
-                setLunaOnline(true);
-                goTo("name");
+                markEmailVerified?.();
+                const account = await refresh();
+                await continueAfterVerification(account);
               } catch (err) {
-                setError(err.message);
+                setError(err.message || "Could not check your verification. Try again in a moment.");
               } finally {
-                setLoading(false);
+                setCheckingVerification(false);
               }
             }}
           >
-            {lunaOnline ? "Luna is plugged in" : "Not plugged in yet"} <ChevronRight className="w-4 h-4 ml-1" />
+            Check again
           </Button>
-        </StepShell>
-      );
-    }
-
-    if (step === "name") {
-      return (
-        <StepShell icon={Package} title="Name this Luna">
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-            This name is the address you type to open Luna when you are not at home.
-          </p>
-          <form
-            className="space-y-4 text-left"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setError("");
-              setLoading(true);
-              try {
-                await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-                const created = await api("/api/v1/onboarding/name", {
-                  method: "POST",
-                  body: JSON.stringify({ subdomain: name }),
-                });
-                setHostname(created.hostname);
-                setSetupSecret(created.setup_secret || "");
-                goTo("copies");
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            <div>
-              <Label htmlFor="name">Name for this Luna</Label>
-              <Input
-                id="name"
-                className="font-mono"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="kitchen"
-                autoFocus
-              />
-              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                People will open Luna at this address on phones and computers away from home. Use letters and numbers, at least 3 characters.
-              </p>
-              <p className="mt-3 rounded-large-element bg-muted px-4 py-2.5 font-mono text-sm text-foreground">
-                {name ? `${name.toLowerCase()}.luna.servers.libreloom.org` : "kitchen.luna.servers.libreloom.org"}
-              </p>
-            </div>
-            {waitMsg && <p className="text-sm">{waitMsg}</p>}
-            <Button type="submit" className="w-full" size="lg" loading={loading} disabled={name.trim().length < 3}>
-              Use this name <ChevronRight className="w-4 h-4 ml-1" />
-            </Button>
-          </form>
-        </StepShell>
-      );
-    }
-
-    if (step === "copies") {
-      return (
-        <StepShell icon={Cloud} title="Optional cloud backup">
-          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-            Cloud backup costs $8 per terabyte each month, based on how much is stored. Not a flat $8 a month.
-          </p>
-          <div className="space-y-3">
-            {stripeLooksConfigured(me) ? (
-              <VerifyHumanCard
-                account={me}
-                loading={loading}
-                description="Add a payment card to turn on cloud backup. It costs $8 per terabyte each month."
-                buttonLabel="Turn on cloud backup"
-                onConfirm={async (paymentMethodId) => {
-                  setError("");
-                  setLoading(true);
-                  try {
-                    await api("/api/v1/onboarding/backups", {
-                      method: "POST",
-                      body: JSON.stringify({ enable: true, payment_method_id: paymentMethodId }),
-                    });
-                    goTo("done");
-                  } catch (err) {
-                    setError(err.message);
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-              />
+          <p className="text-center text-sm text-muted-foreground">
+            {resendState === "sent" ? (
+              "Verification email sent. Check your inbox and spam folder."
             ) : (
-              <Button
-                className="w-full"
-                size="lg"
-                onClick={async () => {
-                  try {
-                    await api("/api/v1/onboarding/backups", { method: "POST", body: JSON.stringify({ enable: true }) });
-                    goTo("done");
-                  } catch (err) {
-                    setError(err.message);
-                  }
-                }}
-              >
-                Turn on cloud backup
-              </Button>
+              <>
+                Did not get it?{" "}
+                <button
+                  type="button"
+                  disabled={cooldown > 0 || resendState === "sending"}
+                  className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors disabled:opacity-60 disabled:pointer-events-none"
+                  onClick={async () => {
+                    setResendState("sending");
+                    setError("");
+                    try {
+                      await api("/api/v1/account/resend-verification", {
+                        method: "POST",
+                        body: JSON.stringify({ source: "onboarding" }),
+                      });
+                      setResendState("sent");
+                      setCooldown(60);
+                    } catch (err) {
+                      setError(err.message || "Could not resend the email. Try again.");
+                      setResendState("idle");
+                    }
+                  }}
+                >
+                  {resendState === "sending"
+                    ? "Sending…"
+                    : cooldown > 0
+                      ? `Resend in ${cooldown}s`
+                      : "Resend the email"}
+                </button>
+                .
+              </>
             )}
-            <Button variant="outline" className="w-full" size="lg" onClick={() => goTo("done")}>
-              Skip for now
+          </p>
+        </div>
+      </StepShell>
+    );
+  };
+
+  const renderWait = () => (
+    <StepShell icon={Cable} title="Waiting for Luna">
+      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+        Keep this page open. Plug Luna into your router or modem with the included RJ45 (ethernet) cable. We continue when Luna comes online.
+      </p>
+      {waitMsg && <p className="text-sm text-foreground mb-6">{waitMsg}</p>}
+      <p className="text-xs font-mono text-muted-foreground animate-pulse">Looking for Luna…</p>
+    </StepShell>
+  );
+
+  const renderOssCode = () => (
+    <StepShell icon={Key} title="Enter this on Luna">
+      <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{ossCode}</p>
+      <p className="text-sm text-foreground mb-8 leading-relaxed">
+        On Luna, open the address on the screen and enter this code (same shape as a booklet code: ****-****-****-****-****).
+      </p>
+      <Button
+        size="lg"
+        className="w-full"
+        onClick={async () => {
+          try {
+            setError("");
+            await bindCode(ossCode);
+            goTo("wait");
+          } catch (err) {
+            setError(err.message);
+          }
+        }}
+      >
+        I entered it on Luna
+      </Button>
+    </StepShell>
+  );
+
+  const renderName = () => (
+    <StepShell icon={Globe} title="Name this Luna">
+      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+        This name is the address you type to open Luna when you are not at home. Use letters and numbers, at least 3 characters.
+      </p>
+      <form
+        className="space-y-5 text-left"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError("");
+          setLoading(true);
+          try {
+            await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
+            const created = await api("/api/v1/onboarding/name", { method: "POST", body: JSON.stringify({ subdomain: name }) });
+            setHostname(created.hostname);
+            setSetupSecret(created.setup_secret || "");
+            goTo("copies");
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        }}
+      >
+        <label htmlFor="name" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+          Name
+        </label>
+        <Input
+          id="name"
+          className="font-mono"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="kitchen"
+          autoFocus
+        />
+        <p className="text-sm font-mono text-foreground">
+          {name.trim() ? `${name.trim().toLowerCase()}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
+        </p>
+        {waitMsg && <p className="text-sm">{waitMsg}</p>}
+        <Button type="submit" size="lg" className="w-full" loading={loading} disabled={name.trim().length < 3}>
+          Use this name <ArrowRight className="w-4 h-4" />
+        </Button>
+      </form>
+    </StepShell>
+  );
+
+  const renderCopies = () => (
+    <StepShell icon={HardDrive} title="Optional cloud backup">
+      <p className="text-sm text-foreground leading-relaxed mb-8 text-pretty">
+        Cloud backup costs $8 per terabyte each month, based on your average storage over the month.
+        Downloads are free up to three times that average; extra download traffic costs $0.01 per GB.
+        The address stays free if you skip this.
+      </p>
+      {stripeLooksConfigured(me) ? (
+        <VerifyHumanCard
+          account={me}
+          loading={loading}
+          description="Add a payment card to turn on cloud backup. The monthly price is based on your average storage."
+          buttonLabel="Turn on cloud backup"
+          onConfirm={async (paymentMethodId) => {
+            setError("");
+            setLoading(true);
+            try {
+              await api("/api/v1/onboarding/backups", {
+                method: "POST",
+                body: JSON.stringify({ enable: true, payment_method_id: paymentMethodId }),
+              });
+              goTo("done");
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          }}
+        />
+      ) : (
+        <Button
+          size="lg"
+          className="w-full mb-3"
+          onClick={async () => {
+            try {
+              await api("/api/v1/onboarding/backups", { method: "POST", body: JSON.stringify({ enable: true }) });
+              goTo("done");
+            } catch (err) {
+              setError(err.message);
+            }
+          }}
+        >
+          Turn on cloud backup
+        </Button>
+      )}
+      <Button variant="outline" size="lg" className="w-full mt-3" onClick={() => goTo("done")}>
+        Skip for now
+      </Button>
+    </StepShell>
+  );
+
+  const renderDone = () => (
+    <StepShell icon={Check} title="You can open Luna from away">
+      <div className="space-y-6 text-left">
+        <div>
+          <p className="text-sm text-foreground mb-2">Open Luna at:</p>
+          <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
+            <p className="font-mono text-sm break-all flex-1 text-foreground">{hostname}</p>
+            <Button variant="ghost" size="icon" onClick={() => handleCopy("host", hostname)} aria-label="Copy address">
+              {copied === "host" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </Button>
           </div>
-        </StepShell>
-      );
-    }
-
-    if (step === "done") {
-      return (
-        <StepShell icon={Check} title="You can open Luna from away">
-          <div className="space-y-4 text-left">
-            <p className="text-sm text-muted-foreground">Open Luna at:</p>
-            <p className="font-mono text-lg break-all text-card-foreground">{hostname}</p>
-            <p className="text-sm text-foreground leading-relaxed">
-              The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account. People who only know the address cannot.
-            </p>
-            {setupSecret && (
-              <p className="font-mono text-lg break-all rounded-large-element border border-border bg-muted px-4 py-3 text-foreground animate-fade-in-up">
-                {setupSecret}
-              </p>
-            )}
-            <p className="text-sm text-muted-foreground">Write the code down. You type it once. Do not put it in the address bar.</p>
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={() => {
-                clearProgress();
-                navigate("/");
-              }}
-            >
-              Done
+        </div>
+        <p className="text-sm text-foreground leading-relaxed">
+          The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account. People who only know the address cannot.
+        </p>
+        {setupSecret && (
+          <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
+            <p className="font-mono text-sm break-all flex-1 text-foreground">{setupSecret}</p>
+            <Button variant="ghost" size="icon" onClick={() => handleCopy("secret", setupSecret)} aria-label="Copy one-time setup code">
+              {copied === "secret" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </Button>
           </div>
-        </StepShell>
-      );
-    }
+        )}
+        <ol className="space-y-2.5 text-sm text-muted-foreground">
+          <li className="flex gap-2.5">
+            <span className="font-mono text-card-foreground">1.</span>
+            Copy the one-time code
+          </li>
+          <li className="flex gap-2.5">
+            <span className="font-mono text-card-foreground">2.</span>
+            Open the address above
+          </li>
+          <li className="flex gap-2.5">
+            <span className="font-mono text-card-foreground">3.</span>
+            Create your Luna login and paste the code once. Do not put it in the address bar.
+          </li>
+        </ol>
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={() => {
+            clearProgress();
+            navigate("/");
+          }}
+        >
+          Done
+        </Button>
+      </div>
+    </StepShell>
+  );
 
-    return null;
-  }
+  let body = null;
+  if (step === "welcome") body = renderWelcome();
+  else if (step === "code") body = renderCode();
+  else if (step === "account" && !isAuthenticated) body = renderAccount();
+  else if (step === "account" && isAuthenticated) body = renderSignedInAccount();
+  else if (step === "verify") body = renderVerify();
+  else if (step === "card") {
+    body = (
+      <StepShell icon={User} title="Confirm this is a real person">
+        <p className="text-sm text-foreground mb-6 leading-relaxed">
+          A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on.
+        </p>
+        <VerifyHumanCard
+          account={me}
+          loading={loading}
+          onConfirm={async (paymentMethodId) => {
+            setError("");
+            setLoading(true);
+            try {
+              await finishOssVerify(paymentMethodId);
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          }}
+        />
+      </StepShell>
+    );
+  } else if (step === "oss-code") body = renderOssCode();
+  else if (step === "wait") body = renderWait();
+  else if (step === "name") body = renderName();
+  else if (step === "copies") body = renderCopies();
+  else if (step === "done") body = renderDone();
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <ProgressBar steps={steps} stepIndex={stepIndex} />
-
+      <button
+        type="button"
+        onClick={toggle}
+        className="absolute top-4 right-4 rounded-pill p-2 text-muted-foreground hover:bg-accent transition-colors"
+        aria-label="Toggle dark mode"
+      >
+        <Sun className="h-5 w-5 dark:hidden" />
+        <Moon className="h-5 w-5 hidden dark:block" />
+      </button>
+      <ProgressBar stepId={step} path={path} />
       <div className="flex-1 flex items-start sm:items-center justify-center px-4 pb-8">
         <div
           ref={outerRef}
@@ -943,16 +991,12 @@ export default function OnboardingPage() {
               className={cn(direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
               style={{ animationDuration: "300ms", animationFillMode: "both" }}
             >
-              {renderStep()}
+              {body}
             </div>
-            {me && step !== "done" && (
-              <p className="mt-8 text-xs text-muted-foreground text-center">Signed in as {me.email}</p>
-            )}
           </div>
         </div>
       </div>
-
-      {step !== "done" && step !== "verify" && (
+      {step !== "welcome" && step !== "done" && (
         <div className="px-4 pb-8 flex justify-center">
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="w-4 h-4 mr-1" /> Back

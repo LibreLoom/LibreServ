@@ -18,6 +18,7 @@ type Config struct {
 	Cloudflare CloudflareConfig `mapstructure:"cloudflare"`
 	Stripe     StripeConfig     `mapstructure:"stripe"`
 	Backup     BackupConfig     `mapstructure:"backup"`
+	Mail       MailConfig       `mapstructure:"mail"`
 }
 
 type ServerConfig struct {
@@ -73,6 +74,13 @@ type BackupConfig struct {
 	MaxAccountBytes int64  `mapstructure:"max_account_bytes"`
 }
 
+// MailConfig is server-only transactional mail (billing warnings).
+type MailConfig struct {
+	ResendAPIKey string `mapstructure:"resend_api_key"`
+	From         string `mapstructure:"from"`
+	BaseURL      string `mapstructure:"base_url"`
+}
+
 func Load(path string) error {
 	viper.SetConfigFile(path)
 	viper.SetEnvPrefix("LUNACONNECT")
@@ -96,6 +104,7 @@ func setDefaults() {
 	viper.SetDefault("backup.driver", "auto")
 	viper.SetDefault("server.web_dir", "web/dist")
 	viper.SetDefault("auth.session_ttl_hours", 168)
+	viper.SetDefault("mail.from", "Luna Connect <noreply@connect.luna.libreloom.org>")
 }
 
 func (c CloudflareConfig) Ready() bool {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
@@ -28,13 +29,15 @@ type Device struct {
 }
 
 type Account struct {
-	ID             string
-	Email          string
-	HasCard        bool
-	BillingStatus  string
-	StripeCustomer string
-	StripeSub      string
-	EmailVerified  bool
+	ID               string
+	Email            string
+	HasCard          bool
+	Activated        bool
+	BillingStatus    string
+	StripeCustomer   string
+	StripeSub        string
+	BackupPurgeAfter int64
+	EmailVerified    bool
 }
 
 func WithDevice(ctx context.Context, d Device) context.Context {
@@ -61,6 +64,7 @@ type Deps struct {
 	Tunnel providers.Tunnel
 	DNS    providers.DNS
 	Hub    *setuphub.Hub
+	Mail   mail.Sender
 }
 
 func ClientIP(r *http.Request) string {

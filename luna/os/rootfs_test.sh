@@ -57,6 +57,10 @@ assert_file_has "$BUILD" 'luna-run' \
 	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"
 assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
+assert_file_has "$BUILD" 'cloudflared' \
+	"rootfs must ship cloudflared so Luna Connect tunnels can start"
+assert_file_has "$BUILD" 'Disable getty so lunad' \
+	"rootfs must disable getty so HDMI keeps the booklet code"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
 assert_file_has "$FLASH" 'rootflags=ro,noatime' \

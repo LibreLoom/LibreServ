@@ -37,11 +37,11 @@ func TestRefreshStripeLoadsPeerAdminWrite(t *testing.T) {
 		"secret_key":     "sk_from_peer",
 		"webhook_secret": "whsec_from_peer",
 	}, map[string]string{
-		"publishable_key":          "pk_from_peer",
-		"price_id":                 "price_peer",
-		"meter_event_name":         "luna_backup_gb",
-		"egress_price_id":          "price_egress_peer",
-		"egress_meter_event_name":  "luna_backup_egress_gb",
+		"publishable_key":         "pk_from_peer",
+		"price_id":                "price_peer",
+		"meter_event_name":        "luna_backup_gb",
+		"egress_price_id":         "price_egress_peer",
+		"egress_meter_event_name": "luna_backup_egress_gb",
 	}, true)
 	if err != nil {
 		t.Fatal(err)

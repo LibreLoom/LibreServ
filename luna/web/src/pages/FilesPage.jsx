@@ -15,7 +15,6 @@ import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
-import ComputerMountHelp from "../components/files/ComputerMountHelp";
 import {
   apiErrorMessage,
   deleteJson,
@@ -222,12 +221,6 @@ export default function FilesPage() {
           icon={Trash2}
           title="Trash is empty"
         />
-      )}
-
-      {!inTrash && drive && (
-        <div className="mt-6">
-          <ComputerMountHelp driveId={id} driveLabel={drive.label} />
-        </div>
       )}
 
       <ModalCard

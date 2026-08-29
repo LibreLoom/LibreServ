@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, Link } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AuthContext } from "../context/AuthContextContext";
 import { renderWithProviders } from "../test/test-utils";
 import SettingsPage from "./SettingsPage";
 
@@ -107,6 +111,43 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Settings")).toBeInTheDocument();
+    });
+  });
+
+  it("opens the category from a settings hash Link", async () => {
+    /** @type {any} */ (getSettings).mockResolvedValue({});
+    /** @type {any} */ (getSecuritySettings).mockResolvedValue({});
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/settings#general"]}>
+        <QueryClientProvider client={client}>
+          <AuthContext.Provider
+            value={{
+              me: { role: "admin" },
+              csrfToken: "t",
+              login: () => Promise.resolve(),
+              logout: () => Promise.resolve(),
+              request: () => Promise.resolve(),
+              initialized: true,
+            }}
+          >
+            <Link to="/settings#security">Go to security hash</Link>
+            <Routes>
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </AuthContext.Provider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("settings-content").every((el) => el.textContent === "general")).toBe(true);
+    });
+    await user.click(screen.getByRole("link", { name: /Go to security hash/i }));
+    await waitFor(() => {
+      expect(screen.getAllByTestId("settings-content").every((el) => el.textContent === "security")).toBe(true);
     });
   });
 });

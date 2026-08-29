@@ -101,17 +101,17 @@ export default function AdminTokensPage() {
 
       <Card className="mb-6" data-testid="official-token-recovery">
         <CardHeader>
-          <CardTitle>Lost official setup code</CardTitle>
+          <CardTitle>Lost booklet code</CardTitle>
           <CardDescription>
-            We need a way to mint a new official setup code for a Luna purchased from LibreLoom that no longer has the old one. For now: the owner should contact support and refer to their order id. Support then issues a replacement official token (single token below). Paste it on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition (factory magazine), or use a one-shot setup-token file next to the ISO payload.
+            Activated owners (booklet setup or bring-your-own) can make a new pairing code on their Luna Connect page. Use this page when there is no account yet, or the booklet was lost before first setup. The owner should contact support and refer to their order ID. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
       </Card>
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Single official setup code</CardTitle>
-          <CardDescription>Create one official setup code for a Luna purchased from LibreLoom (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
+          <CardTitle>Single booklet code</CardTitle>
+          <CardDescription>Create one booklet code to print in a box or give as a replacement (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -140,7 +140,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Bulk factory tokens</CardTitle>
           <CardDescription>
-            Create many official setup codes (same long format as a single remint) for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
+            Create many booklet codes for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

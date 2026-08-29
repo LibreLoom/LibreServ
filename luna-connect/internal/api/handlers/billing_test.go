@@ -46,6 +46,11 @@ func TestStripeWebhookLocksBackups(t *testing.T) {
 	if subID != "" {
 		t.Fatalf("canceled subscription id %q must be cleared so AttachCard can resubscribe", subID)
 	}
+	var purge int64
+	_ = d.DB.QueryRow(`SELECT COALESCE(backup_purge_after,0) FROM accounts WHERE id = ?`, id).Scan(&purge)
+	if purge == 0 {
+		t.Fatal("deleted subscription should start the 30-day backup purge clock")
+	}
 }
 
 func TestStripeWebhookInvoiceFailedLocks(t *testing.T) {

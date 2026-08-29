@@ -91,6 +91,12 @@ func (a *Auto) Delete(accountID, deviceID, relPath string) error {
 	return err2
 }
 
+func (a *Auto) DeleteAccount(accountID string) error {
+	b2Err := a.B2.DeleteAccount(accountID)
+	localErr := a.Local.DeleteAccount(accountID)
+	return errors.Join(b2Err, localErr)
+}
+
 // DeleteBackend removes an object from a specific backend (cleanup after Put).
 func (a *Auto) DeleteBackend(backend, accountID, deviceID, relPath string) error {
 	return a.del(backend, accountID, deviceID, relPath)

@@ -13,14 +13,14 @@ func TestUsageQuantityGB(t *testing.T) {
 		want  int64
 	}{
 		{0, 0},
-		{1, 1},                     // any bytes → at least 1 GB
-		{BytesPerGB - 1, 1},        // under 1 GB still 1
-		{BytesPerGB, 1},            // exactly 1 GB
-		{BytesPerGB + 1, 1},        // floor until 2e9
+		{1, 1},              // any bytes → at least 1 GB
+		{BytesPerGB - 1, 1}, // under 1 GB still 1
+		{BytesPerGB, 1},     // exactly 1 GB
+		{BytesPerGB + 1, 1}, // floor until 2e9
 		{2*BytesPerGB - 1, 1},
 		{2 * BytesPerGB, 2},
-		{100 * BytesPerGB, 100},    // was one 0.1 TB unit before
-		{BytesPerTB, 1000},         // 1 TB = 1000 GB
+		{100 * BytesPerGB, 100}, // was one 0.1 TB unit before
+		{BytesPerTB, 1000},      // 1 TB = 1000 GB
 		{BytesPerTB + BytesPerGB, 1001},
 	}
 	for _, tc := range cases {

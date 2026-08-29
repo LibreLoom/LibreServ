@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev ensure-web-dist mock-pssd mock-pssd-photos
+.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -65,15 +65,36 @@ clean:
 	cargo clean
 	rm -rf web/node_modules web/dist crates/lunad/web/dist
 
-# Linux desktop: one command for a bundled .deb + AppImage. No Apple/Windows
-# signing. Needs webkitgtk and the Tauri Linux deps (see desktop/README.md).
+# Linux desktop (GTK 4 + libadwaita). See desktop/README.md for packages.
+# Ship: Flatpak on Linux, .exe installer on Windows. AppImage is demo/CI only.
+# Rapid GTK loop: cargo-watch + GTK Inspector + auto sign-in to local Luna.
+# Needs lunad on :8090 (make dev-daemon). Default user: desktop / hunter22hunter1.
 desktop-dev:
-	cd desktop && npm install --no-audit --no-fund && npm run tauri -- dev
+	chmod +x desktop/scripts/dev.sh desktop/scripts/ensure-dev-token.sh
+	cd desktop && bash scripts/dev.sh
+
+desktop-dev-login:
+	LUNA_DESKTOP_AUTO_LOGIN=0 $(MAKE) desktop-dev
 
 desktop:
-	cd desktop && npm install --no-audit --no-fund
-	cd desktop/src-tauri && cargo test
-	cd desktop && npm run tauri -- build --no-bundle
+	cd desktop && cargo test && cargo build --release
 
-desktop-bundle: desktop
-	cd desktop && npm run tauri -- build --bundles deb,appimage
+desktop-appimage: desktop
+	cd desktop && bash packaging/appimage/build.sh
+
+# Build + export a single-file Flatpak bundle for Forgejo releases.
+FLATPAK_BUNDLE ?= $(CURDIR)/desktop/release/luna-desktop-x86_64.flatpak
+desktop-flatpak:
+	mkdir -p desktop/release desktop/packaging/flatpak/repo
+	cd desktop/packaging/flatpak && flatpak-builder \
+		--user --force-clean --install-deps-from=flathub \
+		--repo=repo build-dir org.libreloom.LunaDesktop.yml
+	flatpak build-bundle desktop/packaging/flatpak/repo "$(FLATPAK_BUNDLE)" \
+		org.libreloom.LunaDesktop \
+		--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+	@echo "Flatpak bundle: $(FLATPAK_BUNDLE)"
+
+desktop-bundle: desktop-flatpak
+	@echo "Preferred Linux ship: $(FLATPAK_BUNDLE)"
+	@echo "Demo AppImage (optional): make desktop-appimage"
+	@echo "Windows: see desktop/packaging/windows/README.md"

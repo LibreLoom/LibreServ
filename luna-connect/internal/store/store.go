@@ -14,6 +14,7 @@ type Store interface {
 	Put(accountID, deviceID, relPath string, r io.Reader) (written int64, backend string, err error)
 	Get(accountID, deviceID, relPath string) (io.ReadCloser, error)
 	Delete(accountID, deviceID, relPath string) error
+	DeleteAccount(accountID string) error
 }
 
 type Local struct {
@@ -98,4 +99,11 @@ func (s *Local) Delete(accountID, deviceID, relPath string) error {
 		return err
 	}
 	return os.Remove(p)
+}
+
+func (s *Local) DeleteAccount(accountID string) error {
+	if !opaqueIDOK(accountID) {
+		return fmt.Errorf("that file path is not allowed")
+	}
+	return os.RemoveAll(filepath.Join(s.Root, accountID))
 }

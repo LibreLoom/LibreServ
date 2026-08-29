@@ -1,0 +1,38 @@
+# Luna Desktop — Flatpak (Linux)
+
+id: org.libreloom.LunaDesktop
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: luna-desktop
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FileChooser
+modules:
+  - name: luna-desktop
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      # Cargo needs crates.io during the cut (sources are a dir, not cargo-vendor).
+      build-args:
+        - --share=network
+      env:
+        CARGO_HOME: /run/build/luna-desktop/cargo
+    build-commands:
+      - cargo fetch --manifest-path Cargo.toml
+      - cargo build --release --manifest-path Cargo.toml
+      - install -Dm755 target/release/luna-desktop /app/bin/luna-desktop
+      - install -Dm644 resources/org.libreloom.LunaDesktop.desktop /app/share/applications/org.libreloom.LunaDesktop.desktop
+      - install -Dm644 resources/icon.png /app/share/icons/hicolor/256x256/apps/org.libreloom.LunaDesktop.png
+      - install -Dm644 packaging/flatpak/org.libreloom.LunaDesktop.metainfo.xml /app/share/metainfo/org.libreloom.LunaDesktop.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..

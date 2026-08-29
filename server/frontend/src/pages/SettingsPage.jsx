@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
@@ -30,14 +31,25 @@ import NotificationsCategory from "../components/settings/categories/Notificatio
 
 const DEBOUNCE_MS = 500;
 
+/** Category id from `#security` or `#external_services-tunnel`. */
+function categoryFromHash(hash, allowedCategoryIds) {
+  const raw = String(hash || "").replace(/^#/, "");
+  const [catId] = raw.split("-");
+  return allowedCategoryIds.includes(catId) ? catId : null;
+}
+
 export default function SettingsPage() {
   const { me: user, csrfToken } = useAuth();
   const { addToast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const allowedCategoryIds = useMemo(
     () => visibleCategories(isAdmin).map((c) => c.id),
     [isAdmin]
   );
+  const defaultCategory = isAdmin ? "general" : "appearance";
+  const hashCategory = categoryFromHash(location.hash, allowedCategoryIds);
   const {
     theme,
     setTheme,
@@ -60,16 +72,10 @@ export default function SettingsPage() {
   const [connectInfo, setConnectInfo] = useState(null);
   const [connectLoading, setConnectLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeCategory, setActiveCategory] = useState(() => {
-    const hash = window.location.hash.slice(1);
-    // Deep links like #external_services-tunnel carry a service suffix; the
-    // category is the part before the dash.
-    const [catId] = hash.split("-");
-    if (allowedCategoryIds.includes(catId)) return catId;
-    // Admins default to General; users (who can't see it) default to Appearance.
-    return isAdmin ? "general" : "appearance";
-  });
-  const [showMobileContent, setShowMobileContent] = useState(false);
+  const [activeCategory, setActiveCategory] = useState(
+    () => categoryFromHash(location.hash, allowedCategoryIds) || defaultCategory,
+  );
+  const [showMobileContent, setShowMobileContent] = useState(() => Boolean(hashCategory));
   const [saveStatus, setSaveStatus] = useState("idle");
 
   const saveTimeoutRef = useRef(null);
@@ -114,27 +120,13 @@ export default function SettingsPage() {
     };
   }, [loadData]);
 
+  // React Router Link updates location.hash via pushState — no hashchange —
+  // and Settings stays mounted on the same pathname. Follow the router hash.
   useEffect(() => {
-    window.history.replaceState(null, "", `#${activeCategory}`);
-  }, [activeCategory]);
-
-  // Deep links like /settings#external_services only change the URL hash —
-  // listen for it so in-page anchor links actually switch the active category
-  // instead of silently leaving the user on the current one.
-  useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      // A trailing service suffix (e.g. #external_services-tunnel) deep-links
-      // into a specific service; the category is the part before the dash.
-      const [catId] = hash.split("-");
-      if (allowedCategoryIds.includes(catId)) {
-        setActiveCategory(catId);
-        setShowMobileContent(true);
-      }
-    };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [allowedCategoryIds]);
+    if (!hashCategory) return;
+    setActiveCategory(hashCategory);
+    setShowMobileContent(true);
+  }, [hashCategory]);
 
   const handleTestNotification = async () => {
     return sendTestNotification(csrfToken);
@@ -299,6 +291,12 @@ export default function SettingsPage() {
   const handleCategoryChange = (category) => {
     setActiveCategory(category);
     setShowMobileContent(true);
+    const current = location.hash.replace(/^#/, "");
+    if (current === category || current.split("-")[0] === category) return;
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: category },
+      { replace: true },
+    );
   };
 
   const handleBackToSidebar = () => {
@@ -339,7 +337,7 @@ export default function SettingsPage() {
           <SettingsSidebar
             user={user}
             activeCategory={activeCategory}
-            onCategoryChange={setActiveCategory}
+            onCategoryChange={handleCategoryChange}
           />
         </div>
         {/* Content — the only thing that scrolls */}
