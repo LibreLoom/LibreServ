@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { BackupsTab } from "./pages/BackupsPage.jsx";
 
 function wrap(ui) {
@@ -36,7 +36,10 @@ describe("Cloud backups tab", () => {
       />,
     );
     expect(screen.getByTestId("backups-open")).toBeTruthy();
-    expect(screen.getByText("Photos/a.jpg")).toBeTruthy();
+    expect(screen.getByTestId("backup-browser")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Photos" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Photos" }));
+    expect(screen.getByText("a.jpg")).toBeTruthy();
     expect(screen.getByText(/latest copy/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Turn off payment/i })).toBeTruthy();
   });
@@ -59,6 +62,6 @@ describe("Cloud backups tab", () => {
     expect(screen.getByText(/Download anything you need/i)).toBeTruthy();
     expect(screen.getByText(/no longer paired/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
-    expect(screen.getByText("Photos/a.jpg")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Photos" })).toBeTruthy();
   });
 });

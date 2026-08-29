@@ -37,7 +37,7 @@ export async function api(path, opts = {}) {
 }
 
 /** @param {string} deviceId @param {string} relativePath */
-export async function downloadBackup(deviceId, relativePath) {
+export async function fetchBackupBlob(deviceId, relativePath) {
   const headers = { "Content-Type": "application/json" };
   const csrf = readCookie("luna_connect_csrf");
   if (csrf) headers["X-CSRF-Token"] = csrf;
@@ -48,7 +48,7 @@ export async function downloadBackup(deviceId, relativePath) {
     body: JSON.stringify({ device_id: deviceId, path: relativePath }),
   });
   if (!res.ok) {
-    let message = "Could not download that cloud backup.";
+    let message = "Could not open that cloud backup.";
     try {
       const data = await res.json();
       message = data.message || data.error || message;
@@ -57,13 +57,22 @@ export async function downloadBackup(deviceId, relativePath) {
     }
     throw new Error(message);
   }
-  const blob = await res.blob();
+  return res.blob();
+}
+
+function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = relativePath.split("/").pop() || "download";
+  a.download = filename || "download";
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** @param {string} deviceId @param {string} relativePath */
+export async function downloadBackup(deviceId, relativePath) {
+  const blob = await fetchBackupBlob(deviceId, relativePath);
+  saveBlob(blob, relativePath.split("/").pop() || "download");
 }

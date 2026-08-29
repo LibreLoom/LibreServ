@@ -4,8 +4,9 @@ import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { api, downloadBackup } from "../api.js";
+import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
+import { BackupBrowser } from "../components/BackupBrowser.jsx";
 
 function daysUntil(unixSeconds) {
   if (!unixSeconds) return null;
@@ -79,26 +80,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
   const fileList = objects.length === 0 ? (
     <p className="text-sm text-muted-foreground">Nothing stored yet. On Luna, choose folders or a whole drive after pairing.</p>
   ) : (
-    <ul className="space-y-2">
-      {objects.map((o) => (
-        <li key={`${o.device_id}-${o.relative_path}`} className="flex justify-between gap-3 rounded-large-element border border-border px-4 py-3">
-          <span className="font-mono break-all text-sm">{o.relative_path}</span>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={async () => {
-              try {
-                await downloadBackup(o.device_id, o.relative_path);
-              } catch (err) {
-                setError(err.message);
-              }
-            }}
-          >
-            Download
-          </Button>
-        </li>
-      ))}
-    </ul>
+    <BackupBrowser objects={objects} onError={(message) => setError(message)} />
   );
 
   const unpairedNote = !paired && objects.length > 0 ? (
