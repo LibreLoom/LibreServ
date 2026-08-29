@@ -30,7 +30,7 @@ export default function LunaPage() {
         <CardHeader>
           <CardTitle>Your Lunas</CardTitle>
           <CardDescription>
-            Open Setup to type the booklet code, or the short code if you set this computer up yourself.
+            Open Setup and type the device code from the booklet or from this site (same long format either way).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

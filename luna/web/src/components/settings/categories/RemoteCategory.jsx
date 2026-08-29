@@ -79,18 +79,21 @@ export default function RemoteCategory() {
               </p>
               <SettingsRow label="Code from the Luna Connect site" stack hideDivider>
                 <input
-                  className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
+                  className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono tracking-widest"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="Six letters from the site"
+                  placeholder="****-****-****-****-****"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="Device code from Luna Connect"
                 />
               </SettingsRow>
               <div className="px-4 pb-4 flex flex-col gap-2">
-                <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.trim().length < 6} onClick={() => saveCode.mutate()}>
+                <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.replace(/[-_\s]/g, "").length < 6} onClick={() => saveCode.mutate()}>
                   Save code
                 </Button>
                 <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
-                  Use booklet code
+                  Use booklet code on this Luna
                 </Button>
               </div>
             </div>

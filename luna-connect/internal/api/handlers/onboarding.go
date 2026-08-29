@@ -72,7 +72,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	norm := security.NormalizeToken(req.Code)
 	if norm == "" {
-		JSONError(w, http.StatusBadRequest, "Type the device code from the booklet, or the short code from this website.")
+		JSONError(w, http.StatusBadRequest, "Type the device code from the booklet, or the code from this website (****-****-****-****-****).")
 		return
 	}
 	if !allowGuess(h.DB, clientKeyIP(r), 8, 15*60) {
@@ -93,11 +93,11 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	acct, hasAcct := AccountFrom(r.Context())
 	if tok.Kind == "oss" {
 		if !hasAcct {
-			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this short code, then type it again.")
+			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this code, then type it again.")
 			return
 		}
 		if tokenAccountID(tok) != acct.ID {
-			JSONError(w, http.StatusForbidden, "That short code belongs to a different account. Sign in to the account that created it, then try again.")
+			JSONError(w, http.StatusForbidden, "That code belongs to a different account. Sign in to the account that created it, then try again.")
 			return
 		}
 	}
@@ -218,7 +218,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tok.Kind == "oss" && tokenAccountID(tok) != acct.ID {
-		JSONError(w, http.StatusForbidden, "That short code belongs to a different account. Sign in to the account that created it, then try again.")
+		JSONError(w, http.StatusForbidden, "That code belongs to a different account. Sign in to the account that created it, then try again.")
 		return
 	}
 	if h.Hub == nil || !h.Hub.HasLive(sess.tokenHash) {
@@ -451,7 +451,7 @@ VALUES (?, ?, 'oss', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.
 	JSON(w, http.StatusCreated, map[string]any{
 		"code":       code,
 		"expires_in": 15 * 60,
-		"message":    "On Luna, open the address on the screen and enter this code.",
+		"message":    "On Luna, open the address on the screen and enter this code (****-****-****-****-****).",
 	})
 }
 

@@ -43,7 +43,7 @@ func GroupCrockford(raw string) string {
 }
 
 // OSSHexToken is a one-use setup code for self-built boxes.
-// Same strength as official booklet codes (not a short guessable hex).
+// Same Crockford booklet format as OfficialBookletToken (legacy name).
 func OSSHexToken() string {
 	return OfficialBookletToken()
 }

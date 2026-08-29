@@ -71,7 +71,7 @@ export default function OnboardingPage() {
           <CardTitle className="font-mono text-2xl">Set up Luna</CardTitle>
           <CardDescription>
             {step === "path" && "How did this Luna arrive?"}
-            {step === "code" && "Type the device code."}
+            {step === "code" && "Type the device code from the booklet (groups of letters and numbers)."}
             {step === "account" && "Create your Luna Connect account."}
             {step === "card" && "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
             {step === "name" && "This name is the address you type to open Luna when you are not at home."}
@@ -105,7 +105,15 @@ export default function OnboardingPage() {
               }}
             >
               <Label htmlFor="code">Device code from the booklet (HDMI shows the same if you lost the paper)</Label>
-              <Input id="code" className="font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value)} />
+              <Input
+                id="code"
+                className="font-mono uppercase tracking-widest"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="****-****-****-****-****"
+                autoComplete="off"
+                spellCheck={false}
+              />
               {waitMsg && <p className="text-sm text-foreground">{waitMsg}</p>}
               <Button type="submit" className="w-full" loading={loading}>Continue</Button>
             </form>
@@ -161,8 +169,8 @@ export default function OnboardingPage() {
           )}
           {step === "oss-code" && (
             <div className="space-y-3">
-              <p className="font-mono text-3xl tracking-widest text-center">{ossCode}</p>
-              <p className="text-sm text-foreground">On Luna, open the address on the screen and enter this code.</p>
+              <p className="font-mono text-xl sm:text-2xl tracking-widest text-center break-all">{ossCode}</p>
+              <p className="text-sm text-foreground">On Luna, open the address on the screen and enter this code (same shape as a booklet code: ****-****-****-****-****).</p>
               <Button className="w-full" onClick={async () => {
                 try {
                   await bindCode(ossCode);

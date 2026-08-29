@@ -149,7 +149,7 @@ factory_apply_setup_token() {
 
 	if [ -t 0 ]; then
 		echo
-		echo "Official setup code from Luna Connect. Paste it and press Enter, or press Enter to skip."
+		echo "Official setup code from Luna Connect (****-****-****-****-****). Paste it and press Enter, or press Enter to skip."
 		# shellcheck disable=SC2162
 		read _tok || _tok=""
 		if [ -n "$_tok" ]; then
