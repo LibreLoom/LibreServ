@@ -126,13 +126,14 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 		Customer: stripe.String(customerID),
 	})
 	params := &stripe.PaymentIntentParams{
-		Amount:        stripe.Int64(100),
-		Currency:      stripe.String(string(stripe.CurrencyUSD)),
-		Customer:      stripe.String(customerID),
-		PaymentMethod: stripe.String(paymentMethodID),
-		Confirm:       stripe.Bool(true),
-		OffSession:    stripe.Bool(false),
-		Description:   stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
+		Amount:             stripe.Int64(100),
+		Currency:           stripe.String(string(stripe.CurrencyUSD)),
+		Customer:           stripe.String(customerID),
+		PaymentMethod:      stripe.String(paymentMethodID),
+		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
+		Confirm:            stripe.Bool(true),
+		ReturnURL:          stripe.String(paymentReturnURL()),
+		Description:        stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
 	}
 	pi, err := paymentintent.New(params)
 	if err != nil {
@@ -142,6 +143,17 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 		return "", fmt.Errorf("payment not succeeded")
 	}
 	return pi.ID, nil
+}
+
+// paymentReturnURL is required by Stripe when confirming a PaymentIntent, even
+// for cards that do not redirect. Points at onboarding so a rare redirect lands
+// somewhere sensible.
+func paymentReturnURL() string {
+	base := strings.TrimRight(strings.TrimSpace(config.C.Server.BaseURL), "/")
+	if base == "" {
+		base = "https://connect.luna.libreloom.org"
+	}
+	return base + "/onboarding"
 }
 
 func Subscribe(customerID, paymentMethodID string) (subID, itemID string, err error) {

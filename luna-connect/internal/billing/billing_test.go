@@ -85,6 +85,20 @@ func TestIsPlaceholderCustomer(t *testing.T) {
 	}
 }
 
+func TestChargeRequiresPaymentMethodWhenStripeReady(t *testing.T) {
+	t.Setenv("LUNACONNECT_DEV", "")
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.SecretKey = "sk_test_fake"
+	if _, err := ChargeOneDollar("cus_x", ""); !errors.Is(err, ErrPaymentMethodRequired) {
+		t.Fatalf("want payment method required, got %v", err)
+	}
+	if _, _, err := Subscribe("cus_x", ""); !errors.Is(err, ErrPaymentMethodRequired) {
+		t.Fatalf("subscribe want payment method required, got %v", err)
+	}
+}
+
 func TestChargeRejectsPlaceholderCustomer(t *testing.T) {
 	t.Setenv("LUNACONNECT_DEV", "")
 	prev := config.C.Stripe
