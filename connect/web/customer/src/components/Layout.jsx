@@ -34,7 +34,7 @@ export function Layout({ children }) {
     <div className="flex min-h-screen bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-border bg-card">
         <div className="flex h-16 items-center gap-2.5 px-6">
-          <img src={brandSrc} alt="" className="size-8 shrink-0 rounded-large-element" width={32} height={32} />
+          <img src={brandSrc} alt="" className="size-8 shrink-0" width={32} height={32} />
           <span className="flex h-8 items-center font-mono text-lg leading-none">Connect</span>
         </div>
         <Separator />

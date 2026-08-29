@@ -95,6 +95,7 @@ export function VerifyHumanCard({ account, onConfirm, loading = false, descripti
         mode: "payment",
         amount: 100,
         currency: "usd",
+        paymentMethodCreation: "manual",
         appearance: appearanceFromTheme(),
       }}
     >
