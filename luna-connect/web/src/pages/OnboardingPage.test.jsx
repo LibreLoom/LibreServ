@@ -29,6 +29,7 @@ vi.mock("../context/AuthContext.jsx", () => ({
     isAuthenticated: authState.isAuthenticated,
     register,
     me: authState.me,
+    refresh: vi.fn(async () => authState.me),
   }),
 }));
 
@@ -59,7 +60,7 @@ describe("OnboardingPage OSS verify", () => {
       if (path === "/api/v1/account/oss-token") {
         return {
           code: "3097-V4YK-3HYX-2E3P-V4B3",
-          message: "On Luna, open the address on the screen and enter this code (****-****-****-****-****).",
+          message: "You can enter this code during the installer process, or you can edit the setup code on your device through About → Advanced.",
         };
       }
       if (path === "/api/v1/onboarding/bind") return { message: "ok" };
@@ -119,6 +120,24 @@ describe("OnboardingPage OSS verify", () => {
 
     expect(await screen.findByRole("button", { name: /confirm with a dollar/i })).toBeTruthy();
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
+  });
+
+  it("regenerates an OSS setup code without charging when already human-verified", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "max@example.com",
+      stripe_publishable_key: "pk_test_x",
+      human_verified: true,
+    };
+    stripeLooksConfigured.mockReturnValue(true);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /I built it myself/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
+
+    expect(await screen.findByText("3097-V4YK-3HYX-2E3P-V4B3")).toBeTruthy();
+    expect(api.mock.calls.map((c) => c[0])).toContain("/api/v1/account/oss-token");
+    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
+    expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
   it("keeps the purchased path free of a card step", async () => {

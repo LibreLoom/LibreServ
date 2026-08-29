@@ -35,6 +35,12 @@ function stubFetch(sourceBody) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (path.startsWith("/api/v1/connect/status")) {
+      return new Response(JSON.stringify({ enabled: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (path.startsWith("/api/v1/system/updates/source")) {
       return new Response(JSON.stringify(sourceBody ?? SOURCE_RESPONSE), {
         status: 200,
@@ -74,7 +80,8 @@ describe("AboutCategory", () => {
     expect(await screen.findByText("Living Room Luna")).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
-    expect(await screen.findByText("Default source")).toBeTruthy();
+    expect(screen.getByText("Setup code")).toBeTruthy();
+    expect(screen.getByText("Default source")).toBeTruthy();
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
   });
 

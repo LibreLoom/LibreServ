@@ -104,10 +104,16 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	var liveBytes int64
 	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
 	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
+	var payStatus string
+	humanVerified := false
+	if err := h.DB.QueryRow(`SELECT status FROM oss_payments WHERE account_id = ?`, acct.ID).Scan(&payStatus); err == nil && payStatus == "succeeded" {
+		humanVerified = true
+	}
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
 		"email":                  acct.Email,
 		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
+		"human_verified":         humanVerified,
 		"billing_status":         acct.BillingStatus,
 		"stored_bytes":           liveBytes,
 		"avg_stored_bytes":       avgBytes,

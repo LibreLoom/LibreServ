@@ -134,7 +134,7 @@ function StepShell({ icon: Icon, title, children, wide = false }) {
 }
 
 export default function OnboardingPage() {
-  const { isAuthenticated, register, me } = useAuth();
+  const { isAuthenticated, register, me, refresh } = useAuth();
   const navigate = useNavigate();
   /** @type {[OnboardingStep, function(OnboardingStep): void]} */
   const [step, setStep] = useState("path");
@@ -154,7 +154,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const { outerRef, innerRef } = useAnimatedHeight();
 
-  const includeCard = path === "oss" && stripeLooksConfigured(me);
+  const includeCard = path === "oss" && stripeLooksConfigured(me) && !me?.human_verified;
   const steps = stepsForPath(path, includeCard || step === "card");
   const stepIndex = Math.max(0, steps.findIndex((s) => s.id === step));
 
@@ -193,19 +193,30 @@ export default function OnboardingPage() {
     return s;
   }
 
-  async function finishOssVerify(paymentMethodId) {
-    const body = paymentMethodId
-      ? JSON.stringify({ payment_method_id: paymentMethodId })
-      : "{}";
-    await api("/api/v1/account/verify-human", { method: "POST", body });
+  async function mintOssCode() {
     const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
     setOssCode(minted.code);
     setWaitMsg(minted.message);
     goTo("oss-code");
   }
 
+  async function finishOssVerify(paymentMethodId) {
+    const body = paymentMethodId
+      ? JSON.stringify({ payment_method_id: paymentMethodId })
+      : "{}";
+    await api("/api/v1/account/verify-human", { method: "POST", body });
+    await refresh();
+    await mintOssCode();
+  }
+
   async function afterOssAccount(account) {
-    if (stripeLooksConfigured(account || me)) {
+    const acct = account || me;
+    // Already paid the one-dollar check — mint a fresh website setup code, do not charge again.
+    if (acct?.human_verified) {
+      await mintOssCode();
+      return;
+    }
+    if (stripeLooksConfigured(acct)) {
       goTo("card");
       return;
     }
@@ -230,7 +241,7 @@ export default function OnboardingPage() {
       return;
     }
     if (step === "oss-code") {
-      goTo(includeCard || stripeLooksConfigured(me) ? "card" : "account", "left");
+      goTo(includeCard || (stripeLooksConfigured(me) && !me?.human_verified) ? "card" : "account", "left");
       return;
     }
     if (step === "plug") {
@@ -353,7 +364,9 @@ export default function OnboardingPage() {
         <StepShell icon={User} title="Continue with your account">
           <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
             {path === "oss"
-              ? "You are already signed in. Next we confirm you are a real person with a one-dollar card check, then give you a setup code for this Luna."
+              ? me?.human_verified
+                ? "You are already signed in. Continue to get a new setup code for this Luna — we will not charge another dollar."
+                : "You are already signed in. Next we confirm you are a real person with a one-dollar card check, then give you a setup code for this Luna."
               : "You are already signed in. Next you will plug Luna in, then name it."}
           </p>
           <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
@@ -474,7 +487,7 @@ export default function OnboardingPage() {
       return (
         <StepShell icon={KeyRound} title="Your setup code">
           <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
-            On Luna, open the address on the screen and enter this code (****-****-****-****-****).
+            You can enter this code during the installer process, or you can edit the setup code on your device through About → Advanced.
           </p>
           <p className="font-mono text-xl sm:text-2xl tracking-widest text-center break-all mb-8 animate-fade-in-up">
             {ossCode}

@@ -473,7 +473,7 @@ VALUES (?, ?, 'oss', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.
 	JSON(w, http.StatusCreated, map[string]any{
 		"code":       code,
 		"expires_in": 15 * 60,
-		"message":    "On Luna, open the address on the screen and enter this code (****-****-****-****-****).",
+		"message":    "You can enter this code during the installer process, or you can edit the setup code on your device through About → Advanced.",
 	})
 }
 
