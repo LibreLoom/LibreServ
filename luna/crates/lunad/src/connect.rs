@@ -138,7 +138,7 @@ impl ConnectService {
         let norm = normalize_setup_code(code);
         if !is_booklet_code(&norm) {
             return Err(ConnectError::Other(
-                "That code should look like ****-****-****-****-**** from the Luna Connect site (or the printed booklet).".into(),
+                "That code should look like ****-****-****-****-**** from the Luna Connect site (or the code that came with a Luna purchased from LibreLoom).".into(),
             ));
         }
         *self.ephemeral.lock().unwrap() = Some(Ephemeral {
@@ -151,7 +151,7 @@ impl ConnectService {
     pub fn redeem_booklet(&self) -> Result<(), ConnectError> {
         if self.read_factory_token().is_none() {
             return Err(ConnectError::Other(
-                "This Luna has no booklet code on disk. Paste the code from the Luna Connect site instead.".into(),
+                "This Luna has no factory setup code on disk. If you built it yourself, paste the code from the Luna Connect site instead.".into(),
             ));
         }
         *self.redeem.lock().unwrap() = true;

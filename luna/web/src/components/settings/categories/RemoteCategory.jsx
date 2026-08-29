@@ -93,7 +93,7 @@ export default function RemoteCategory() {
                   Save code
                 </Button>
                 <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
-                  Use booklet code on this Luna
+                  Use the code that came with this Luna
                 </Button>
               </div>
             </div>

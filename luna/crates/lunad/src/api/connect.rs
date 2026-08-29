@@ -90,7 +90,7 @@ async fn redeem(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't start booklet setup.",
+                "Luna couldn't start setup with the code that came with this Luna.",
             )
         })?
         .map_err(map_connect_err)?;

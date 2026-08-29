@@ -44,7 +44,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         && let Some(code) = &snap.setup_code
     {
         lines.push(String::new());
-        lines.push("  Device code (same as the booklet):".into());
+        lines.push("  Device code (purchased from LibreLoom):".into());
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
     }

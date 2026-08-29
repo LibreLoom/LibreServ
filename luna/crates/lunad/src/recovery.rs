@@ -9,7 +9,7 @@
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
 //! assert that). Keep this block as the source of truth for the printed
-//! card, booklet, and future docs:
+//! recovery card and future docs:
 //!
 //!   If you forget your password
 //!   1. Hold the power button until Luna is visibly off and silent.
@@ -47,7 +47,7 @@ pub const KEY_U: u16 = 22;
 /// Esc, then L U N A, then Enter.
 pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 
-/// Friendly copy for the printed recovery card / booklet / future docs.
+/// Friendly copy for the printed recovery card and future docs.
 /// Not rendered in the Luna web UI — keep in sync with the module comment above.
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[

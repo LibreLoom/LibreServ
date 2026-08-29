@@ -22,7 +22,7 @@ describe("RemoteCategory", () => {
     ));
     renderPage();
     expect(await screen.findByRole("button", { name: /Save code/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use booklet code on this Luna/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use the code that came with this Luna/i })).toBeTruthy();
     expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
     expect(screen.getByText(/free forever/i)).toBeTruthy();
   });
