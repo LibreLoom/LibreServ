@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import FileViewer from "./FileViewer.jsx";
 
 /** @type {typeof Image | undefined} */
@@ -101,5 +101,51 @@ describe("FileViewer image preview", () => {
 
     expect(screen.getByText(/Could not load this photo/i)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+});
+
+describe("FileViewer text save", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("saves an existing text file with overwrite=1", async () => {
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.includes("/files/content") && method === "GET") {
+        return new Response("hello", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      if (u.includes("/files/upload") && method === "POST") {
+        return new Response(JSON.stringify({ name: "note.txt" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={() => {}}
+      />,
+    );
+
+    const editor = await screen.findByLabelText("Contents of note.txt");
+    expect(editor).toHaveValue("hello");
+    fireEvent.change(editor, { target: { value: "hello world" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => {
+      const upload = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).includes("/files/upload") && (init?.method || "GET").toUpperCase() === "POST"
+      );
+      expect(upload).toBeTruthy();
+      expect(String(upload[0])).toContain("overwrite=1");
+    });
   });
 });
