@@ -22,6 +22,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/domainname"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
@@ -669,10 +670,14 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 		Subdomain string `json:"subdomain"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	sub := normalizeSubdomain(req.Subdomain)
-	if req.Subdomain != "" && sub == "" {
-		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
-		return
+	sub := ""
+	if req.Subdomain != "" {
+		var msg string
+		sub, msg = domainname.Validate(req.Subdomain)
+		if msg != "" {
+			JSONError(w, http.StatusBadRequest, msg)
+			return
+		}
 	}
 
 	// Load the account's existing key (if any) before it is replaced, so a
@@ -1575,6 +1580,9 @@ func (h *PortalHandler) SearchDomains(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "query is required")
 		return
 	}
+	if rejectBrandOwnedDomain(w, req.Query) {
+		return
+	}
 
 	if config.C.Purchase.MockDomain {
 		q := strings.ToLower(strings.TrimSpace(req.Query))
@@ -1629,6 +1637,9 @@ func mockDomainResults(base string) []map[string]any {
 
 	results := make([]map[string]any, 0, len(cands))
 	for _, c := range cands {
+		if domainname.IsBrandOwned(c.name) {
+			continue
+		}
 		results = append(results, map[string]any{
 			"name":              c.name,
 			"registration_cost": c.price,
@@ -1644,6 +1655,9 @@ func (h *PortalHandler) CheckDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Domain == "" {
 		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+	if rejectBrandOwnedDomain(w, req.Domain) {
 		return
 	}
 
@@ -1686,6 +1700,9 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Domain == "" {
 		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+	if rejectBrandOwnedDomain(w, req.Domain) {
 		return
 	}
 
@@ -2134,9 +2151,9 @@ func (h *PortalHandler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub := normalizeSubdomain(req.Subdomain)
-	if sub == "" {
-		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
+	sub, msg := domainname.Validate(req.Subdomain)
+	if msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -2176,9 +2193,9 @@ func (h *PortalHandler) SetSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub := normalizeSubdomain(req.Subdomain)
-	if sub == "" {
-		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
+	sub, msg := domainname.Validate(req.Subdomain)
+	if msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -2231,23 +2248,22 @@ func (h *PortalHandler) SetSubdomain(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// normalizeSubdomain validates and normalizes a subdomain prefix.
-// Returns "" if invalid.
+// normalizeSubdomain validates and normalizes a subdomain prefix for claim.
+// Returns "" if invalid or reserved (see domainname.Validate).
 func normalizeSubdomain(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if len(s) < 3 || len(s) > 63 {
+	n, msg := domainname.Validate(s)
+	if msg != "" {
 		return ""
 	}
-	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
-			return ""
-		}
+	return n
+}
+
+func rejectBrandOwnedDomain(w http.ResponseWriter, domain string) bool {
+	if domainname.IsBrandOwned(domain) {
+		JSONError(w, http.StatusBadRequest, "You cannot register a LibreLoom or LibreServ address as a custom domain. Use your Connect subdomain, or bring a domain you own.")
+		return true
 	}
-	// Leading/trailing dashes are invalid for hostnames.
-	if strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
-		return ""
-	}
-	return s
+	return false
 }
 
 // ChangeDomain initiates a domain change: purchases a new domain via the existing
@@ -2261,6 +2277,9 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" || req.NewDomain == "" {
 		JSONError(w, http.StatusBadRequest, "device_id and new_domain are required")
+		return
+	}
+	if rejectBrandOwnedDomain(w, req.NewDomain) {
 		return
 	}
 

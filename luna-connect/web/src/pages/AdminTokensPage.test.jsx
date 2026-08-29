@@ -38,5 +38,6 @@ describe("AdminTokensPage", () => {
     expect(screen.getByTestId("bulk-tokens")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create list/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Download TOKENS/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Show all codes/i })).toBeTruthy();
   });
 });

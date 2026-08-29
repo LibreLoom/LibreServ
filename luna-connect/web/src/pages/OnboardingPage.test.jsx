@@ -106,6 +106,21 @@ describe("OnboardingPage OSS verify", () => {
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
+  it("lets a signed-in person continue the built-myself path to the dollar check", async () => {
+    authState.isAuthenticated = true;
+    authState.me = { email: "max@example.com", stripe_publishable_key: "pk_test_x" };
+    stripeLooksConfigured.mockReturnValue(true);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /I built it myself/i }));
+
+    expect(await screen.findByRole("button", { name: /^Continue/i })).toBeTruthy();
+    expect(screen.getByText("max@example.com")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
+
+    expect(await screen.findByRole("button", { name: /confirm with a dollar/i })).toBeTruthy();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
+  });
+
   it("keeps the purchased path free of a card step", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     mount();
@@ -154,6 +169,13 @@ describe("OnboardingPage done card", () => {
     fireEvent.click(screen.getByRole("button", { name: /Purchased from LibreLoom/i }));
     fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /Plug Luna in/i })).toBeTruthy();
+    });
+    const pluggedIn = screen.getByRole("button", { name: /Luna is plugged in/i });
+    expect(pluggedIn.disabled).toBe(false);
+    fireEvent.click(pluggedIn);
 
     await waitFor(() => {
       expect(screen.getByLabelText(/Name for this Luna/i)).toBeTruthy();

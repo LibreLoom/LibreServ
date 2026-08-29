@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  Cable,
   CreditCard,
   Check,
   ChevronLeft,
@@ -23,7 +24,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import { cn } from "../lib/utils.js";
 
-/** @typedef {"path"|"code"|"account"|"card"|"oss-code"|"name"|"copies"|"done"} OnboardingStep */
+/** @typedef {"path"|"code"|"account"|"card"|"oss-code"|"plug"|"name"|"copies"|"done"} OnboardingStep */
 /** @typedef {"official"|"oss"} OnboardingPath */
 
 /**
@@ -37,6 +38,7 @@ function stepsForPath(path, includeCard) {
       { id: "account", label: "Account" },
       ...(includeCard ? [{ id: "card", label: "Verify" }] : []),
       { id: "oss-code", label: "Code" },
+      { id: "plug", label: "Plug in" },
       { id: "name", label: "Name" },
       { id: "copies", label: "Backup" },
       { id: "done", label: "Done" },
@@ -46,6 +48,7 @@ function stepsForPath(path, includeCard) {
     { id: "path", label: "Start" },
     { id: "code", label: "Code" },
     { id: "account", label: "Account" },
+    { id: "plug", label: "Plug in" },
     { id: "name", label: "Name" },
     { id: "copies", label: "Backup" },
     { id: "done", label: "Done" },
@@ -147,6 +150,7 @@ export default function OnboardingPage() {
   const [setupSecret, setSetupSecret] = useState("");
   const [error, setError] = useState("");
   const [waitMsg, setWaitMsg] = useState("");
+  const [lunaOnline, setLunaOnline] = useState(false);
   const [loading, setLoading] = useState(false);
   const { outerRef, innerRef } = useAnimatedHeight();
 
@@ -162,25 +166,30 @@ export default function OnboardingPage() {
   }
 
   useEffect(() => {
-    if (step !== "code" && step !== "name") return undefined;
-    const t = setInterval(async () => {
+    if (step !== "code" && step !== "plug") return undefined;
+    const poll = async () => {
       try {
         const s = await api("/api/v1/onboarding/session");
         setWaitMsg(s.message || "");
+        const online = s.status === "attached" || s.live === true;
+        if (online) setLunaOnline(true);
         if (s.status === "attached" && step === "code" && isAuthenticated) {
           setDirection("right");
-          setStep("name");
+          setStep("plug");
         }
       } catch {
         /* waiting room is optional until bind */
       }
-    }, 3000);
+    };
+    poll();
+    const t = setInterval(poll, 3000);
     return () => clearInterval(t);
   }, [step, isAuthenticated]);
 
   async function bindCode(value) {
     const s = await api("/api/v1/onboarding/bind", { method: "POST", body: JSON.stringify({ code: value }) });
     setWaitMsg(s.message || "");
+    if (s.status === "attached" || s.live === true) setLunaOnline(true);
     return s;
   }
 
@@ -224,9 +233,13 @@ export default function OnboardingPage() {
       goTo(includeCard || stripeLooksConfigured(me) ? "card" : "account", "left");
       return;
     }
-    if (step === "name") {
+    if (step === "plug") {
       if (path === "oss") goTo("oss-code", "left");
       else goTo(isAuthenticated ? "code" : "account", "left");
+      return;
+    }
+    if (step === "name") {
+      goTo("plug", "left");
       return;
     }
     if (step === "copies") {
@@ -285,7 +298,7 @@ export default function OnboardingPage() {
             </button>
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed text-pretty max-w-md mx-auto">
-            Stay on your home internet. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.
+            You will plug Luna into power and into your router in a later step.
           </p>
         </StepShell>
       );
@@ -305,7 +318,7 @@ export default function OnboardingPage() {
               setLoading(true);
               try {
                 await bindCode(code);
-                goTo(isAuthenticated ? "name" : "account");
+                goTo(isAuthenticated ? "plug" : "account");
               } catch (err) {
                 setError(err.message);
               } finally {
@@ -335,6 +348,43 @@ export default function OnboardingPage() {
       );
     }
 
+    if (step === "account" && isAuthenticated) {
+      return (
+        <StepShell icon={User} title="Continue with your account">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
+            {path === "oss"
+              ? "You are already signed in. Next we confirm you are a real person with a one-dollar card check, then give you a setup code for this Luna."
+              : "You are already signed in. Next you will plug Luna in, then name it."}
+          </p>
+          <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
+          <Button
+            className="w-full"
+            size="lg"
+            loading={loading}
+            onClick={async () => {
+              setError("");
+              setLoading(true);
+              try {
+                if (path === "oss") {
+                  await afterOssAccount(me);
+                } else {
+                  if (code) await bindCode(code);
+                  await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
+                  goTo("plug");
+                }
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Continue <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+        </StepShell>
+      );
+    }
+
     if (step === "account" && !isAuthenticated) {
       return (
         <StepShell icon={User} title="Create your Luna Connect account">
@@ -354,7 +404,7 @@ export default function OnboardingPage() {
                 } else {
                   if (code) await bindCode(code);
                   await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-                  goTo("name");
+                  goTo("plug");
                 }
               } catch (err) {
                 setError(err.message);
@@ -434,13 +484,71 @@ export default function OnboardingPage() {
             onClick={async () => {
               try {
                 await bindCode(ossCode);
-                goTo("name");
+                goTo("plug");
               } catch (err) {
                 setError(err.message);
               }
             }}
           >
             I entered it on Luna <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+        </StepShell>
+      );
+    }
+
+    if (step === "plug") {
+      return (
+        <StepShell icon={Cable} title="Plug Luna in">
+          <div className="space-y-4 text-left mb-8">
+            <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+              Stay on your home internet for this step. Do this before you name Luna:
+            </p>
+            <ol className="list-decimal list-inside space-y-3 text-sm text-card-foreground leading-relaxed">
+              <li>Plug Luna into power with the included power cord.</li>
+              <li>
+                Plug Luna into your router or modem with the included RJ45 (ethernet) cable.
+              </li>
+              <li>Wait until Luna’s screen shows it is online, or until this page says Luna is connected.</li>
+            </ol>
+            <p
+              className={cn(
+                "rounded-large-element border px-4 py-3 text-sm leading-relaxed",
+                lunaOnline
+                  ? "border-success/30 bg-success/20 text-card-foreground"
+                  : "border-border bg-muted text-muted-foreground",
+              )}
+            >
+              {lunaOnline
+                ? "Luna is connected. You can continue."
+                : waitMsg || "Waiting for Luna to come online… Keep this page open."}
+            </p>
+          </div>
+          <Button
+            className="w-full"
+            size="lg"
+            loading={loading}
+            disabled={!lunaOnline}
+            onClick={async () => {
+              setError("");
+              setLoading(true);
+              try {
+                const s = await api("/api/v1/onboarding/session");
+                if (s.status !== "attached" && s.live !== true) {
+                  setLunaOnline(false);
+                  setWaitMsg(s.message || "Luna is not online yet. Check power and the ethernet cable, then wait.");
+                  setError("Luna is not online yet. Check power and the ethernet cable, then wait.");
+                  return;
+                }
+                setLunaOnline(true);
+                goTo("name");
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Luna is plugged in <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         </StepShell>
       );
