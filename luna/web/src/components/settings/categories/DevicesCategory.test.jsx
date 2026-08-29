@@ -24,19 +24,25 @@ describe("DevicesCategory", () => {
     expect(screen.queryByText(/from the same place you downloaded/i)).toBeNull();
     expect(screen.queryByText(/^Computers: use the Luna Desktop app\.$/i)).toBeNull();
 
-    expect(screen.getByText(/copies photos to this Luna/i)).toBeTruthy();
-    expect(screen.getByText(/Phone Backup/)).toBeTruthy();
+    expect(screen.getByText(/copies new photos from the phone/i)).toBeTruthy();
+    expect(screen.getByText(/no iPhone app yet/i)).toBeTruthy();
+    expect(screen.getByText(/pick a drive and a folder/i)).toBeTruthy();
+    expect(screen.getByText(/year and month/i)).toBeTruthy();
+    expect(screen.getByText(/you choose when backup runs/i)).toBeTruthy();
+    expect(screen.queryByText(/Phone Backup/)).toBeNull();
+    expect(screen.queryByText(/Sign in with your Luna username/i)).toBeNull();
     expect(screen.getByText(/copy folders onto this Luna/i)).toBeTruthy();
 
-    const mobileDownload = screen.getByRole("link", { name: /Download the Luna app for phones/i });
+    const mobileDownload = screen.getByRole("link", { name: /Download the Luna app for Android/i });
     expect(mobileDownload).toHaveAttribute("href", MOBILE_APP_DOWNLOAD_URL);
     expect(mobileDownload).toHaveAttribute("target", "_blank");
 
     const desktopDownload = screen.getByRole("link", { name: /Download Luna Desktop/i });
     expect(desktopDownload).toHaveAttribute("href", DESKTOP_APP_DOWNLOAD_URL);
 
-    const tokenLink = screen.getByRole("link", { name: /Create an access token on Security/i });
-    expect(tokenLink).toHaveAttribute("href", "/settings#security");
+    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
+    expect(tokenLinks).toHaveLength(2);
+    expect(tokenLinks[0]).toHaveAttribute("href", "/settings#security");
     expect(screen.getByText(/without storing your password/i)).toBeTruthy();
   });
 });
