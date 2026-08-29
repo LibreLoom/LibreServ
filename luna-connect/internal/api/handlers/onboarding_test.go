@@ -396,7 +396,7 @@ func TestTokenHelpers(t *testing.T) {
 		t.Fatalf("crockford map %s", n)
 	}
 	if !security.IsOfficialShape(security.NormalizeToken("3097-V4YK-3HYX-2E3P-V4B3")) {
-		t.Fatal("booklet shape")
+		t.Fatal("official setup code shape")
 	}
 }
 

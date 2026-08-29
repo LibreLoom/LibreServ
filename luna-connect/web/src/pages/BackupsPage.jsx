@@ -71,7 +71,7 @@ export function BackupsTab({ me, objects, note, onRefresh, setError, error }) {
       <CardHeader>
         <CardTitle>Cloud backup</CardTitle>
         <CardDescription>
-          Cloud backup costs $8 per terabyte each month, based on how much is stored right now.
+          Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

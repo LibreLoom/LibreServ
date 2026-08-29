@@ -28,14 +28,29 @@ cloudflare:
 stripe:
   # Production paid routes require Stripe. Empty keys refuse card and backup unlock.
   # Local/dev unlock only with LUNACONNECT_DEV=1 and enabled: false.
+  # Prefer Admin → Connections to manage these at runtime (database overlays this section).
+  #
+  # B2-style billing (LibreLoom retail rates):
+  #   Storage = month average GB (we sample hourly; report average with meter aggregation Last).
+  #   Egress overage = max(0, download_GB − 3×avg_storage_GB) at $0.01/GB (second meter, Last).
+  # Dashboard → Billing → Meters:
+  #   1) luna_backup_gb     aggregation Last  → price $0.008/GB-mo
+  #   2) luna_backup_egress_gb aggregation Last → price $0.01/GB overage only
   enabled: false
   secret_key: ""
   publishable_key: ""
   webhook_secret: ""
+  meter_event_name: "luna_backup_gb"
   price_id: ""
+  egress_meter_event_name: "luna_backup_egress_gb"
+  egress_price_id: ""
+
+# Resend (email) and Backblaze B2 credentials are managed in Admin → Connections
+# (stored in the database). There is no yaml section for them.
 
 backup:
-  # Objects are stored on this machine's disk under data_dir (not off-box object storage).
-  driver: "local"
+  # auto = Backblaze B2 when Admin → Connections has an enabled B2 provider; else local disk.
+  # Force with "b2" or "local". One Luna (device) gets one private B2 bucket.
+  driver: "auto"
   max_object_bytes: 1073741824
   max_account_bytes: 2000000000000

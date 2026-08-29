@@ -41,7 +41,7 @@ function mount() {
 }
 
 async function createOssAccount() {
-  fireEvent.click(screen.getByRole("button", { name: /I set this computer up myself/i }));
+  fireEvent.click(screen.getByRole("button", { name: /I built it myself/i }));
   fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
   fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "longenough" } });
   fireEvent.click(screen.getByRole("button", { name: /create account/i }));
@@ -71,6 +71,7 @@ describe("OnboardingPage OSS verify", () => {
   it("does not call verify-human before a card action when Stripe looks configured", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     mount();
+    expect(screen.getByText(/Where did this Luna originate/i)).toBeTruthy();
     await createOssAccount();
 
     await waitFor(() => {
@@ -105,10 +106,10 @@ describe("OnboardingPage OSS verify", () => {
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
-  it("keeps the booklet path free of a card step", async () => {
+  it("keeps the purchased path free of a card step", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Purchased from LibreLoom/i }));
     fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -150,7 +151,7 @@ describe("OnboardingPage done card", () => {
 
   it("shows the hostname and one-time code after name is taken", async () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Purchased from LibreLoom/i }));
     fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "3097-V4YK-3HYX-2E3P-V4B3" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 

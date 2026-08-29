@@ -18,6 +18,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -76,7 +77,12 @@ func main() {
 		slog.Error("migrate", "error", err)
 		os.Exit(1)
 	}
-	st, err := store.NewLocal(config.C.DataDir)
+	providers.CaptureStripeBase()
+	providers.SetStripeRuntimeDB(db)
+	if err := providers.ApplyStripeFromDB(db); err != nil {
+		slog.Warn("stripe provider overlay", "error", err)
+	}
+	st, _, err := store.Open(db, config.C.Backup.Driver, config.C.DataDir)
 	if err != nil {
 		slog.Error("store", "error", err)
 		os.Exit(1)
@@ -84,11 +90,21 @@ func main() {
 
 	go accounts.RunCleanupLoop(context.Background(), db)
 
+	// Hourly: sample stored bytes for month-average billing (B2-style).
+	// Daily: report period-average storage + egress overage to Stripe meters.
 	go func() {
-		t := time.NewTicker(24 * time.Hour)
-		defer t.Stop()
-		for range t.C {
-			billing.ReportUsage(db)
+		sample := time.NewTicker(1 * time.Hour)
+		report := time.NewTicker(24 * time.Hour)
+		defer sample.Stop()
+		defer report.Stop()
+		billing.SampleStorage(db)
+		for {
+			select {
+			case <-sample.C:
+				billing.SampleStorage(db)
+			case <-report.C:
+				billing.ReportUsage(db)
+			}
 		}
 	}()
 

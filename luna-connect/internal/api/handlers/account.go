@@ -12,6 +12,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -100,22 +101,26 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	var bytes int64
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&bytes)
+	var liveBytes int64
+	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
+	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
 		"email":                  acct.Email,
 		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
 		"billing_status":         acct.BillingStatus,
-		"stored_bytes":           bytes,
-		"estimated_month":        billing.EstimateUSD(bytes),
-		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on how much is stored right now.",
+		"stored_bytes":           liveBytes,
+		"avg_stored_bytes":       avgBytes,
+		"egress_bytes":           egressBytes,
+		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
+		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
 		"stripe_publishable_key": stripePublishableKey(),
 		"stripe_enabled":         config.C.Stripe.Enabled,
 	})
 }
 
 func stripePublishableKey() string {
+	providers.RefreshStripe()
 	if !config.C.Stripe.Enabled {
 		return ""
 	}
@@ -178,7 +183,7 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 
 func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
 	if errors.Is(err, billing.ErrNotConfigured) {
-		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
+		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Contact support to resolve this issue.")
 		return
 	}
 	if errors.Is(err, billing.ErrPaymentMethodRequired) {
@@ -198,16 +203,20 @@ func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	var bytes int64
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&bytes)
+	var liveBytes int64
+	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
+	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
-		"stored_bytes":        bytes,
-		"estimated_month_usd": billing.EstimateUSD(bytes),
+		"stored_bytes":          liveBytes,
+		"avg_stored_bytes":      avgBytes,
+		"egress_bytes":          egressBytes,
+		"egress_overage_gb":     billing.EgressOverageGB(avgBytes, egressBytes),
+		"estimated_month_usd":   billing.EstimateMonthUSD(avgBytes, egressBytes),
 	})
 }
 
 func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code (****-****-****-****-****), and pick a name.")
+	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the device code (purchased from LibreLoom or from this website: ****-****-****-****-****), and pick a name.")
 }
 
 func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {

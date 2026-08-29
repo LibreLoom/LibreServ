@@ -56,6 +56,7 @@ func (s *Server) routes() {
 	onb := handlers.OnboardingHandler{Deps: s.deps}
 	adm := handlers.AdminAuthHandler{Deps: s.deps}
 	console := handlers.AdminConsoleHandler{Deps: s.deps}
+	prov := handlers.NewProvidersHandler(s.db)
 
 	r.Post("/api/v1/billing/webhook", http.MaxBytesHandler(http.HandlerFunc(acct.StripeWebhook), 65536).ServeHTTP)
 
@@ -130,6 +131,10 @@ func (s *Server) routes() {
 			r.Post("/admin/setup-tokens", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/setup-tokens/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/setup-tokens/{tokenID}", console.RevokeSetupToken)
+			r.Get("/admin/providers", prov.ListProviders)
+			r.With(handlers.LimitJSONBody).Post("/admin/providers", prov.CreateProvider)
+			r.With(handlers.LimitJSONBody).Put("/admin/providers/{id}", prov.UpdateProvider)
+			r.Delete("/admin/providers/{id}", prov.DeleteProvider)
 		})
 	})
 

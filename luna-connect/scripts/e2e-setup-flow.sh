@@ -61,12 +61,12 @@ wait_for_lunad_claim() {
 log "Checking luna-connect at $CONNECT_URL"
 wait_for_connect
 
-# --- Step 1: mint booklet token ---
+# --- Step 1: mint official setup token ---
 log "Minting official setup token"
 MINT=$(curl -s -X POST "$CONNECT_URL/admin/setup-tokens" -H "Authorization: Bearer $ADMIN_TOKEN")
 TOKEN=$(echo "$MINT" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) \
   || fail "mint failed: $MINT"
-log "Booklet token minted"
+log "Official setup token minted"
 
 # --- Step 2: prepare lunad (setup-token, clear prior claim) ---
 log "Writing setup-token → $LUNA_DATA/setup-token"
@@ -79,7 +79,7 @@ log "Registering Luna Connect account"
 REG=$(csrf_post "/api/v1/account/register" "{\"email\":\"$EMAIL\",\"password\":\"password1234\"}")
 echo "$REG" | grep -q '"email"' || fail "register: $REG"
 
-log "Binding booklet code on website"
+log "Binding official setup code on website"
 BIND=$(csrf_post "/api/v1/onboarding/bind" "{\"code\":\"$TOKEN\"}")
 echo "$BIND" | grep -qE 'waiting_device|attached' || fail "bind: $BIND"
 BIND_STATUS=$(echo "$BIND" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)

@@ -89,10 +89,12 @@ cloudflare:
 
 stripe:
   # Production requires Stripe. Paid routes refuse until secret_key, webhook_secret, and price_id are set.
+  # Billing Meters: meter_event_name=luna_backup_gb, aggregation Last, price $0.008/GB linked to the meter.
   enabled: true
   secret_key: ""
   publishable_key: ""
   webhook_secret: ""
+  meter_event_name: "luna_backup_gb"
   price_id: ""
 
 backup:

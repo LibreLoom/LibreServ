@@ -9,6 +9,7 @@ import {
   KeyRound,
   Users,
   Shield,
+  Cloud,
   LogOut,
   Sun,
   Moon,
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/admin/devices", label: "Devices", icon: Server },
   { to: "/admin/tokens", label: "Setup codes", icon: KeyRound },
   { to: "/admin/accounts", label: "Accounts", icon: Users },
+  { to: "/admin/providers", label: "Connections", icon: Cloud },
   { to: "/admin/security", label: "Security", icon: Shield },
 ];
 

@@ -1,24 +1,23 @@
 package billing
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/customer"
 	"github.com/stripe/stripe-go/v76/paymentintent"
 	"github.com/stripe/stripe-go/v76/paymentmethod"
 	"github.com/stripe/stripe-go/v76/subscription"
-	"github.com/stripe/stripe-go/v76/usagerecord"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
 
 const DollarsPerTB = 8.0
+const DollarsPerGB = 0.008 // $8/TB; Stripe metered unit = 1 decimal GB (average GB-month)
 const BytesPerTB = 1_000_000_000_000
+const BytesPerGB = 1_000_000_000
 
 var (
 	// ErrNotConfigured: Stripe is turned on but not usable (empty secret in production).
@@ -31,6 +30,19 @@ var (
 
 func EstimateUSD(bytes int64) float64 {
 	return float64(bytes) / float64(BytesPerTB) * DollarsPerTB
+}
+
+// UsageQuantityGB is the Stripe metered quantity for average stored backups.
+// Unit = 1 decimal GB ($0.008/GB-mo). Floor(bytes/1e9); any stored bytes bills at least 1.
+func UsageQuantityGB(bytes int64) int64 {
+	if bytes <= 0 {
+		return 0
+	}
+	gb := bytes / BytesPerGB
+	if gb < 1 {
+		return 1
+	}
+	return gb
 }
 
 // DevBypass is true only with an explicit local/dev env (LUNACONNECT_DEV)
@@ -55,6 +67,7 @@ func BackupsUnlocked(hasCard bool, status string) bool {
 }
 
 func requireLiveStripe() error {
+	providers.RefreshStripe()
 	if DevBypass() {
 		return nil
 	}
@@ -126,12 +139,18 @@ func Subscribe(customerID, paymentMethodID string) (subID, itemID string, err er
 	_, _ = paymentmethod.Attach(paymentMethodID, &stripe.PaymentMethodAttachParams{
 		Customer: stripe.String(customerID),
 	})
+	items := []*stripe.SubscriptionItemsParams{{
+		Price: stripe.String(config.C.Stripe.PriceID),
+	}}
+	if egress := strings.TrimSpace(config.C.Stripe.EgressPriceID); egress != "" {
+		items = append(items, &stripe.SubscriptionItemsParams{
+			Price: stripe.String(egress),
+		})
+	}
 	params := &stripe.SubscriptionParams{
 		Customer:             stripe.String(customerID),
 		DefaultPaymentMethod: stripe.String(paymentMethodID),
-		Items: []*stripe.SubscriptionItemsParams{{
-			Price: stripe.String(config.C.Stripe.PriceID),
-		}},
+		Items:                items,
 	}
 	s, err := subscription.New(params)
 	if err != nil {
@@ -144,46 +163,4 @@ func Subscribe(customerID, paymentMethodID string) (subID, itemID string, err er
 		return "", "", fmt.Errorf("subscription item missing")
 	}
 	return s.ID, s.Items.Data[0].ID, nil
-}
-
-func ReportUsage(db *sql.DB) {
-	if !config.C.Stripe.Ready() {
-		return
-	}
-	stripe.Key = config.C.Stripe.SecretKey
-	rows, err := db.Query(`
-SELECT a.stripe_subscription_item_id, COALESCE(SUM(b.size), 0)
-FROM accounts a
-LEFT JOIN backup_objects b ON b.account_id = a.id
-WHERE a.stripe_subscription_item_id IS NOT NULL AND a.stripe_subscription_item_id != '' AND a.has_card = 1
-GROUP BY a.id`)
-	if err != nil {
-		slog.Warn("usage query failed", "error", err)
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var itemID string
-		var bytes int64
-		if err := rows.Scan(&itemID, &bytes); err != nil {
-			continue
-		}
-		if !strings.HasPrefix(itemID, "si_") {
-			slog.Warn("skip usage: not a subscription item id")
-			continue
-		}
-		tbTenths := bytes * 10 / BytesPerTB
-		if tbTenths < 1 && bytes > 0 {
-			tbTenths = 1
-		}
-		_, err := usagerecord.New(&stripe.UsageRecordParams{
-			SubscriptionItem: stripe.String(itemID),
-			Quantity:         stripe.Int64(tbTenths),
-			Timestamp:        stripe.Int64(time.Now().Unix()),
-			Action:           stripe.String(string(stripe.UsageRecordActionSet)),
-		})
-		if err != nil {
-			slog.Warn("stripe usage failed", "error", err)
-		}
-	}
 }

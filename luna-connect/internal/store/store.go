@@ -9,7 +9,9 @@ import (
 )
 
 type Store interface {
-	Put(accountID, deviceID, relPath string, r io.Reader) (int64, error)
+	// Put stores bytes and returns how many were written plus which backend holds them
+	// ("local" or "b2"). Callers should persist that backend on backup_objects.
+	Put(accountID, deviceID, relPath string, r io.Reader) (written int64, backend string, err error)
 	Get(accountID, deviceID, relPath string) (io.ReadCloser, error)
 	Delete(accountID, deviceID, relPath string) error
 }
@@ -64,21 +66,22 @@ func (s *Local) path(accountID, deviceID, relPath string) (string, error) {
 	return absJoined, nil
 }
 
-func (s *Local) Put(accountID, deviceID, relPath string, r io.Reader) (int64, error) {
+func (s *Local) Put(accountID, deviceID, relPath string, r io.Reader) (int64, string, error) {
 	p, err := s.path(accountID, deviceID, relPath)
 	if err != nil {
-		return 0, err
+		return 0, BackendLocal, err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return 0, err
+		return 0, BackendLocal, err
 	}
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return 0, err
+		return 0, BackendLocal, err
 	}
 	defer f.Close()
 	_ = os.Chmod(p, 0o600)
-	return io.Copy(f, r)
+	n, err := io.Copy(f, r)
+	return n, BackendLocal, err
 }
 
 func (s *Local) Get(accountID, deviceID, relPath string) (io.ReadCloser, error) {

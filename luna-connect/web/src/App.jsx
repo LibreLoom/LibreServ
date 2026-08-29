@@ -14,6 +14,7 @@ const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage.jsx"));
 const AdminDevicesPage = lazy(() => import("./pages/AdminDevicesPage.jsx"));
 const AdminAccountsPage = lazy(() => import("./pages/AdminAccountsPage.jsx"));
 const AdminSecurityPage = lazy(() => import("./pages/AdminSecurityPage.jsx"));
+const AdminProvidersPage = lazy(() => import("./pages/AdminProvidersPage.jsx"));
 
 function Protected({ children }) {
   const { isAuthenticated, ready } = useAuth();
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/admin/devices" element={<AdminProtected><AdminDevicesPage /></AdminProtected>} />
         <Route path="/admin/tokens" element={<AdminProtected><AdminTokensPage /></AdminProtected>} />
         <Route path="/admin/accounts" element={<AdminProtected><AdminAccountsPage /></AdminProtected>} />
+        <Route path="/admin/providers" element={<AdminProtected><AdminProvidersPage /></AdminProtected>} />
         <Route path="/admin/security" element={<AdminProtected><AdminSecurityPage /></AdminProtected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

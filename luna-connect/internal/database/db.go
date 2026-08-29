@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS backup_objects (
   relative_path TEXT NOT NULL,
   size INTEGER NOT NULL,
   content_hash TEXT,
+  storage_backend TEXT NOT NULL DEFAULT 'local',
   updated_at INTEGER NOT NULL,
   UNIQUE(account_id, device_id, relative_path)
 );
@@ -123,6 +124,41 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   expires_at INTEGER NOT NULL,
   FOREIGN KEY(admin_id) REFERENCES admin_accounts(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS service_providers (
+  id TEXT PRIMARY KEY,
+  service TEXT NOT NULL,
+  name TEXT NOT NULL,
+  credentials_json TEXT NOT NULL DEFAULT '{}',
+  settings_json TEXT NOT NULL DEFAULT '{}',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(service, name)
+);
+CREATE TABLE IF NOT EXISTS device_backup_buckets (
+  device_id TEXT PRIMARY KEY,
+  bucket_name TEXT NOT NULL UNIQUE,
+  bucket_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  application_key_sealed TEXT NOT NULL,
+  provisioned_at INTEGER NOT NULL,
+  FOREIGN KEY(device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS billing_storage_samples (
+  account_id TEXT NOT NULL,
+  period_ym TEXT NOT NULL,
+  sampled_at INTEGER NOT NULL,
+  stored_bytes INTEGER NOT NULL,
+  PRIMARY KEY (account_id, sampled_at)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_storage_period ON billing_storage_samples (account_id, period_ym);
+CREATE TABLE IF NOT EXISTS billing_period_egress (
+  account_id TEXT NOT NULL,
+  period_ym TEXT NOT NULL,
+  egress_bytes INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (account_id, period_ym)
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
@@ -133,5 +169,6 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN stripe_subscription_item_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE issued_tokens ADD COLUMN token_hint TEXT`)
+	_, _ = db.Exec(`ALTER TABLE backup_objects ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'`)
 	return nil
 }

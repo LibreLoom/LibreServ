@@ -12,9 +12,11 @@ import (
 	"github.com/stripe/stripe-go/v76/webhook"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
 
 func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
+	providers.RefreshStripe()
 	if !config.C.Stripe.Enabled || strings.TrimSpace(config.C.Stripe.WebhookSecret) == "" {
 		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site.")
 		return
@@ -65,14 +67,7 @@ func (h AccountHandler) lockFromSubscriptionJSON(raw json.RawMessage, status str
 }
 
 func (h AccountHandler) lockFromInvoiceJSON(raw json.RawMessage, status string) {
-	var inv stripego.Invoice
-	if err := json.Unmarshal(raw, &inv); err != nil {
-		return
-	}
-	subID := ""
-	if inv.Subscription != nil {
-		subID = inv.Subscription.ID
-	}
+	subID := subscriptionIDFromInvoiceJSON(raw)
 	if subID == "" {
 		return
 	}
@@ -97,13 +92,7 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) {
 		}
 		status = string(sub.Status)
 	default:
-		var inv stripego.Invoice
-		if err := json.Unmarshal(raw, &inv); err != nil {
-			return
-		}
-		if inv.Subscription != nil {
-			subID = inv.Subscription.ID
-		}
+		subID = subscriptionIDFromInvoiceJSON(raw)
 	}
 	if subID == "" {
 		return
@@ -114,4 +103,48 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) {
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ? WHERE stripe_subscription_id = ?`, status, subID)
+}
+
+// subscriptionIDFromInvoiceJSON reads the subscription id from an invoice webhook
+// payload. Pre-Basil APIs use top-level "subscription"; API 2025-03-31.basil+
+// moved it to parent.subscription_details.subscription (string or expanded object).
+// See https://docs.stripe.com/changelog/basil/2025-03-31/adds-new-parent-field-to-invoicing-objects
+func subscriptionIDFromInvoiceJSON(raw json.RawMessage) string {
+	var inv struct {
+		Subscription json.RawMessage `json:"subscription"`
+		Parent       *struct {
+			Type                string `json:"type"`
+			SubscriptionDetails *struct {
+				Subscription json.RawMessage `json:"subscription"`
+			} `json:"subscription_details"`
+		} `json:"parent"`
+	}
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		return ""
+	}
+	if id := stripeIDFromFlexibleJSON(inv.Subscription); id != "" {
+		return id
+	}
+	if inv.Parent != nil && inv.Parent.SubscriptionDetails != nil &&
+		(inv.Parent.Type == "" || inv.Parent.Type == "subscription_details") {
+		return stripeIDFromFlexibleJSON(inv.Parent.SubscriptionDetails.Subscription)
+	}
+	return ""
+}
+
+func stripeIDFromFlexibleJSON(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return strings.TrimSpace(asString)
+	}
+	var asObj struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &asObj); err == nil {
+		return strings.TrimSpace(asObj.ID)
+	}
+	return ""
 }

@@ -16,7 +16,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
 type BackupHandler struct {
@@ -81,12 +83,16 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 	limited := http.MaxBytesReader(w, r.Body, maxObj)
 	hasher := sha256.New()
-	n, err := h.Store.Put(dev.AccountID.String, dev.ID, rel, io.TeeReader(limited, hasher))
+	n, backend, err := h.Store.Put(dev.AccountID.String, dev.ID, rel, io.TeeReader(limited, hasher))
 	if err != nil {
-		_ = h.Store.Delete(dev.AccountID.String, dev.ID, rel)
+		deletePutTarget(h.Store, backend, dev.AccountID.String, dev.ID, rel)
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			JSONError(w, http.StatusRequestEntityTooLarge, "That file is too large to store in cloud backup.")
+			return
+		}
+		if errors.Is(err, providers.ErrBackupNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Cloud backup storage is not ready yet. Contact support and we will finish setting it up.")
 			return
 		}
 		JSONError(w, http.StatusBadRequest, "Could not save that file.")
@@ -94,16 +100,29 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := hex.EncodeToString(hasher.Sum(nil))
 	if hdr := strings.TrimSpace(r.Header.Get("X-Content-Hash")); hdr != "" && !strings.EqualFold(hdr, sum) {
-		_ = h.Store.Delete(dev.AccountID.String, dev.ID, rel)
+		deletePutTarget(h.Store, backend, dev.AccountID.String, dev.ID, rel)
 		JSONError(w, http.StatusBadRequest, "The file did not match what Luna said it sent. Try the copy again.")
 		return
 	}
+	if backend == "" {
+		backend = store.BackendLocal
+	}
 	id := security.NewID("obj")
-	_, _ = h.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(account_id, device_id, relative_path) DO UPDATE SET size=excluded.size, content_hash=excluded.content_hash, updated_at=excluded.updated_at`,
-		id, dev.AccountID.String, dev.ID, rel, n, sum, time.Now().Unix())
+	_, _ = h.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, storage_backend, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_id, device_id, relative_path) DO UPDATE SET size=excluded.size, content_hash=excluded.content_hash, storage_backend=excluded.storage_backend, updated_at=excluded.updated_at`,
+		id, dev.AccountID.String, dev.ID, rel, n, sum, backend, time.Now().Unix())
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "size": n, "content_hash": sum})
+}
+
+// deletePutTarget removes a just-written object from the backend Put used, without
+// touching an older copy that may still be recorded on another backend.
+func deletePutTarget(st store.Store, backend, accountID, deviceID, rel string) {
+	if a, ok := st.(*store.Auto); ok && backend != "" {
+		_ = a.DeleteBackend(backend, accountID, deviceID, rel)
+		return
+	}
+	_ = st.Delete(accountID, deviceID, rel)
 }
 
 func accountBackupCap(h Deps, accountID string) int64 {
@@ -189,7 +208,10 @@ func (h BackupHandler) Download(w http.ResponseWriter, r *http.Request) {
 	if cd != "" {
 		w.Header().Set("Content-Disposition", cd)
 	}
-	_, _ = io.Copy(w, rc)
+	n, err := io.Copy(w, rc)
+	if err == nil && n > 0 {
+		billing.RecordEgress(h.DB, acct.ID, n)
+	}
 }
 
 func (h BackupHandler) DeleteAccountObject(w http.ResponseWriter, r *http.Request) {

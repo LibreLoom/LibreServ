@@ -1,19 +1,143 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  CreditCard,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Cloud,
+  Hammer,
+  KeyRound,
+  Package,
+  Sparkles,
+  User,
+  X,
+} from "lucide-react";
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { Button } from "../components/ui/button.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
+import { cn } from "../lib/utils.js";
+
+/** @typedef {"path"|"code"|"account"|"card"|"oss-code"|"name"|"copies"|"done"} OnboardingStep */
+/** @typedef {"official"|"oss"} OnboardingPath */
+
+/**
+ * @param {OnboardingPath} path
+ * @param {boolean} includeCard
+ */
+function stepsForPath(path, includeCard) {
+  if (path === "oss") {
+    return [
+      { id: "path", label: "Start" },
+      { id: "account", label: "Account" },
+      ...(includeCard ? [{ id: "card", label: "Verify" }] : []),
+      { id: "oss-code", label: "Code" },
+      { id: "name", label: "Name" },
+      { id: "copies", label: "Backup" },
+      { id: "done", label: "Done" },
+    ];
+  }
+  return [
+    { id: "path", label: "Start" },
+    { id: "code", label: "Code" },
+    { id: "account", label: "Account" },
+    { id: "name", label: "Name" },
+    { id: "copies", label: "Backup" },
+    { id: "done", label: "Done" },
+  ];
+}
+
+/** @param {{ steps: Array<{id: string, label: string}>, stepIndex: number }} props */
+function ProgressBar({ steps, stepIndex }) {
+  return (
+    <div className="flex items-center justify-center pt-10 pb-8 px-4" role="list" aria-label="Setup progress">
+      {steps.map((s, i) => (
+        <div key={s.id} className="flex items-center" role="listitem">
+          <div className="flex flex-col items-center gap-2">
+            <div
+              className={cn(
+                "relative flex items-center justify-center w-9 h-9 rounded-full text-xs font-mono motion-safe:transition-all motion-safe:duration-300",
+                i < stepIndex
+                  ? "bg-foreground text-background"
+                  : i === stepIndex
+                    ? "bg-foreground text-background scale-110 shadow-[0_0_0_5px_var(--ring-soft)]"
+                    : "bg-muted text-muted-foreground",
+              )}
+              aria-current={i === stepIndex ? "step" : undefined}
+            >
+              {i < stepIndex ? (
+                <Check className="w-4 h-4 animate-check-pop" />
+              ) : (
+                <span className={cn(i === stepIndex && "animate-fade-in")}>{i + 1}</span>
+              )}
+            </div>
+            <span
+              className={cn(
+                "hidden sm:block text-[11px] font-mono motion-safe:transition-colors motion-safe:duration-300",
+                i === stepIndex ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {s.label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className="relative w-6 sm:w-12 h-0.5 mx-2 mb-0 sm:mb-6 bg-muted overflow-hidden rounded-full">
+              <div
+                className="absolute inset-y-0 left-0 bg-foreground motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+                style={{ width: i < stepIndex ? "100%" : "0%" }}
+              />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** @param {{ error: string, onDismiss: () => void }} props */
+function ErrorBanner({ error, onDismiss }) {
+  if (!error) return null;
+  return (
+    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-4 flex items-start gap-3 mb-8 animate-fade-in-up">
+      <X className="w-4 h-4 text-error mt-0.5 shrink-0" />
+      <p className="text-sm text-error flex-1 leading-relaxed text-left">{error}</p>
+      <button type="button" onClick={onDismiss} className="text-error hover:opacity-80 motion-safe:transition-opacity" aria-label="Dismiss error">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+/** @param {{ icon: import("lucide-react").LucideIcon, title: string, children: import("react").ReactNode, wide?: boolean }} props */
+function StepShell({ icon: Icon, title, children, wide = false }) {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-6 animate-step-icon">
+        <Icon size={26} className="text-foreground" strokeWidth={1.75} />
+      </div>
+      <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3 text-balance">
+        {title}
+      </h1>
+      <div className={cn("w-full", wide ? "max-w-md" : "max-w-sm")}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function OnboardingPage() {
   const { isAuthenticated, register, me } = useAuth();
   const navigate = useNavigate();
+  /** @type {[OnboardingStep, function(OnboardingStep): void]} */
   const [step, setStep] = useState("path");
+  /** @type {[OnboardingPath, function(OnboardingPath): void]} */
   const [path, setPath] = useState("official");
+  const [direction, setDirection] = useState("right");
   const [code, setCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +148,18 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
   const [waitMsg, setWaitMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const { outerRef, innerRef } = useAnimatedHeight();
+
+  const includeCard = path === "oss" && stripeLooksConfigured(me);
+  const steps = stepsForPath(path, includeCard || step === "card");
+  const stepIndex = Math.max(0, steps.findIndex((s) => s.id === step));
+
+  /** @param {OnboardingStep} next */
+  function goTo(next, dir = "right") {
+    setDirection(dir);
+    setStep(next);
+    setError("");
+  }
 
   useEffect(() => {
     if (step !== "code" && step !== "name") return undefined;
@@ -31,7 +167,10 @@ export default function OnboardingPage() {
       try {
         const s = await api("/api/v1/onboarding/session");
         setWaitMsg(s.message || "");
-        if (s.status === "attached" && step === "code" && isAuthenticated) setStep("name");
+        if (s.status === "attached" && step === "code" && isAuthenticated) {
+          setDirection("right");
+          setStep("name");
+        }
       } catch {
         /* waiting room is optional until bind */
       }
@@ -53,218 +192,426 @@ export default function OnboardingPage() {
     const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
     setOssCode(minted.code);
     setWaitMsg(minted.message);
-    setStep("oss-code");
+    goTo("oss-code");
   }
 
   async function afterOssAccount(account) {
     if (stripeLooksConfigured(account || me)) {
-      setStep("card");
+      goTo("card");
       return;
     }
     await finishOssVerify();
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
-      <Card className="w-full max-w-lg animate-pop-in bg-card text-card-foreground">
-        <CardHeader>
-          <CardTitle className="font-mono text-2xl">Set up Luna</CardTitle>
-          <CardDescription>
-            {step === "path" && "How did this Luna arrive?"}
-            {step === "code" && "Type the device code from the booklet (groups of letters and numbers)."}
-            {step === "account" && "Create your Luna Connect account."}
-            {step === "card" && "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
-            {step === "name" && "This name is the address you type to open Luna when you are not at home."}
-            {step === "copies" && "Optional cloud backup."}
-            {step === "done" && "You can open Luna from away."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {step === "path" && (
-            <>
-              <Button className="w-full" onClick={() => { setPath("official"); setStep("code"); }}>I have a booklet</Button>
-              <Button variant="outline" className="w-full" onClick={() => { setPath("oss"); setStep("account"); }}>I set this computer up myself</Button>
-              <p className="text-sm text-muted-foreground">Stay on your home internet. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.</p>
-            </>
-          )}
-          {step === "code" && (
-            <form
-              className="space-y-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setError("");
-                setLoading(true);
-                try {
-                  await bindCode(code);
-                  setStep(isAuthenticated ? "name" : "account");
-                } catch (err) {
-                  setError(err.message);
-                } finally {
-                  setLoading(false);
-                }
+  function handleBack() {
+    if (step === "path") {
+      navigate("/");
+      return;
+    }
+    if (step === "code") {
+      goTo("path", "left");
+      return;
+    }
+    if (step === "account") {
+      goTo(path === "oss" ? "path" : "code", "left");
+      return;
+    }
+    if (step === "card") {
+      goTo("account", "left");
+      return;
+    }
+    if (step === "oss-code") {
+      goTo(includeCard || stripeLooksConfigured(me) ? "card" : "account", "left");
+      return;
+    }
+    if (step === "name") {
+      if (path === "oss") goTo("oss-code", "left");
+      else goTo(isAuthenticated ? "code" : "account", "left");
+      return;
+    }
+    if (step === "copies") {
+      goTo("name", "left");
+    }
+  }
+
+  /** @returns {import("react").ReactNode} */
+  function renderStep() {
+    if (step === "path") {
+      return (
+        <StepShell icon={Sparkles} title="Set up Luna" wide>
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+            Where did this Luna originate?
+          </p>
+          <div className="w-full max-w-md mx-auto space-y-3 mb-8">
+            <button
+              type="button"
+              className="w-full rounded-large-element border-2 border-border bg-card text-card-foreground p-4 text-left motion-safe:transition-all motion-safe:duration-200 hover:border-foreground/40 hover:bg-accent cursor-pointer"
+              onClick={() => {
+                setPath("official");
+                goTo("code");
               }}
             >
-              <Label htmlFor="code">Device code from the booklet (HDMI shows the same if you lost the paper)</Label>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <Package size={18} className="text-foreground" strokeWidth={1.75} />
+                </div>
+                <div>
+                  <span className="font-mono text-sm text-card-foreground block">Purchased from LibreLoom</span>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    You bought this Luna and have a device code that came with it (also shown on the screen).
+                  </p>
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              className="w-full rounded-large-element border-2 border-border bg-card text-card-foreground p-4 text-left motion-safe:transition-all motion-safe:duration-200 hover:border-foreground/40 hover:bg-accent cursor-pointer"
+              onClick={() => {
+                setPath("oss");
+                goTo("account");
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <Hammer size={18} className="text-foreground" strokeWidth={1.75} />
+                </div>
+                <div>
+                  <span className="font-mono text-sm text-card-foreground block">I built it myself</span>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    You installed Luna on your own computer. We will give you a setup code on the next screens.
+                  </p>
+                </div>
+              </div>
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed text-pretty max-w-md mx-auto">
+            Stay on your home internet. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.
+          </p>
+        </StepShell>
+      );
+    }
+
+    if (step === "code") {
+      return (
+        <StepShell icon={KeyRound} title="Enter your device code">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+            Type the device code that came with your Luna (groups of letters and numbers). The same code is on the screen if you need it.
+          </p>
+          <form
+            className="space-y-4 text-left"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError("");
+              setLoading(true);
+              try {
+                await bindCode(code);
+                goTo(isAuthenticated ? "name" : "account");
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <div>
+              <Label htmlFor="code">Device code</Label>
               <Input
                 id="code"
-                className="font-mono uppercase tracking-widest"
+                className="font-mono uppercase tracking-widest h-12"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="****-****-****-****-****"
                 autoComplete="off"
                 spellCheck={false}
+                autoFocus
               />
-              {waitMsg && <p className="text-sm text-foreground">{waitMsg}</p>}
-              <Button type="submit" className="w-full" loading={loading}>Continue</Button>
-            </form>
-          )}
-          {step === "account" && !isAuthenticated && (
-            <form
-              className="space-y-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setError("");
-                setLoading(true);
-                try {
-                  const account = await register(email, password);
-                  if (path === "oss") {
-                    await afterOssAccount(account);
-                  } else {
-                    if (code) await bindCode(code);
-                    await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-                    setStep("name");
-                  }
-                } catch (err) {
-                  setError(err.message);
-                } finally {
-                  setLoading(false);
-                }
-              }}
-            >
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 12 characters, with a letter and a number" />
-              <p className="text-sm text-muted-foreground">At least 12 characters, including a letter and a number. That is so a stolen password list is less likely to open this account.</p>
-              <Button type="submit" className="w-full" loading={loading}>Create account</Button>
-              <p className="text-sm text-muted-foreground">Already have an account? <Link className="underline" to="/login">Sign in</Link></p>
-            </form>
-          )}
-          {step === "card" && (
-            <VerifyHumanCard
-              account={me}
-              loading={loading}
-              onConfirm={async (paymentMethodId) => {
-                setError("");
-                setLoading(true);
-                try {
-                  await finishOssVerify(paymentMethodId);
-                } catch (err) {
-                  setError(err.message);
-                } finally {
-                  setLoading(false);
-                }
-              }}
-            />
-          )}
-          {step === "oss-code" && (
-            <div className="space-y-3">
-              <p className="font-mono text-xl sm:text-2xl tracking-widest text-center break-all">{ossCode}</p>
-              <p className="text-sm text-foreground">On Luna, open the address on the screen and enter this code (same shape as a booklet code: ****-****-****-****-****).</p>
-              <Button className="w-full" onClick={async () => {
-                try {
-                  await bindCode(ossCode);
-                  setStep("name");
-                } catch (err) {
-                  setError(err.message);
-                }
-              }}>I entered it on Luna</Button>
             </div>
-          )}
-          {step === "name" && (
-            <form
-              className="space-y-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setError("");
-                setLoading(true);
-                try {
+            {waitMsg && <p className="text-sm text-foreground">{waitMsg}</p>}
+            <Button type="submit" className="w-full" size="lg" loading={loading}>
+              Continue <ChevronRight className="w-4 h-4 ml-1" />
+            </Button>
+          </form>
+        </StepShell>
+      );
+    }
+
+    if (step === "account" && !isAuthenticated) {
+      return (
+        <StepShell icon={User} title="Create your Luna Connect account">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+            This account is for Luna Connect — opening Luna when you are away, and optional cloud backup.
+          </p>
+          <form
+            className="space-y-4 text-left"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError("");
+              setLoading(true);
+              try {
+                const account = await register(email, password);
+                if (path === "oss") {
+                  await afterOssAccount(account);
+                } else {
+                  if (code) await bindCode(code);
                   await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-                  const created = await api("/api/v1/onboarding/name", { method: "POST", body: JSON.stringify({ subdomain: name }) });
-                  setHostname(created.hostname);
-                  setSetupSecret(created.setup_secret || "");
-                  setStep("copies");
-                } catch (err) {
-                  setError(err.message);
-                } finally {
-                  setLoading(false);
+                  goTo("name");
                 }
-              }}
-            >
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+            </div>
+            <div>
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 12 characters, with a letter and a number"
+              />
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                At least 12 characters, including a letter and a number. That is so a stolen password list is less likely to open this account.
+              </p>
+            </div>
+            <Button type="submit" className="w-full" size="lg" loading={loading}>
+              Create account
+            </Button>
+            <p className="text-sm text-muted-foreground text-center">
+              Already have an account?{" "}
+              <Link className="underline underline-offset-4 hover:text-card-foreground" to="/login">
+                Sign in
+              </Link>
+            </p>
+          </form>
+        </StepShell>
+      );
+    }
+
+    if (step === "card") {
+      return (
+        <StepShell icon={CreditCard} title="Confirm you are a real person">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+            A dollar confirms this is a real person. It counts toward cloud backup if you turn that on later.
+          </p>
+          <VerifyHumanCard
+            account={me}
+            loading={loading}
+            onConfirm={async (paymentMethodId) => {
+              setError("");
+              setLoading(true);
+              try {
+                await finishOssVerify(paymentMethodId);
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          />
+        </StepShell>
+      );
+    }
+
+    if (step === "oss-code") {
+      return (
+        <StepShell icon={KeyRound} title="Your setup code">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
+            On Luna, open the address on the screen and enter this code (****-****-****-****-****).
+          </p>
+          <p className="font-mono text-xl sm:text-2xl tracking-widest text-center break-all mb-8 animate-fade-in-up">
+            {ossCode}
+          </p>
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={async () => {
+              try {
+                await bindCode(ossCode);
+                goTo("name");
+              } catch (err) {
+                setError(err.message);
+              }
+            }}
+          >
+            I entered it on Luna <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+        </StepShell>
+      );
+    }
+
+    if (step === "name") {
+      return (
+        <StepShell icon={Package} title="Name this Luna">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+            This name is the address you type to open Luna when you are not at home.
+          </p>
+          <form
+            className="space-y-4 text-left"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError("");
+              setLoading(true);
+              try {
+                await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
+                const created = await api("/api/v1/onboarding/name", {
+                  method: "POST",
+                  body: JSON.stringify({ subdomain: name }),
+                });
+                setHostname(created.hostname);
+                setSetupSecret(created.setup_secret || "");
+                goTo("copies");
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <div>
               <Label htmlFor="name">Name for this Luna</Label>
-              <Input id="name" className="font-mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="kitchen" />
-              <p className="text-sm text-muted-foreground">People will open Luna at this address on phones and computers away from home. Use letters and numbers, at least 3 characters.</p>
-              <p className="text-sm font-mono">{name ? `${name.toLowerCase()}.luna.servers.libreloom.org` : "kitchen.luna.servers.libreloom.org"}</p>
-              {waitMsg && <p className="text-sm">{waitMsg}</p>}
-              <Button type="submit" className="w-full" loading={loading} disabled={name.trim().length < 3}>Use this name</Button>
-            </form>
-          )}
-          {step === "copies" && (
-            <div className="space-y-3">
-              <p className="text-sm text-foreground">Cloud backup costs $8 per terabyte each month, based on how much is stored. Not a flat $8 a month.</p>
-              {stripeLooksConfigured(me) ? (
-                <VerifyHumanCard
-                  account={me}
-                  loading={loading}
-                  description="Add a payment card to turn on cloud backup. It costs $8 per terabyte each month."
-                  buttonLabel="Turn on cloud backup"
-                  onConfirm={async (paymentMethodId) => {
-                    setError("");
-                    setLoading(true);
-                    try {
-                      await api("/api/v1/onboarding/backups", {
-                        method: "POST",
-                        body: JSON.stringify({ enable: true, payment_method_id: paymentMethodId }),
-                      });
-                      setStep("done");
-                    } catch (err) {
-                      setError(err.message);
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                />
-              ) : (
-                <Button className="w-full" onClick={async () => {
+              <Input
+                id="name"
+                className="font-mono"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="kitchen"
+                autoFocus
+              />
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                People will open Luna at this address on phones and computers away from home. Use letters and numbers, at least 3 characters.
+              </p>
+              <p className="mt-3 rounded-large-element bg-muted px-4 py-2.5 font-mono text-sm text-foreground">
+                {name ? `${name.toLowerCase()}.luna.servers.libreloom.org` : "kitchen.luna.servers.libreloom.org"}
+              </p>
+            </div>
+            {waitMsg && <p className="text-sm">{waitMsg}</p>}
+            <Button type="submit" className="w-full" size="lg" loading={loading} disabled={name.trim().length < 3}>
+              Use this name <ChevronRight className="w-4 h-4 ml-1" />
+            </Button>
+          </form>
+        </StepShell>
+      );
+    }
+
+    if (step === "copies") {
+      return (
+        <StepShell icon={Cloud} title="Optional cloud backup">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+            Cloud backup costs $8 per terabyte each month, based on how much is stored. Not a flat $8 a month.
+          </p>
+          <div className="space-y-3">
+            {stripeLooksConfigured(me) ? (
+              <VerifyHumanCard
+                account={me}
+                loading={loading}
+                description="Add a payment card to turn on cloud backup. It costs $8 per terabyte each month."
+                buttonLabel="Turn on cloud backup"
+                onConfirm={async (paymentMethodId) => {
+                  setError("");
+                  setLoading(true);
+                  try {
+                    await api("/api/v1/onboarding/backups", {
+                      method: "POST",
+                      body: JSON.stringify({ enable: true, payment_method_id: paymentMethodId }),
+                    });
+                    goTo("done");
+                  } catch (err) {
+                    setError(err.message);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              />
+            ) : (
+              <Button
+                className="w-full"
+                size="lg"
+                onClick={async () => {
                   try {
                     await api("/api/v1/onboarding/backups", { method: "POST", body: JSON.stringify({ enable: true }) });
-                    setStep("done");
+                    goTo("done");
                   } catch (err) {
                     setError(err.message);
                   }
-                }}>Turn on cloud backup</Button>
-              )}
-              <Button variant="outline" className="w-full" onClick={() => setStep("done")}>Skip for now</Button>
-            </div>
-          )}
-          {step === "done" && (
-            <div className="space-y-3">
-              <p className="text-sm text-foreground">Open Luna at:</p>
-              <p className="font-mono text-lg break-all">{hostname}</p>
-              <p className="text-sm text-foreground">
-                The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account. People who only know the address cannot.
+                }}
+              >
+                Turn on cloud backup
+              </Button>
+            )}
+            <Button variant="outline" className="w-full" size="lg" onClick={() => goTo("done")}>
+              Skip for now
+            </Button>
+          </div>
+        </StepShell>
+      );
+    }
+
+    if (step === "done") {
+      return (
+        <StepShell icon={Check} title="You can open Luna from away">
+          <div className="space-y-4 text-left">
+            <p className="text-sm text-muted-foreground">Open Luna at:</p>
+            <p className="font-mono text-lg break-all text-card-foreground">{hostname}</p>
+            <p className="text-sm text-foreground leading-relaxed">
+              The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account. People who only know the address cannot.
+            </p>
+            {setupSecret && (
+              <p className="font-mono text-lg break-all rounded-large-element border border-border bg-muted px-4 py-3 text-foreground animate-fade-in-up">
+                {setupSecret}
               </p>
-              {setupSecret && (
-                <p className="font-mono text-lg break-all rounded-large-element border border-border bg-background px-4 py-3 text-foreground">{setupSecret}</p>
-              )}
-              <p className="text-sm text-foreground">Write the code down. You type it once. Do not put it in the address bar.</p>
-              <Button className="w-full" onClick={() => navigate("/")}>Done</Button>
+            )}
+            <p className="text-sm text-muted-foreground">Write the code down. You type it once. Do not put it in the address bar.</p>
+            <Button className="w-full" size="lg" onClick={() => navigate("/")}>
+              Done
+            </Button>
+          </div>
+        </StepShell>
+      );
+    }
+
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <ProgressBar steps={steps} stepIndex={stepIndex} />
+
+      <div className="flex-1 flex items-start sm:items-center justify-center px-4 pb-8">
+        <div
+          ref={outerRef}
+          className="w-full max-w-xl rounded-large-element border border-border bg-card text-card-foreground shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+          style={{ transitionDuration: "300ms" }}
+        >
+          <div ref={innerRef} className="px-6 sm:px-12 py-12">
+            <ErrorBanner error={error} onDismiss={() => setError("")} />
+            <div
+              key={step}
+              className={cn(direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+              style={{ animationDuration: "300ms", animationFillMode: "both" }}
+            >
+              {renderStep()}
             </div>
-          )}
-          {error && <p className="text-sm text-error">{error}</p>}
-          {me && step !== "done" && <p className="text-xs text-muted-foreground">Signed in as {me.email}</p>}
-        </CardContent>
-      </Card>
+            {me && step !== "done" && (
+              <p className="mt-8 text-xs text-muted-foreground text-center">Signed in as {me.email}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {step !== "done" && (
+        <div className="px-4 pb-8 flex justify-center">
+          <Button variant="outline" onClick={handleBack}>
+            <ChevronLeft className="w-4 h-4 mr-1" /> Back
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

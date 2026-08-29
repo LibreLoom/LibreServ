@@ -33,10 +33,10 @@ VALUES (?, ?, ?, 'Luna', 'mine', '', 8090, ?), (?, ?, ?, 'Luna', 'theirs', '', 8
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bak.Store.Put(ownerID, devMine, "Photos/a.jpg", strings.NewReader("owner-bytes")); err != nil {
+	if _, _, err := bak.Store.Put(ownerID, devMine, "Photos/a.jpg", strings.NewReader("owner-bytes")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bak.Store.Put(otherID, devTheirs, "secret.txt", strings.NewReader("other-bytes")); err != nil {
+	if _, _, err := bak.Store.Put(otherID, devTheirs, "secret.txt", strings.NewReader("other-bytes")); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = bak.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, updated_at)
@@ -58,6 +58,11 @@ func TestBackupDownloadAuthz(t *testing.T) {
 	cd := okRec.Header().Get("Content-Disposition")
 	if !strings.Contains(cd, "a.jpg") || strings.Contains(cd, "Photos/") {
 		t.Fatalf("content-disposition %q", cd)
+	}
+	var egress int64
+	_ = bak.DB.QueryRow(`SELECT COALESCE(egress_bytes,0) FROM billing_period_egress WHERE account_id = (SELECT account_id FROM devices WHERE id = ?)`, mine).Scan(&egress)
+	if egress != int64(len("owner-bytes")) {
+		t.Fatalf("egress recorded=%d want %d", egress, len("owner-bytes"))
 	}
 
 	foreign := httptest.NewRequest(http.MethodPost, "/backups/download", bytes.NewBufferString(`{"device_id":"dev_theirs","path":"secret.txt"}`))
@@ -202,7 +207,7 @@ func TestOriginAllowed(t *testing.T) {
 
 func TestPutObjectIgnoresPartialOnError(t *testing.T) {
 	d := testDeps(t)
-	if _, err := d.Store.Put("acct", "dev", "ok.txt", strings.NewReader("x")); err != nil {
+	if _, _, err := d.Store.Put("acct", "dev", "ok.txt", strings.NewReader("x")); err != nil {
 		t.Fatal(err)
 	}
 	rc, err := d.Store.Get("acct", "dev", "ok.txt")

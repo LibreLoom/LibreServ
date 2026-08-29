@@ -30,7 +30,7 @@ export default function LunaPage() {
         <CardHeader>
           <CardTitle>Your Lunas</CardTitle>
           <CardDescription>
-            Open Setup and type the device code from the booklet or from this site (same long format either way).
+            Open Setup. If you purchased from LibreLoom, type the device code that came with your Luna. If you built it yourself, use the code from this site (same long format either way).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -40,7 +40,7 @@ export default function LunaPage() {
             <div className="rounded-large-element border border-dashed border-border px-6 py-10 text-center space-y-3">
               <p className="font-mono text-sm">No Luna is connected yet.</p>
               <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                Have the code from the booklet ready, then start setup. When Luna comes online on your home network, we finish pairing here.
+                Have your device code ready (purchased from LibreLoom, or created here if you built it yourself), then start setup. When Luna comes online on your home network, we finish pairing here.
               </p>
               <Button asChild>
                 <Link to="/onboarding">Start setup</Link>
