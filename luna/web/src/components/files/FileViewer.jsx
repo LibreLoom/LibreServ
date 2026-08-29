@@ -74,7 +74,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
       form.append("path", folder);
       form.append("file", file);
       await postForm(
-        `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}`,
+        `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1`,
         form,
       );
       setDirty(false);

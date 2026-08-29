@@ -73,9 +73,11 @@ import {
  *   breadcrumbExtra?: import("react").ReactNode,
  *   headerExtra?: import("react").ReactNode,
  *   toolbarExtra?: import("react").ReactNode,
+ *   folderActions?: import("react").ReactNode,
  *   hideHidden?: boolean,
  *   emptyTitle?: string,
  *   emptyIcon?: import("react").ElementType,
+ *   emptyAction?: import("react").ReactNode,
  *   className?: string,
  *   listClassName?: string,
  *   dense?: boolean,
@@ -111,9 +113,11 @@ export default function FileBrowser({
   breadcrumbExtra = null,
   headerExtra = null,
   toolbarExtra = null,
+  folderActions = null,
   hideHidden = true,
   emptyTitle = "Nothing here yet",
   emptyIcon: EmptyIcon = FolderOpen,
+  emptyAction = null,
   className = "",
   listClassName = "",
   dense = false,
@@ -498,29 +502,34 @@ export default function FileBrowser({
                 {breadcrumbExtra}
               </div>
             </div>
-            {enableUploadDrop && !isPicker ? (
-              <div className="shrink-0">
-                <input
-                  ref={filePicker}
-                  type="file"
-                  multiple
-                  className="sr-only"
-                  onChange={async (e) => {
-                    const files = filesFromFileList(e.target.files);
-                    e.target.value = "";
-                    if (files.length && onUploadFiles) await onUploadFiles(files, path);
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  surface="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() => filePicker.current?.click()}
-                >
-                  <UploadCloud size={14} aria-hidden="true" />
-                  Upload
-                </Button>
+            {folderActions || (enableUploadDrop && !isPicker) ? (
+              <div className="shrink-0 flex flex-wrap items-center justify-end gap-2">
+                {folderActions}
+                {enableUploadDrop && !isPicker ? (
+                  <>
+                    <input
+                      ref={filePicker}
+                      type="file"
+                      multiple
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const files = filesFromFileList(e.target.files);
+                        e.target.value = "";
+                        if (files.length && onUploadFiles) await onUploadFiles(files, path);
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      surface="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() => filePicker.current?.click()}
+                    >
+                      <UploadCloud size={14} aria-hidden="true" />
+                      Upload
+                    </Button>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -802,7 +811,7 @@ export default function FileBrowser({
       </Card>
 
       {!listBusy && !listing.isError && entries.length === 0 && (
-        <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} />
+        <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} action={emptyAction} />
       )}
     </div>
   );
@@ -844,9 +853,11 @@ FileBrowser.propTypes = {
   breadcrumbExtra: PropTypes.node,
   headerExtra: PropTypes.node,
   toolbarExtra: PropTypes.node,
+  folderActions: PropTypes.node,
   hideHidden: PropTypes.bool,
   emptyTitle: PropTypes.string,
   emptyIcon: PropTypes.elementType,
+  emptyAction: PropTypes.node,
   className: PropTypes.string,
   listClassName: PropTypes.string,
   dense: PropTypes.bool,

@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, FolderInput, Pencil, Trash2 } from "lucide-react";
+import { Copy, FilePlus, FolderInput, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
 import FolderPickerModal from "./FolderPickerModal.jsx";
+import CreateNameModal from "./CreateNameModal.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
@@ -23,6 +24,7 @@ import {
   putBinaryProgress,
 } from "../../lib/api.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
+import { parseCreateName } from "../../lib/createName.js";
 import { folderHref as defaultFolderHref, fmtSize, joinPath, pathBasename } from "../../lib/paths.js";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -202,6 +204,8 @@ export default function DriveFileExplorer({
   const [viewerPath, setViewerPath] = useState(/** @type {string|null} */ (null));
   const [accessTarget, setAccessTarget] = useState(/** @type {null|{ path: string, kind: string }} */ (null));
   const [protectTarget, setProtectTarget] = useState(/** @type {null|{ path: string }} */ (null));
+  const [createKind, setCreateKind] = useState(/** @type {null|"folder"|"file"} */ (null));
+  const [createName, setCreateName] = useState("");
   const selectedRef = useRef(/** @type {string[]} */ ([]));
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
@@ -380,6 +384,77 @@ export default function DriveFileExplorer({
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again.")),
   });
 
+  const mkdirMutation = useMutation({
+    mutationFn: (/** @type {string} */ fullPath) =>
+      postJson(`/api/v1/drives/${driveId}/files/mkdir`, { path: fullPath }),
+    onSuccess: () => {
+      invalidate();
+    },
+    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't create that folder. Try another name.")),
+  });
+
+  const createFileMutation = useMutation({
+    mutationFn: (/** @type {string} */ fullPath) =>
+      postJson(`/api/v1/drives/${driveId}/files/create`, { path: fullPath }),
+    onSuccess: (_data, fullPath) => {
+      invalidate();
+      setViewerPath(fullPath);
+    },
+    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't create that file. Try another name.")),
+  });
+
+  function openCreateFolder() {
+    setActionError(null);
+    setCreateName("");
+    setCreateKind("folder");
+  }
+
+  function openCreateFile() {
+    setActionError(null);
+    setCreateName("note.txt");
+    setCreateKind("file");
+  }
+
+  function submitCreate() {
+    const parsed = parseCreateName(createName, createKind === "file" ? { defaultExt: ".txt" } : {});
+    if (parsed.error) {
+      setActionError(parsed.error);
+      return Promise.reject(new Error(parsed.error));
+    }
+    const fullPath = joinPath(path, parsed.name);
+    if (createKind === "file") {
+      return createFileMutation.mutateAsync(fullPath);
+    }
+    return mkdirMutation.mutateAsync(fullPath);
+  }
+
+  function newItemButtons() {
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button
+          variant="outline"
+          surface="secondary"
+          size="sm"
+          type="button"
+          onClick={openCreateFolder}
+        >
+          <FolderPlus size={14} aria-hidden="true" />
+          New folder
+        </Button>
+        <Button
+          variant="outline"
+          surface="secondary"
+          size="sm"
+          type="button"
+          onClick={openCreateFile}
+        >
+          <FilePlus size={14} aria-hidden="true" />
+          New text file
+        </Button>
+      </div>
+    );
+  }
+
   const renameMutation = useMutation({
     mutationFn: (/** @type {{ fullPath: string, newName: string }} */ { fullPath, newName }) =>
       postJson(`/api/v1/drives/${driveId}/files/rename`, {
@@ -476,6 +551,8 @@ export default function DriveFileExplorer({
           setRenameValue(ctx.entry.name);
         }}
         onDelete={setDeletePaths}
+        folderActions={newItemButtons()}
+        emptyAction={newItemButtons()}
         breadcrumbExtra={(
           <>
             <AccessButton
@@ -628,6 +705,20 @@ export default function DriveFileExplorer({
           </>
         )}
       </ModalCard>
+
+      <CreateNameModal
+        open={createKind != null}
+        title={createKind === "file" ? "New text file" : "New folder"}
+        label={createKind === "file" ? "Name for this text file" : "Name for this folder"}
+        hint="Luna will put it in the folder you are in now."
+        value={createName}
+        onChange={setCreateName}
+        confirmLabel={createKind === "file" ? "Create file" : "Create folder"}
+        busy={mkdirMutation.isPending || createFileMutation.isPending}
+        error={actionError}
+        onSubmit={submitCreate}
+        onClose={() => setCreateKind(null)}
+      />
 
       <ModalCard
         open={renameTarget != null}

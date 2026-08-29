@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -14,8 +14,9 @@ function filesPath(url) {
 }
 
 function stubFilesApi(byPath) {
-  vi.stubGlobal("fetch", vi.fn(async (url) => {
+  const fetchMock = vi.fn(async (url, init = {}) => {
     const u = String(url);
+    const method = (init.method || "GET").toUpperCase();
     if (u.endsWith("/drives")) {
       return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
     }
@@ -34,12 +35,42 @@ function stubFilesApi(byPath) {
     if (u.includes("/trash")) {
       return new Response(JSON.stringify(byPath.__trash || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/files/mkdir") && method === "POST") {
+      const body = JSON.parse(String(init.body || "{}"));
+      const full = String(body.path || "");
+      const parent = full.includes("/") ? full.slice(0, full.lastIndexOf("/")) : "";
+      const name = full.includes("/") ? full.slice(full.lastIndexOf("/") + 1) : full;
+      byPath[parent] = [
+        ...(byPath[parent] || []),
+        { name, kind: "dir", size: 0, modified: 0, hidden: false },
+      ];
+      return new Response(JSON.stringify({ ok: true, path: full }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/files/create") && method === "POST") {
+      const body = JSON.parse(String(init.body || "{}"));
+      const full = String(body.path || "");
+      const parent = full.includes("/") ? full.slice(0, full.lastIndexOf("/")) : "";
+      const name = full.includes("/") ? full.slice(full.lastIndexOf("/") + 1) : full;
+      byPath[parent] = [
+        ...(byPath[parent] || []),
+        { name, kind: "file", size: 0, modified: 0, hidden: false },
+      ];
+      return new Response(JSON.stringify({ ok: true, path: full }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/files/content")) {
+      return new Response("", { status: 200, headers: { "Content-Type": "text/plain" } });
+    }
+    if (u.includes("/files/upload")) {
+      return new Response(JSON.stringify({ name: "note.txt" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/files?")) {
       const listing = byPath[filesPath(u)] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response("{}", { status: 500 });
-  }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 function renderFiles(path = "/drives/d1") {
@@ -196,5 +227,57 @@ describe("FilesPage", () => {
     expect(screen.queryByText(/copy it first/i)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Leave blank for the (top|root) of the drive/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
+  });
+
+  it("creates a folder in the current folder", async () => {
+    const fetchMock = stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    expect(await screen.findByRole("heading", { name: "New folder" })).toBeInTheDocument();
+    expect(screen.getByText(/Luna will put it in the folder you are in now/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Name for this folder/i), { target: { value: "Album" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    await waitFor(() => {
+      const mkdir = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).includes("/files/mkdir") && (init?.method || "GET").toUpperCase() === "POST"
+      );
+      expect(mkdir).toBeTruthy();
+      expect(JSON.parse(mkdir[1].body)).toEqual({ path: "Album" });
+    });
+    expect(await screen.findByText("Album")).toBeInTheDocument();
+  });
+
+  it("creates a text file and opens it for editing", async () => {
+    const fetchMock = stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "New text file" }));
+    expect(await screen.findByRole("heading", { name: "New text file" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("note.txt")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create file" }));
+    await waitFor(() => {
+      const create = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).includes("/files/create") && (init?.method || "GET").toUpperCase() === "POST"
+      );
+      expect(create).toBeTruthy();
+      expect(JSON.parse(create[1].body)).toEqual({ path: "note.txt" });
+    });
+    expect(await screen.findByRole("heading", { name: "Edit note.txt" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
+  });
+
+  it("offers New folder in the copy destination picker", async () => {
+    stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Copy photo.jpg" }));
+    const dialog = await screen.findByRole("dialog", { name: /Copy photo.jpg/i });
+    expect(within(dialog).getByRole("button", { name: "New folder" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "New text file" })).not.toBeInTheDocument();
   });
 });

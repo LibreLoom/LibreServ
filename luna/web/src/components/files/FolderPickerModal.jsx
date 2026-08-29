@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
+import { useQueryClient } from "@tanstack/react-query";
+import { FolderPlus } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
 import FileBrowser from "./FileBrowser.jsx";
+import CreateNameModal from "./CreateNameModal.jsx";
+import { apiErrorMessage, postJson } from "../../lib/api.js";
+import { parseCreateName } from "../../lib/createName.js";
+import { joinPath } from "../../lib/paths.js";
 
 /**
  * Pick a destination folder on a drive — replaces typed path fields.
@@ -31,9 +37,14 @@ export default function FolderPickerModal({
   open = true,
   busy = false,
 }) {
+  const queryClient = useQueryClient();
   const [driveId, setDriveId] = useState(initialDriveId);
   const [path, setPath] = useState(initialPath);
   const [picked, setPicked] = useState(initialPath);
+  const [creating, setCreating] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createError, setCreateError] = useState(/** @type {string|null} */ (null));
+  const [createBusy, setCreateBusy] = useState(false);
   const drive = drives.find((d) => d.id === driveId) || drives[0];
 
   useEffect(() => {
@@ -42,7 +53,33 @@ export default function FolderPickerModal({
     setDriveId(initialDriveId);
     setPath(initialPath);
     setPicked(initialPath);
+    setCreating(false);
+    setCreateError(null);
   }, [open, initialDriveId, initialPath]);
+
+  async function submitCreateFolder() {
+    const parsed = parseCreateName(createName);
+    if (parsed.error) {
+      setCreateError(parsed.error);
+      throw new Error(parsed.error);
+    }
+    if (!drive) {
+      setCreateError("Choose a drive first.");
+      throw new Error("no drive");
+    }
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const fullPath = joinPath(path, parsed.name);
+      await postJson(`/api/v1/drives/${drive.id}/files/mkdir`, { path: fullPath });
+      await queryClient.invalidateQueries({ queryKey: ["files", drive.id, path] });
+    } catch (err) {
+      setCreateError(apiErrorMessage(err, "Couldn't create that folder. Try another name."));
+      throw err;
+    } finally {
+      setCreateBusy(false);
+    }
+  }
 
   return (
     <ModalCard open={open} title={title} size="lg" onClose={onClose}>
@@ -77,6 +114,38 @@ export default function FolderPickerModal({
               enableDownload={false}
               enableUploadDrop={false}
               dense
+              folderActions={(
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => {
+                    setCreateError(null);
+                    setCreateName("");
+                    setCreating(true);
+                  }}
+                >
+                  <FolderPlus size={14} aria-hidden="true" />
+                  New folder
+                </Button>
+              )}
+              emptyAction={(
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => {
+                    setCreateError(null);
+                    setCreateName("");
+                    setCreating(true);
+                  }}
+                >
+                  <FolderPlus size={14} aria-hidden="true" />
+                  New folder
+                </Button>
+              )}
             />
           ) : (
             <p className="text-primary text-sm">No drives available.</p>
@@ -96,6 +165,20 @@ export default function FolderPickerModal({
               Cancel
             </Button>
           </div>
+
+          <CreateNameModal
+            open={creating}
+            title="New folder"
+            label="Name for this folder"
+            hint="Luna will put it in the folder you are in now."
+            value={createName}
+            onChange={setCreateName}
+            confirmLabel="Create folder"
+            busy={createBusy}
+            error={createError}
+            onSubmit={submitCreateFolder}
+            onClose={() => setCreating(false)}
+          />
         </>
       )}
     </ModalCard>
