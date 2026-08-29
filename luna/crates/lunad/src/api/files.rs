@@ -70,6 +70,12 @@ struct MkdirBody {
 }
 
 #[derive(Deserialize)]
+struct CreateBody {
+    /// Relative path of the new empty file (parent must already exist).
+    path: String,
+}
+
+#[derive(Deserialize)]
 struct RenameBody {
     path: String,
     new_name: String,
@@ -93,6 +99,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/drives/{id}/files", get(list).delete(delete_entry))
         .route("/api/v1/drives/{id}/files/mkdir", post(mkdir_entry))
+        .route("/api/v1/drives/{id}/files/create", post(create_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
         .route("/api/v1/drives/{id}/files/restore", post(restore_entry))
         .route("/api/v1/drives/{id}/files/purge", post(purge_entry))
@@ -274,6 +281,39 @@ async fn mkdir_entry(
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
             StatusCode::NOT_FOUND,
             "Luna can't find the parent folder. Open it and try again.",
+        ),
+        other => map_files_err(other),
+    })?;
+    state.touch_io_activity();
+    Ok(Json(json!({ "ok": true, "path": rel })))
+}
+
+async fn create_entry(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<CreateBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let rel = body.path.trim().trim_matches('/').to_string();
+    if rel.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Choose a name for the new file.",
+        ));
+    }
+    check_access(&state, &user, &id, &rel, true)?;
+    with_db(&state, |conn| files::create(conn, &id, &rel)).map_err(|e| match e {
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
+            StatusCode::CONFLICT,
+            "A file with this name is already here. Choose another name.",
+        ),
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find the parent folder. Open it and try again.",
+        ),
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
+            StatusCode::BAD_REQUEST,
+            "Choose a name for the new file.",
         ),
         other => map_files_err(other),
     })?;
@@ -821,6 +861,64 @@ mod http_tests {
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert!(!mount.path().join("secret/nope").exists());
+    }
+
+    #[tokio::test]
+    async fn create_makes_file_and_respects_grants() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+        }
+
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/create",
+                r#"{"path":"family/note.txt"}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        assert!(mount.path().join("family/note.txt").is_file());
+        assert_eq!(
+            std::fs::read(mount.path().join("family/note.txt")).unwrap(),
+            b""
+        );
+
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/create",
+                r#"{"path":"secret/nope.txt"}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert!(!mount.path().join("secret/nope.txt").exists());
+
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/create",
+                r#"{"path":"family/note.txt"}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

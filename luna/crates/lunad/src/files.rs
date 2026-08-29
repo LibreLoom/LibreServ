@@ -625,6 +625,49 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
     }
 }
 
+/// Create an empty file at `rel`. The parent must already exist. Never overwrites.
+pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(), FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    if rel.is_empty() || rel == "." {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cannot create at the drive root without a name",
+        )));
+    }
+    let leaf = rel.rsplit_once('/').map(|(_, name)| name).unwrap_or(rel);
+    let _ = safe_name(leaf)?;
+    let path = luna_core::path::resolve_for_create_nofollow(&root, rel)?;
+    // Reject creating more than one missing component (parent must exist).
+    let parent = path.parent().ok_or_else(|| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no parent",
+        ))
+    })?;
+    if !parent.is_dir() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "parent folder does not exist",
+        )));
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(file) => {
+            let _ = file.sync_all();
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(FilesError::Io(e)),
+        Err(e) => Err(FilesError::Io(e)),
+    }
+}
+
 /// Rename a file or folder within its current directory. Never overwrites.
 pub fn rename(
     conn: &rusqlite::Connection,
@@ -746,6 +789,39 @@ mod tests {
 
         mkdir(&conn, &id, "family/album").unwrap();
         assert!(root.join("family/album").is_dir());
+    }
+
+    #[test]
+    fn create_makes_empty_file_and_rejects_escape_and_conflict() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+
+        mkdir(&conn, &id, "notes").unwrap();
+        create(&conn, &id, "notes/shopping.txt").unwrap();
+        assert!(root.join("notes/shopping.txt").is_file());
+        assert_eq!(std::fs::read(root.join("notes/shopping.txt")).unwrap(), b"");
+
+        assert!(matches!(
+            create(&conn, &id, "notes/shopping.txt"),
+            Err(FilesError::Io(ref e)) if e.kind() == std::io::ErrorKind::AlreadyExists
+        ));
+        assert!(matches!(
+            create(&conn, &id, "../outside.txt"),
+            Err(FilesError::Path(_))
+        ));
+        assert!(matches!(
+            create(&conn, &id, "missing-parent/note.txt"),
+            Err(FilesError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound
+        ));
+        assert!(matches!(
+            create(&conn, &id, "notes/a/b.txt"),
+            Err(FilesError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound
+        ));
+        assert!(create(&conn, &id, "notes/..").is_err());
+        assert!(create(&conn, &id, "notes/.").is_err());
+        create(&conn, &id, "readme.txt").unwrap();
+        assert!(root.join("readme.txt").is_file());
     }
 
     #[test]

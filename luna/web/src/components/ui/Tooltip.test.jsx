@@ -40,7 +40,7 @@ describe("TermHint", () => {
     await user.click(screen.getByRole("button", { name: "router" }));
     const tip = await screen.findByRole("tooltip");
     expect(tip).toHaveTextContent(/brings internet into the house/i);
-    expect(tip.className).toMatch(/rounded-pill/);
+    expect(tip.className).toMatch(/rounded-large-element/);
     expect(tip.className).toMatch(/bg-secondary/);
     expect(tip.className).toMatch(/text-primary/);
   });
@@ -58,7 +58,9 @@ describe("Tooltip + ActionTooltipGroup", () => {
       </Tooltip>,
     );
     await user.hover(screen.getByRole("button", { name: /Copy note/i }));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+    const tip = await screen.findByRole("tooltip");
+    expect(tip).toHaveTextContent("Copy");
+    expect(tip.className).toMatch(/rounded-large-element/);
     await user.click(screen.getByRole("button", { name: /Copy note/i }));
     expect(onCopy).toHaveBeenCalledTimes(1);
   });
