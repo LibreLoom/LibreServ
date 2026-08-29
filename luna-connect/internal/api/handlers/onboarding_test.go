@@ -190,6 +190,46 @@ func TestWaitingRoomCodeBeforeHello(t *testing.T) {
 	if named["setup_secret"] != claimed["setup_secret"] || named["hostname"] != claimed["hostname"] {
 		t.Fatalf("name body %v claimed %v", named, claimed)
 	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/account/devices", nil)
+	listReq.AddCookie(cookie)
+	listReq.AddCookie(rec.Result().Cookies()[0])
+	listRec := httptest.NewRecorder()
+	acct.AccountAuth(http.HandlerFunc(acct.Devices)).ServeHTTP(listRec, listReq)
+	if listRec.Code != 200 {
+		t.Fatalf("devices %d %s", listRec.Code, listRec.Body.String())
+	}
+	var listed map[string]any
+	_ = json.Unmarshal(listRec.Body.Bytes(), &listed)
+	devs, _ := listed["devices"].([]any)
+	if len(devs) != 1 {
+		t.Fatalf("devices %v", listed)
+	}
+	row, _ := devs[0].(map[string]any)
+	if row["setup_secret"] != named["setup_secret"] {
+		t.Fatalf("stored setup_secret %v want %v", row["setup_secret"], named["setup_secret"])
+	}
+
+	devTok, _ := claimed["device_token"].(string)
+	clearReq := httptest.NewRequest(http.MethodPost, "/first-user", nil)
+	clearReq.Header.Set("Authorization", "Bearer "+devTok)
+	clearRec := httptest.NewRecorder()
+	DeviceHandler{Deps: onb.Deps}.DeviceAuth(http.HandlerFunc(DeviceHandler{Deps: onb.Deps}.FirstUserUsed)).ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != 200 {
+		t.Fatalf("first-user %d %s", clearRec.Code, clearRec.Body.String())
+	}
+	againReq := httptest.NewRequest(http.MethodGet, "/account/devices", nil)
+	againReq.AddCookie(cookie)
+	againReq.AddCookie(rec.Result().Cookies()[0])
+	again := httptest.NewRecorder()
+	acct.AccountAuth(http.HandlerFunc(acct.Devices)).ServeHTTP(again, againReq)
+	var listed2 map[string]any
+	_ = json.Unmarshal(again.Body.Bytes(), &listed2)
+	devs2, _ := listed2["devices"].([]any)
+	row2, _ := devs2[0].(map[string]any)
+	if _, ok := row2["setup_secret"]; ok {
+		t.Fatalf("setup_secret should be gone after first user: %v", row2)
+	}
 }
 
 func TestNoTunnelBeforeSubdomain(t *testing.T) {

@@ -280,7 +280,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not finish setup. Ask the person who looks after this Luna Connect site.")
 		return
 	}
-	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, sealedTunnel, port); err != nil {
+	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, sealedTunnel, setupSecret, port); err != nil {
 		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 		return
@@ -292,15 +292,19 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, nameResult(id, hostname, sub, setupSecret))
 }
 
-func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, sealedTunnelToken string, port int) error {
+func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, sealedTunnelToken, setupSecret string, port int) error {
 	tx, err := h.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	sealedSecret, err := security.SealString(setupSecret)
+	if err != nil {
+		return err
+	}
 	_, err = tx.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, device_token, setup_secret, local_port, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
-		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, sealedTunnelToken, port, time.Now().Unix())
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, sealedTunnelToken, sealedSecret, port, time.Now().Unix())
 	if err != nil {
 		return err
 	}

@@ -81,6 +81,7 @@ func (s *Server) routes() {
 					r.Use(dev.DeviceAuth)
 					r.Get("/status", dev.Status)
 					r.Post("/domain", dev.Domain)
+					r.Post("/first-user", dev.FirstUserUsed)
 					r.Post("/unregister", dev.Unregister)
 					r.Delete("/backup/objects/*", bak.DeleteObject)
 				})

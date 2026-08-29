@@ -227,19 +227,27 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	rows, err := h.DB.Query(`SELECT id, name, subdomain FROM devices WHERE account_id = ?`, acct.ID)
+	rows, err := h.DB.Query(`SELECT id, name, subdomain, COALESCE(setup_secret,'') FROM devices WHERE account_id = ?`, acct.ID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not list Lunas.")
 		return
 	}
 	defer rows.Close()
-	out := []map[string]string{}
+	out := []map[string]any{}
 	for rows.Next() {
-		var id, name, sub string
-		_ = rows.Scan(&id, &name, &sub)
-		out = append(out, map[string]string{
+		var id, name, sub, sealed string
+		_ = rows.Scan(&id, &name, &sub, &sealed)
+		item := map[string]any{
 			"id": id, "name": name, "hostname": sub + "." + config.C.Server.PublicZone, "subdomain": sub,
-		})
+		}
+		if sealed != "" {
+			secret := sealed
+			if opened, err := security.OpenString(sealed); err == nil && opened != "" {
+				secret = opened
+			}
+			item["setup_secret"] = secret
+		}
+		out = append(out, item)
 	}
 	JSON(w, http.StatusOK, map[string]any{"devices": out})
 }

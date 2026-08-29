@@ -100,6 +100,16 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h DeviceHandler) FirstUserUsed(w http.ResponseWriter, r *http.Request) {
+	dev, ok := DeviceFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE devices SET setup_secret = NULL WHERE id = ?`, dev.ID)
+	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {

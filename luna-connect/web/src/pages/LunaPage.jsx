@@ -54,9 +54,16 @@ export default function LunaPage() {
                     key={d.id}
                     className="rounded-large-element border border-border px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-mono text-sm break-all">{d.hostname}</p>
                       {d.name && <p className="text-xs text-muted-foreground mt-1">{d.name}</p>}
+                      {d.setup_secret && (
+                        <p className="text-sm text-foreground mt-2 leading-relaxed">
+                          First Luna login still needs this one-time code:{" "}
+                          <span className="font-mono break-all">{d.setup_secret}</span>
+                          . Paste it when you create the first account on Luna. Do not put it in the address bar.
+                        </p>
+                      )}
                     </div>
                     <Button variant="secondary" size="sm" asChild>
                       <a href={`https://${d.hostname}`} target="_blank" rel="noreferrer">
