@@ -4,7 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -15,7 +16,7 @@ class SetupActivity : AppCompatActivity() {
 
     private lateinit var driveStep: View
     private lateinit var permissionStep: View
-    private lateinit var driveList: LinearLayout
+    private lateinit var driveList: RadioGroup
     private lateinit var driveStatus: TextView
     private lateinit var driveContinue: MaterialButton
     private lateinit var grantStatus: TextView
@@ -133,18 +134,21 @@ class SetupActivity : AppCompatActivity() {
     }
 
     private fun bindDriveRows() {
+        driveList.setOnCheckedChangeListener(null)
         driveList.removeAllViews()
         drives.forEach { drive ->
-            val row = layoutInflater.inflate(R.layout.item_browse_row, driveList, false) as TextView
+            val row = layoutInflater.inflate(R.layout.item_choice_row, driveList, false) as RadioButton
+            row.id = View.generateViewId()
             row.text = drive.label
-            row.isSelected = selected?.id == drive.id
-            row.setTypeface(null, if (row.isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            row.setOnClickListener {
-                selected = drive
-                driveContinue.isEnabled = true
-                bindDriveRows()
-            }
+            row.tag = drive.id
+            row.isChecked = selected?.id == drive.id
             driveList.addView(row)
+        }
+        driveContinue.isEnabled = selected != null
+        driveList.setOnCheckedChangeListener { group, checkedId ->
+            val row = group.findViewById<RadioButton>(checkedId) ?: return@setOnCheckedChangeListener
+            selected = drives.firstOrNull { it.id == row.tag }
+            driveContinue.isEnabled = selected != null
         }
     }
 

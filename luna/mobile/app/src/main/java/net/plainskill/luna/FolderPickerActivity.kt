@@ -8,6 +8,8 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ListView
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -22,6 +24,7 @@ class FolderPickerActivity : AppCompatActivity() {
     private lateinit var pathLabel: TextView
     private lateinit var status: TextView
     private lateinit var list: ListView
+    private lateinit var driveChoices: RadioGroup
     private lateinit var upButton: MaterialButton
     private lateinit var newFolder: MaterialButton
     private lateinit var useFolder: MaterialButton
@@ -56,6 +59,7 @@ class FolderPickerActivity : AppCompatActivity() {
         pathLabel = findViewById(R.id.folderPath)
         status = findViewById(R.id.folderStatus)
         list = findViewById(R.id.folderList)
+        driveChoices = findViewById(R.id.driveChoices)
         upButton = findViewById(R.id.folderUp)
         newFolder = findViewById(R.id.folderNew)
         useFolder = findViewById(R.id.folderUse)
@@ -80,7 +84,11 @@ class FolderPickerActivity : AppCompatActivity() {
         pathLabel.text = getString(R.string.setup_drive_help)
         upButton.visibility = View.GONE
         newFolder.visibility = View.GONE
-        useFolder.visibility = View.GONE
+        useFolder.visibility = View.VISIBLE
+        useFolder.text = getString(R.string.continue_label)
+        list.visibility = View.GONE
+        driveChoices.visibility = View.VISIBLE
+        useFolder.isEnabled = driveId.isNotBlank() && !busy
     }
 
     private fun showFolderStep() {
@@ -89,6 +97,9 @@ class FolderPickerActivity : AppCompatActivity() {
         upButton.visibility = View.VISIBLE
         newFolder.visibility = View.VISIBLE
         useFolder.visibility = View.VISIBLE
+        useFolder.text = getString(R.string.use_this_folder)
+        list.visibility = View.VISIBLE
+        driveChoices.visibility = View.GONE
         bindPath()
     }
 
@@ -102,21 +113,13 @@ class FolderPickerActivity : AppCompatActivity() {
         busy = value
         upButton.isEnabled = !value && path.isNotEmpty() && !pickingDrive
         newFolder.isEnabled = !value && !pickingDrive
-        useFolder.isEnabled = !value && !pickingDrive
+        useFolder.isEnabled = !value && (if (pickingDrive) driveId.isNotBlank() else true)
         list.isEnabled = !value
+        driveChoices.isEnabled = !value
     }
 
     private fun onRow(position: Int) {
-        if (busy) return
-        if (pickingDrive) {
-            val drive = drives.getOrNull(position) ?: return
-            driveId = drive.id
-            driveLabel = drive.label
-            path = ""
-            showFolderStep()
-            loadFolders()
-            return
-        }
+        if (busy || pickingDrive) return
         val name = folders.getOrNull(position) ?: return
         path = LunaApi.joinPath(path, name)
         loadFolders()
@@ -180,7 +183,18 @@ class FolderPickerActivity : AppCompatActivity() {
     }
 
     private fun useCurrentFolder() {
-        if (busy || pickingDrive || driveId.isBlank()) return
+        if (busy) return
+        if (pickingDrive) {
+            if (driveId.isBlank()) {
+                status.text = getString(R.string.pick_a_drive_first)
+                return
+            }
+            path = ""
+            showFolderStep()
+            loadFolders()
+            return
+        }
+        if (driveId.isBlank()) return
         setBusy(true)
         status.text = getString(R.string.checking_folder)
         val chosenDrive = driveId
@@ -217,19 +231,19 @@ class FolderPickerActivity : AppCompatActivity() {
                     if (isFinishing) return@runOnUiThread
                     drives = listDrives
                     folders = emptyList()
-                    if (listDrives.isEmpty()) {
-                        bindRows(emptyList())
-                        status.text = getString(R.string.no_drives)
+                    bindDriveChoices()
+                    status.text = if (listDrives.isEmpty()) {
+                        getString(R.string.no_drives)
                     } else {
-                        bindRows(listDrives.map { it.label })
-                        status.text = getString(R.string.tap_a_drive)
+                        getString(R.string.tap_a_drive)
                     }
                     setBusy(false)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
-                    bindRows(emptyList())
+                    drives = emptyList()
+                    bindDriveChoices()
                     status.text = LunaApi.describeError(e)
                     setBusy(false)
                 }
@@ -278,6 +292,27 @@ class FolderPickerActivity : AppCompatActivity() {
                 return view
             }
         }
+    }
+
+    private fun bindDriveChoices() {
+        driveChoices.setOnCheckedChangeListener(null)
+        driveChoices.removeAllViews()
+        drives.forEach { drive ->
+            val row = layoutInflater.inflate(R.layout.item_choice_row, driveChoices, false) as RadioButton
+            row.id = View.generateViewId()
+            row.text = drive.label
+            row.tag = drive.id
+            row.isChecked = drive.id == driveId
+            driveChoices.addView(row)
+        }
+        driveChoices.setOnCheckedChangeListener { group, checkedId ->
+            val row = group.findViewById<RadioButton>(checkedId) ?: return@setOnCheckedChangeListener
+            val drive = drives.firstOrNull { it.id == row.tag } ?: return@setOnCheckedChangeListener
+            driveId = drive.id
+            driveLabel = drive.label
+            useFolder.isEnabled = !busy
+        }
+        useFolder.isEnabled = !busy && driveId.isNotBlank()
     }
 
     companion object {

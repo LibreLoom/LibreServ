@@ -44,7 +44,7 @@
                 android:textColor="@color/luna_ink"
                 android:textSize="15sp" />
 
-            <LinearLayout
+            <RadioGroup
                 android:id="@+id/driveList"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

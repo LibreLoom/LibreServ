@@ -146,9 +146,7 @@ class ShellActivity : AppCompatActivity() {
             PAGE_SETTINGS to navSettings,
         )
         for ((id, view) in items) {
-            val selected = id == page
-            view.isSelected = selected
-            view.setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            view.isSelected = id == page
         }
     }
 
