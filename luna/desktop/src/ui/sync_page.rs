@@ -47,6 +47,8 @@ impl SyncPage {
         list.set_margin_start(16);
         list.set_margin_end(16);
         list.set_margin_bottom(16);
+        // Empty boxed-list still draws a border — looks like a thin divider.
+        list.set_visible(false);
 
         let empty = gtk::Label::new(Some(
             "No syncs yet. Choose a Luna folder and a place for it on this computer.",
@@ -94,7 +96,9 @@ impl SyncPage {
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
-                        empty.set_visible(pairs.is_empty());
+                        let is_empty = pairs.is_empty();
+                        empty.set_visible(is_empty);
+                        list.set_visible(!is_empty);
                         let refresh = refresh_slot
                             .borrow()
                             .clone()
@@ -288,8 +292,9 @@ fn open_editor(
     page.set_margin_start(16);
     page.set_margin_end(16);
 
-    let dest_label = gtk::Label::new(Some("Folder on Luna"));
+    let dest_label = gtk::Label::new(Some("Select where this sync is stored on Luna"));
     dest_label.set_halign(gtk::Align::Start);
+    dest_label.set_wrap(true);
     dest_label.add_css_class("heading");
     page.append(&dest_label);
 

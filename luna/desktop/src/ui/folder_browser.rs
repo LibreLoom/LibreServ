@@ -30,18 +30,14 @@ impl FolderBrowser {
         folder_list.set_selection_mode(gtk::SelectionMode::None);
         folder_list.add_css_class("boxed-list");
 
-        let create_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let new_name = gtk::Entry::new();
-        new_name.set_placeholder_text(Some("New folder name"));
-        new_name.set_hexpand(true);
+        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let create_btn = gtk::Button::with_label("Create folder");
         create_btn.add_css_class("pill");
         let use_btn = gtk::Button::with_label("Use this folder");
         use_btn.add_css_class("pill");
         use_btn.add_css_class("suggested-action");
-        create_row.append(&new_name);
-        create_row.append(&create_btn);
-        create_row.append(&use_btn);
+        actions.append(&create_btn);
+        actions.append(&use_btn);
 
         let selected_lbl = gtk::Label::new(None);
         selected_lbl.add_css_class("caption");
@@ -50,7 +46,7 @@ impl FolderBrowser {
         root.append(&drive_box);
         root.append(&path_bar);
         root.append(&folder_list);
-        root.append(&create_row);
+        root.append(&actions);
         root.append(&selected_lbl);
 
         let browse_path = Rc::new(RefCell::new(remote_path.borrow().clone()));
@@ -158,7 +154,7 @@ impl FolderBrowser {
                                 if dirs.is_empty() {
                                     let row = adw::ActionRow::builder()
                                         .title("No folders here yet")
-                                        .subtitle("Create one below")
+                                        .subtitle("Create one with Create folder")
                                         .build();
                                     folder_list.append(&row);
                                 }
@@ -278,47 +274,106 @@ impl FolderBrowser {
             let drive_id = drive_id.clone();
             let browse_path = browse_path.clone();
             let remote_path = remote_path.clone();
-            let new_name = new_name.clone();
             let do_reload = do_reload.clone();
             let update_selected = update_selected.clone();
-            move |_| {
-                let name = new_name.text().trim().to_string();
-                if name.is_empty() {
-                    return;
-                }
+            let root = root.clone();
+            move |btn| {
                 let d = drive_id.borrow().clone();
                 if d.is_empty() {
                     toast_error(&toast, "Choose a drive first.");
                     return;
                 }
-                let full = {
-                    let bp = browse_path.borrow();
-                    if bp.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{bp}/{name}")
-                    }
-                };
-                let state = state.clone();
-                let full2 = full.clone();
-                spawn_blocking(move || luna_desktop::mkdir(&state, &d, &full2), {
+
+                let dialog = adw::Dialog::new();
+                dialog.set_title("Create folder");
+                dialog.set_content_width(360);
+
+                let toolbar = adw::ToolbarView::new();
+                toolbar.add_top_bar(&adw::HeaderBar::new());
+
+                let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
+                page.set_margin_top(12);
+                page.set_margin_bottom(16);
+                page.set_margin_start(16);
+                page.set_margin_end(16);
+
+                let group = adw::PreferencesGroup::new();
+                let name_row = adw::EntryRow::builder().title("Folder name").build();
+                group.add(&name_row);
+                page.append(&group);
+
+                let create = gtk::Button::with_label("Create");
+                create.add_css_class("suggested-action");
+                create.add_css_class("pill");
+                create.set_halign(gtk::Align::End);
+                page.append(&create);
+
+                toolbar.set_content(Some(&page));
+                dialog.set_child(Some(&toolbar));
+
+                let parent = btn
+                    .root()
+                    .and_then(|r| r.downcast::<gtk::Window>().ok())
+                    .map(|w| w.upcast::<gtk::Widget>())
+                    .unwrap_or_else(|| root.clone().upcast());
+
+                create.connect_clicked({
+                    let state = state.clone();
                     let toast = toast.clone();
+                    let drive_id = drive_id.clone();
                     let browse_path = browse_path.clone();
                     let remote_path = remote_path.clone();
-                    let new_name = new_name.clone();
                     let do_reload = do_reload.clone();
                     let update_selected = update_selected.clone();
-                    move |r| match r {
-                        Ok(()) => {
-                            new_name.set_text("");
-                            *browse_path.borrow_mut() = full.clone();
-                            *remote_path.borrow_mut() = full;
-                            update_selected();
-                            do_reload();
+                    let name_row = name_row.clone();
+                    let dialog = dialog.clone();
+                    move |_| {
+                        let name = name_row.text().trim().to_string();
+                        if name.is_empty() {
+                            toast_error(&toast, "Enter a folder name.");
+                            return;
                         }
-                        Err(e) => toast_error(&toast, e),
+                        if name.contains('/') || name.contains('\\') {
+                            toast_error(&toast, "Folder names can’t include /.");
+                            return;
+                        }
+                        let d = drive_id.borrow().clone();
+                        if d.is_empty() {
+                            toast_error(&toast, "Choose a drive first.");
+                            return;
+                        }
+                        let full = {
+                            let bp = browse_path.borrow();
+                            if bp.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{bp}/{name}")
+                            }
+                        };
+                        let state = state.clone();
+                        let full2 = full.clone();
+                        spawn_blocking(move || luna_desktop::mkdir(&state, &d, &full2), {
+                            let toast = toast.clone();
+                            let browse_path = browse_path.clone();
+                            let remote_path = remote_path.clone();
+                            let do_reload = do_reload.clone();
+                            let update_selected = update_selected.clone();
+                            let dialog = dialog.clone();
+                            move |r| match r {
+                                Ok(()) => {
+                                    *browse_path.borrow_mut() = full.clone();
+                                    *remote_path.borrow_mut() = full;
+                                    update_selected();
+                                    do_reload();
+                                    dialog.close();
+                                }
+                                Err(e) => toast_error(&toast, e),
+                            }
+                        });
                     }
                 });
+
+                dialog.present(Some(&parent));
             }
         });
 

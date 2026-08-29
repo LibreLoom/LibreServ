@@ -47,6 +47,8 @@ impl BackupPage {
         list.set_margin_start(16);
         list.set_margin_end(16);
         list.set_margin_bottom(16);
+        // Empty boxed-list still draws a border — looks like a thin divider.
+        list.set_visible(false);
 
         let empty = gtk::Label::new(Some(
             "No backups yet. Create one to copy folders onto Luna.",
@@ -149,7 +151,9 @@ fn make_refresh(
                 while let Some(row) = list.row_at_index(0) {
                     list.remove(&row);
                 }
-                empty.set_visible(jobs.is_empty());
+                let is_empty = jobs.is_empty();
+                empty.set_visible(is_empty);
+                list.set_visible(!is_empty);
                 let refresh = refresh_slot
                     .borrow()
                     .clone()
@@ -419,15 +423,16 @@ fn open_editor(
         }
     });
 
-    let src_label = gtk::Label::new(Some("Folders on this computer"));
+    let src_label = gtk::Label::new(Some("Folders to back up"));
     src_label.set_halign(gtk::Align::Start);
     src_label.add_css_class("heading");
     page.append(&src_label);
     page.append(&sources_list);
     page.append(&add);
 
-    let dest_label = gtk::Label::new(Some("Folder on Luna"));
+    let dest_label = gtk::Label::new(Some("Select where this backup is stored on Luna"));
     dest_label.set_halign(gtk::Align::Start);
+    dest_label.set_wrap(true);
     dest_label.add_css_class("heading");
     page.append(&dest_label);
 

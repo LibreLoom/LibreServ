@@ -19,6 +19,18 @@ enum Page {
     Settings,
 }
 
+/// Adwaita navigation-sidebar row: symbolic icon + title.
+fn nav_row(title: &str, icon_name: &str) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .activatable(true)
+        .build();
+    let icon = gtk::Image::from_icon_name(icon_name);
+    icon.set_icon_size(gtk::IconSize::Normal);
+    row.add_prefix(&icon);
+    row
+}
+
 pub struct ShellView {
     root: gtk::Widget,
     username: String,
@@ -39,54 +51,62 @@ impl ShellView {
 
         // --- Sidebar ---
         let sidebar_header = adw::HeaderBar::new();
-        sidebar_header.set_title_widget(Some(&gtk::Label::new(Some("Luna"))));
+        sidebar_header.set_title_widget(Some(&adw::WindowTitle::new("Luna", "")));
         sidebar_header.add_css_class("flat");
 
         let list = gtk::ListBox::new();
         list.set_selection_mode(gtk::SelectionMode::Single);
-        list.add_css_class("navigation-sidebar");
+        list.set_css_classes(&["navigation-sidebar"]);
+        list.set_vexpand(true);
 
-        let row_backup = adw::ActionRow::builder()
-            .title("Backup")
-            .activatable(true)
-            .build();
-        let row_sync = adw::ActionRow::builder()
-            .title("Sync")
-            .activatable(true)
-            .build();
-        let row_settings = adw::ActionRow::builder()
-            .title("Settings")
-            .activatable(true)
-            .build();
+        let row_backup = nav_row("Backup", "folder-download-symbolic");
+        let row_sync = nav_row("Sync", "emblem-synchronizing-symbolic");
+        let row_settings = nav_row("Settings", "preferences-system-symbolic");
         list.append(&row_backup);
         list.append(&row_sync);
         list.append(&row_settings);
         list.select_row(Some(&row_backup));
 
+        let list_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .vexpand(true)
+            .child(&list)
+            .build();
+
         let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        footer.set_margin_top(12);
+        footer.set_margin_top(6);
         footer.set_margin_bottom(12);
         footer.set_margin_start(12);
         footer.set_margin_end(12);
+
         let user_lbl = gtk::Label::new(Some(&username));
         user_lbl.set_halign(gtk::Align::Start);
-        user_lbl.add_css_class("caption");
-        let sign_out = gtk::Button::with_label("Sign out");
+        user_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        user_lbl.add_css_class("heading");
+
+        let sign_out_content = adw::ButtonContent::builder()
+            .icon_name("system-log-out-symbolic")
+            .label("Sign out")
+            .build();
+        let sign_out = gtk::Button::new();
+        sign_out.set_child(Some(&sign_out_content));
         sign_out.add_css_class("flat");
         sign_out.set_halign(gtk::Align::Start);
+
         footer.append(&user_lbl);
         footer.append(&sign_out);
 
         let sidebar_inner = gtk::Box::new(gtk::Orientation::Vertical, 0);
         sidebar_inner.set_vexpand(true);
-        sidebar_inner.append(&list);
-        let spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        spacer.set_vexpand(true);
-        sidebar_inner.append(&spacer);
+        sidebar_inner.append(&list_scroll);
+        sidebar_inner.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         sidebar_inner.append(&footer);
 
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
+        // Sidebar windows should stay Flat — no persistent under-header line.
+        sidebar_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         sidebar_toolbar.set_content(Some(&sidebar_inner));
 
         let sidebar_page = adw::NavigationPage::builder()
@@ -108,15 +128,14 @@ impl ShellView {
         content_stack.set_visible_child_name("backup");
 
         let content_header = adw::HeaderBar::new();
-        let title = Rc::new(RefCell::new({
-            let l = gtk::Label::new(Some("Backup"));
-            l.add_css_class("title");
-            l
-        }));
-        content_header.set_title_widget(Some(&*title.borrow()));
+        content_header.add_css_class("flat");
+        let window_title = adw::WindowTitle::new("Backup", "");
+        content_header.set_title_widget(Some(&window_title));
 
         let content_toolbar = adw::ToolbarView::new();
         content_toolbar.add_top_bar(&content_header);
+        // Flat: no persistent raised separator under the header above page content.
+        content_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         content_toolbar.set_content(Some(&content_stack));
 
         let content_page = adw::NavigationPage::builder()
@@ -131,7 +150,7 @@ impl ShellView {
         list.connect_row_activated({
             let content_stack = content_stack.clone();
             let content_page = content_page.clone();
-            let title = title.clone();
+            let window_title = window_title.clone();
             let page_state = page_state.clone();
             let row_backup = row_backup.clone();
             let row_sync = row_sync.clone();
@@ -148,7 +167,7 @@ impl ShellView {
                 };
                 *page_state.borrow_mut() = page;
                 content_stack.set_visible_child_name(name);
-                title.borrow().set_text(label);
+                window_title.set_title(label);
                 content_page.set_title(label);
             }
         });
