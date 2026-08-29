@@ -37,6 +37,8 @@ pub struct BackupProgress {
 
 pub struct BackupHandle {
     stop: Arc<AtomicBool>,
+    /// Kept alive for the job lifetime; dropped on stop so watches end.
+    _watchers: Vec<RecommendedWatcher>,
 }
 
 impl BackupHandle {
@@ -155,7 +157,6 @@ pub fn start_job(
             .map_err(|_| "Couldn't watch that folder for changes.".to_string())?;
         watchers.push(watcher);
     }
-    std::mem::forget(watchers);
 
     let thread_stop = stop.clone();
     let thread_progress = progress.clone();
@@ -255,10 +256,17 @@ pub fn start_job(
         }
     });
 
-    Ok(BackupHandle { stop })
+    Ok(BackupHandle {
+        stop,
+        _watchers: watchers,
+    })
 }
 
-fn set_running(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &str, running: bool) {
+fn set_running(
+    progress: &Arc<Mutex<HashMap<String, BackupProgress>>>,
+    job_id: &str,
+    running: bool,
+) {
     if let Ok(mut map) = progress.lock()
         && let Some(p) = map.get_mut(job_id)
     {
@@ -280,11 +288,7 @@ fn set_current(
     }
 }
 
-fn bump(
-    progress: &Arc<Mutex<HashMap<String, BackupProgress>>>,
-    job_id: &str,
-    size: u64,
-) {
+fn bump(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &str, size: u64) {
     if let Ok(mut map) = progress.lock()
         && let Some(p) = map.get_mut(job_id)
     {

@@ -70,6 +70,8 @@ impl Ledger {
 
 pub struct SyncHandle {
     stop: Arc<AtomicBool>,
+    /// Kept alive for the pair lifetime; dropped on stop so watches end.
+    _watcher: RecommendedWatcher,
 }
 
 impl SyncHandle {
@@ -148,7 +150,6 @@ pub fn start_pair(
     watcher
         .watch(&local_root, RecursiveMode::Recursive)
         .map_err(|_| "Couldn't watch the sync folder.".to_string())?;
-    std::mem::forget(watcher);
 
     let thread_stop = stop.clone();
     let thread_progress = progress.clone();
@@ -201,7 +202,10 @@ pub fn start_pair(
         }
     });
 
-    Ok(SyncHandle { stop })
+    Ok(SyncHandle {
+        stop,
+        _watcher: watcher,
+    })
 }
 
 fn set_running(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str, running: bool) {
@@ -332,10 +336,8 @@ fn sync_once(
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                     bump(progress, pair_id, false, true, &rel);
                     // Upload the conflict copy under a conflict name on Luna too.
-                    let remote_conflict = format!(
-                        "{} (conflict from this computer)",
-                        strip_ext_name(&rel)
-                    );
+                    let remote_conflict =
+                        format!("{} (conflict from this computer)", strip_ext_name(&rel));
                     // Keep local conflict file; upload original content already renamed.
                     let _ = luna::upload_file(
                         base_url,
@@ -489,10 +491,7 @@ fn join_remote(root: &str, rel: &str) -> String {
 }
 
 fn conflict_path(path: &Path, from: &str) -> PathBuf {
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -542,10 +541,11 @@ mod tests {
     fn conflict_naming() {
         let p = PathBuf::from("/tmp/photo.jpg");
         let c = conflict_path(&p, "Luna");
-        assert!(c
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .contains("conflict from Luna"));
+        assert!(
+            c.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains("conflict from Luna")
+        );
     }
 }

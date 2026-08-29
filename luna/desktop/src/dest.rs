@@ -114,8 +114,7 @@ pub fn resolved_sync_local(parent: &Path, luna_folder_name: &str) -> Result<Path
         );
     }
     let name = luna_folder_name.trim();
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\')
-    {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
         return Err("That Luna folder name is not valid for syncing.".into());
     }
     let child = parent.join(name);

@@ -54,18 +54,12 @@ if grep -q 'alpine:latest' os/build-rootfs.sh os/make-image.sh os/lib/alpine-ima
 	exit 1
 fi
 
-echo "==> desktop core"
-(
-  cd desktop/src-tauri
-  cargo fmt --check
-  cargo test
-)
-
-echo "==> desktop web"
+echo "==> desktop (GTK / libadwaita)"
 (
   cd desktop
-  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
-  npm run build
+  cargo fmt --check
+  cargo test
+  cargo build --release
 )
 
 echo "==> mobile unit tests"

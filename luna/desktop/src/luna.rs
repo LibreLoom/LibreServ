@@ -41,13 +41,23 @@ pub fn plain_connect_error(err: &ureq::Error) -> String {
 }
 
 pub fn login(base_url: &str, username: &str, password: &str) -> Result<String, String> {
-    let cookie = session_login_cookie(base_url, username, password)?;
-    let token = create_device_token(base_url, &cookie, "Luna Desktop")?;
-    let _ = drop_session_cookie(base_url, &cookie);
+    let cookies = session_login_cookies(base_url, username, password)?;
+    let token = create_device_token(base_url, &cookies, "Luna Desktop")?;
+    let _ = drop_session_cookie(base_url, &cookies);
     Ok(token)
 }
 
-fn session_login_cookie(base_url: &str, username: &str, password: &str) -> Result<String, String> {
+struct SessionCookies {
+    /// Full Cookie header value: `luna_session=…; luna_csrf=…`
+    cookie_header: String,
+    csrf: Option<String>,
+}
+
+fn session_login_cookies(
+    base_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<SessionCookies, String> {
     let body = serde_json::json!({ "username": username, "password": password });
     let resp = ureq::post(&format!(
         "{}/api/v1/auth/login",
@@ -61,28 +71,50 @@ fn session_login_cookie(base_url: &str, username: &str, password: &str) -> Resul
     if !resp.status().is_success() {
         return Err("Luna couldn't sign you in. Check the address and try again.".into());
     }
-    let set_cookie = resp
-        .headers()
-        .get("set-cookie")
-        .and_then(|v| v.to_str().ok());
-    luna_session_cookie(set_cookie)
-        .ok_or_else(|| "Luna did not start a sign-in session. Try again.".to_string())
+    let mut session = None;
+    let mut csrf = None;
+    for value in resp.headers().get_all("set-cookie") {
+        let Ok(raw) = value.to_str() else { continue };
+        let pair = raw.split(';').next().unwrap_or("").trim();
+        if let Some(rest) = pair.strip_prefix("luna_session=") {
+            session = Some(format!("luna_session={rest}"));
+        } else if let Some(rest) = pair.strip_prefix("luna_csrf=") {
+            csrf = Some(rest.to_string());
+        }
+    }
+    let session =
+        session.ok_or_else(|| "Luna did not start a sign-in session. Try again.".to_string())?;
+    let cookie_header = match &csrf {
+        Some(token) => format!("{session}; luna_csrf={token}"),
+        None => session,
+    };
+    Ok(SessionCookies {
+        cookie_header,
+        csrf,
+    })
 }
 
-fn luna_session_cookie(set_cookie: Option<&str>) -> Option<String> {
-    let pair = set_cookie?.split(';').next()?.trim();
-    pair.starts_with("luna_session=").then(|| pair.to_string())
-}
-
-pub fn create_device_token(base_url: &str, cookie: &str, name: &str) -> Result<String, String> {
+fn create_device_token(
+    base_url: &str,
+    cookies: &SessionCookies,
+    name: &str,
+) -> Result<String, String> {
     let body = serde_json::json!({ "name": name });
-    let mut resp = ureq::post(&format!(
+    let mut req = ureq::post(&format!(
         "{}/api/v1/device-tokens",
         base_url.trim_end_matches('/')
     ))
-    .header("Cookie", cookie)
-    .send_json(body)
-    .map_err(|e| plain_connect_error(&e))?;
+    .header("Cookie", &cookies.cookie_header);
+    if let Some(csrf) = &cookies.csrf {
+        req = req.header("X-CSRF-Token", csrf);
+    }
+    let mut resp = req.send_json(body).map_err(|e| plain_connect_error(&e))?;
+    if resp.status() == 403 {
+        return Err("Luna blocked the sign-in request. Check the address and try again.".into());
+    }
+    if !resp.status().is_success() {
+        return Err("Luna did not return an access token. Try again.".into());
+    }
     let value: serde_json::Value = resp
         .body_mut()
         .read_json()
@@ -94,25 +126,28 @@ pub fn create_device_token(base_url: &str, cookie: &str, name: &str) -> Result<S
         .ok_or_else(|| "Luna did not return an access token.".to_string())
 }
 
-fn drop_session_cookie(base_url: &str, cookie: &str) -> Result<(), String> {
-    ureq::post(&format!(
+fn drop_session_cookie(base_url: &str, cookies: &SessionCookies) -> Result<(), String> {
+    let mut req = ureq::post(&format!(
         "{}/api/v1/auth/logout",
         base_url.trim_end_matches('/')
     ))
-    .header("Cookie", cookie)
-    .send_empty()
-    .map_err(|e| plain_connect_error(&e))?;
+    .header("Cookie", &cookies.cookie_header);
+    if let Some(csrf) = &cookies.csrf {
+        req = req.header("X-CSRF-Token", csrf);
+    }
+    req.send_empty().map_err(|e| plain_connect_error(&e))?;
     Ok(())
 }
 
-fn auth_get(base_url: &str, token: &str, path: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
-    ureq::get(&format!(
-        "{}{path}",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .call()
-    .map_err(|e| plain_connect_error(&e))
+fn auth_get(
+    base_url: &str,
+    token: &str,
+    path: &str,
+) -> Result<ureq::http::Response<ureq::Body>, String> {
+    ureq::get(&format!("{}{path}", base_url.trim_end_matches('/')))
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| plain_connect_error(&e))
 }
 
 pub fn list_drives(base_url: &str, token: &str) -> Result<Vec<Drive>, String> {
@@ -431,7 +466,7 @@ mod tests {
                 let n = s.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
                 let extra = if req.contains("/api/v1/auth/login") {
-                    "Set-Cookie: luna_session=sess-cookie; Path=/\r\n"
+                    "Set-Cookie: luna_session=sess-cookie; Path=/\r\nSet-Cookie: luna_csrf=csrf-tok; Path=/\r\n"
                 } else {
                     ""
                 };
@@ -442,8 +477,25 @@ mod tests {
                             .to_string(),
                     )
                 } else if req.contains("/api/v1/auth/logout") {
+                    assert!(
+                        req.to_ascii_lowercase().contains("x-csrf-token: csrf-tok"),
+                        "logout must send CSRF"
+                    );
                     (200, r#"{"ok":true}"#.to_string())
                 } else if req.contains("/api/v1/device-tokens") {
+                    assert!(
+                        req.to_ascii_lowercase()
+                            .contains("cookie: luna_session=sess-cookie"),
+                        "device-token mint must reuse the login session cookie"
+                    );
+                    assert!(
+                        req.to_ascii_lowercase().contains("x-csrf-token: csrf-tok"),
+                        "device-token mint must send CSRF"
+                    );
+                    assert!(
+                        req.to_ascii_lowercase().contains("luna_csrf=csrf-tok"),
+                        "device-token mint must include csrf cookie"
+                    );
                     (
                         200,
                         r#"{"id":"dt-1","name":"Luna Desktop","token":"device-tok-456","revoked":false}"#.to_string(),
@@ -453,7 +505,11 @@ mod tests {
                 } else if req.contains("/files/mkdir") {
                     (200, r#"{"ok":true}"#.to_string())
                 } else if req.contains("/files") {
-                    (200, r#"[{"name":"Family","kind":"dir","size":0,"modified":1,"hidden":false}]"#.to_string())
+                    (
+                        200,
+                        r#"[{"name":"Family","kind":"dir","size":0,"modified":1,"hidden":false}]"#
+                            .to_string(),
+                    )
                 } else {
                     (404, "{}".to_string())
                 };

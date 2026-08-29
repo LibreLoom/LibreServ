@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/luna-core", "crates/lunad"]
-exclude = ["desktop/src-tauri"]
+exclude = ["desktop"]
 
 [workspace.package]
 version = "0.1.0"

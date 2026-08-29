@@ -1,7 +1,7 @@
 # Luna Desktop
 
-Tauri 2 app for **Backup** (one-way copy of folders onto Luna) and **Sync**
-(two-way keep a Luna folder and a local folder up to date).
+Native **GTK 4 + libadwaita** app for **Backup** (one-way copy of folders onto
+Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
 ## What it does
 
@@ -12,33 +12,39 @@ Tauri 2 app for **Backup** (one-way copy of folders onto Luna) and **Sync**
 3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
    Desktop creates a child folder there and keeps both sides in sync. If both
    sides change the same file, both copies are kept with a clear conflict name.
+4. **Settings** — optional start on boot (XDG autostart).
 
-## Linux package (this repo's supported path)
+## Build (Linux)
+
+Needs GTK 4 and libadwaita development packages, for example:
+
+```sh
+# Debian / Ubuntu
+sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
+
+# Fedora
+sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
+```
 
 ```sh
 # From luna/
-make desktop          # tests + unbundled binary
-make desktop-bundle   # .deb + AppImage
+make desktop-dev    # cargo run
+make desktop        # tests + release binary → desktop/target/release/luna-desktop
 ```
 
 Or from `luna/desktop`:
 
 ```sh
-npm install
-npm run tauri -- build --bundles deb,appimage
+cargo test
+cargo run
+cargo build --release
 ```
-
-System packages (Fedora/Debian names vary): `webkit2gtk4.1` /
-`libwebkit2gtk-4.1-dev`, `librsvg2`, `openssl-devel`, a C compiler, and
-`patchelf` for AppImage. If AppImage tooling cannot use FUSE, set
-`APPIMAGE_EXTRACT_AND_RUN=1`.
-
-Outputs land in `desktop/src-tauri/target/release/bundle/`.
 
 ## Soak / unit tests
 
 ```sh
-cd desktop/src-tauri && cargo test
+cd desktop && cargo test
 ```
 
 Fake Luna HTTP coverage includes login, drive list, folder list, and mkdir.
+Autostart writes an XDG `.desktop` file under `$XDG_CONFIG_HOME/autostart`.

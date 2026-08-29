@@ -65,15 +65,13 @@ clean:
 	cargo clean
 	rm -rf web/node_modules web/dist crates/lunad/web/dist
 
-# Linux desktop: one command for a bundled .deb + AppImage. No Apple/Windows
-# signing. Needs webkitgtk and the Tauri Linux deps (see desktop/README.md).
+# Linux desktop (GTK 4 + libadwaita). See desktop/README.md for packages.
 desktop-dev:
-	cd desktop && npm install --no-audit --no-fund && npm run tauri -- dev
+	cd desktop && cargo run
 
 desktop:
-	cd desktop && npm install --no-audit --no-fund
-	cd desktop/src-tauri && cargo test
-	cd desktop && npm run tauri -- build --no-bundle
+	cd desktop && cargo test && cargo build --release
 
 desktop-bundle: desktop
-	cd desktop && npm run tauri -- build --bundles deb,appimage
+	@echo "Install: cp desktop/target/release/luna-desktop to a bin dir on PATH."
+	@echo "Optional: copy desktop/resources/org.libreloom.LunaDesktop.desktop to /usr/share/applications/"
