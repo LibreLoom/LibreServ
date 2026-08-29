@@ -1,6 +1,5 @@
 package net.plainskill.luna
 
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -9,76 +8,224 @@ import java.net.Socket
 import java.net.URL
 
 /**
- * Minimal Luna HTTP client for the backup worker. Speaks the same chunked
- * upload protocol as the web app: create → PUT ranges → complete.
+ * Minimal Luna HTTP client for photo backup. Sign-in is a pasted (or scanned)
+ * access token, same as Luna Desktop. Uploads use the chunked protocol:
+ * create → PUT ranges → complete.
  */
 object LunaApi {
     const val CHUNK_SIZE = 1024 * 1024 // 1 MiB
+    private val deadlineMs = ThreadLocal<Long?>()
+
+    fun <T> withDeadline(ms: Long, block: () -> T): T {
+        val previous = deadlineMs.get()
+        deadlineMs.set(System.currentTimeMillis() + ms)
+        return try {
+            block()
+        } finally {
+            if (previous == null) deadlineMs.remove() else deadlineMs.set(previous)
+        }
+    }
+
+    private fun remainingTimeoutMs(fallback: Int): Int {
+        val deadline = deadlineMs.get() ?: return fallback
+        val left = deadline - System.currentTimeMillis()
+        if (left <= 0L) {
+            throw java.io.IOException("timed out")
+        }
+        return left.toInt().coerceAtMost(fallback).coerceAtLeast(250)
+    }
 
     class ApiException(val code: Int, message: String) : Exception(message) {
         val unauthorized get() = code == 401
     }
 
-    /** A named token the server tracks so it can be revoked separately from the password. */
-    class DeviceToken(val id: String, val token: String)
+    data class UserInfo(val id: String, val username: String)
+    data class Drive(val id: String, val label: String)
+    data class FileEntry(val name: String, val kind: String) {
+        val isDir: Boolean get() = kind == "dir"
+    }
+
+    fun authMe(baseUrl: String, token: String): UserInfo {
+        val result = exchange(baseUrl, "/api/v1/auth/me", "GET", token, null, null)
+        if (result.code == 401) {
+            throw ApiException(401, badTokenMessage())
+        }
+        if (result.code !in 200..299) {
+            throw ApiException(
+                result.code,
+                "Luna couldn't check that access token. Check the address, then try again. If it still fails, create a new token in Luna → Settings → Apps and access tokens.",
+            )
+        }
+        return parseUser(String(result.body, Charsets.UTF_8))
+    }
+
+    fun listDrives(baseUrl: String, token: String): List<Drive> {
+        val result = exchange(baseUrl, "/api/v1/drives", "GET", token, null, null)
+        if (result.code == 401) throw ApiException(401, badTokenMessage())
+        if (result.code !in 200..299) {
+            throw ApiException(
+                result.code,
+                "Luna couldn't list your drives. Check that this phone can reach Luna, then try again. If it keeps failing, open Luna in a browser and add a drive first.",
+            )
+        }
+        return parseDrives(String(result.body, Charsets.UTF_8))
+    }
+
+    fun resolveDriveId(baseUrl: String, token: String, preferredId: String?): String {
+        val drives = listDrives(baseUrl, token)
+        if (drives.isEmpty()) {
+            throw ApiException(
+                404,
+                "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then try again.",
+            )
+        }
+        if (!preferredId.isNullOrBlank()) {
+            val match = drives.firstOrNull { it.id == preferredId }
+            if (match != null) return match.id
+        }
+        return drives[0].id
+    }
+
+    fun parseUser(body: String): UserInfo {
+        val trimmed = body.trim()
+        if (trimmed.isEmpty() || trimmed == "null") {
+            throw ApiException(401, badTokenMessage())
+        }
+        val username = JsonFields.string(trimmed, "username").orEmpty()
+        if (username.isEmpty()) throw ApiException(401, badTokenMessage())
+        return UserInfo(JsonFields.string(trimmed, "id").orEmpty(), username)
+    }
+
+    fun parseDrives(body: String): List<Drive> {
+        val out = ArrayList<Drive>()
+        for (obj in JsonFields.objects(body)) {
+            val id = JsonFields.string(obj, "id").orEmpty()
+            if (id.isEmpty()) continue
+            val label = JsonFields.string(obj, "label").orEmpty().ifEmpty { id }
+            out.add(Drive(id, label))
+        }
+        return out
+    }
+
+    fun listFiles(baseUrl: String, token: String, driveId: String, path: String): List<FileEntry> {
+        val encPath = java.net.URLEncoder.encode(path, Charsets.UTF_8.name()).replace("+", "%20")
+        val encId = java.net.URLEncoder.encode(driveId, Charsets.UTF_8.name()).replace("+", "%20")
+        val result = exchange(baseUrl, "/api/v1/drives/$encId/files?path=$encPath", "GET", token, null, null)
+        if (result.code == 401) throw ApiException(401, badTokenMessage())
+        if (result.code == 403) {
+            throw ApiException(
+                403,
+                "This access token can't open that folder. Create a new token in Luna → Settings → Apps and access tokens, and allow access to this drive.",
+            )
+        }
+        if (result.code == 404) {
+            throw ApiException(
+                404,
+                "That folder is gone. Pick another folder, or create a new one.",
+            )
+        }
+        if (result.code !in 200..299) {
+            throw ApiException(
+                result.code,
+                "Luna couldn't open that folder. Check that this phone can reach Luna, then try again.",
+            )
+        }
+        return parseFiles(String(result.body, Charsets.UTF_8))
+    }
+
+    fun mkdir(baseUrl: String, token: String, driveId: String, path: String) {
+        val encId = java.net.URLEncoder.encode(driveId, Charsets.UTF_8.name()).replace("+", "%20")
+        val body = JSONObject().apply { put("path", path) }
+        try {
+            post(baseUrl, "/api/v1/drives/$encId/files/mkdir", body.toString(), token)
+        } catch (e: ApiException) {
+            throw when (e.code) {
+                401 -> ApiException(401, badTokenMessage())
+                403 -> ApiException(
+                    403,
+                    "This access token can't create a folder here. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                )
+                409 -> ApiException(409, "A folder with this name is already here. Choose another name.")
+                404 -> ApiException(404, "Luna can't find the parent folder. Open it and try again.")
+                else -> ApiException(
+                    e.code,
+                    "Luna couldn't create that folder. Check the name and that this phone can reach Luna, then try again.",
+                )
+            }
+        }
+    }
+
+    fun joinPath(vararg parts: String): String =
+        parts.map { it.trim().trim('/') }.filter { it.isNotEmpty() }.joinToString("/")
+
+    fun parentPath(path: String): String {
+        val trimmed = path.trim().trim('/')
+        if (trimmed.isEmpty()) return ""
+        val slash = trimmed.lastIndexOf('/')
+        return if (slash <= 0) "" else trimmed.substring(0, slash)
+    }
+
+    fun cancelUpload(baseUrl: String, token: String, uploadId: String) {
+        val enc = java.net.URLEncoder.encode(uploadId, Charsets.UTF_8.name()).replace("+", "%20")
+        exchange(baseUrl, "/api/v1/uploads/$enc", "DELETE", token, null, null)
+    }
 
     /**
-     * Sign in with a one-shot cookie session, mint a long-lived access token,
-     * then drop the cookie session. Only the access token is kept.
+     * Prove we can save to this folder: start a 1-byte upload (the server
+     * checks write access here) then cancel so nothing is written.
      */
-    fun mintAccessToken(baseUrl: String, username: String, password: String, name: String): DeviceToken {
-        val cookie = loginSessionCookie(baseUrl, username, password)
-        val device = createDeviceToken(baseUrl, cookie, name)
+    fun probeWrite(baseUrl: String, token: String, driveId: String, destPath: String) {
+        val id = try {
+            createUpload(baseUrl, token, driveId, destPath, "LunaWriteCheck.jpg", 1)
+        } catch (e: ApiException) {
+            throw when (e.code) {
+                401 -> ApiException(401, badTokenMessage())
+                403 -> ApiException(
+                    403,
+                    "This access token can see the folder but cannot save files there. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                )
+                404 -> ApiException(
+                    404,
+                    "Luna can't find that folder anymore. Pick the folder again.",
+                )
+                else -> ApiException(
+                    e.code,
+                    "Luna couldn't test saving to that folder. Check that this phone can reach Luna, then try again.",
+                )
+            }
+        }
         try {
-            post(baseUrl, "/api/v1/auth/logout", "", bearer = null, cookie = cookie)
+            cancelUpload(baseUrl, token, id)
         } catch (_: Exception) {
-            // Cookie session is unused after mint; ignore logout failures.
+            // Cancel is cleanup. The write check already passed.
         }
-        return device
     }
 
-    fun loginSessionCookie(baseUrl: String, username: String, password: String): String {
-        val body = JSONObject().apply {
-            put("username", username)
-            put("password", password)
+    fun describeError(error: Exception): String = when (error) {
+        is ApiException -> error.message ?: badTokenMessage()
+        is java.io.IOException ->
+            if (error.message == "timed out") {
+                "Luna didn't finish answering in time. Check that this phone is on the same network as Luna, and that the drive is working in Luna's Drives page, then try again."
+            } else {
+                "Luna couldn't be reached. Check the address and that this phone is on the same network as Luna, then try again."
+            }
+        is IllegalStateException ->
+            error.message
+                ?: "This phone couldn't store the sign-in safely. Photo backup can't start. Try signing in again."
+        else ->
+            error.message
+                ?: "Something went wrong. Try again. If it keeps happening, sign out and sign in with a new access token from Luna → Settings → Apps and access tokens."
+    }
+
+    fun parseFiles(body: String): List<FileEntry> {
+        val out = ArrayList<FileEntry>()
+        for (obj in JsonFields.objects(body)) {
+            val name = JsonFields.string(obj, "name").orEmpty()
+            if (name.isEmpty()) continue
+            val kind = JsonFields.string(obj, "kind").orEmpty().ifEmpty { "file" }
+            out.add(FileEntry(name, kind))
         }
-        val bytes = body.toString().toByteArray(Charsets.UTF_8)
-        val extra = mapOf("Content-Type" to "application/json")
-        val result = exchange(baseUrl, "/api/v1/auth/login", "POST", null, bytes, extra, null)
-        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
-        return parseLunaSessionCookie(result.setCookie)
-            ?: throw ApiException(401, "Luna did not set a session cookie")
-    }
-
-    fun createDeviceToken(baseUrl: String, cookie: String, name: String): DeviceToken {
-        val body = JSONObject().apply { put("name", name) }
-        val json = post(baseUrl, "/api/v1/device-tokens", body.toString(), bearer = null, cookie = cookie)
-        val id = json.optString("id").ifEmpty { throw ApiException(500, "No device-token id in reply") }
-        val raw = json.optString("token").ifEmpty { throw ApiException(500, "No device-token value in reply") }
-        return DeviceToken(id, raw)
-    }
-
-    fun parseLunaSessionCookie(setCookie: String?): String? {
-        if (setCookie.isNullOrBlank()) return null
-        val pair = setCookie.split(';').first().trim()
-        return if (pair.startsWith("luna_session=")) pair else null
-    }
-
-    fun revokeToken(baseUrl: String, sessionToken: String, deviceId: String): Boolean {
-        val result = exchange(baseUrl, "/api/v1/device-tokens/$deviceId", "DELETE", sessionToken, null, null)
-        return result.code in 200..299
-    }
-
-    fun firstDriveId(baseUrl: String, token: String): String {
-        val drives = getArray(baseUrl, "/api/v1/drives", token)
-        val first = drives.optJSONObject(0) ?: throw ApiException(404, "No drives found on Luna")
-        return first.optString("id").ifEmpty { throw ApiException(404, "No drives found on Luna") }
-    }
-
-    private fun getArray(baseUrl: String, path: String, token: String): JSONArray {
-        val result = exchange(baseUrl, path, "GET", token, null, null)
-        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
-        return JSONArray(String(result.body, Charsets.UTF_8))
+        return out
     }
 
     fun createUpload(baseUrl: String, token: String, driveId: String, destPath: String, name: String, size: Long): String {
@@ -88,8 +235,25 @@ object LunaApi {
             put("name", name)
             put("size", size)
         }
-        val json = post(baseUrl, "/api/v1/uploads", body.toString(), token)
-        return json.optString("upload_id").ifEmpty { throw ApiException(500, "No upload session") }
+        val json = try {
+            post(baseUrl, "/api/v1/uploads", body.toString(), token)
+        } catch (e: ApiException) {
+            throw when (e.code) {
+                401 -> ApiException(401, badTokenMessage())
+                403 -> ApiException(
+                    403,
+                    "This access token cannot save files to that folder. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                )
+                else -> ApiException(
+                    e.code,
+                    e.message?.takeIf { it.isNotBlank() && it != "Request failed (${e.code})" }
+                        ?: "Luna couldn't start the photo upload. Check that this phone can reach Luna, then try again.",
+                )
+            }
+        }
+        return json.optString("upload_id").ifEmpty {
+            throw ApiException(500, "Luna started the upload but didn't return a session. Try Backup now again.")
+        }
     }
 
     fun putChunk(baseUrl: String, token: String, uploadId: String, start: Long, data: ByteArray, total: Long) {
@@ -118,6 +282,9 @@ object LunaApi {
         }
         completeUpload(baseUrl, token, uploadId)
     }
+
+    private fun badTokenMessage() =
+        "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
 
     private data class HttpResult(val code: Int, val body: ByteArray, val setCookie: String? = null) {
         fun errorText(): String {
@@ -149,8 +316,8 @@ object LunaApi {
         }
         val conn = url.openConnection() as HttpURLConnection
         try {
-            conn.connectTimeout = 15000
-            conn.readTimeout = 60000
+            conn.connectTimeout = remainingTimeoutMs(15000)
+            conn.readTimeout = remainingTimeoutMs(60000)
             conn.requestMethod = method
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
             if (body != null) {
@@ -178,8 +345,8 @@ object LunaApi {
     ): HttpResult {
         val port = if (url.port == -1) 80 else url.port
         Socket().use { sock ->
-            sock.connect(InetSocketAddress(url.host, port), 15000)
-            sock.soTimeout = 60000
+            sock.connect(InetSocketAddress(url.host, port), remainingTimeoutMs(15000))
+            sock.soTimeout = remainingTimeoutMs(15000)
             val path = if (url.file.isNullOrEmpty()) "/" else url.file
             val hdr = StringBuilder()
             headers.forEach { (k, v) -> hdr.append("$k: $v\r\n") }
@@ -190,33 +357,9 @@ object LunaApi {
             out.write(req.toByteArray(Charsets.ISO_8859_1))
             if (body != null) out.write(body)
             out.flush()
-            val raw = sock.getInputStream().readBytes()
-            val split = indexOfHeaderEnd(raw)
-            val head = String(raw, 0, split.coerceAtLeast(0), Charsets.ISO_8859_1)
-            val rest = if (split >= 0) raw.copyOfRange(split + 4, raw.size) else ByteArray(0)
-            val status = head.lineSequence().firstOrNull()
-                ?.split(' ')
-                ?.getOrNull(1)
-                ?.toIntOrNull() ?: 0
-            val setCookie = head.lineSequence()
-                .firstOrNull { it.startsWith("Set-Cookie:", ignoreCase = true) }
-                ?.substringAfter(':')
-                ?.trim()
-            return HttpResult(status, rest, setCookie)
+            val parsed = HttpIo.readResponse(sock.getInputStream())
+            return HttpResult(parsed.code, parsed.body, parsed.setCookie)
         }
-    }
-
-    private fun indexOfHeaderEnd(raw: ByteArray): Int {
-        var i = 0
-        while (i + 3 < raw.size) {
-            if (raw[i] == '\r'.code.toByte() && raw[i + 1] == '\n'.code.toByte()
-                && raw[i + 2] == '\r'.code.toByte() && raw[i + 3] == '\n'.code.toByte()
-            ) {
-                return i
-            }
-            i++
-        }
-        return -1
     }
 
     private fun post(

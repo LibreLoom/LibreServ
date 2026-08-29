@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/luna_page" />
+    <stroke
+        android:width="2dp"
+        android:color="@color/luna_field_stroke" />
+    <corners android:radius="24dp" />
+</shape>

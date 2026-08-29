@@ -1,0 +1,8 @@
+<resources>
+    <color name="luna_page">#000000</color>
+    <color name="luna_sidebar">#111111</color>
+    <color name="luna_ink">#FFFFFF</color>
+    <color name="luna_hint">#767676</color>
+    <color name="luna_divider">#767676</color>
+    <color name="luna_field_stroke">#FFFFFF</color>
+</resources>

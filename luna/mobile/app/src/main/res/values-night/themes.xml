@@ -1,0 +1,13 @@
+<resources>
+    <style name="Theme.Luna" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/luna_page</item>
+        <item name="android:navigationBarColor">@color/luna_page</item>
+        <item name="android:windowBackground">@color/luna_page</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="colorPrimary">@color/luna_ink</item>
+        <item name="colorOnPrimary">@color/luna_page</item>
+        <item name="colorSurface">@color/luna_page</item>
+        <item name="colorOnSurface">@color/luna_ink</item>
+        <item name="android:textColor">@color/luna_ink</item>
+    </style>
+</resources>

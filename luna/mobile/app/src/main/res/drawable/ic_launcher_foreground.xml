@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+      Lucide moon from the web favicon, centered in the 66% adaptive safe zone.
+      No frame — launchers crop unpredictably.
+    -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,36 a12,12 0 0 0 18,18 a18,18 0 1 1 -18,-18 z"
+        android:strokeWidth="5.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
