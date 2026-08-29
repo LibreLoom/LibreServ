@@ -56,6 +56,7 @@ describe("Cloud backups tab", () => {
     );
     expect(screen.getByTestId("backups-purging")).toBeTruthy();
     expect(screen.getByText(/10 more days/i)).toBeTruthy();
+    expect(screen.getByText(/Download anything you need/i)).toBeTruthy();
     expect(screen.getByText(/no longer paired/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
     expect(screen.getByText("Photos/a.jpg")).toBeTruthy();

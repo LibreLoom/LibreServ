@@ -210,7 +210,7 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{
 		"ok":                 true,
 		"backup_purge_after": deadline,
-		"message":            "Payment is off. We keep your cloud copies for 30 days. Add a payment card to keep them.",
+		"message":            "Payment is off. We keep your cloud copies for 30 days. Download anything you need before then.",
 	})
 }
 

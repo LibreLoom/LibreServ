@@ -29,19 +29,33 @@ func scheduleBackupPurge(db *sql.DB, accountID string) int64 {
 	return deadline
 }
 
+func purgeMail(day int) (subject, text string) {
+	if day >= backupRetentionDays {
+		return "Your cloud copies were deleted",
+			"The 30 days are up. The cloud copies for this account are gone."
+	}
+	left := backupRetentionDays - day
+	if left < 1 {
+		left = 1
+	}
+	days := "30 days"
+	if left == 1 {
+		days = "1 day"
+	} else if day > 0 {
+		days = itoa(left) + " days"
+	}
+	return "Make sure you have your files",
+		"Payment for cloud backup is off. We still have your copies for " + days + ". Sign in at connect.luna.libreloom.org and download anything you need before we delete them."
+}
+
 func sendPurgeWarning(sender mail.Sender, email string, day int, deadline int64) {
 	email = strings.TrimSpace(email)
+	subject, text := purgeMail(day)
 	if sender == nil || email == "" {
 		if email != "" {
-			slog.Info("purge warning (no mailer)", "day", day, "deadline", deadline)
+			slog.Info("purge warning (no mailer)", "day", day, "deadline", deadline, "subject", subject)
 		}
 		return
-	}
-	subject := "Cloud backups will be deleted"
-	text := "Payment is off. Your cloud copies stay for 30 days. Add a payment card on connect.luna.libreloom.org to keep them."
-	if day >= backupRetentionDays {
-		subject = "Cloud backups were deleted"
-		text = "The 30 days are up. The cloud copies for this account are gone."
 	}
 	if err := sender.Send(email, subject, text); err != nil {
 		slog.Warn("purge warning mail failed", "err", err)

@@ -113,7 +113,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
         <CardHeader>
           <CardTitle>Payment is off</CardTitle>
           <CardDescription>
-            We keep your cloud copies for {daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Add a payment card to keep them.
+            We still have your cloud copies for {daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Download anything you need before they are gone.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -165,7 +165,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
         ) : (
           <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
             <p className="text-sm leading-relaxed">
-              Payment stops today. We keep your cloud copies for 30 days, then delete them. Add a payment card before then to keep them.
+              Payment stops today. We keep your cloud copies for 30 days. Download anything you need before then. After 30 days we delete them.
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <Button variant="destructive" loading={busy} onClick={cancelPayment}>

@@ -44,6 +44,12 @@ func TestCancelSetsPurgeAndReattachClears(t *testing.T) {
 	if len(recMail.Sends) != 1 || recMail.Sends[0][0] != "pay@b.co" {
 		t.Fatalf("mail %+v", recMail.Sends)
 	}
+	if !strings.Contains(recMail.Sends[0][1], "have your files") || !strings.Contains(recMail.Sends[0][2], "download") {
+		t.Fatalf("warning should ask them to keep their files: %+v", recMail.Sends)
+	}
+	if strings.Contains(strings.ToLower(recMail.Sends[0][2]), "add a payment card") {
+		t.Fatalf("warning should not pitch a card: %+v", recMail.Sends)
+	}
 
 	attach := httptest.NewRequest(http.MethodPost, "/billing/attach-card", strings.NewReader("{}"))
 	attach.AddCookie(cookie)
@@ -131,6 +137,21 @@ func TestBackupDownloadAfterDeviceDeleted(t *testing.T) {
 func TestShouldSendWarningSchedule(t *testing.T) {
 	if !shouldSendWarning(0, -1) || !shouldSendWarning(3, 0) || shouldSendWarning(4, 3) || shouldSendWarning(3, 3) {
 		t.Fatal("schedule")
+	}
+}
+
+func TestPurgeMailAsksForDataNotACard(t *testing.T) {
+	subj, body := purgeMail(0)
+	if !strings.Contains(subj, "have your files") || !strings.Contains(body, "download") || strings.Contains(strings.ToLower(body), "payment card") {
+		t.Fatalf("day0 %q %q", subj, body)
+	}
+	subj, body = purgeMail(27)
+	if !strings.Contains(body, "3 days") || strings.Contains(strings.ToLower(body), "payment card") {
+		t.Fatalf("day27 %q %q", subj, body)
+	}
+	subj, body = purgeMail(30)
+	if !strings.Contains(subj, "were deleted") {
+		t.Fatalf("day30 %q %q", subj, body)
 	}
 }
 
