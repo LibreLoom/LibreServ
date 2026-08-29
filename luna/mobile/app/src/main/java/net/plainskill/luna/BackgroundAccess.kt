@@ -24,17 +24,25 @@ object BackgroundAccess {
      * Opens the system prompt to leave Luna unrestricted. If that screen is
      * missing (some phones), opens the app's battery settings instead.
      */
+    fun unrestrictedIntent(context: Context): Intent? {
+        if (isUnrestricted(context)) return null
+        val pkg = Uri.parse("package:${context.packageName}")
+        return Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(pkg)
+    }
+
     fun requestUnrestricted(activity: Activity) {
-        if (isUnrestricted(activity)) return
-        val pkg = Uri.parse("package:${activity.packageName}")
-        val prompt = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(pkg)
-        try {
-            activity.startActivity(prompt)
-            return
-        } catch (_: ActivityNotFoundException) {
-        } catch (_: SecurityException) {
+        val prompt = unrestrictedIntent(activity)
+        if (prompt != null) {
+            try {
+                activity.startActivity(prompt)
+                return
+            } catch (_: ActivityNotFoundException) {
+            } catch (_: SecurityException) {
+            }
         }
-        openAppSettings(activity)
+        if (!isUnrestricted(activity)) {
+            openAppSettings(activity)
+        }
     }
 
     fun openAppSettings(context: Context) {

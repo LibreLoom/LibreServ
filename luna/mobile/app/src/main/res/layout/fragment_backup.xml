@@ -25,6 +25,21 @@
             android:text="@string/backup_automatically"
             android:textColor="@color/luna_ink" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/backupNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/backup_now" />
+
+        <TextView
+            android:id="@+id/backupNowStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textColor="@color/luna_ink"
+            android:textSize="14sp" />
+
         <TextView
             android:id="@+id/backupStatus"
             android:layout_width="match_parent"

@@ -7,7 +7,7 @@ import androidx.security.crypto.MasterKey
 
 object BackupPrefs {
     private const val NAME = "luna_backup"
-    const val DEFAULT_FOLDER = "Phone Backup"
+    const val DEFAULT_FOLDER = ""
 
     /**
      * The bearer token grants access to the user's files, so it is stored
@@ -37,8 +37,9 @@ object BackupPrefs {
     fun driveId(context: Context): String? = prefs(context)?.getString("drive_id", null)
     fun driveLabel(context: Context): String? = prefs(context)?.getString("drive_label", null)
     fun folderPrefix(context: Context): String =
-        prefs(context)?.getString("folder_prefix", DEFAULT_FOLDER)?.ifBlank { DEFAULT_FOLDER }
-            ?: DEFAULT_FOLDER
+        prefs(context)?.getString("folder_prefix", DEFAULT_FOLDER)?.trim()?.trim('/') ?: DEFAULT_FOLDER
+    fun setupComplete(context: Context): Boolean =
+        prefs(context)?.getBoolean("setup_complete", false) ?: false
     fun requireUnmetered(context: Context): Boolean =
         prefs(context)?.getBoolean("require_unmetered", true) ?: true
     fun requireCharging(context: Context): Boolean =
@@ -66,6 +67,7 @@ object BackupPrefs {
             .putString("token", token)
             .putString("username", username)
             .putBoolean("backup_enabled", true)
+            .putBoolean("setup_complete", false)
             .apply {
                 if (driveId != null) putString("drive_id", driveId)
                 if (driveLabel != null) putString("drive_label", driveLabel)
@@ -90,8 +92,17 @@ object BackupPrefs {
     }
 
     fun setFolderPrefix(context: Context, folder: String) {
-        val clean = folder.trim().trim('/').ifBlank { DEFAULT_FOLDER }
-        prefs(context)?.edit()?.putString("folder_prefix", clean)?.apply()
+        prefs(context)?.edit()?.putString("folder_prefix", folder.trim().trim('/'))?.apply()
+    }
+
+    fun setSetupComplete(context: Context, complete: Boolean) {
+        prefs(context)?.edit()?.putBoolean("setup_complete", complete)?.apply()
+    }
+
+    fun destinationLabel(context: Context): String {
+        val drive = driveLabel(context)?.ifBlank { null } ?: "Drive"
+        val folder = folderPrefix(context)
+        return if (folder.isEmpty()) "$drive · Drive root" else "$drive · $folder"
     }
 
     fun setAskedBattery(context: Context, asked: Boolean) {

@@ -12,7 +12,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import java.io.IOException
 import kotlin.concurrent.thread
 
 class LoginActivity : AppCompatActivity() {
@@ -27,7 +26,8 @@ class LoginActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) launchScanner()
-        else status.text = "Camera permission is needed to scan the QR code. You can still paste the access token."
+        else status.text =
+            "Camera permission is needed to scan the QR code. You can still paste the access token. To allow the camera later, open this phone's Settings → Apps → Luna → Permissions → Camera."
     }
 
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
@@ -46,7 +46,7 @@ class LoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BackupPrefs.signedIn(this) && intent?.data == null) {
-            startActivity(Intent(this, ShellActivity::class.java))
+            startActivity(Intent(this, if (BackupPrefs.setupComplete(this)) ShellActivity::class.java else SetupActivity::class.java))
             finish()
             return
         }
@@ -121,38 +121,23 @@ class LoginActivity : AppCompatActivity() {
                 if (drives.isEmpty()) {
                     runOnUiThread {
                         if (isFinishing) return@runOnUiThread
-                        status.text = "No drives found on Luna. Add a drive in Luna first, then sign in again."
+                        status.text =
+                            "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then sign in again."
                         signIn.isEnabled = true
                         scanQr.isEnabled = true
                     }
                     return@thread
                 }
-                val drive = drives.first()
-                BackupPrefs.saveSession(this, url, accessToken, user.username, drive.id, drive.label)
-                WorkScheduler.sync(this)
+                BackupPrefs.saveSession(this, url, accessToken, user.username)
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
-                    startActivity(Intent(this, ShellActivity::class.java))
+                    startActivity(Intent(this, SetupActivity::class.java))
                     finish()
-                }
-            } catch (e: LunaApi.ApiException) {
-                runOnUiThread {
-                    if (isFinishing) return@runOnUiThread
-                    status.text = e.message ?: "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
-                    signIn.isEnabled = true
-                    scanQr.isEnabled = true
-                }
-            } catch (e: IOException) {
-                runOnUiThread {
-                    if (isFinishing) return@runOnUiThread
-                    status.text = "Luna couldn't be reached. Check the address and that this phone is on the same network."
-                    signIn.isEnabled = true
-                    scanQr.isEnabled = true
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
-                    status.text = e.message ?: "Could not sign in."
+                    status.text = LunaApi.describeError(e)
                     signIn.isEnabled = true
                     scanQr.isEnabled = true
                 }

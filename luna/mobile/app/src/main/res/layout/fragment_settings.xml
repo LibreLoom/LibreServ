@@ -62,55 +62,28 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/destinationLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/drive_label"
+            android:paddingBottom="8dp"
             android:textColor="@color/luna_ink"
-            android:textSize="14sp" />
-
-        <Spinner
-            android:id="@+id/driveSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="4dp"
-            android:paddingBottom="8dp" />
+            android:textSize="15sp" />
 
         <TextView
-            android:id="@+id/driveStatus"
+            android:id="@+id/destinationStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingBottom="12dp"
             android:textColor="@color/luna_ink"
             android:textSize="13sp" />
 
-        <TextView
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/chooseFolder"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/folder_label"
-            android:textColor="@color/luna_ink"
-            android:textSize="14sp" />
-
-        <EditText
-            android:id="@+id/folderPrefix"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:autofillHints=""
-            android:background="@drawable/luna_field"
-            android:hint="@string/folder_hint"
-            android:inputType="text"
-            android:padding="16dp"
-            android:textColor="@color/luna_ink"
-            android:textColorHint="@color/luna_hint" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="8dp"
-            android:paddingBottom="20dp"
-            android:text="@string/folder_help"
-            android:textColor="@color/luna_ink"
-            android:textSize="13sp" />
+            android:layout_marginBottom="20dp"
+            android:text="@string/choose_folder" />
 
         <TextView
             android:layout_width="match_parent"

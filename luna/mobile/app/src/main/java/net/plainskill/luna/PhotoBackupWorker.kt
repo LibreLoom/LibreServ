@@ -21,10 +21,17 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         val context = applicationContext
         val token = BackupPrefs.token(context)
         val baseUrl = BackupPrefs.baseUrl(context)
-        if (token == null || baseUrl == null || !BackupPrefs.backupEnabled(context)) {
+        if (token == null || baseUrl == null || !BackupPrefs.backupEnabled(context) || !BackupPrefs.setupComplete(context)) {
+            BackupProgress.idle()
             return Result.success()
         }
+        if (!BackupConfig.hasPhotoAccess(context)) {
+            val message = BackupConfig.photosDeniedMessage()
+            BackupProgress.fail(message)
+            return Result.failure()
+        }
         val notifier = BackupNotifications(context)
+        BackupProgress.set(true, "Copying photos to Luna", "Checking for new photos")
         try {
             setForeground(foregroundInfo("Checking for new photos…"))
         } catch (_: Exception) {
@@ -56,7 +63,10 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
                 var remaining = cursor.count
                 while (cursor.moveToNext()) {
-                    if (isStopped) return Result.retry()
+                    if (isStopped) {
+                        BackupProgress.idle("Backup paused. Open Luna and tap Backup now to finish.")
+                        return Result.retry()
+                    }
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol).ifEmpty { "photo-$id.jpg" }
                     val size = cursor.getLong(sizeCol)
@@ -64,6 +74,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                     val uri = android.content.ContentUris.withAppendedId(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
                     )
+                    BackupProgress.set(true, "Copying photos to Luna", name)
                     if (remaining > 0) {
                         try {
                             setForeground(foregroundInfo(progressText(remaining)))
@@ -74,7 +85,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                     context.contentResolver.openInputStream(uri)?.use { stream ->
                         val month = java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.US)
                             .format(java.util.Date(date * 1000))
-                        LunaApi.uploadStream(baseUrl, token, driveId, "$folder/$month", name, size, stream)
+                        LunaApi.uploadStream(baseUrl, token, driveId, LunaApi.joinPath(folder, month), name, size, stream)
                         uploaded++
                         newest = maxOf(newest, date)
                     }
@@ -83,24 +94,29 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             }
             if (uploaded > 0) BackupPrefs.markBackedUp(context, newest * 1000)
             notifier.clearProgress()
+            BackupProgress.idle()
             Result.success()
         } catch (e: LunaApi.ApiException) {
+            val message = LunaApi.describeError(e)
+            BackupProgress.fail(message)
             if (e.unauthorized) {
                 BackupPrefs.clearSession(context)
                 notifier.clearProgress()
-                notifier.showFailure("Your Luna access token expired. Sign in again to keep backing up.")
+                notifier.showFailure(message)
                 Result.failure()
             } else {
                 notifier.clearProgress()
                 if (runAttemptCount < 3) Result.retry() else {
-                    notifier.showFailure(e.message ?: "Photo backup could not finish. Open Luna on this phone and try again.")
+                    notifier.showFailure(message)
                     Result.failure()
                 }
             }
         } catch (e: Exception) {
+            val message = LunaApi.describeError(e)
+            BackupProgress.fail(message)
             notifier.clearProgress()
             if (runAttemptCount < 3) Result.retry() else {
-                notifier.showFailure("Photo backup could not finish. Check that this phone can reach Luna.")
+                notifier.showFailure(message)
                 Result.failure()
             }
         }

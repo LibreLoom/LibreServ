@@ -17,7 +17,7 @@
             android:layout_height="wrap_content"
             android:background="@color/luna_page"
             app:navigationIcon="@drawable/ic_menu"
-            app:title="Backup"
+            app:title="@string/nav_status"
             app:titleTextColor="@color/luna_ink" />
 
         <FrameLayout
@@ -46,6 +46,19 @@
             android:textColor="@color/luna_ink"
             android:textSize="22sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/navStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:paddingStart="20dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="14dp"
+            android:text="@string/nav_status"
+            android:textColor="@color/luna_ink"
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/navBackup"

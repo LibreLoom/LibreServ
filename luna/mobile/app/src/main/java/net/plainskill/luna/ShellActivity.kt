@@ -1,29 +1,25 @@
 package net.plainskill.luna
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.fragment.app.Fragment
 import com.google.android.material.appbar.MaterialToolbar
 
 class ShellActivity : AppCompatActivity() {
 
     private lateinit var drawer: DrawerLayout
     private lateinit var toolbar: MaterialToolbar
+    private lateinit var navStatus: TextView
     private lateinit var navBackup: TextView
     private lateinit var navSettings: TextView
     private lateinit var usernameLabel: TextView
 
-    private val mediaPermission = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
+    private var currentPage = PAGE_STATUS
+    private var pendingPage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,12 +28,17 @@ class ShellActivity : AppCompatActivity() {
             finish()
             return
         }
+        if (!BackupPrefs.setupComplete(this)) {
+            startActivity(Intent(this, SetupActivity::class.java))
+            finish()
+            return
+        }
         setContentView(R.layout.activity_shell)
         BackupNotifications.ensureChannels(this)
-        requestRuntimePermissions()
 
         drawer = findViewById(R.id.drawer)
         toolbar = findViewById(R.id.toolbar)
+        navStatus = findViewById(R.id.navStatus)
         navBackup = findViewById(R.id.navBackup)
         navSettings = findViewById(R.id.navSettings)
         usernameLabel = findViewById(R.id.usernameLabel)
@@ -45,24 +46,29 @@ class ShellActivity : AppCompatActivity() {
         toolbar.setNavigationOnClickListener { drawer.openDrawer(GravityCompat.START) }
         usernameLabel.text = BackupPrefs.username(this) ?: ""
 
-        navBackup.setOnClickListener { showBackup() }
-        navSettings.setOnClickListener { showSettings() }
+        navStatus.setOnClickListener { requestPage(PAGE_STATUS) }
+        navBackup.setOnClickListener { requestPage(PAGE_BACKUP) }
+        navSettings.setOnClickListener { requestPage(PAGE_SETTINGS) }
         findViewById<TextView>(R.id.signOutButton).setOnClickListener { signOut() }
 
-        if (!BackgroundAccess.isUnrestricted(this) && !BackupPrefs.askedBattery(this)) {
-            BackupPrefs.setAskedBattery(this, true)
-            BackgroundAccess.requestUnrestricted(this)
-        }
+        drawer.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerClosed(drawerView: android.view.View) {
+                applyPendingPage()
+            }
+        })
 
+        currentPage = savedInstanceState?.getString(STATE_PAGE) ?: PAGE_STATUS
         if (savedInstanceState == null) {
-            showBackup()
-        } else {
-            highlight(if (supportFragmentManager.findFragmentById(R.id.content) is SettingsFragment) {
-                navSettings
-            } else {
-                navBackup
-            })
+            showPage(currentPage)
         }
+        highlight(currentPage)
+        toolbar.title = titleFor(currentPage)
+        WorkScheduler.schedule(this)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_PAGE, currentPage)
     }
 
     override fun onResume() {
@@ -70,32 +76,80 @@ class ShellActivity : AppCompatActivity() {
         if (!BackupPrefs.signedIn(this)) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
+            return
+        }
+        if (!BackupPrefs.setupComplete(this)) {
+            startActivity(Intent(this, SetupActivity::class.java))
+            finish()
         }
     }
 
-    private fun showBackup() {
-        toolbar.title = "Backup"
-        highlight(navBackup)
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.content, BackupFragment())
-            .commit()
-        drawer.closeDrawer(GravityCompat.START)
+    private fun requestPage(page: String) {
+        if (page == currentPage) {
+            if (drawer.isDrawerOpen(GravityCompat.START)) {
+                drawer.closeDrawer(GravityCompat.START)
+            }
+            return
+        }
+        pendingPage = page
+        if (drawer.isDrawerOpen(GravityCompat.START)) {
+            drawer.closeDrawer(GravityCompat.START)
+        } else {
+            applyPendingPage()
+        }
     }
 
-    private fun showSettings() {
-        toolbar.title = "Settings"
-        highlight(navSettings)
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.content, SettingsFragment())
-            .commit()
-        drawer.closeDrawer(GravityCompat.START)
+    private fun applyPendingPage() {
+        val page = pendingPage ?: return
+        pendingPage = null
+        if (page == currentPage) return
+        currentPage = page
+        showPage(page)
+        highlight(page)
+        toolbar.title = titleFor(page)
     }
 
-    private fun highlight(selected: TextView) {
-        navBackup.isSelected = selected === navBackup
-        navSettings.isSelected = selected === navSettings
-        navBackup.setTypeface(null, if (navBackup.isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        navSettings.setTypeface(null, if (navSettings.isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    private fun showPage(page: String) {
+        val fm = supportFragmentManager
+        val tx = fm.beginTransaction()
+        for (tag in PAGES) {
+            val existing = fm.findFragmentByTag(tag)
+            if (tag == page) {
+                if (existing == null) {
+                    tx.add(R.id.content, createPage(tag), tag)
+                } else {
+                    tx.show(existing)
+                }
+            } else if (existing != null) {
+                tx.hide(existing)
+            }
+        }
+        tx.commit()
+    }
+
+    private fun createPage(page: String): Fragment = when (page) {
+        PAGE_BACKUP -> BackupFragment()
+        PAGE_SETTINGS -> SettingsFragment()
+        else -> StatusFragment()
+    }
+
+    private fun titleFor(page: String): String = when (page) {
+        PAGE_BACKUP -> getString(R.string.nav_backup)
+        PAGE_SETTINGS -> getString(R.string.nav_settings)
+        else -> getString(R.string.nav_status)
+    }
+
+    private fun highlight(page: String) {
+        val items = listOf(
+            PAGE_STATUS to navStatus,
+            PAGE_BACKUP to navBackup,
+            PAGE_SETTINGS to navSettings,
+        )
+        for ((id, view) in items) {
+            val selected = id == page
+            view.isSelected = selected
+            view.setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        }
     }
 
     private fun signOut() {
@@ -105,26 +159,11 @@ class ShellActivity : AppCompatActivity() {
         finish()
     }
 
-    private fun requestRuntimePermissions() {
-        val needed = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                needed.add(Manifest.permission.READ_MEDIA_IMAGES)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                needed.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            needed.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-        if (needed.isNotEmpty()) {
-            mediaPermission.launch(needed.toTypedArray())
-        }
+    companion object {
+        const val PAGE_STATUS = "status"
+        const val PAGE_BACKUP = "backup"
+        const val PAGE_SETTINGS = "settings"
+        private const val STATE_PAGE = "page"
+        private val PAGES = listOf(PAGE_STATUS, PAGE_BACKUP, PAGE_SETTINGS)
     }
 }

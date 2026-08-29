@@ -21,6 +21,9 @@ object LunaApi {
 
     data class UserInfo(val id: String, val username: String)
     data class Drive(val id: String, val label: String)
+    data class FileEntry(val name: String, val kind: String) {
+        val isDir: Boolean get() = kind == "dir"
+    }
 
     fun authMe(baseUrl: String, token: String): UserInfo {
         val result = exchange(baseUrl, "/api/v1/auth/me", "GET", token, null, null)
@@ -28,7 +31,10 @@ object LunaApi {
             throw ApiException(401, badTokenMessage())
         }
         if (result.code !in 200..299) {
-            throw ApiException(result.code, "Luna couldn't check that access token. Try again.")
+            throw ApiException(
+                result.code,
+                "Luna couldn't check that access token. Check the address, then try again. If it still fails, create a new token in Luna → Settings → Apps and access tokens.",
+            )
         }
         return parseUser(String(result.body, Charsets.UTF_8))
     }
@@ -37,7 +43,10 @@ object LunaApi {
         val result = exchange(baseUrl, "/api/v1/drives", "GET", token, null, null)
         if (result.code == 401) throw ApiException(401, badTokenMessage())
         if (result.code !in 200..299) {
-            throw ApiException(result.code, "Luna couldn't list your drives. Try again.")
+            throw ApiException(
+                result.code,
+                "Luna couldn't list your drives. Check that this phone can reach Luna, then try again. If it keeps failing, open Luna in a browser and add a drive first.",
+            )
         }
         return parseDrives(String(result.body, Charsets.UTF_8))
     }
@@ -45,7 +54,10 @@ object LunaApi {
     fun resolveDriveId(baseUrl: String, token: String, preferredId: String?): String {
         val drives = listDrives(baseUrl, token)
         if (drives.isEmpty()) {
-            throw ApiException(404, "No drives found on Luna. Add a drive in Luna first.")
+            throw ApiException(
+                404,
+                "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then try again.",
+            )
         }
         if (!preferredId.isNullOrBlank()) {
             val match = drives.firstOrNull { it.id == preferredId }
@@ -75,6 +87,123 @@ object LunaApi {
         return out
     }
 
+    fun listFiles(baseUrl: String, token: String, driveId: String, path: String): List<FileEntry> {
+        val encPath = java.net.URLEncoder.encode(path, Charsets.UTF_8.name()).replace("+", "%20")
+        val encId = java.net.URLEncoder.encode(driveId, Charsets.UTF_8.name()).replace("+", "%20")
+        val result = exchange(baseUrl, "/api/v1/drives/$encId/files?path=$encPath", "GET", token, null, null)
+        if (result.code == 401) throw ApiException(401, badTokenMessage())
+        if (result.code == 403) {
+            throw ApiException(
+                403,
+                "This access token can't open that folder. Create a new token in Luna → Settings → Apps and access tokens, and allow access to this drive.",
+            )
+        }
+        if (result.code == 404) {
+            throw ApiException(
+                404,
+                "That folder is gone. Pick another folder, or create a new one.",
+            )
+        }
+        if (result.code !in 200..299) {
+            throw ApiException(
+                result.code,
+                "Luna couldn't open that folder. Check that this phone can reach Luna, then try again.",
+            )
+        }
+        return parseFiles(String(result.body, Charsets.UTF_8))
+    }
+
+    fun mkdir(baseUrl: String, token: String, driveId: String, path: String) {
+        val encId = java.net.URLEncoder.encode(driveId, Charsets.UTF_8.name()).replace("+", "%20")
+        val body = JSONObject().apply { put("path", path) }
+        try {
+            post(baseUrl, "/api/v1/drives/$encId/files/mkdir", body.toString(), token)
+        } catch (e: ApiException) {
+            throw when (e.code) {
+                401 -> ApiException(401, badTokenMessage())
+                403 -> ApiException(
+                    403,
+                    "This access token can't create a folder here. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                )
+                409 -> ApiException(409, "A folder with this name is already here. Choose another name.")
+                404 -> ApiException(404, "Luna can't find the parent folder. Open it and try again.")
+                else -> ApiException(
+                    e.code,
+                    "Luna couldn't create that folder. Check the name and that this phone can reach Luna, then try again.",
+                )
+            }
+        }
+    }
+
+    fun joinPath(vararg parts: String): String =
+        parts.map { it.trim().trim('/') }.filter { it.isNotEmpty() }.joinToString("/")
+
+    fun parentPath(path: String): String {
+        val trimmed = path.trim().trim('/')
+        if (trimmed.isEmpty()) return ""
+        val slash = trimmed.lastIndexOf('/')
+        return if (slash <= 0) "" else trimmed.substring(0, slash)
+    }
+
+    fun cancelUpload(baseUrl: String, token: String, uploadId: String) {
+        val enc = java.net.URLEncoder.encode(uploadId, Charsets.UTF_8.name()).replace("+", "%20")
+        exchange(baseUrl, "/api/v1/uploads/$enc", "DELETE", token, null, null)
+    }
+
+    /**
+     * Prove we can save to this folder: start a 1-byte upload (the server
+     * checks write access here) then cancel so nothing is written.
+     */
+    fun probeWrite(baseUrl: String, token: String, driveId: String, destPath: String) {
+        val id = try {
+            createUpload(baseUrl, token, driveId, destPath, ".luna-android-check", 1)
+        } catch (e: ApiException) {
+            throw when (e.code) {
+                401 -> ApiException(401, badTokenMessage())
+                403 -> ApiException(
+                    403,
+                    "This access token can see the folder but cannot save files there. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                )
+                404 -> ApiException(
+                    404,
+                    "Luna can't find that folder anymore. Pick the folder again.",
+                )
+                else -> ApiException(
+                    e.code,
+                    "Luna couldn't test saving to that folder. Check that this phone can reach Luna, then try again.",
+                )
+            }
+        }
+        try {
+            cancelUpload(baseUrl, token, id)
+        } catch (_: Exception) {
+            // Cancel is cleanup. The write check already passed.
+        }
+    }
+
+    fun describeError(error: Exception): String = when (error) {
+        is ApiException -> error.message ?: badTokenMessage()
+        is java.io.IOException ->
+            "Luna couldn't be reached. Check the address and that this phone is on the same network as Luna, then try again."
+        is IllegalStateException ->
+            error.message
+                ?: "This phone couldn't store the sign-in safely. Photo backup can't start. Try signing in again."
+        else ->
+            error.message
+                ?: "Something went wrong. Try again. If it keeps happening, sign out and sign in with a new access token from Luna → Settings → Apps and access tokens."
+    }
+
+    fun parseFiles(body: String): List<FileEntry> {
+        val out = ArrayList<FileEntry>()
+        for (obj in JsonFields.objects(body)) {
+            val name = JsonFields.string(obj, "name").orEmpty()
+            if (name.isEmpty()) continue
+            val kind = JsonFields.string(obj, "kind").orEmpty().ifEmpty { "file" }
+            out.add(FileEntry(name, kind))
+        }
+        return out
+    }
+
     fun createUpload(baseUrl: String, token: String, driveId: String, destPath: String, name: String, size: Long): String {
         val body = JSONObject().apply {
             put("drive_id", driveId)
@@ -82,8 +211,25 @@ object LunaApi {
             put("name", name)
             put("size", size)
         }
-        val json = post(baseUrl, "/api/v1/uploads", body.toString(), token)
-        return json.optString("upload_id").ifEmpty { throw ApiException(500, "No upload session") }
+        val json = try {
+            post(baseUrl, "/api/v1/uploads", body.toString(), token)
+        } catch (e: ApiException) {
+            throw when (e.code) {
+                401 -> ApiException(401, badTokenMessage())
+                403 -> ApiException(
+                    403,
+                    "This access token cannot save files to that folder. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                )
+                else -> ApiException(
+                    e.code,
+                    e.message?.takeIf { it.isNotBlank() && it != "Request failed (${e.code})" }
+                        ?: "Luna couldn't start the photo upload. Check that this phone can reach Luna, then try again.",
+                )
+            }
+        }
+        return json.optString("upload_id").ifEmpty {
+            throw ApiException(500, "Luna started the upload but didn't return a session. Try Backup now again.")
+        }
     }
 
     fun putChunk(baseUrl: String, token: String, uploadId: String, start: Long, data: ByteArray, total: Long) {
