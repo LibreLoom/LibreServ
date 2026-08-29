@@ -938,12 +938,10 @@ PY
 )
             CURL_EXIT=$?
             RESPONSE_BODY=""
-            MAX_TIME=7200
         else
-            MAX_TIME=300
             UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
                 --connect-timeout 30 \
-                --max-time "$MAX_TIME" \
+                --max-time 300 \
                 -X POST \
                 -H "Authorization: token $FORGEJO_TOKEN" \
                 -H "Content-Type: application/octet-stream" \
@@ -955,13 +953,10 @@ PY
         fi
         
         if [ $CURL_EXIT -ne 0 ]; then
-            log_error "curl failed with exit code $CURL_EXIT"
+            log_error "Upload failed with exit code $CURL_EXIT"
             log_error "Network error uploading $file ($FILE_SIZE)"
             exit 1
         fi
-        
-        HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-        RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
         
         if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
             log_error "Failed to upload $file (HTTP $HTTP_CODE)"
