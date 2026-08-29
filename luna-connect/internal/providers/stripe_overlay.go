@@ -69,16 +69,25 @@ func ApplyStripeFromDB(db *sql.DB) error {
 		return nil
 	}
 	if sk := strings.TrimSpace(p.Credential("secret_key", "")); sk != "" {
-		config.C.Stripe.SecretKey = sk
+		// Reject misplaced Dashboard IDs (e.g. price_…) so we never send them as the API key.
+		if strings.HasPrefix(sk, "sk_") {
+			config.C.Stripe.SecretKey = sk
+		}
 	}
 	if wh := strings.TrimSpace(p.Credential("webhook_secret", "")); wh != "" {
-		config.C.Stripe.WebhookSecret = wh
+		if strings.HasPrefix(wh, "whsec_") {
+			config.C.Stripe.WebhookSecret = wh
+		}
 	}
 	if pk := strings.TrimSpace(p.Setting("publishable_key", "")); pk != "" {
-		config.C.Stripe.PublishableKey = pk
+		if strings.HasPrefix(pk, "pk_") {
+			config.C.Stripe.PublishableKey = pk
+		}
 	}
 	if price := strings.TrimSpace(p.Setting("price_id", "")); price != "" {
-		config.C.Stripe.PriceID = price
+		if strings.HasPrefix(price, "price_") {
+			config.C.Stripe.PriceID = price
+		}
 	}
 	if meter := strings.TrimSpace(p.Setting("meter_event_name", "")); meter != "" {
 		config.C.Stripe.MeterEventName = meter

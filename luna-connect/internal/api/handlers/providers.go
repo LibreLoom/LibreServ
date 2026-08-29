@@ -166,6 +166,12 @@ func (h *ProvidersHandler) CreateProvider(w http.ResponseWriter, r *http.Request
 		JSONError(w, http.StatusBadRequest, "Unknown service type. Use stripe, smtp, or backup.")
 		return
 	}
+	if req.Service == "stripe" {
+		if msg := validateStripeFields(req.Credentials, req.Settings); msg != "" {
+			JSONError(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
 
 	p, err := h.svc.Create(req.Service, req.Name, req.Credentials, req.Settings, req.Enabled)
 	if err != nil {
@@ -193,6 +199,12 @@ func (h *ProvidersHandler) UpdateProvider(w http.ResponseWriter, r *http.Request
 	if !allowedService(req.Service) {
 		JSONError(w, http.StatusBadRequest, "Unknown service type. Use stripe, smtp, or backup.")
 		return
+	}
+	if req.Service == "stripe" {
+		if msg := validateStripeFields(req.Credentials, req.Settings); msg != "" {
+			JSONError(w, http.StatusBadRequest, msg)
+			return
+		}
 	}
 
 	if err := h.svc.Update(id, req.Service, req.Name, req.Credentials, req.Settings, req.Enabled); err != nil {
@@ -226,4 +238,26 @@ func allowedService(s string) bool {
 	default:
 		return false
 	}
+}
+
+// validateStripeFields rejects Dashboard IDs pasted into the wrong boxes
+// (e.g. a price_… value in Secret key), which otherwise become the Stripe API key
+// and surface as Cloudflare 502 pages when we used to return Bad Gateway.
+func validateStripeFields(creds, settings map[string]string) string {
+	if sk := strings.TrimSpace(creds["secret_key"]); sk != "" && !strings.HasPrefix(sk, "sk_") {
+		return "Secret key must start with sk_live_ or sk_test_. A price_… ID goes in Storage price ID, not here."
+	}
+	if wh := strings.TrimSpace(creds["webhook_secret"]); wh != "" && !strings.HasPrefix(wh, "whsec_") {
+		return "Webhook secret must start with whsec_."
+	}
+	if pk := strings.TrimSpace(settings["publishable_key"]); pk != "" && !strings.HasPrefix(pk, "pk_") {
+		return "Publishable key must start with pk_live_ or pk_test_."
+	}
+	if price := strings.TrimSpace(settings["price_id"]); price != "" && !strings.HasPrefix(price, "price_") {
+		return "Storage price ID must start with price_."
+	}
+	if price := strings.TrimSpace(settings["egress_price_id"]); price != "" && !strings.HasPrefix(price, "price_") {
+		return "Egress overage price ID must start with price_."
+	}
+	return ""
 }

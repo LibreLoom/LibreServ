@@ -414,7 +414,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
 			return
 		}
-		JSONError(w, http.StatusBadGateway, "We could not take the dollar to confirm this is a real person. Check the card and try again.")
+		JSONError(w, http.StatusBadRequest, "We could not take the dollar to confirm this is a real person. Check the card and try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
