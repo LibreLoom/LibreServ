@@ -126,6 +126,25 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/Updates only install when you tap the button/i)).toBeTruthy();
   });
 
+  it("splits Devices into Mobile App and Desktop App cards", async () => {
+    stubFetch("admin");
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("max");
+
+    await user.click(screen.getByRole("button", { name: /^Devices$/i }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Mobile App" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Desktop App" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
+    expect(screen.getByRole("link", { name: /Download the Luna app for phones/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Download Luna Desktop/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Create an access token on Security/i })).toHaveAttribute(
+      "href",
+      "/settings#security",
+    );
+  });
+
   it("hides admin-only categories from a member", async () => {
     stubFetch("user");
     renderPage();
