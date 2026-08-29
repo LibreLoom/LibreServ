@@ -12,11 +12,14 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 type AccountHandler struct {
 	Deps
+	// Resend is optional; tests inject a mock. Production uses the default client.
+	Resend *providers.ResendClient
 }
 
 const authAttemptMax = 10
@@ -77,14 +80,22 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := security.NewID("acct")
-	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, stripe_customer_id, has_card, billing_status, created_at)
-VALUES (?, ?, ?, ?, 0, 'none', ?)`, id, email, string(hash), cust, time.Now().Unix())
+	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, stripe_customer_id, has_card, billing_status, email_verified, created_at)
+VALUES (?, ?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), cust, time.Now().Unix())
 	if err != nil {
 		JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
 		return
 	}
 	h.setSession(w, id)
-	JSON(w, http.StatusCreated, map[string]any{"id": id, "email": email, "has_card": false, "stripe_publishable_key": stripePublishableKey()})
+	// Best-effort verification email — registration still succeeds if mail is down.
+	verificationToken, _ := h.createEmailVerificationToken(r.Context(), id)
+	if verificationToken != "" {
+		go h.sendVerificationEmail(email, verificationToken, "")
+	}
+	JSON(w, http.StatusCreated, map[string]any{
+		"id": id, "email": email, "has_card": false, "email_verified": false,
+		"stripe_publishable_key": stripePublishableKey(),
+	})
 }
 
 func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -99,13 +110,15 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id, hash string
-	err := h.DB.QueryRow(`SELECT id, password_hash FROM accounts WHERE email = ?`, email).Scan(&id, &hash)
+	var emailVerified int
+	err := h.DB.QueryRow(`SELECT id, password_hash, email_verified FROM accounts WHERE email = ?`, email).
+		Scan(&id, &hash, &emailVerified)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
 		return
 	}
 	h.setSession(w, id)
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "email_verified": emailVerified == 1, "email": email, "id": id})
 }
 
 func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
@@ -114,24 +127,35 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	var bytes int64
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&bytes)
+	var liveBytes int64
+	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
+	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
+	var payStatus string
+	humanVerified := false
+	if err := h.DB.QueryRow(`SELECT status FROM oss_payments WHERE account_id = ?`, acct.ID).Scan(&payStatus); err == nil && payStatus == "succeeded" {
+		humanVerified = true
+	}
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
 		"email":                  acct.Email,
+		"email_verified":         acct.EmailVerified,
 		"activated":              acct.Activated,
 		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
+		"human_verified":         humanVerified,
 		"billing_status":         acct.BillingStatus,
+		"stored_bytes":           liveBytes,
+		"avg_stored_bytes":       avgBytes,
+		"egress_bytes":           egressBytes,
+		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
+		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
 		"backup_purge_after":     acct.BackupPurgeAfter,
-		"stored_bytes":           bytes,
-		"estimated_month":        billing.EstimateUSD(bytes),
-		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on how much is stored right now.",
 		"stripe_publishable_key": stripePublishableKey(),
 		"stripe_enabled":         config.C.Stripe.Enabled,
 	})
 }
 
 func stripePublishableKey() string {
+	providers.RefreshStripe()
 	if !config.C.Stripe.Enabled {
 		return ""
 	}
@@ -176,7 +200,16 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 	var raw json.RawMessage
 	_ = json.NewDecoder(r.Body).Decode(&raw)
 	pm := paymentMethodFromJSON(raw)
-	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
+	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
+	if err != nil {
+		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
+		return
+	}
+	if cust != acct.StripeCustomer {
+		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		acct.StripeCustomer = cust
+	}
+	sub, item, err := billing.Subscribe(cust, pm)
 	if err != nil {
 		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
 		return
@@ -216,7 +249,7 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 
 func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
 	if errors.Is(err, billing.ErrNotConfigured) {
-		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
+		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Contact support to resolve this issue.")
 		return
 	}
 	if errors.Is(err, billing.ErrPaymentMethodRequired) {
@@ -227,7 +260,7 @@ func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
 		JSONError(w, http.StatusPaymentRequired, "The card was saved but the monthly bill is not active yet. Check the card and try again.")
 		return
 	}
-	JSONError(w, http.StatusBadGateway, fallback)
+	JSONError(w, http.StatusBadRequest, fallback)
 }
 
 func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
@@ -236,16 +269,20 @@ func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	var bytes int64
-	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&bytes)
+	var liveBytes int64
+	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size),0) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&liveBytes)
+	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
-		"stored_bytes":        bytes,
-		"estimated_month_usd": billing.EstimateUSD(bytes),
+		"stored_bytes":        liveBytes,
+		"avg_stored_bytes":    avgBytes,
+		"egress_bytes":        egressBytes,
+		"egress_overage_gb":   billing.EgressOverageGB(avgBytes, egressBytes),
+		"estimated_month_usd": billing.EstimateMonthUSD(avgBytes, egressBytes),
 	})
 }
 
 func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code (****-****-****-****-****), and pick a name.")
+	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the device code (purchased from LibreLoom or from this website: ****-****-****-****-****), and pick a name.")
 }
 
 func (h AccountHandler) PairingToken(w http.ResponseWriter, r *http.Request) {
@@ -263,7 +300,7 @@ func (h AccountHandler) PairingToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind = 'remint' AND status = 'issued'`, acct.ID)
-	code := security.OSSHexToken()
+	code := security.WebsiteSetupToken()
 	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
 	exp := time.Now().Add(PairingTokenTTL).Unix()
@@ -308,7 +345,7 @@ func (h AccountHandler) TransferToken(w http.ResponseWriter, r *http.Request) {
 	dev.AccountID = account
 	teardownDevice(h.Deps, dev)
 	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind IN ('transfer','remint') AND status = 'issued'`, acct.ID)
-	code := security.OSSHexToken()
+	code := security.WebsiteSetupToken()
 	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
 	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint)
@@ -388,19 +425,20 @@ func (h AccountHandler) AccountAuth(next http.Handler) http.Handler {
 			return
 		}
 		var id, email, status, cust, sub string
-		var has int
+		var has, emailVerified int
 		var activated, purgeAfter int64
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), COALESCE(a.activated_at, 0), COALESCE(a.backup_purge_after, 0)
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), a.email_verified, COALESCE(a.activated_at, 0), COALESCE(a.backup_purge_after, 0)
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub, &activated, &purgeAfter)
+			Scan(&id, &email, &has, &status, &cust, &sub, &emailVerified, &activated, &purgeAfter)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status, StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter,
+			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status,
+			StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter, EmailVerified: emailVerified == 1,
 		})))
 	})
 }
@@ -413,19 +451,20 @@ func (h AccountHandler) OptionalAccountAuth(next http.Handler) http.Handler {
 			return
 		}
 		var id, email, status, cust, sub string
-		var has int
+		var has, emailVerified int
 		var activated, purgeAfter int64
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), COALESCE(a.activated_at, 0), COALESCE(a.backup_purge_after, 0)
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), a.email_verified, COALESCE(a.activated_at, 0), COALESCE(a.backup_purge_after, 0)
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub, &activated, &purgeAfter)
+			Scan(&id, &email, &has, &status, &cust, &sub, &emailVerified, &activated, &purgeAfter)
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status, StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter,
+			ID: id, Email: email, HasCard: has == 1, Activated: activated > 0, BillingStatus: status,
+			StripeCustomer: cust, StripeSub: sub, BackupPurgeAfter: purgeAfter, EmailVerified: emailVerified == 1,
 		})))
 	})
 }

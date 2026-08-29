@@ -17,15 +17,21 @@ const navItems = [
 
 export function Layout({ children }) {
   const { logout, account } = useAuth();
-  const { toggle } = useTheme();
+  const { theme, toggle } = useTheme();
   const navigate = useNavigate();
+  const prefersDark =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDark = theme === "dark" || (theme === "system" && prefersDark);
+  const brandSrc = isDark ? "/admin/favicon-dark.svg" : "/admin/favicon.svg";
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-border bg-card">
-        <div className="flex h-16 items-center gap-2 px-6">
-          <div className="h-8 w-8 rounded-pill bg-primary" />
-          <span className="font-mono text-lg">Admin</span>
+        <div className="flex h-16 items-center gap-2.5 px-6">
+          <img src={brandSrc} alt="" className="size-8 shrink-0" width={32} height={32} />
+          <span className="flex h-8 items-center font-mono text-lg leading-none">Admin</span>
         </div>
         <Separator />
         <nav className="flex-1 space-y-1 p-3">

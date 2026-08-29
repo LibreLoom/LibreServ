@@ -59,7 +59,7 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.QueryRow(`SELECT tunnel_id, tunnel_token, local_port FROM devices WHERE id = ?`, dev.ID).Scan(&tunnelID, &sealed, &port)
 	token, err := security.OpenString(sealed)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not read the protected connection. Ask the person who looks after this Luna Connect site.")
+		JSONError(w, http.StatusInternalServerError, "Could not read the protected connection. Contact support to resolve this issue.")
 		return
 	}
 	oldHost := domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone)

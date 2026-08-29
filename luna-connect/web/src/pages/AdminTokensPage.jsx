@@ -45,14 +45,20 @@ export default function AdminTokensPage() {
   const [rows, setRows] = useState([]);
   const [listError, setListError] = useState("");
   const [listLoading, setListLoading] = useState(true);
+  const [listAll, setListAll] = useState(false);
+  const [listLimited, setListLimited] = useState(true);
   const [revokeBusy, setRevokeBusy] = useState("");
   const [filter, setFilter] = useState("all");
 
-  const loadTokens = useCallback(async () => {
+  const loadTokens = useCallback(async (all = false) => {
     setListError("");
+    setListLoading(true);
     try {
-      const data = await adminApi("/admin/setup-tokens");
+      const path = all ? "/admin/setup-tokens?all=1" : "/admin/setup-tokens";
+      const data = await adminApi(path);
       setRows(data.tokens || []);
+      setListAll(all);
+      setListLimited(data.limited !== false && !all);
     } catch (err) {
       setListError(err.message);
     } finally {
@@ -61,7 +67,7 @@ export default function AdminTokensPage() {
   }, []);
 
   useEffect(() => {
-    loadTokens();
+    loadTokens(false);
   }, [loadTokens]);
 
   const revoke = async (id) => {
@@ -70,7 +76,7 @@ export default function AdminTokensPage() {
     setError("");
     try {
       await adminApi(`/admin/setup-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
-      await loadTokens();
+      await loadTokens(listAll);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -93,11 +99,113 @@ export default function AdminTokensPage() {
         Official setup codes are created here. The public OS image has no code. Factory lists go on the installer USB as a file named TOKENS. Full codes are shown only at mint time — after that the table keeps a short hint, status, and linked account.
       </p>
 
-      <Card className="mb-6" data-testid="setup-codes-table">
+      <Card className="mb-6" data-testid="official-token-recovery">
+        <CardHeader>
+          <CardTitle>Lost booklet code</CardTitle>
+          <CardDescription>
+            Activated owners (booklet setup or bring-your-own) can make a new pairing code on their Luna Connect page. Use this page when there is no account yet, or the booklet was lost before first setup. The owner should contact support and refer to their order ID. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Single booklet code</CardTitle>
+          <CardDescription>Create one booklet code to print in a box or give as a replacement (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            loading={singleBusy}
+            onClick={async () => {
+              setError("");
+              setSingleBusy(true);
+              try {
+                const data = await adminApi("/admin/setup-tokens", { method: "POST", body: "{}" });
+                setToken(data.token);
+                await loadTokens(listAll);
+              } catch (err) {
+                setError(err.message);
+              } finally {
+                setSingleBusy(false);
+              }
+            }}
+          >
+            New token
+          </Button>
+          {token && <p className="font-mono text-xl tracking-widest break-all">{token}</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6" data-testid="bulk-tokens">
+        <CardHeader>
+          <CardTitle>Bulk factory tokens</CardTitle>
+          <CardDescription>
+            Create many booklet codes for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-xs">
+            <Label htmlFor="bulk-count">How many</Label>
+            <Input
+              id="bulk-count"
+              type="number"
+              min={1}
+              max={10000}
+              value={bulkCount}
+              onChange={(e) => setBulkCount(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              loading={bulkBusy}
+              onClick={async () => {
+                setError("");
+                setBulkBusy(true);
+                try {
+                  const n = Number.parseInt(bulkCount, 10);
+                  const data = await adminApi("/admin/setup-tokens/bulk", {
+                    method: "POST",
+                    body: JSON.stringify({ count: n }),
+                  });
+                  setBulkTokens(data.tokens || []);
+                  await loadTokens(listAll);
+                } catch (err) {
+                  setError(err.message);
+                } finally {
+                  setBulkBusy(false);
+                }
+              }}
+            >
+              Create list
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={bulkTokens.length === 0}
+              onClick={() => downloadTokensFile(bulkTokens)}
+            >
+              Download TOKENS
+            </Button>
+          </div>
+          {bulkTokens.length > 0 && (
+            <div className="rounded-large-element border border-border bg-background p-4">
+              <p className="font-mono text-sm text-muted-foreground mb-2">
+                {bulkTokens.length} codes · file name TOKENS
+              </p>
+              <pre className="font-mono text-sm max-h-64 overflow-auto whitespace-pre-wrap break-all">
+                {bulkTokens.join("\n")}
+              </pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="setup-codes-table">
         <CardHeader>
           <CardTitle>Issued codes</CardTitle>
           <CardDescription>
-            Newest 500 codes. Revoke unused ones. Claimed rows show the customer account and Luna when known.
+            {listAll || !listLimited
+              ? "Every setup code on this Luna Connect. Revoke unused ones. Claimed rows show the customer account and Luna when known."
+              : "Newest 500 codes by default. Use Show all codes to load the full list. Revoke unused ones. Claimed rows show the customer account and Luna when known."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -117,9 +225,18 @@ export default function AdminTokensPage() {
                 {f.label}
               </Button>
             ))}
-            <Button size="sm" variant="ghost" onClick={() => { setListLoading(true); loadTokens(); }}>
+            <Button size="sm" variant="ghost" onClick={() => loadTokens(listAll)}>
               Refresh
             </Button>
+            {listLimited && !listAll ? (
+              <Button size="sm" variant="secondary" onClick={() => loadTokens(true)}>
+                Show all codes
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => loadTokens(false)}>
+                Show newest 500
+              </Button>
+            )}
           </div>
           {listLoading ? (
             <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading codes…</p>
@@ -178,105 +295,12 @@ export default function AdminTokensPage() {
               </table>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6" data-testid="official-token-recovery">
-        <CardHeader>
-          <CardTitle>Lost booklet code</CardTitle>
-          <CardDescription>
-            Activated owners (booklet setup or bring-your-own) mint a new pairing code on their own Luna Connect page. Use this page when there is no account yet, or the booklet was lost before first setup. The owner should contact support and refer to their order id. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition (factory magazine), or use a one-shot setup-token file next to the ISO payload.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Single booklet code</CardTitle>
-          <CardDescription>Create one booklet code to print in a box or give as a remint (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Button
-            loading={singleBusy}
-            onClick={async () => {
-              setError("");
-              setSingleBusy(true);
-              try {
-                const data = await adminApi("/admin/setup-tokens", { method: "POST", body: "{}" });
-                setToken(data.token);
-                await loadTokens();
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setSingleBusy(false);
-              }
-            }}
-          >
-            New token
-          </Button>
-          {token && <p className="font-mono text-xl tracking-widest break-all">{token}</p>}
-        </CardContent>
-      </Card>
-
-      <Card data-testid="bulk-tokens">
-        <CardHeader>
-          <CardTitle>Bulk factory tokens</CardTitle>
-          <CardDescription>
-            Create many booklet codes (same long format as a single remint) for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="max-w-xs">
-            <Label htmlFor="bulk-count">How many</Label>
-            <Input
-              id="bulk-count"
-              type="number"
-              min={1}
-              max={10000}
-              value={bulkCount}
-              onChange={(e) => setBulkCount(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              loading={bulkBusy}
-              onClick={async () => {
-                setError("");
-                setBulkBusy(true);
-                try {
-                  const n = Number.parseInt(bulkCount, 10);
-                  const data = await adminApi("/admin/setup-tokens/bulk", {
-                    method: "POST",
-                    body: JSON.stringify({ count: n }),
-                  });
-                  setBulkTokens(data.tokens || []);
-                  await loadTokens();
-                } catch (err) {
-                  setError(err.message);
-                } finally {
-                  setBulkBusy(false);
-                }
-              }}
-            >
-              Create list
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={bulkTokens.length === 0}
-              onClick={() => downloadTokensFile(bulkTokens)}
-            >
-              Download TOKENS
-            </Button>
-          </div>
-          {bulkTokens.length > 0 && (
-            <div className="rounded-large-element border border-border bg-background p-4">
-              <p className="font-mono text-sm text-muted-foreground mb-2">
-                {bulkTokens.length} codes · file name TOKENS
-              </p>
-              <pre className="font-mono text-sm max-h-64 overflow-auto whitespace-pre-wrap break-all">
-                {bulkTokens.join("\n")}
-              </pre>
-            </div>
+          {!listLoading && !listError && rows.length > 0 && (
+            <p className="font-mono text-xs text-muted-foreground">
+              Showing {visible.length}
+              {filter !== "all" ? ` matching filter (${rows.length} loaded)` : " loaded"}
+              {listLimited && !listAll ? " · capped at newest 500" : ""}
+            </p>
           )}
         </CardContent>
       </Card>

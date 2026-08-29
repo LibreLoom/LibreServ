@@ -1,6 +1,6 @@
 #!/bin/sh
 # Factory stick helpers: LUNAASSETS partition + TOKENS magazine (dash-safe).
-# Official booklet codes live one-per-line in TOKENS on the writable FAT
+# Official setup codes (purchased from LibreLoom) live one-per-line in TOKENS on the writable FAT
 # partition labeled LUNAASSETS. Each flash peels the first usable line.
 
 # Print first non-empty, non-# line from $1. Returns 1 if none.

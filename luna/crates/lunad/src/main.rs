@@ -35,11 +35,8 @@ async fn main() -> anyhow::Result<()> {
         drive_manager.reconcile(&conn, &detected)?;
     }
     let connect = std::sync::Arc::new(
-        lunad::connect::ConnectService::new(
-            &cfg.data_dir,
-            std::env::var("LUNA_CONNECT_URL").ok(),
-        )
-        .with_local_port(cfg.port),
+        lunad::connect::ConnectService::new(&cfg.data_dir, std::env::var("LUNA_CONNECT_URL").ok())
+            .with_local_port(cfg.port),
     );
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 

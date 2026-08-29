@@ -16,31 +16,15 @@ function renderPage() {
 }
 
 describe("RemoteCategory", () => {
-  it("asks for a code when Connect is off", async () => {
+  it("points at About → Advanced when Connect is off", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ));
     renderPage();
-    expect(await screen.findByRole("button", { name: /Save code/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use booklet code on this Luna/i })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /Open About → Advanced/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use the code that came with this Luna/i })).toBeTruthy();
     expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
-    expect(screen.getByText(/free forever/i)).toBeTruthy();
-  });
-
-  it("stacks connect code label above a full-width input", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () =>
-      new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
-    ));
-    renderPage();
-    expect(await screen.findByText(/Code from the Luna Connect site/i)).toBeTruthy();
-
-    const row = screen.getByText(/Code from the Luna Connect site/i).closest('[data-slot="settings-row"]');
-    expect(row?.className).toMatch(/flex-col/);
-    expect(row?.className).toMatch(/lg:flex-row/);
-
-    const input = screen.getByPlaceholderText(/\*\*\*\*-\*\*\*\*-\*\*\*\*-\*\*\*\*-\*\*\*\*/);
-    expect(input.className).toMatch(/w-full/);
-    expect(input.className).toMatch(/min-w-0/);
+    expect(screen.getAllByText(/About → Advanced/i).length).toBeGreaterThan(0);
   });
 
   it("shows hostname and change field when on", async () => {

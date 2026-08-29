@@ -157,12 +157,13 @@ func ProcessRetention(deps Deps, now int64) {
 }
 
 func purgeAccountBackups(deps Deps, accountID, email string) {
-	_, _ = deps.DB.Exec(`DELETE FROM backup_objects WHERE account_id = ?`, accountID)
 	if deps.Store != nil {
 		if err := deps.Store.DeleteAccount(accountID); err != nil {
 			slog.Error("purge store", "account", accountID, "err", err)
+			return
 		}
 	}
+	_, _ = deps.DB.Exec(`DELETE FROM backup_objects WHERE account_id = ?`, accountID)
 	markAndSendPurgeWarning(deps, accountID, email, backupRetentionDays, 0)
 	_, _ = deps.DB.Exec(`UPDATE accounts SET backup_purge_after = NULL, purge_mail_day = ? WHERE id = ?`, backupRetentionDays, accountID)
 }

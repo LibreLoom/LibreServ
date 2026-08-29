@@ -53,11 +53,22 @@ type StripeConfig struct {
 	SecretKey      string `mapstructure:"secret_key"`
 	PublishableKey string `mapstructure:"publishable_key"`
 	WebhookSecret  string `mapstructure:"webhook_secret"`
-	PriceID        string `mapstructure:"price_id"`
-	Enabled        bool   `mapstructure:"enabled"`
+	// PriceID: usage-based storage price linked to MeterEventName ($0.008/GB-mo).
+	PriceID string `mapstructure:"price_id"`
+	// MeterEventName: Billing Meter for average storage GB (aggregation Last).
+	// We compute month-to-date average ourselves and report that gauge value.
+	MeterEventName string `mapstructure:"meter_event_name"`
+	// EgressPriceID: usage-based price for egress overage ($0.01/GB) linked to
+	// EgressMeterEventName. Free under 3× average storage — only overage is reported.
+	EgressPriceID string `mapstructure:"egress_price_id"`
+	// EgressMeterEventName: Billing Meter for egress overage GB (aggregation Last).
+	EgressMeterEventName string `mapstructure:"egress_meter_event_name"`
+	Enabled              bool   `mapstructure:"enabled"`
 }
 
 type BackupConfig struct {
+	// Driver selects object storage: "auto" (B2 when Admin → Connections has
+	// an enabled backup provider, else local), "b2", or "local".
 	Driver          string `mapstructure:"driver"`
 	MaxObjectBytes  int64  `mapstructure:"max_object_bytes"`
 	MaxAccountBytes int64  `mapstructure:"max_account_bytes"`
@@ -90,7 +101,7 @@ func setDefaults() {
 	viper.SetDefault("server.public_zone", "luna.servers.libreloom.org")
 	viper.SetDefault("database.path", "dev/luna-connect.db")
 	viper.SetDefault("data_dir", "dev/data")
-	viper.SetDefault("backup.driver", "local")
+	viper.SetDefault("backup.driver", "auto")
 	viper.SetDefault("server.web_dir", "web/dist")
 	viper.SetDefault("auth.session_ttl_hours", 168)
 	viper.SetDefault("mail.from", "Luna Connect <noreply@connect.luna.libreloom.org>")

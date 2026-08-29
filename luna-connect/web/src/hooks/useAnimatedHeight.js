@@ -2,7 +2,10 @@ import { useEffect, useRef } from "react";
 
 /**
  * Smooth height transitions for cards with changing content.
- * CSS cannot animate height: auto — measure the inner node and set px height.
+ * Measures inner content with ResizeObserver and sets an explicit pixel height
+ * on the outer container so height can animate between known values.
+ *
+ * @returns {{ outerRef: import("react").RefObject<HTMLElement|null>, innerRef: import("react").RefObject<HTMLElement|null> }}
  */
 export function useAnimatedHeight() {
   const outerRef = useRef(null);
@@ -14,8 +17,13 @@ export function useAnimatedHeight() {
     if (!outer || !inner) return;
 
     const applyHeight = () => {
-      outer.style.height = inner.offsetHeight + "px";
+      outer.style.height = `${inner.offsetHeight}px`;
     };
+
+    if (typeof ResizeObserver === "undefined") {
+      applyHeight();
+      return undefined;
+    }
 
     const ro = new ResizeObserver(applyHeight);
     ro.observe(inner);

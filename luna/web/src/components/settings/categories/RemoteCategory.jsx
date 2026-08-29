@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Globe2, KeyRound, ShieldOff, Unplug } from "lucide-react";
 import Button from "../../ui/Button";
 import CopyableValue from "../../ui/CopyableValue";
@@ -13,17 +14,11 @@ export default function RemoteCategory() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [newName, setNewName] = useState("");
-  const [code, setCode] = useState("");
   const status = useQuery({ queryKey: ["connect-status"], queryFn: () => getJson("/api/v1/connect/status") });
 
   const change = useMutation({
     mutationFn: () => postJson("/api/v1/connect/domain", { subdomain: newName.trim().toLowerCase() }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); setNewName(""); },
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-  const saveCode = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/setup-code", { code: code.trim() }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); },
     onError: (err) => setError(apiErrorMessage(err)),
   });
   const redeem = useMutation({
@@ -74,26 +69,19 @@ export default function RemoteCategory() {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-primary text-sm">
-                Pick a name at connect.luna.libreloom.org. That address is free forever.
+              <p className="text-primary text-sm leading-relaxed px-4 pt-1">
+                Pick a name at connect.luna.libreloom.org. Enter the setup code in{" "}
+                <Link className="underline underline-offset-4" to="/settings#about">
+                  About → Advanced
+                </Link>
+                , or use the code that came with this Luna.
               </p>
-              <SettingsRow label="Code from the Luna Connect site" stack hideDivider>
-                <input
-                  className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono tracking-widest"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="****-****-****-****-****"
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-label="Device code from Luna Connect"
-                />
-              </SettingsRow>
               <div className="px-4 pb-4 flex flex-col gap-2">
-                <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.replace(/[-_\s]/g, "").length < 16} onClick={() => saveCode.mutate()}>
-                  Save code
+                <Button variant="primary" fullWidth asChild>
+                  <Link to="/settings#about">Open About → Advanced</Link>
                 </Button>
                 <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
-                  Use booklet code on this Luna
+                  Use the code that came with this Luna
                 </Button>
               </div>
             </div>

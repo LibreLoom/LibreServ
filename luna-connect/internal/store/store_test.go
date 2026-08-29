@@ -40,9 +40,9 @@ func TestPutGetStaysUnderRoot(t *testing.T) {
 	if st, err := os.Stat(s.Root); err != nil || st.Mode().Perm() != 0o700 {
 		t.Fatalf("root perms: %v %v", st, err)
 	}
-	n, err := s.Put("acct_1", "dev_1", "Photos/a.jpg", strings.NewReader("hello"))
-	if err != nil || n != 5 {
-		t.Fatalf("put %d %v", n, err)
+	n, be, err := s.Put("acct_1", "dev_1", "Photos/a.jpg", strings.NewReader("hello"))
+	if err != nil || n != 5 || be != BackendLocal {
+		t.Fatalf("put %d be=%q %v", n, be, err)
 	}
 	p := filepath.Join(s.Root, "acct_1", "dev_1", "Photos", "a.jpg")
 	st, err := os.Stat(p)

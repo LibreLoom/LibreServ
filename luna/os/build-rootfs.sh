@@ -312,6 +312,21 @@ chmod +x "$ROOTFS/etc/local.d/luna-boot-ok.start"
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"
 mkdir -p "$ROOTFS/var/lib/luna"
 
+# Cloudflare tunnel helper (remote access). Bake it so Luna OS does not need
+# apk repos or a first-boot GitHub download when claimed.
+CF_ARCH=amd64
+case "$ARCH" in
+    aarch64|arm64) CF_ARCH=arm64 ;;
+esac
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$ROOTFS/usr/local/bin/cloudflared" \
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" \
+        || echo "warning: could not download cloudflared (lunad will fetch on demand)" >&2
+    if [ -f "$ROOTFS/usr/local/bin/cloudflared" ]; then
+        chmod 0755 "$ROOTFS/usr/local/bin/cloudflared"
+    fi
+fi
+
 # Tar inside the container so suid files (e.g. busybox bbsuid) are readable.
 # GNU tar (not BusyBox) for --sort=name / --mtime so the archive is deterministic.
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" \

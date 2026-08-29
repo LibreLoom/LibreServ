@@ -37,6 +37,7 @@ type Account struct {
 	StripeCustomer   string
 	StripeSub        string
 	BackupPurgeAfter int64
+	EmailVerified    bool
 }
 
 func WithDevice(ctx context.Context, d Device) context.Context {

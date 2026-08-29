@@ -233,7 +233,7 @@ fi
 echo
 echo "Installation complete."
 
-# Official booklet code + OS hash live on LUNA_DATA, not on an OS slot.
+# Official setup code + OS hash live on LUNA_DATA, not on an OS slot.
 _datap="$(partition_data "$TARGET")"
 _mnt="$(mktemp -d)"
 if mount "$_datap" "$_mnt" 2>/dev/null; then

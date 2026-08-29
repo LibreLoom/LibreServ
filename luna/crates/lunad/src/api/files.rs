@@ -311,10 +311,9 @@ async fn create_entry(
             StatusCode::NOT_FOUND,
             "Luna can't find the parent folder. Open it and try again.",
         ),
-        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
-            StatusCode::BAD_REQUEST,
-            "Choose a name for the new file.",
-        ),
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => {
+            json_error(StatusCode::BAD_REQUEST, "Choose a name for the new file.")
+        }
         other => map_files_err(other),
     })?;
     state.touch_io_activity();

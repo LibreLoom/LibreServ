@@ -56,9 +56,11 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
 
   return (
     <form className="space-y-3" onSubmit={handleSubmit} data-testid="verify-human-card">
-      <p className="text-sm text-card-foreground">
-        {description || "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
-      </p>
+      {description !== "" && (
+        <p className="text-sm text-card-foreground">
+          {description || "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
+        </p>
+      )}
       <div className="rounded-large-element border border-border bg-secondary text-secondary-foreground p-4">
         <PaymentElement />
       </div>
@@ -95,6 +97,7 @@ export function VerifyHumanCard({ account, onConfirm, loading = false, descripti
         mode: "payment",
         amount: 100,
         currency: "usd",
+        paymentMethodCreation: "manual",
         appearance: appearanceFromTheme(),
       }}
     >

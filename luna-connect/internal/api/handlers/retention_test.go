@@ -72,7 +72,7 @@ func TestRetentionDeletesAfterDeadline(t *testing.T) {
 	_ = registerAccount(t, acct, "gone@b.co")
 	var id string
 	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'gone@b.co'`).Scan(&id)
-	if _, err := d.Store.Put(id, "dev_old1", "keep.txt", strings.NewReader("bytes")); err != nil {
+	if _, _, err := d.Store.Put(id, "dev_old1", "keep.txt", strings.NewReader("bytes")); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = d.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, updated_at)

@@ -76,7 +76,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	norm := security.NormalizeToken(req.Code)
 	if norm == "" {
-		JSONError(w, http.StatusBadRequest, "Type the device code from the booklet, or the code from this website (****-****-****-****-****).")
+		JSONError(w, http.StatusBadRequest, "Type the device code that came with your Luna (purchased from LibreLoom), or the code from this website (****-****-****-****-****).")
 		return
 	}
 	if !allowGuess(h.DB, clientKeyIP(r), 8, 15*60) {
@@ -91,7 +91,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, ok := lookupIssued(h.DB, norm)
 	if !ok || tok.Status != "issued" {
-		JSONError(w, http.StatusBadRequest, "That code is wrong, already used, or expired. Check the booklet or the Luna Connect site.")
+		JSONError(w, http.StatusBadRequest, "That code is wrong, already used, or expired. Check the code that came with your Luna, or the Luna Connect site.")
 		return
 	}
 	acct, hasAcct := AccountFrom(r.Context())
@@ -224,7 +224,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, tokOK := lookupIssuedByHash(h.DB, sess.tokenHash)
 	if !tokOK || tok.Status != "issued" {
-		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
+		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from your Luna (purchased from LibreLoom) or the Luna Connect site.")
 		return
 	}
 	if tokenNeedsOwner(tok.Kind) && tokenAccountID(tok) != acct.ID {
@@ -287,7 +287,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	sealedTunnel, err := security.SealString(creds.Token)
 	if err != nil {
 		h.rollbackCloud(creds.TunnelID, hostname)
-		JSONError(w, http.StatusInternalServerError, "Could not finish setup. Ask the person who looks after this Luna Connect site.")
+		JSONError(w, http.StatusInternalServerError, "Could not finish setup. Contact support to resolve this issue.")
 		return
 	}
 	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, sealedTunnel, setupSecret, port); err != nil {
@@ -379,13 +379,22 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	if pm == "" {
 		pm = strings.TrimSpace(req.PaymentMethodID)
 	}
-	sub, item, err := billing.Subscribe(acct.StripeCustomer, pm)
+	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
+	if err != nil {
+		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
+		return
+	}
+	if cust != acct.StripeCustomer {
+		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		acct.StripeCustomer = cust
+	}
+	sub, item, err := billing.Subscribe(cust, pm)
 	if err != nil {
 		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
 		return
 	}
 	status := "active"
-	price := "Cloud backup costs $8 per terabyte each month."
+	price := "Cloud backup costs $8 per terabyte each month, based on your average storage. Downloads are free up to three times that average."
 	if billing.DevBypass() {
 		status = "dev"
 		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
@@ -423,17 +432,30 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	if pm == "" {
 		pm = strings.TrimSpace(req.PaymentMethodID)
 	}
-	pi, err := billing.ChargeOneDollar(acct.StripeCustomer, pm)
+	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
+	if err != nil {
+		if errors.Is(err, billing.ErrNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
+			return
+		}
+		JSONError(w, http.StatusBadRequest, "Could not set up card billing for this account. Try again in a few minutes.")
+		return
+	}
+	if cust != acct.StripeCustomer {
+		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
+		acct.StripeCustomer = cust
+	}
+	pi, err := billing.ChargeOneDollar(cust, pm)
 	if err != nil {
 		if errors.Is(err, billing.ErrPaymentMethodRequired) {
 			JSONError(w, http.StatusBadRequest, "Add a card on this page first, then try again.")
 			return
 		}
 		if errors.Is(err, billing.ErrNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or ask the person who looks after this Luna Connect site.")
+			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
 			return
 		}
-		JSONError(w, http.StatusBadGateway, "We could not take the dollar to confirm this is a real person. Check the card and try again.")
+		JSONError(w, http.StatusBadRequest, "We could not take the dollar to confirm this is a real person. Check the card and try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
@@ -471,7 +493,7 @@ VALUES (?, ?, 'oss', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.
 	JSON(w, http.StatusCreated, map[string]any{
 		"code":       code,
 		"expires_in": 15 * 60,
-		"message":    "On Luna, open the address on the screen and enter this code (****-****-****-****-****).",
+		"message":    "You can enter this code during the installer process, or you can edit the setup code on your device through About → Advanced.",
 	})
 }
 
@@ -493,7 +515,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Replacement official tokens: there is no public remint. Support mints here
-	// after the owner contacts support with their order id (lost booklet / wiped disk).
+	// after the owner contacts support with their order id (lost code / wiped disk).
 	display := security.OfficialBookletToken()
 	norm := security.NormalizeToken(display)
 	id := security.NewID("tok")
@@ -501,7 +523,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	_, err := h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint) VALUES (?, ?, 'official', 'issued', ?, ?)`,
 		id, security.HashToken(norm), time.Now().Unix(), hint)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not mint a booklet code.")
+		JSONError(w, http.StatusInternalServerError, "Could not mint an official setup code.")
 		return
 	}
 	JSON(w, http.StatusCreated, map[string]any{
@@ -563,7 +585,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		"tokens":   tokens,
 		"filename": "TOKENS",
 		"kind":     "official",
-		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one booklet code per line).",
+		"message":  "Put this list on the installer USB as TOKENS on the LUNAASSETS partition (one official setup code per line).",
 	})
 }
 

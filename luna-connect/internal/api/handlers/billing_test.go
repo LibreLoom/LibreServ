@@ -80,6 +80,80 @@ func TestStripeWebhookInvoiceFailedLocks(t *testing.T) {
 	}
 }
 
+// Basil+ invoice payloads omit top-level subscription; parent.subscription_details holds it.
+func TestStripeWebhookInvoiceFailedLocksBasilParent(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	_ = registerAccount(t, acct, "invbasil@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'invbasil@b.co'`).Scan(&id)
+	_, _ = d.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active', stripe_subscription_id = 'sub_basil1' WHERE id = ?`, id)
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.WebhookSecret = "whsec_test_secret"
+	payload := `{"id":"evt_basil","object":"event","type":"invoice.payment_failed","data":{"object":{"id":"in_basil","object":"invoice","parent":{"type":"subscription_details","subscription_details":{"subscription":"sub_basil1"}}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhook", strings.NewReader(payload))
+	req.Header.Set("Stripe-Signature", stripeTestSig("whsec_test_secret", payload))
+	rec := httptest.NewRecorder()
+	acct.StripeWebhook(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("webhook %d %s", rec.Code, rec.Body.String())
+	}
+	var has int
+	var status string
+	_ = d.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, id).Scan(&has, &status)
+	if has != 0 || status != "past_due" {
+		t.Fatalf("basil lock has=%d status=%s", has, status)
+	}
+}
+
+func TestStripeWebhookInvoicePaidUnlocksBasilParent(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	_ = registerAccount(t, acct, "paidbasil@b.co")
+	var id string
+	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'paidbasil@b.co'`).Scan(&id)
+	_, _ = d.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'past_due', stripe_subscription_id = 'sub_paid1' WHERE id = ?`, id)
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.WebhookSecret = "whsec_test_secret"
+	payload := `{"id":"evt_paid","object":"event","type":"invoice.paid","data":{"object":{"id":"in_paid","object":"invoice","parent":{"type":"subscription_details","subscription_details":{"subscription":"sub_paid1"}}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhook", strings.NewReader(payload))
+	req.Header.Set("Stripe-Signature", stripeTestSig("whsec_test_secret", payload))
+	rec := httptest.NewRecorder()
+	acct.StripeWebhook(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("webhook %d %s", rec.Code, rec.Body.String())
+	}
+	var has int
+	var status string
+	_ = d.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, id).Scan(&has, &status)
+	if has != 1 || status != "active" {
+		t.Fatalf("basil unlock has=%d status=%s", has, status)
+	}
+}
+
+func TestSubscriptionIDFromInvoiceJSON(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"legacy string", `{"subscription":"sub_a"}`, "sub_a"},
+		{"legacy object", `{"subscription":{"id":"sub_b"}}`, "sub_b"},
+		{"basil parent", `{"parent":{"type":"subscription_details","subscription_details":{"subscription":"sub_c"}}}`, "sub_c"},
+		{"basil expanded", `{"parent":{"type":"subscription_details","subscription_details":{"subscription":{"id":"sub_d"}}}}`, "sub_d"},
+		{"none", `{"id":"in_x"}`, ""},
+	}
+	for _, tc := range cases {
+		if got := subscriptionIDFromInvoiceJSON([]byte(tc.raw)); got != tc.want {
+			t.Fatalf("%s: got %q want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestStripeWebhookRejectsBadSignature(t *testing.T) {
 	d := testDeps(t)
 	acct := AccountHandler{Deps: d}

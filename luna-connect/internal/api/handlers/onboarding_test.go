@@ -46,6 +46,19 @@ func registerAccount(t *testing.T, acct AccountHandler, email string) *http.Cook
 	if rec.Code != 201 {
 		t.Fatalf("acct %d %s", rec.Code, rec.Body.String())
 	}
+	// Most handler tests need a verified account for product routes.
+	_, _ = acct.DB.Exec(`UPDATE accounts SET email_verified = 1 WHERE email = ?`, email)
+	return rec.Result().Cookies()[0]
+}
+
+func registerUnverifiedAccount(t *testing.T, acct AccountHandler, email string) *http.Cookie {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/account/register", bytes.NewBufferString(`{"email":"`+email+`","password":"password1234"}`))
+	rec := httptest.NewRecorder()
+	acct.Register(rec, req)
+	if rec.Code != 201 {
+		t.Fatalf("acct %d %s", rec.Code, rec.Body.String())
+	}
 	return rec.Result().Cookies()[0]
 }
 
@@ -436,7 +449,7 @@ func TestTokenHelpers(t *testing.T) {
 		t.Fatalf("crockford map %s", n)
 	}
 	if !security.IsOfficialShape(security.NormalizeToken("3097-V4YK-3HYX-2E3P-V4B3")) {
-		t.Fatal("booklet shape")
+		t.Fatal("official setup code shape")
 	}
 }
 

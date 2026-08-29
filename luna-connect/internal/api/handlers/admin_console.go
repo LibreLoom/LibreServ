@@ -103,14 +103,21 @@ ORDER BY a.created_at DESC`)
 }
 
 func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(`
+	all := strings.EqualFold(r.URL.Query().Get("all"), "1") ||
+		strings.EqualFold(r.URL.Query().Get("all"), "true") ||
+		r.URL.Query().Get("all") == "yes"
+
+	q := `
 SELECT t.id, t.kind, t.status, COALESCE(t.token_hint, ''), t.account_id, COALESCE(a.email, ''),
   t.claimed_device_id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), t.expires_at, t.created_at
 FROM issued_tokens t
 LEFT JOIN devices d ON d.id = t.claimed_device_id
 LEFT JOIN accounts a ON a.id = COALESCE(t.account_id, d.account_id)
-ORDER BY t.created_at DESC
-LIMIT 500`)
+ORDER BY t.created_at DESC`
+	if !all {
+		q += "\nLIMIT 500"
+	}
+	rows, err := h.DB.Query(q)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not list setup codes.")
 		return
@@ -160,7 +167,11 @@ LIMIT 500`)
 			"can_revoke":        status == "issued",
 		})
 	}
-	JSON(w, http.StatusOK, map[string]any{"tokens": list})
+	JSON(w, http.StatusOK, map[string]any{
+		"tokens":  list,
+		"limited": !all,
+		"limit":   500,
+	})
 }
 
 func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {

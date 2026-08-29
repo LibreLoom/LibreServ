@@ -1,14 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../api.js";
-import { stripeLooksConfigured } from "../billing/stripeConfig.js";
-import { Button } from "../components/ui/button.jsx";
-import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
-import { Input } from "../components/ui/input.jsx";
-import { useAuth } from "../context/AuthContext.jsx";
-import { useTheme } from "../context/ThemeContext.jsx";
-import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
-import { cn } from "../lib/utils.js";
 import {
   ArrowRight,
   BookOpen,
@@ -19,12 +9,25 @@ import {
   Globe,
   HardDrive,
   Key,
+  Loader2,
+  MailOpen,
   Moon,
   Sparkles,
   Sun,
   User,
   X,
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+
+import { api } from "../api.js";
+import { stripeLooksConfigured } from "../billing/stripeConfig.js";
+import { Button } from "../components/ui/button.jsx";
+import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
+import { Input } from "../components/ui/input.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useTheme } from "../context/ThemeContext.jsx";
+import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
+import { cn } from "../lib/utils.js";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -75,7 +78,7 @@ function emailOk(email) {
 function progressIndex(step, path) {
   if (step === "welcome") return 0;
   if (step === "code") return 1;
-  if (step === "account" || step === "card") return 2;
+  if (step === "account" || step === "verify" || step === "card") return 2;
   if (step === "wait" || step === "oss-code") return 3;
   if (step === "name") return 4;
   if (step === "copies") return 5;
@@ -160,7 +163,15 @@ function StepShell({ icon: Icon, title, children }) {
 }
 
 export default function OnboardingPage() {
-  const { isAuthenticated, register, login, me } = useAuth();
+  const {
+    isAuthenticated,
+    register,
+    login,
+    me,
+    refresh,
+    markEmailVerified,
+    updateAccountEmail,
+  } = useAuth();
   const { toggle } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -188,6 +199,11 @@ export default function OnboardingPage() {
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir] = useState("right");
   const [copied, setCopied] = useState("");
+  const [checkingVerification, setCheckingVerification] = useState(false);
+  const [resendState, setResendState] = useState("idle");
+  const [cooldown, setCooldown] = useState(0);
+
+  const emailVerified = Boolean(me?.email_verified);
 
   const goTo = useCallback((next, dir = "right") => {
     setDirection(dir);
@@ -209,24 +225,50 @@ export default function OnboardingPage() {
   }, [step, path, code, email, name, ossCode, hostname, setupSecret]);
 
   useEffect(() => {
-    if (step !== "account" || !isAuthenticated || path !== "official") return;
-    goTo("wait");
-  }, [step, isAuthenticated, path, goTo]);
-
-  useEffect(() => {
     if (step !== "wait" && step !== "code" && step !== "name") return undefined;
     const t = setInterval(async () => {
       try {
         const s = await api("/api/v1/onboarding/session");
         setWaitMsg(s.message || "");
         if (s.status === "attached" && step === "wait") goTo("name");
-        if (s.status === "attached" && step === "code" && isAuthenticated) goTo("wait");
+        if (s.status === "attached" && step === "code" && isAuthenticated && emailVerified) goTo("wait");
       } catch {
         /* waiting room is optional until bind */
       }
     }, 3000);
     return () => clearInterval(t);
-  }, [step, isAuthenticated, goTo]);
+  }, [step, isAuthenticated, emailVerified, goTo]);
+
+  useEffect(() => {
+    if (step !== "verify" || emailVerified) return undefined;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const status = await api("/api/v1/account/verification-status");
+        if (!cancelled && status.email_verified) {
+          markEmailVerified?.();
+          const account = await refresh();
+          if (!cancelled) await continueAfterVerification(account);
+        }
+      } catch {
+        /* keep waiting */
+      }
+    };
+    check();
+    const timer = setInterval(check, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // continueAfterVerification intentionally uses the current path and code.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, emailVerified, markEmailVerified, refresh]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const timer = setTimeout(() => setCooldown((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   async function bindCode(value) {
     const s = await api("/api/v1/onboarding/bind", { method: "POST", body: JSON.stringify({ code: value }) });
@@ -239,6 +281,11 @@ export default function OnboardingPage() {
       ? JSON.stringify({ payment_method_id: paymentMethodId })
       : "{}";
     await api("/api/v1/account/verify-human", { method: "POST", body });
+    await refresh();
+    await mintOssCode();
+  }
+
+  async function mintOssCode() {
     const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
     setOssCode(minted.code);
     setWaitMsg(minted.message);
@@ -246,7 +293,12 @@ export default function OnboardingPage() {
   }
 
   async function afterOssAccount(account) {
-    if (stripeLooksConfigured(account || me)) {
+    const current = account || me;
+    if (current?.human_verified) {
+      await mintOssCode();
+      return;
+    }
+    if (stripeLooksConfigured(current)) {
       goTo("card");
       return;
     }
@@ -254,9 +306,17 @@ export default function OnboardingPage() {
   }
 
   async function afterOfficialAccount() {
-    if (code) await bindCode(code);
+    const session = code ? await bindCode(code) : null;
     await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-    goTo("wait");
+    goTo(session?.status === "attached" ? "name" : "wait");
+  }
+
+  async function continueAfterVerification(account) {
+    if (path === "oss") {
+      await afterOssAccount(account);
+      return;
+    }
+    await afterOfficialAccount();
   }
 
   const authFields = isLoginMode
@@ -322,21 +382,14 @@ export default function OnboardingPage() {
     setError("");
     setLoading(true);
     try {
-      if (isLoginMode) {
-        const account = await login(email.trim(), password);
-        if (path === "oss") {
-          await afterOssAccount(account);
-        } else {
-          await afterOfficialAccount();
-        }
-      } else {
-        const account = await register(email.trim(), password);
-        if (path === "oss") {
-          await afterOssAccount(account);
-        } else {
-          await afterOfficialAccount();
-        }
+      const account = isLoginMode
+        ? await login(email.trim(), password)
+        : await register(email.trim(), password);
+      if (!account?.email_verified) {
+        goTo("verify");
+        return;
       }
+      await continueAfterVerification(account);
     } catch (err) {
       setError(err.message || "Could not continue. Check your details and try again.");
     } finally {
@@ -368,6 +421,7 @@ export default function OnboardingPage() {
     const back = {
       code: "welcome",
       account: path === "oss" ? "welcome" : "code",
+      verify: "account",
       card: "account",
       "oss-code": "account",
       wait: path === "oss" ? "oss-code" : "account",
@@ -429,6 +483,10 @@ export default function OnboardingPage() {
           try {
             const s = await bindCode(code);
             if (isAuthenticated) {
+              if (!emailVerified) {
+                goTo("verify");
+                return;
+              }
               await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
               goTo(s.status === "attached" ? "name" : "wait");
             } else {
@@ -533,6 +591,164 @@ export default function OnboardingPage() {
     </StepShell>
   );
 
+  const renderSignedInAccount = () => {
+    if (!emailVerified) {
+      return (
+        <StepShell icon={User} title="Check your email address">
+          <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
+            We need to verify your email before setup continues. Fix the address here if there is a typo.
+          </p>
+          <form
+            className="space-y-4 text-left"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setError("");
+              setLoading(true);
+              try {
+                const nextEmail = (email || me?.email || "").trim();
+                if (nextEmail !== me?.email) {
+                  await updateAccountEmail(nextEmail, "onboarding");
+                }
+                goTo("verify");
+              } catch (err) {
+                setError(err.message || "Could not update your email. Check it and try again.");
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+              Email address
+            </label>
+            <Input
+              id="signed-in-email"
+              type="email"
+              value={email || me?.email || ""}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+            />
+            <Button type="submit" size="lg" className="w-full" loading={loading}>
+              {(email || me?.email || "").trim() === me?.email
+                ? "Continue to verification"
+                : "Update email and send link"}
+            </Button>
+          </form>
+        </StepShell>
+      );
+    }
+
+    return (
+      <StepShell icon={User} title="Continue with your account">
+        <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
+          {path === "oss"
+            ? me?.human_verified
+              ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
+              : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
+            : "You are already signed in. Continue to connect and name this Luna."}
+        </p>
+        <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
+        <Button
+          size="lg"
+          className="w-full"
+          loading={loading}
+          onClick={async () => {
+            setError("");
+            setLoading(true);
+            try {
+              await continueAfterVerification(me);
+            } catch (err) {
+              setError(err.message || "Could not continue. Try again.");
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
+          Continue <ArrowRight className="w-4 h-4" />
+        </Button>
+      </StepShell>
+    );
+  };
+
+  const renderVerify = () => {
+    const displayEmail = me?.email || email;
+    return (
+      <StepShell icon={MailOpen} title="Check your inbox">
+        <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+          We sent a verification link to <span className="font-mono text-card-foreground">{displayEmail}</span>.
+          Open the email from Luna Connect and choose <span className="font-mono text-card-foreground">Verify my email</span>.
+          This page continues by itself when you are done.
+        </p>
+        <div className="space-y-5">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Waiting for verification…
+          </div>
+          <Button
+            size="lg"
+            className="w-full"
+            loading={checkingVerification}
+            onClick={async () => {
+              setCheckingVerification(true);
+              setError("");
+              try {
+                const status = await api("/api/v1/account/verification-status");
+                if (!status.email_verified) {
+                  setError("We do not see the verification yet. Open the link in the email, then try again.");
+                  return;
+                }
+                markEmailVerified?.();
+                const account = await refresh();
+                await continueAfterVerification(account);
+              } catch (err) {
+                setError(err.message || "Could not check your verification. Try again in a moment.");
+              } finally {
+                setCheckingVerification(false);
+              }
+            }}
+          >
+            Check again
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            {resendState === "sent" ? (
+              "Verification email sent. Check your inbox and spam folder."
+            ) : (
+              <>
+                Did not get it?{" "}
+                <button
+                  type="button"
+                  disabled={cooldown > 0 || resendState === "sending"}
+                  className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors disabled:opacity-60 disabled:pointer-events-none"
+                  onClick={async () => {
+                    setResendState("sending");
+                    setError("");
+                    try {
+                      await api("/api/v1/account/resend-verification", {
+                        method: "POST",
+                        body: JSON.stringify({ source: "onboarding" }),
+                      });
+                      setResendState("sent");
+                      setCooldown(60);
+                    } catch (err) {
+                      setError(err.message || "Could not resend the email. Try again.");
+                      setResendState("idle");
+                    }
+                  }}
+                >
+                  {resendState === "sending"
+                    ? "Sending…"
+                    : cooldown > 0
+                      ? `Resend in ${cooldown}s`
+                      : "Resend the email"}
+                </button>
+                .
+              </>
+            )}
+          </p>
+        </div>
+      </StepShell>
+    );
+  };
+
   const renderWait = () => (
     <StepShell icon={Cable} title="Waiting for Luna">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
@@ -616,13 +832,15 @@ export default function OnboardingPage() {
   const renderCopies = () => (
     <StepShell icon={HardDrive} title="Optional cloud backup">
       <p className="text-sm text-foreground leading-relaxed mb-8 text-pretty">
-        Cloud backup costs $8 per terabyte each month, based on how much is stored. Not a flat $8 a month. The address stays free if you skip this.
+        Cloud backup costs $8 per terabyte each month, based on your average storage over the month.
+        Downloads are free up to three times that average; extra download traffic costs $0.01 per GB.
+        The address stays free if you skip this.
       </p>
       {stripeLooksConfigured(me) ? (
         <VerifyHumanCard
           account={me}
           loading={loading}
-          description="Add a payment card to turn on cloud backup. It costs $8 per terabyte each month."
+          description="Add a payment card to turn on cloud backup. The monthly price is based on your average storage."
           buttonLabel="Turn on cloud backup"
           onConfirm={async (paymentMethodId) => {
             setError("");
@@ -717,9 +935,9 @@ export default function OnboardingPage() {
   if (step === "welcome") body = renderWelcome();
   else if (step === "code") body = renderCode();
   else if (step === "account" && !isAuthenticated) body = renderAccount();
-  else if (step === "account" && isAuthenticated) {
-    body = path === "oss" ? renderOssCode() : renderWait();
-  } else if (step === "card") {
+  else if (step === "account" && isAuthenticated) body = renderSignedInAccount();
+  else if (step === "verify") body = renderVerify();
+  else if (step === "card") {
     body = (
       <StepShell icon={User} title="Confirm this is a real person">
         <p className="text-sm text-foreground mb-6 leading-relaxed">

@@ -61,6 +61,7 @@ func (s *Server) routes() {
 	onb := handlers.OnboardingHandler{Deps: s.deps}
 	adm := handlers.AdminAuthHandler{Deps: s.deps}
 	console := handlers.AdminConsoleHandler{Deps: s.deps}
+	prov := handlers.NewProvidersHandler(s.db)
 
 	r.Post("/api/v1/billing/webhook", http.MaxBytesHandler(http.HandlerFunc(acct.StripeWebhook), 65536).ServeHTTP)
 
@@ -74,6 +75,7 @@ func (s *Server) routes() {
 				r.Post("/register", dev.Register)
 				r.Post("/account/register", acct.Register)
 				r.Post("/account/login", acct.Login)
+				r.Post("/account/verify-email", acct.VerifyEmail)
 				r.Get("/setup/ws", onb.SetupWS)
 
 				r.Group(func(r chi.Router) {
@@ -93,23 +95,33 @@ func (s *Server) routes() {
 
 				r.Group(func(r chi.Router) {
 					r.Use(acct.AccountAuth)
+					// Reachable without a verified email so unverified users can
+					// manage verification itself.
 					r.Get("/account/me", acct.Me)
 					r.Post("/account/logout", acct.Logout)
-					r.Get("/billing/usage", acct.Usage)
-					r.Post("/billing/attach-card", acct.AttachCard)
-					r.Post("/billing/cancel", acct.CancelBilling)
-					r.Post("/account/pair", acct.Pair)
-					r.Post("/account/pairing-token", acct.PairingToken)
-					r.Post("/account/transfer-token", acct.TransferToken)
-					r.Get("/account/devices", acct.Devices)
-					r.Get("/backups", bak.List)
-					r.Post("/backups/download", bak.Download)
-					r.Delete("/backups", bak.DeleteAccountObject)
-					r.Post("/onboarding/attach-account", onb.AttachAccount)
-					r.Post("/onboarding/name", onb.Name)
-					r.Post("/onboarding/backups", onb.Backups)
-					r.Post("/account/verify-human", onb.VerifyHuman)
-					r.Post("/account/oss-token", onb.MintOSS)
+					r.Post("/account/resend-verification", acct.ResendVerification)
+					r.Get("/account/verification-status", acct.GetVerificationStatus)
+					r.Post("/account/email", acct.UpdateEmail)
+
+					// Everything below requires a verified email.
+					r.Group(func(r chi.Router) {
+						r.Use(acct.RequireVerifiedEmail)
+						r.Get("/billing/usage", acct.Usage)
+						r.Post("/billing/attach-card", acct.AttachCard)
+						r.Post("/billing/cancel", acct.CancelBilling)
+						r.Post("/account/pair", acct.Pair)
+						r.Post("/account/pairing-token", acct.PairingToken)
+						r.Post("/account/transfer-token", acct.TransferToken)
+						r.Get("/account/devices", acct.Devices)
+						r.Get("/backups", bak.List)
+						r.Post("/backups/download", bak.Download)
+						r.Delete("/backups", bak.DeleteAccountObject)
+						r.Post("/onboarding/attach-account", onb.AttachAccount)
+						r.Post("/onboarding/name", onb.Name)
+						r.Post("/onboarding/backups", onb.Backups)
+						r.Post("/account/verify-human", onb.VerifyHuman)
+						r.Post("/account/oss-token", onb.MintOSS)
+					})
 				})
 			})
 
@@ -139,6 +151,10 @@ func (s *Server) routes() {
 			r.Post("/admin/setup-tokens", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/setup-tokens/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/setup-tokens/{tokenID}", console.RevokeSetupToken)
+			r.Get("/admin/providers", prov.ListProviders)
+			r.With(handlers.LimitJSONBody).Post("/admin/providers", prov.CreateProvider)
+			r.With(handlers.LimitJSONBody).Put("/admin/providers/{id}", prov.UpdateProvider)
+			r.Delete("/admin/providers/{id}", prov.DeleteProvider)
 		})
 	})
 

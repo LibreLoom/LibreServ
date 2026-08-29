@@ -8,6 +8,9 @@ import { ThemeProvider } from "../context/ThemeContext.jsx";
 
 const register = vi.fn();
 const login = vi.fn();
+const refresh = vi.fn();
+const markEmailVerified = vi.fn();
+const updateAccountEmail = vi.fn();
 const authState = vi.hoisted(() => ({ isAuthenticated: false, me: null }));
 
 vi.mock("../api.js", () => ({
@@ -32,6 +35,9 @@ vi.mock("../context/AuthContext.jsx", () => ({
     register,
     login,
     me: authState.me,
+    refresh,
+    markEmailVerified,
+    updateAccountEmail,
   }),
 }));
 
@@ -71,16 +77,64 @@ describe("OnboardingPage OSS verify", () => {
     localStorage.clear();
     authState.isAuthenticated = false;
     authState.me = null;
-    register.mockResolvedValue({});
-    login.mockResolvedValue({});
+    register.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    login.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    refresh.mockImplementation(async () => authState.me);
+    updateAccountEmail.mockResolvedValue({});
     stripeLooksConfigured.mockReturnValue(false);
     api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
       if (path === "/api/v1/account/verify-human") return { ok: true };
       if (path === "/api/v1/account/oss-token") return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", message: "Enter this on Luna." };
       if (path === "/api/v1/onboarding/bind") return { message: "ok" };
       if (path === "/api/v1/onboarding/attach-account") return { ok: true };
       return {};
     });
+  });
+
+  it("waits for email verification before continuing a new account", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    mount();
+    await createOssAccount();
+
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/oss-token");
+  });
+
+  it("continues after the email verification check succeeds", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: true };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/oss-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", message: "Enter this on Luna." };
+      }
+      return {};
+    });
+    mount();
+    await createOssAccount();
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(markEmailVerified).toHaveBeenCalled();
+  });
+
+  it("does not charge again when the signed-in account is already human-verified", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      human_verified: true,
+      stripe_publishable_key: "pk_test_x",
+    };
+    stripeLooksConfigured.mockReturnValue(true);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /I set this computer up myself/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
   });
 
   it("starts on a welcome step, not a register form", () => {
@@ -159,7 +213,7 @@ describe("OnboardingPage done card", () => {
     vi.clearAllMocks();
     localStorage.clear();
     authState.isAuthenticated = true;
-    authState.me = { email: "owner@example.com" };
+    authState.me = { email: "owner@example.com", email_verified: true };
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/onboarding/bind") return { status: "attached", message: "ok" };
       if (path === "/api/v1/onboarding/session") return { status: "attached" };

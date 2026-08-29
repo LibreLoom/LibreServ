@@ -624,9 +624,7 @@ mod tests {
     fn oss_code_is_memory_only() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service
-            .set_oss_code("3097-v4yk-3hyx-2e3p-v4b3")
-            .unwrap();
+        service.set_oss_code("3097-v4yk-3hyx-2e3p-v4b3").unwrap();
         assert!(!dir.path().join("setup-token").exists());
         assert_eq!(
             service.status().setup_code.as_deref(),
@@ -661,8 +659,8 @@ mod tests {
     #[test]
     fn hello_uses_configured_listen_port() {
         let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()))
-            .with_local_port(80);
+        let service =
+            ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into())).with_local_port(80);
         assert_eq!(service.local_port, 80);
     }
 

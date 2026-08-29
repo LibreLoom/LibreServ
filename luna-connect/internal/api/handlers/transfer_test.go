@@ -105,7 +105,7 @@ func TestTransferMintTearsDownKeepsBackups(t *testing.T) {
 	_ = acct.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'sell@b.co'`).Scan(&acctID)
 	_ = acct.DB.QueryRow(`SELECT id, COALESCE(tunnel_id,'') FROM devices WHERE account_id = ?`, acctID).Scan(&deviceID, &tunnelID)
 	_, _ = acct.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active' WHERE id = ?`, acctID)
-	if _, err := acct.Store.Put(acctID, deviceID, "Photos/a.jpg", strings.NewReader("keep-me")); err != nil {
+	if _, _, err := acct.Store.Put(acctID, deviceID, "Photos/a.jpg", strings.NewReader("keep-me")); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = acct.DB.Exec(`INSERT INTO backup_objects (id, account_id, device_id, relative_path, size, content_hash, updated_at)

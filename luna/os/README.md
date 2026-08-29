@@ -34,8 +34,8 @@ disk both boot in either firmware mode.
 #    erases the USB stick.
 #
 #    Factory OEM: the hybrid image includes a writable FAT partition labeled
-#    LUNAASSETS (256 MiB). Mount it after dd and put one official booklet code
-#    per line in a file named TOKENS. Each flash peels the first line onto the
+#    LUNAASSETS (256 MiB). Mount it after dd and put one official setup code
+#    (purchased-from-LibreLoom path) per line in a file named TOKENS. Each flash peels the first line onto the
 #    unit as /var/lib/luna/setup-token and rewrites the magazine. Later factory
 #    assets (device photos, etc.) also belong on LUNAASSETS. A one-shot
 #    setup-token file next to the ISO payload still works for a single unit.
