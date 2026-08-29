@@ -17,7 +17,7 @@ for this document’s signing model.
 | Command | `./release.sh` | `./release.sh --luna` |
 | Tag / title | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` |
 | Default CI | `./ci run -profile libreserv` | `./ci run -profile luna` |
-| Assets | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` | `lunad-linux-amd64`, optional `lunad-linux-arm64`, OS cut: `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso`, `luna-desktop-x86_64.flatpak`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
+| Assets | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` | `lunad-linux-amd64`, optional `lunad-linux-arm64`, OS cut: `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso`, `luna-desktop-x86_64.flatpak`, `luna-android.apk`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
 | Public key | [`keys/libreserv.minisign.pub`](../keys/libreserv.minisign.pub) | [`keys/lsluna.minisign.pub`](../keys/lsluna.minisign.pub) |
 | Secret env | `LIBRESERV_RELEASE_MINISIG_PK` + `_PW` | `LSLUNA_RELEASE_MINISIG_PK` + `_PW` |
 | Local secret | `~/.minisign/libreserv.key` | `~/.minisign/lsluna.key` |
@@ -113,7 +113,8 @@ After creation, verify:
 - [ ] LibreServ `v*`: `libreserv-linux-amd64`, `libreserv-linux-arm64`,
       `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
 - [ ] Luna `luna-v*`: `lunad-linux-*`, `luna-os-x86_64.img` + ISO when shipping
-      OS, `luna-desktop-x86_64.flatpak`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` only
+      OS, `luna-desktop-x86_64.flatpak`, `luna-android.apk`, `SHA256SUMS.txt`,
+      `SHA256SUMS.txt.minisig` only (Windows `.exe` not yet automated)
 - [ ] `minisign -Vm SHA256SUMS.txt -p keys/<product>.minisign.pub` succeeds
 - [ ] Release notes are formatted correctly
 

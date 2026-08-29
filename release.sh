@@ -92,7 +92,7 @@ while [ $# -gt 0 ]; do
             echo "  --yes, -y      Non-interactive: no prompts (uses FORGEJO_TOKEN from the environment)"
             echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
             echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
-            echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO"
+            echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO + Flatpak + Android"
             echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
             echo "  --sign-only    Sign SHA256SUMS.txt on an existing release and upload .minisig"
@@ -583,9 +583,44 @@ build_binaries() {
         fi
         cp "$FLATPAK_OUT" "$BUILD_DIR/luna-desktop-x86_64.flatpak"
 
+        log_info "Building Luna Android APK..."
+        if [ -z "${ANDROID_HOME:-}" ] && [ -d /usr/local/android-sdk ]; then
+            export ANDROID_HOME=/usr/local/android-sdk
+            export ANDROID_SDK_ROOT=/usr/local/android-sdk
+        fi
+        if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
+            log_error "ANDROID_HOME is required for Luna Android APK releases"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if [ ! -f luna/mobile/local.properties ]; then
+            echo "sdk.dir=${ANDROID_HOME}" > luna/mobile/local.properties
+        fi
+        # No release keystore in-repo yet — ship a debug-signed installable APK for prereleases.
+        if [ ! -w "${GRADLE_USER_HOME:-$HOME/.gradle}" ]; then
+            export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/luna-gradle}"
+        fi
+        if [ ! -w "${ANDROID_USER_HOME:-$HOME/.config/.android}" ]; then
+            export ANDROID_USER_HOME="${ANDROID_USER_HOME:-/tmp/luna-android}"
+        fi
+        APK_OUT="luna/mobile/app/build/outputs/apk/debug/app-debug.apk"
+        rm -f "$APK_OUT"
+        if ! (cd luna/mobile && ./gradlew assembleDebug --no-daemon); then
+            log_error "Android APK build failed"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if [ ! -f "$APK_OUT" ]; then
+            log_error "Android APK missing at $APK_OUT"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$APK_OUT" "$BUILD_DIR/luna-android.apk"
+
         log_info "Generating SHA256 checksums..."
         cd "$BUILD_DIR"
-        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso luna-desktop-x86_64.flatpak > SHA256SUMS.txt
+        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso \
+            luna-desktop-x86_64.flatpak luna-android.apk > SHA256SUMS.txt
         cd ..
         sign_checksums "$BUILD_DIR"
         log_info "Luna assets built successfully"
@@ -719,7 +754,7 @@ create_release_notes() {
         RELEASE_NOTES="$(cat <<EOF
 ## What's Changed
 
-Pre-release ${VERSION_TAG}. Luna Server OS cut plus Luna Desktop Flatpak.
+Pre-release ${VERSION_TAG}. Luna Server OS cut plus Desktop (Linux), Android, and factory ISO.
 
 ## Assets
 
@@ -727,7 +762,10 @@ Pre-release ${VERSION_TAG}. Luna Server OS cut plus Luna Desktop Flatpak.
 - \`luna-os-x86_64.img\` — A/B slot OS image for OTA
 - \`luna-rapidinstall-x86_64.iso\` — factory USB installer
 - \`luna-desktop-x86_64.flatpak\` — Luna Desktop (Linux)
+- \`luna-android.apk\` — Luna Android photo backup (debug-signed until a release keystore lands)
 - \`SHA256SUMS.txt\` + \`SHA256SUMS.txt.minisig\` — signed checksums
+
+Windows Desktop (\`.exe\`) is not in this cut — GTK 4 + libadwaita packaging still needs a Windows builder.
 
 ## Upgrade Notes
 
@@ -736,6 +774,8 @@ Pre-release ${VERSION_TAG}. Luna Server OS cut plus Luna Desktop Flatpak.
 **Factory install or recovery USB:** Write \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
 
 **Luna Desktop (Linux):** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
+
+**Luna Android:** Install \`luna-android.apk\` (allow installs from this source). Photo backup over your home network.
 
 ## Commits Since Last Release
 
@@ -912,7 +952,7 @@ upload_assets() {
     echo ""
     
     if [ "$LUNA_RELEASE" = true ]; then
-        REQUIRED_ASSETS=(lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso luna-desktop-x86_64.flatpak SHA256SUMS.txt SHA256SUMS.txt.minisig)
+        REQUIRED_ASSETS=(lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso luna-desktop-x86_64.flatpak luna-android.apk SHA256SUMS.txt SHA256SUMS.txt.minisig)
     else
         REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt SHA256SUMS.txt.minisig)
     fi
