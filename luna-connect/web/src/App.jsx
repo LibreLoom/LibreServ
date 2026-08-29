@@ -5,6 +5,7 @@ import { useAdminAuth } from "./context/AdminAuthContext.jsx";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
 const Register = lazy(() => import("./pages/Register.jsx"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail.jsx"));
 const LunaPage = lazy(() => import("./pages/LunaPage.jsx"));
 const BackupsPage = lazy(() => import("./pages/BackupsPage.jsx"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage.jsx"));
@@ -17,7 +18,7 @@ const AdminSecurityPage = lazy(() => import("./pages/AdminSecurityPage.jsx"));
 const AdminProvidersPage = lazy(() => import("./pages/AdminProvidersPage.jsx"));
 
 function Protected({ children }) {
-  const { isAuthenticated, ready } = useAuth();
+  const { isAuthenticated, ready, me } = useAuth();
   if (!ready) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
@@ -26,6 +27,7 @@ function Protected({ children }) {
     );
   }
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (me && !me.email_verified) return <Navigate to="/onboarding" replace />;
   return children;
 }
 
@@ -58,6 +60,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <Register />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/" element={<Protected><LunaPage /></Protected>} />
         <Route path="/backups" element={<Protected><BackupsPage /></Protected>} />

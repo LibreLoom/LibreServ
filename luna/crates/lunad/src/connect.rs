@@ -44,6 +44,8 @@ struct Ephemeral {
 pub struct ConnectService {
     state_path: PathBuf,
     token_path: PathBuf,
+    bin_dir: PathBuf,
+    local_port: u16,
     base_url: String,
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
@@ -52,11 +54,14 @@ pub struct ConnectService {
 }
 
 impl ConnectService {
-    pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
+    pub fn new(data_dir: &Path, base_url: Option<String>, local_port: u16) -> Self {
         let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
+        let port = if local_port == 0 { 8090 } else { local_port };
         Self {
             state_path: data_dir.join("connect.json"),
             token_path: data_dir.join("setup-token"),
+            bin_dir: data_dir.join("bin"),
+            local_port: port,
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
@@ -91,11 +96,8 @@ impl ConnectService {
             .get("hostname")
             .and_then(|v| v.as_str())
             .map(String::from);
-        let tunnel_active = self.tunnel_running()
-            || state
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+        // Only a live cloudflared process counts — never a persisted flag or mock token.
+        let tunnel_active = self.tunnel_running();
         ConnectStatus {
             enabled,
             base_url: self.base_url.clone(),
@@ -248,7 +250,7 @@ impl ConnectService {
         let hello = json!({
             "type": "hello",
             "token": token,
-            "local_port": 8090,
+            "local_port": self.local_port,
             "source": source,
         });
         if socket
@@ -395,7 +397,8 @@ impl ConnectService {
             .unwrap_or(false)
     }
 
-    fn ensure_tunnel(&self) -> Result<(), ConnectError> {
+    /// Start cloudflared when a real tunnel token is stored (boot + claim + status).
+    pub fn ensure_tunnel(&self) -> Result<(), ConnectError> {
         if self.tunnel_running() {
             return Ok(());
         }
@@ -406,23 +409,85 @@ impl ConnectService {
             .unwrap_or("")
             .to_string();
         if token.is_empty() || token.starts_with("mock-") {
-            let mut state = self.load();
-            state["tunnel_active"] = json!(true);
-            return self.save(&state);
+            // Mock Connect (no Cloudflare configured) — nothing to run locally.
+            return Ok(());
         }
-        let child = Command::new("cloudflared")
-            .args(["tunnel", "run", "--token", &token])
+        let bin = self.resolve_cloudflared()?;
+        reap_stale_cloudflared(&bin);
+        let mut cmd = Command::new(&bin);
+        cmd.args(["tunnel", "--no-autoupdate", "run"])
+            .env("TUNNEL_TOKEN", &token)
+            .env("CLOUDFLARED_TUNNEL_TOKEN", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| {
-                ConnectError::Other(
-                    "Luna couldn't start the protected connection. Try again in a few minutes."
-                        .into(),
-                )
-            })?;
+            .stderr(Stdio::null());
+        let child = cmd.spawn().map_err(|_| {
+            ConnectError::Other(
+                "Luna couldn't start the protected connection. Try again in a few minutes.".into(),
+            )
+        })?;
         *self.child.lock().unwrap() = Some(child);
+        Ok(())
+    }
+
+    fn resolve_cloudflared(&self) -> Result<PathBuf, ConnectError> {
+        let in_data = self.bin_dir.join("cloudflared");
+        if in_data.is_file() {
+            return Ok(in_data);
+        }
+        for candidate in [
+            PathBuf::from("/usr/local/bin/cloudflared"),
+            PathBuf::from("/usr/bin/cloudflared"),
+        ] {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+        if let Ok(path) = which_cloudflared() {
+            return Ok(path);
+        }
+        self.install_cloudflared()?;
+        if in_data.is_file() {
+            return Ok(in_data);
+        }
+        Err(ConnectError::Other(
+            "Luna couldn't install the protected connection helper. Check the internet connection and try again."
+                .into(),
+        ))
+    }
+
+    fn install_cloudflared(&self) -> Result<(), ConnectError> {
+        let _ = std::fs::create_dir_all(&self.bin_dir);
+        let dest = self.bin_dir.join("cloudflared");
+        let arch = cloudflared_arch();
+        let url = format!(
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}"
+        );
+        let status = Command::new("curl")
+            .args(["-fsSL", "-o"])
+            .arg(&dest)
+            .arg(&url)
+            .status();
+        let ok = matches!(status, Ok(s) if s.success());
+        if !ok {
+            let status = Command::new("wget")
+                .args(["-q", "-O"])
+                .arg(&dest)
+                .arg(&url)
+                .status();
+            if !matches!(status, Ok(s) if s.success()) {
+                let _ = std::fs::remove_file(&dest);
+                return Err(ConnectError::Other(
+                    "Luna couldn't download the protected connection helper. Check the internet connection and try again."
+                        .into(),
+                ));
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+        }
         Ok(())
     }
 
@@ -519,6 +584,55 @@ impl ConnectService {
     }
 }
 
+fn cloudflared_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" | "arm64" => "arm64",
+        _ => "amd64",
+    }
+}
+
+fn which_cloudflared() -> Result<PathBuf, ()> {
+    let path = std::env::var_os("PATH").ok_or(())?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join("cloudflared");
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(())
+}
+
+/// SIGINT any orphaned cloudflared still running from this binary path.
+fn reap_stale_cloudflared(bin_path: &Path) {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    let marker = format!("{} tunnel --no-autoupdate run", bin_path.display());
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid_str) = name.to_str() else {
+            continue;
+        };
+        if pid_str.parse::<i32>().is_err() {
+            continue;
+        }
+        let cmdline_path = entry.path().join("cmdline");
+        let Ok(raw) = std::fs::read(&cmdline_path) else {
+            continue;
+        };
+        let cmdline = String::from_utf8_lossy(&raw).replace('\0', " ");
+        if !cmdline.contains(&marker) {
+            continue;
+        }
+        let Ok(pid) = pid_str.parse::<i32>() else {
+            continue;
+        };
+        unsafe {
+            libc::kill(pid, libc::SIGINT);
+        }
+    }
+}
+
 fn http_to_ws(base: &str) -> String {
     if let Some(rest) = base.strip_prefix("https://") {
         format!("wss://{}", rest.trim_end_matches('/'))
@@ -587,7 +701,7 @@ mod tests {
     #[test]
     fn apply_claimed_persists_secret_and_starts_mock_tunnel() {
         let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()), 8090);
         service
             .apply_claimed(&json!({
                 "device_token": "tok-1",
@@ -612,7 +726,7 @@ mod tests {
     #[test]
     fn oss_code_is_memory_only() {
         let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()), 8090);
         service
             .set_oss_code("3097-v4yk-3hyx-2e3p-v4b3")
             .unwrap();
@@ -635,7 +749,7 @@ mod tests {
     fn local_complete_stops_anonymous_factory_hello() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-IJKM-NPQR-STUV").unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()), 8090);
         assert!(service.setup_hello_token(false).is_some());
         assert!(service.setup_hello_token(true).is_none());
         service.redeem_booklet().unwrap();
@@ -648,5 +762,26 @@ mod tests {
     fn idle_requires_quiet_window() {
         assert!(!is_idle(100, 110));
         assert!(is_idle(100, 140));
+    }
+
+    #[test]
+    fn cloudflared_arch_is_known() {
+        assert!(matches!(cloudflared_arch(), "amd64" | "arm64"));
+    }
+
+    #[test]
+    fn mock_tunnel_token_does_not_mark_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()), 80);
+        service
+            .apply_claimed(&json!({
+                "device_token": "tok-2",
+                "hostname": "x.luna.servers.libreloom.org",
+                "subdomain": "x",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        assert!(!service.status().tunnel_active);
+        assert_eq!(service.local_port, 80);
     }
 }

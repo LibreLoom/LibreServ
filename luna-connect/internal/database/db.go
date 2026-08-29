@@ -35,8 +35,17 @@ CREATE TABLE IF NOT EXISTS accounts (
   backup_quota_bytes INTEGER,
   has_card INTEGER NOT NULL DEFAULT 0,
   billing_status TEXT NOT NULL DEFAULT 'none',
+  email_verified INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,
   account_id TEXT,
@@ -170,5 +179,6 @@ CREATE TABLE IF NOT EXISTS billing_period_egress (
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE issued_tokens ADD COLUMN token_hint TEXT`)
 	_, _ = db.Exec(`ALTER TABLE backup_objects ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0`)
 	return nil
 }

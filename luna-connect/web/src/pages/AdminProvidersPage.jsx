@@ -11,8 +11,8 @@ import { adminApi } from "../context/AdminAuthContext.jsx";
  * Service catalog for Luna Connect admin connections.
  * Keys must match internal/api/handlers/providers.go allowedService values.
  * Stripe is applied at runtime (ApplyStripeFromDB). B2 keys drive cloud backup
- * object storage (one private bucket per Luna). Resend is stored for later —
- * mail send is not wired yet.
+ * object storage (one private bucket per Luna). Resend sends account verification
+ * emails when configured.
  */
 const SERVICE_FIELDS = {
   stripe: {
@@ -34,7 +34,7 @@ const SERVICE_FIELDS = {
   smtp: {
     label: "Email (Resend)",
     description:
-      "Stores a Resend API key for later. Luna Connect does not send mail through Resend yet — saving a key here does not turn email on. Create a key at resend.com → API Keys when you are ready.",
+      "Sends verification emails when someone creates a Luna Connect account. Create an API key at resend.com → API Keys. Optionally set From address to a verified domain (for example Luna Connect <noreply@yourdomain.com>).",
     credentials: [
       { key: "api_key", label: "Resend API key", placeholder: "re_…", type: "password" },
     ],
@@ -210,8 +210,8 @@ export default function AdminProvidersPage() {
       <h2 className="font-mono text-2xl mb-2">Connections</h2>
       <p className="text-muted-foreground mb-6 max-w-3xl">
         Stripe keys apply right away for billing. Backblaze B2 keys turn on off-site cloud
-        backup (one private bucket per Luna). Resend can be saved for later — mail send is not
-        wired yet. Secrets stay in the database and are never shown in full again; leave a secret
+        backup (one private bucket per Luna). Resend sends account verification emails when
+        configured. Secrets stay in the database and are never shown in full again; leave a secret
         blank when editing to keep the current value. If nothing is saved here, Stripe still uses
         the config file, and cloud backup falls back to this server’s disk.
       </p>

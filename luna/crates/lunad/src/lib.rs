@@ -96,6 +96,7 @@ impl AppState {
             connect: Arc::new(crate::connect::ConnectService::new(
                 data_dir,
                 std::env::var("LUNA_CONNECT_URL").ok(),
+                8090,
             )),
             login_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),

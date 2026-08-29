@@ -1166,6 +1166,7 @@ mod guard_tests {
         let connect = std::sync::Arc::new(crate::connect::ConnectService::new(
             dir.path(),
             Some("http://127.0.0.1:1".into()),
+            8090,
         ));
         let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect);
         let app = api::router()
@@ -1554,7 +1555,7 @@ mod guard_tests {
     async fn first_account_on_public_hostname_needs_setup_secret() {
         let (dir, _) = test_app();
         let connect =
-            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()), 8090);
         connect
             .apply_claimed(&serde_json::json!({
                 "device_token": "tok",

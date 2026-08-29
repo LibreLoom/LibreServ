@@ -23,6 +23,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
+      // Unverified accounts are redirected to setup by Protected; go there directly.
       navigate("/");
     } catch (err) {
       setError(err.message || "Could not sign in. Check your email and password.");

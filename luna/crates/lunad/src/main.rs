@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let connect = std::sync::Arc::new(lunad::connect::ConnectService::new(
         &cfg.data_dir,
         std::env::var("LUNA_CONNECT_URL").ok(),
+        cfg.port,
     ));
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
@@ -90,6 +91,22 @@ async fn main() -> anyhow::Result<()> {
                         .unwrap_or(false);
                     connect.hello_once(setup_done);
                     std::thread::sleep(std::time::Duration::from_secs(3));
+                }
+            })
+            .ok();
+    }
+
+    {
+        // Keep cloudflared up across reboots and process exits (token via env, not argv).
+        let connect = state.connect.clone();
+        std::thread::Builder::new()
+            .name("luna-tunnel".into())
+            .spawn(move || {
+                loop {
+                    if let Err(e) = connect.ensure_tunnel() {
+                        tracing::warn!(error = %e, "protected connection not running");
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(15));
                 }
             })
             .ok();

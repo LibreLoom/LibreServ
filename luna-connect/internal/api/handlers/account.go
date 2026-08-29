@@ -18,6 +18,8 @@ import (
 
 type AccountHandler struct {
 	Deps
+	// Resend is optional; tests inject a mock. Production uses the default client.
+	Resend *providers.ResendClient
 }
 
 const authAttemptMax = 10
@@ -64,14 +66,22 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := security.NewID("acct")
-	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, stripe_customer_id, has_card, billing_status, created_at)
-VALUES (?, ?, ?, ?, 0, 'none', ?)`, id, email, string(hash), cust, time.Now().Unix())
+	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, stripe_customer_id, has_card, billing_status, email_verified, created_at)
+VALUES (?, ?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), cust, time.Now().Unix())
 	if err != nil {
 		JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
 		return
 	}
 	h.setSession(w, id)
-	JSON(w, http.StatusCreated, map[string]any{"id": id, "email": email, "has_card": false, "stripe_publishable_key": stripePublishableKey()})
+	// Best-effort verification email — registration still succeeds if mail is down.
+	verificationToken, _ := h.createEmailVerificationToken(r.Context(), id)
+	if verificationToken != "" {
+		go h.sendVerificationEmail(email, verificationToken, "")
+	}
+	JSON(w, http.StatusCreated, map[string]any{
+		"id": id, "email": email, "has_card": false, "email_verified": false,
+		"stripe_publishable_key": stripePublishableKey(),
+	})
 }
 
 func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -86,13 +96,15 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id, hash string
-	err := h.DB.QueryRow(`SELECT id, password_hash FROM accounts WHERE email = ?`, email).Scan(&id, &hash)
+	var emailVerified int
+	err := h.DB.QueryRow(`SELECT id, password_hash, email_verified FROM accounts WHERE email = ?`, email).
+		Scan(&id, &hash, &emailVerified)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
 		return
 	}
 	h.setSession(w, id)
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "email_verified": emailVerified == 1, "email": email, "id": id})
 }
 
 func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +124,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
 		"email":                  acct.Email,
+		"email_verified":         acct.EmailVerified,
 		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
 		"human_verified":         humanVerified,
 		"billing_status":         acct.BillingStatus,
@@ -291,18 +304,19 @@ func (h AccountHandler) AccountAuth(next http.Handler) http.Handler {
 			return
 		}
 		var id, email, status, cust, sub string
-		var has int
+		var has, emailVerified int
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), a.email_verified
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub)
+			Scan(&id, &email, &has, &status, &cust, &sub, &emailVerified)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+			ID: id, Email: email, HasCard: has == 1, BillingStatus: status,
+			StripeCustomer: cust, StripeSub: sub, EmailVerified: emailVerified == 1,
 		})))
 	})
 }
@@ -315,18 +329,19 @@ func (h AccountHandler) OptionalAccountAuth(next http.Handler) http.Handler {
 			return
 		}
 		var id, email, status, cust, sub string
-		var has int
+		var has, emailVerified int
 		err = h.DB.QueryRow(`
-SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,''), a.email_verified
 FROM sessions s JOIN accounts a ON a.id = s.account_id
 WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
-			Scan(&id, &email, &has, &status, &cust, &sub)
+			Scan(&id, &email, &has, &status, &cust, &sub, &emailVerified)
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
-			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+			ID: id, Email: email, HasCard: has == 1, BillingStatus: status,
+			StripeCustomer: cust, StripeSub: sub, EmailVerified: emailVerified == 1,
 		})))
 	})
 }

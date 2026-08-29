@@ -34,6 +34,7 @@ type Account struct {
 	BillingStatus  string
 	StripeCustomer string
 	StripeSub      string
+	EmailVerified  bool
 }
 
 func WithDevice(ctx context.Context, d Device) context.Context {

@@ -43,8 +43,33 @@ export function AuthProvider({ children }) {
     setMe(null);
   }, []);
 
+  const markEmailVerified = useCallback(() => {
+    setMe((a) => (a ? { ...a, email_verified: true } : a));
+  }, []);
+
+  const updateAccountEmail = useCallback(async (email, source = "") => {
+    const res = await api("/api/v1/account/email", {
+      method: "POST",
+      body: JSON.stringify({ email, source }),
+    });
+    setMe((a) => (a ? { ...a, email: res.email || email, email_verified: false } : a));
+    return res;
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ me, ready, isAuthenticated: Boolean(me), refresh, login, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        me,
+        ready,
+        isAuthenticated: Boolean(me),
+        refresh,
+        login,
+        register,
+        logout,
+        markEmailVerified,
+        updateAccountEmail,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
