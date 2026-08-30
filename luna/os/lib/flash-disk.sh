@@ -225,18 +225,18 @@ _flash_guards() {
 
 # Extract rootfs onto a mounted slot and stamp fstab for LUNA_DATA.
 _populate_slot() {
-	_mnt="$1"
+	_slotmnt="$1"
 	_tarball="$2"
 	_label="$3"
-	tar -xzf "$_tarball" -C "$_mnt"
+	tar -xzf "$_tarball" -C "$_slotmnt"
 	# Ensure data mountpoint exists; fstab is completed by build-rootfs, but
 	# older tarballs may lack the LUNA_DATA line — append if missing.
-	mkdir -p "$_mnt/var/lib/luna"
-	if [ -f "$_mnt/etc/fstab" ] && ! grep -q 'LABEL=LUNA_DATA' "$_mnt/etc/fstab" 2>/dev/null; then
-		printf 'LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2\n' >>"$_mnt/etc/fstab"
+	mkdir -p "$_slotmnt/var/lib/luna"
+	if [ -f "$_slotmnt/etc/fstab" ] && ! grep -q 'LABEL=LUNA_DATA' "$_slotmnt/etc/fstab" 2>/dev/null; then
+		printf 'LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2\n' >>"$_slotmnt/etc/fstab"
 	fi
 	# Slot identity for operators (not a Settings split).
-	printf 'slot=%s\n' "$_label" >"$_mnt/etc/luna-slot"
+	printf 'slot=%s\n' "$_label" >"$_slotmnt/etc/luna-slot"
 }
 
 # Write hex SHA256 to $1/os-image.sha256. First field only (GNU sha256sum line).

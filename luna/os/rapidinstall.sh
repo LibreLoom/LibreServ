@@ -236,35 +236,37 @@ echo "Installation complete."
 # Official setup code + OS hash live on LUNA_DATA, not on an OS slot.
 # Mount at /mnt/luna-data (not mktemp under /tmp). Missing hash = failed install.
 _datap="$(partition_data "$TARGET")"
-_mnt=/mnt/luna-data
-mkdir -p "$_mnt"
-if ! mount -o rw "$_datap" "$_mnt"; then
+# Distinct name: sourced factory-assets used to assign _mnt and clobber this
+# path, so cp wrote os-image.sha256 into a deleted /tmp/tmp.* (LUNAASSETS).
+_data_mnt=/mnt/luna-data
+mkdir -p "$_data_mnt"
+if ! mount -o rw "$_datap" "$_data_mnt"; then
 	echo
 	echo "Install wrote the slots, but the data partition could not be mounted."
 	echo "The OS image checksum is missing. This install did not finish."
 	exit 1
 fi
-if ! factory_apply_setup_token "$_mnt" "$HERE"; then
-	umount "$_mnt" 2>/dev/null || true
+if ! factory_apply_setup_token "$_data_mnt" "$HERE"; then
+	umount "$_data_mnt" 2>/dev/null || true
 	echo
 	echo "Install wrote the disk, but the official setup code step failed."
 	echo "Fix the TOKENS magazine on LUNAASSETS (or use setup-token), then re-run."
 	exit 1
 fi
-if [ ! -f "$_mnt/os-image.sha256" ]; then
+if [ ! -f "$_data_mnt/os-image.sha256" ]; then
 	_hash="${_os_hash:-}"
 	if [ -z "$_hash" ]; then
 		_hash="$(_resolve_os_image_hash "" "${_slot_img:-}")" || _hash=""
 	fi
-	if [ -z "$_hash" ] || ! _record_os_image_hash "$_mnt" "$_hash"; then
-		umount "$_mnt" 2>/dev/null || true
+	if [ -z "$_hash" ] || ! _record_os_image_hash "$_data_mnt" "$_hash"; then
+		umount "$_data_mnt" 2>/dev/null || true
 		echo
 		echo "Could not write the OS image checksum (os-image.sha256)."
 		echo "Without it, Luna cannot apply OS updates. This install did not finish."
 		exit 1
 	fi
 fi
-umount "$_mnt" 2>/dev/null || true
+umount "$_data_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."
 echo "Luna will reboot and show its address on the screen. Stay on home internet on your phone."
