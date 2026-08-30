@@ -10,7 +10,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {boolean} [noPopIn]
  * @property {boolean} [noHeightAnim]
  * @property {import('react').ElementType} [icon]
- * @property {string} [title]
+ * @property {import('react').ReactNode} [title]
  * @property {import('react').ReactNode} [headerActions]
  * @property {boolean} [padding]
  * @property {"primary"|"secondary"} [surface] Surface this card establishes. "secondary" (default) is the normal card surface (bg-secondary text-primary); "primary" inverts it (bg-primary text-secondary) for panels that should blend with the page.
@@ -115,7 +115,7 @@ Card.propTypes = {
   noPopIn: PropTypes.bool,
   noHeightAnim: PropTypes.bool,
   icon: PropTypes.elementType,
-  title: PropTypes.string,
+  title: PropTypes.node,
   headerActions: PropTypes.node,
   padding: PropTypes.bool,
   surface: PropTypes.oneOf(["primary", "secondary"]),

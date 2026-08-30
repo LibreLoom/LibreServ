@@ -3,6 +3,7 @@ import { Mail, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
+import { InfoHint, TermHint } from "../ui/Tooltip.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import { updateNotifications } from "../../lib/notifications-api.js";
@@ -43,7 +44,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
           : "Disabled";
 
   return (
-    <ModalCard title="Email / SMTP" onClose={onClose} size="md" loading={loading} data-slot="email-service-modal">
+    <ModalCard title={<>Email <InfoHint content="LibreServ sends mail through a mail provider. Providers call this SMTP — the usual way servers send email." /></>} onClose={onClose} size="md" loading={loading} data-slot="email-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -98,12 +99,20 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-accent">
-              Enter your SMTP provider details. Choose Proton, Resend, Postmark, or
-              any SMTP-compatible service.
+              Enter your mail provider details. Choose Proton, Resend, Postmark, or
+              any service that speaks{" "}
+              <TermHint content="The usual way servers send email. Your provider lists this as SMTP server or outgoing mail.">
+                SMTP
+              </TermHint>.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5 px-4">SMTP Host</label>
+                <label className="block text-xs text-accent font-medium mb-1.5 px-4">
+                  <TermHint content="The hostname your email provider lists as SMTP server or outgoing mail.">
+                    SMTP
+                  </TermHint>{" "}
+                  host
+                </label>
                 <input
                   type="text"
                   value={form.host}
@@ -138,7 +147,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                   type="password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="SMTP password or API key"
+                  placeholder="Password or API key from your email provider"
                   className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                 />
               </div>
@@ -180,7 +189,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                 await updateConnectService("smtp", "connected", csrfToken);
               } else {
                 if (!form.host.trim()) {
-                  setError("Enter your SMTP host, or turn on LibreServ Connect instead.");
+                  setError("Enter the mail server address (SMTP host), or turn on LibreServ Connect instead.");
                   setSaving(false);
                   return;
                 }

@@ -8,6 +8,7 @@ import Alert from "../../common/Alert";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow.jsx";
 import Button from "../../ui/Button";
+import { InfoHint } from "../../ui/Tooltip";
 import { useToast } from "../../../context/ToastContext";
 import api from "../../../lib/api";
 
@@ -126,7 +127,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
 
   return (
     <div className="space-y-4" data-slot="notifications-category">
-      <SettingsCard icon={Mail} title="Email / SMTP" padding={false} index={0}>
+      <SettingsCard icon={Mail} title={<>Email <InfoHint content="LibreServ sends notifications through a mail provider (SMTP)." /></>} padding={false} index={0}>
         <SettingsRow
           label="Email provider configuration"
           description={smtpConfigured ? "Connected — change provider in External Services" : "Not configured — set up in External Services"}
@@ -151,7 +152,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                       Send Test Notification
                     </div>
                     <div className="text-xs text-accent mt-0.5">
-                      Verify your SMTP configuration is working
+                      Send a test message to check that email is set up
                     </div>
                   </div>
                 </div>
