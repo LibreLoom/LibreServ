@@ -22,7 +22,7 @@ export default function DevicesCategory() {
           </Button>
           <Button asChild variant="outline">
             <Link to="/settings#security">
-              Create an access token on Security
+              Create an access token in Security
             </Link>
           </Button>
         </div>
@@ -40,7 +40,7 @@ export default function DevicesCategory() {
           </Button>
           <Button asChild variant="outline">
             <Link to="/settings#security">
-              Create an access token on Security
+              Create an access token in Security
             </Link>
           </Button>
         </div>

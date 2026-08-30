@@ -50,7 +50,7 @@ describe("DevicesCategory", () => {
     const desktopDownload = screen.getByRole("link", { name: /Download Luna Desktop/i });
     expect(desktopDownload).toHaveAttribute("href", DESKTOP_APP_DOWNLOAD_URL);
 
-    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
+    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token in Security/i });
     expect(tokenLinks).toHaveLength(2);
     expect(tokenLinks[0]).toHaveAttribute("href", "/settings#security");
   });

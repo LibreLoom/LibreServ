@@ -149,7 +149,7 @@ describe("SettingsPage", () => {
     expect(screen.queryByText(/no iPhone app yet/i)).toBeNull();
     expect(screen.getByRole("link", { name: /Download the Luna app for Android/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Download Luna Desktop/i })).toBeTruthy();
-    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
+    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token in Security/i });
     expect(tokenLinks).toHaveLength(2);
     expect(tokenLinks[0]).toHaveAttribute("href", "/settings#security");
   });
@@ -170,7 +170,7 @@ describe("SettingsPage", () => {
     renderPage("/settings#devices");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
-    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token on Security/i });
+    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token in Security/i });
     await user.click(tokenLinks[0]);
 
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
