@@ -160,7 +160,7 @@ impl ConnectService {
     pub fn redeem_booklet(&self) -> Result<(), ConnectError> {
         if self.read_factory_token().is_none() {
             return Err(ConnectError::Other(
-                "This Luna has no booklet code on disk. Paste the code from the Luna Connect site instead.".into(),
+                "This Luna has no code preconfigured. If you bought it from LibreLoom, contact support. Otherwise, follow the process at https://connect.luna.libreloom.org/onboarding to get a code, then add it in Settings → About → Advanced.".into(),
             ));
         }
         *self.redeem.lock().unwrap() = true;
@@ -661,6 +661,24 @@ mod tests {
         let (code, source) = service.setup_hello_token(true).unwrap();
         assert_eq!(source, "settings");
         assert!(code.contains("ABCD"));
+    }
+
+    #[test]
+    fn redeem_without_factory_token_explains_next_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let err = service.redeem_booklet().unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("This Luna has no code preconfigured"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("https://connect.luna.libreloom.org/onboarding"),
+            "{msg}"
+        );
+        assert!(msg.contains("Settings → About → Advanced"), "{msg}");
+        assert!(!msg.to_lowercase().contains("booklet"), "{msg}");
     }
 
     #[test]
