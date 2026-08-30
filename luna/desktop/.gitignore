@@ -1,6 +1,7 @@
 /target/
 /release/
 /.dev/
+/.cargo/
 /node_modules/
 /dist/
 /packaging/flatpak/build-dir/

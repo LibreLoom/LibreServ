@@ -57,6 +57,7 @@ export default function SettingsPage() {
   // and Settings stays mounted (same pathname). Follow the router hash.
   useEffect(() => {
     if (!hashCategory) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync selection to router hash
     setSelectedCategory(hashCategory);
     setShowMobileContent(true);
   }, [hashCategory]);

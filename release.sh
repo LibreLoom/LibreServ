@@ -92,7 +92,7 @@ while [ $# -gt 0 ]; do
             echo "  --yes, -y      Non-interactive: no prompts (uses FORGEJO_TOKEN from the environment)"
             echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
             echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
-            echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO + Flatpak + Android"
+            echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO + Flatpak + Windows + Android"
             echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
             echo "  --sign-only    Sign SHA256SUMS.txt on an existing release and upload .minisig"
@@ -617,10 +617,40 @@ build_binaries() {
         fi
         cp "$APK_OUT" "$BUILD_DIR/luna-android.apk"
 
+        log_info "Building Luna Desktop Windows installer (MinGW cross + NSIS)..."
+        if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+            log_error "mingw-w64 (x86_64-w64-mingw32-gcc) is required for Windows Desktop releases"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if ! command -v makensis >/dev/null 2>&1; then
+            log_error "makensis (NSIS) is required for Windows Desktop releases"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        # VERSION_TAG is luna-vX.Y.Z — installer uses X.Y.Z
+        WIN_VER="${VERSION_TAG#luna-v}"
+        WIN_VER="${WIN_VER#v}"
+        WIN_OUT="luna/desktop/release/Luna-Desktop-Setup-${WIN_VER}-x86_64.exe"
+        rm -f "$WIN_OUT"
+        chmod +x luna/desktop/packaging/windows/build-cross.sh
+        if ! LUNA_DESKTOP_VERSION="$WIN_VER" luna/desktop/packaging/windows/build-cross.sh; then
+            log_error "Windows Desktop installer build failed"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if [ ! -f "$WIN_OUT" ]; then
+            log_error "Windows installer missing at $WIN_OUT"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$WIN_OUT" "$BUILD_DIR/Luna-Desktop-Setup-${WIN_VER}-x86_64.exe"
+
         log_info "Generating SHA256 checksums..."
         cd "$BUILD_DIR"
         sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso \
-            luna-desktop-x86_64.flatpak luna-android.apk > SHA256SUMS.txt
+            luna-desktop-x86_64.flatpak luna-android.apk \
+            "Luna-Desktop-Setup-${WIN_VER}-x86_64.exe" > SHA256SUMS.txt
         cd ..
         sign_checksums "$BUILD_DIR"
         log_info "Luna assets built successfully"
@@ -754,7 +784,7 @@ create_release_notes() {
         RELEASE_NOTES="$(cat <<EOF
 ## What's Changed
 
-Pre-release ${VERSION_TAG}. Luna Server OS cut plus Desktop (Linux), Android, and factory ISO.
+Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, Desktop (Linux Flatpak + Windows installer), and Android APK.
 
 ## Assets
 
@@ -762,10 +792,9 @@ Pre-release ${VERSION_TAG}. Luna Server OS cut plus Desktop (Linux), Android, an
 - \`luna-os-x86_64.img\` — A/B slot OS image for OTA
 - \`luna-rapidinstall-x86_64.iso\` — factory USB installer
 - \`luna-desktop-x86_64.flatpak\` — Luna Desktop (Linux)
+- \`Luna-Desktop-Setup-*-x86_64.exe\` — Luna Desktop (Windows, unsigned test/prerelease installer; SmartScreen may warn)
 - \`luna-android.apk\` — Luna Android photo backup (debug-signed until a release keystore lands)
 - \`SHA256SUMS.txt\` + \`SHA256SUMS.txt.minisig\` — signed checksums
-
-Windows Desktop (\`.exe\`) is not in this cut — GTK 4 + libadwaita packaging still needs a Windows builder.
 
 ## Upgrade Notes
 
@@ -774,6 +803,8 @@ Windows Desktop (\`.exe\`) is not in this cut — GTK 4 + libadwaita packaging s
 **Factory install or recovery USB:** Write \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
 
 **Luna Desktop (Linux):** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
+
+**Luna Desktop (Windows):** Run \`Luna-Desktop-Setup-*-x86_64.exe\` (per-user install under Local App Data). Windows may warn that the publisher is unknown — that is expected for this unsigned prerelease build.
 
 **Luna Android:** Install \`luna-android.apk\` (allow installs from this source). Photo backup over your home network.
 
@@ -952,7 +983,18 @@ upload_assets() {
     echo ""
     
     if [ "$LUNA_RELEASE" = true ]; then
-        REQUIRED_ASSETS=(lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso luna-desktop-x86_64.flatpak luna-android.apk SHA256SUMS.txt SHA256SUMS.txt.minisig)
+        WIN_VER="${VERSION_TAG#luna-v}"
+        WIN_VER="${WIN_VER#v}"
+        REQUIRED_ASSETS=(
+            lunad-linux-amd64
+            luna-os-x86_64.img
+            luna-rapidinstall-x86_64.iso
+            luna-desktop-x86_64.flatpak
+            luna-android.apk
+            "Luna-Desktop-Setup-${WIN_VER}-x86_64.exe"
+            SHA256SUMS.txt
+            SHA256SUMS.txt.minisig
+        )
     else
         REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt SHA256SUMS.txt.minisig)
     fi
