@@ -64,10 +64,6 @@ function formatExpiry(iso) {
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
-// Returns either a single short label for the "Included" pill, or null if
-// the service isn't included on the current plan. For domain we prefer the
-// server's actual configured domain (possibly a custom one with renewal
-// info) over the plan wildcard. The wildcard is the final fallback.
 function formatServiceLimit(serviceId, planLimits, svc) {
   if (!planLimits) return "—";
 
@@ -75,8 +71,6 @@ function formatServiceLimit(serviceId, planLimits, svc) {
     case "smtp":
       return formatEmailPerMo(planLimits.max_emails_per_day) || "Not in plan";
     case "domain": {
-      // Custom domains replace the plan wildcard in the pill; a provisioned
-      // subdomain is shown separately as the device's actual name.
       const isCustom = svc?.details?.type === "custom";
       if (isCustom) return svc.details.domain;
       return planLimits.domain || "Not in plan";
@@ -92,9 +86,6 @@ function formatServiceLimit(serviceId, planLimits, svc) {
   }
 }
 
-// Returns a short text for the pill's second segment (layered pill):
-// domain details (actual subdomain or custom-domain renewal info), or the
-// usage-so-far for usage-based services. Null when there's nothing to show.
 function serviceDetailText({ serviceId, svc, usage }) {
   const details = svc?.details || {};
   const hasDetails = details && Object.keys(details).length > 0;
@@ -114,7 +105,6 @@ function serviceDetailText({ serviceId, svc, usage }) {
     return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // Usage-based services: show how much of the included quota is used.
   const used = usage?.by_service?.[serviceId]?.value;
   if (used == null) return null;
 
@@ -136,8 +126,8 @@ const SERVICE_META = [
   {
     id: "smtp",
     Icon: Mail,
-    title: "Email / SMTP",
-    desc: "Sends notifications, password resets, and alerts.",
+    title: "Email",
+    desc: "Sends notifications, password resets, and alerts through a mail provider (SMTP).",
   },
   {
     id: "domain",
@@ -196,10 +186,6 @@ export default function ExternalServicesCategory({
 
   const closeModal = () => setOpenModal(null);
 
-  // Deep links like #external_services-tunnel land here with the service modal
-  // meant to open. The suffix is stripped from the URL so clicking the same
-  // link again still fires a hashchange. "support" is informational, not a
-  // modal, so it's excluded.
   useEffect(() => {
     const openFromHash = () => {
       const m = window.location.hash.match(/^#external_services-(smtp|domain|backup|tunnel|ai)$/);
@@ -213,8 +199,6 @@ export default function ExternalServicesCategory({
     return () => window.removeEventListener("hashchange", openFromHash);
   }, []);
 
-  // Fetch per-service usage from Connect so the pills can show how much of
-  // the included quota has been used. Silent failure — usage is a nicety.
   useEffect(() => {
     if (!connectStatus?.connected) return undefined;
     let cancelled = false;
@@ -235,8 +219,6 @@ export default function ExternalServicesCategory({
   const activePlanId = connectStatus?.plan?.id;
   const planLimits = connectInfo?.plan_limits?.[activePlanId] || null;
   const isConnected = !!connectStatus?.connected;
-  // Modal content comes from connectStatus; until it has loaded, show the
-  // modal shell with a skeleton body instead of a half-empty form.
   const modalLoading = loading || !connectStatus;
 
   return (
@@ -263,8 +245,6 @@ export default function ExternalServicesCategory({
 
       {SERVICE_META.map(({ id, Icon, title, desc, informational }, i) => {
         const svc = services[id];
-        // Human Support is included with the plan, not something you
-        // "connect" — when the plan provides it, say so.
         const badge = svc
           ? informational && svc.state === "connected"
             ? { ...STATE_BADGES.connected, label: "Included" }
@@ -296,10 +276,6 @@ export default function ExternalServicesCategory({
                     <p className="text-sm text-accent">{desc}</p>
                     {(limitLabel || detailText) && (
                       <div className="mt-2">
-                        {/* Desktop: combined two-segment pill — the trailing
-                            segment stays mounted and animates its width in/out
-                            when detailText arrives (grid 0fr → 1fr), so the
-                            "lower pill" grows smoothly instead of snapping. */}
                         <LayeredPill
                           mono
                           className="hidden sm:inline-flex"
@@ -311,8 +287,6 @@ export default function ExternalServicesCategory({
                             {limitLabel}
                           </span>
                         </LayeredPill>
-                        {/* Mobile: two stacked pills — the lower one stays
-                            mounted and animates its height in/out. */}
                         <div className="sm:hidden flex flex-col items-start">
                           <span
                             className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
