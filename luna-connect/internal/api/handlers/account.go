@@ -36,6 +36,9 @@ const PairingTokenTTL = 24 * time.Hour
 const pairingTokenMax = 5
 const pairingTokenWindow = 3600
 
+// TransferTokenTTL caps how long a transfer code stays claimable.
+const TransferTokenTTL = 7 * 24 * time.Hour
+
 func activateAccount(db *sql.DB, id string) {
 	if db == nil || id == "" {
 		return
@@ -343,20 +346,22 @@ func (h AccountHandler) TransferToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dev.AccountID = account
-	teardownDevice(h.Deps, dev)
-	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind IN ('transfer','remint') AND status = 'issued'`, acct.ID)
 	code := security.WebsiteSetupToken()
 	norm := security.NormalizeToken(code)
 	id := security.NewID("tok")
-	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, created_at, token_hint)
-VALUES (?, ?, 'transfer', 'issued', ?, ?)`, id, security.HashToken(norm), time.Now().Unix(), security.TokenHint(norm))
+	exp := time.Now().Add(TransferTokenTTL).Unix()
+	_, err = h.DB.Exec(`INSERT INTO issued_tokens (id, token_hash, kind, status, account_id, expires_at, created_at, token_hint)
+VALUES (?, ?, 'transfer', 'issued', ?, ?, ?, ?)`, id, security.HashToken(norm), acct.ID, exp, time.Now().Unix(), security.TokenHint(norm))
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not make a transfer code. Try again.")
 		return
 	}
+	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'replaced' WHERE account_id = ? AND kind IN ('transfer','remint') AND status = 'issued' AND id != ?`, acct.ID, id)
+	teardownDevice(h.Deps, dev)
 	JSON(w, http.StatusCreated, map[string]any{
-		"code":    code,
-		"message": "Give this code to the new owner. They type it on connect.luna.libreloom.org the same way as a booklet code. The public address is gone. Your cloud copies stay here and stay billed until you turn payment off.",
+		"code":       code,
+		"expires_in": int(TransferTokenTTL.Seconds()),
+		"message":    "Give this code to the new owner. They type it on connect.luna.libreloom.org the same way as a booklet code. The public address is gone. Your cloud copies stay here and stay billed until you turn payment off.",
 	})
 }
 
@@ -391,11 +396,9 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 			"id": id, "name": name, "hostname": sub + "." + config.C.Server.PublicZone, "subdomain": sub,
 		}
 		if sealed != "" {
-			secret := sealed
 			if opened, err := security.OpenString(sealed); err == nil && opened != "" {
-				secret = opened
+				item["setup_secret"] = opened
 			}
-			item["setup_secret"] = secret
 		}
 		out = append(out, item)
 	}
