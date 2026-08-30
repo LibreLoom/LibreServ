@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -61,7 +60,8 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if !auth.VerifyTOTP(totpSecret.String, strings.TrimSpace(req.TOTPCode)) {
+		secretPlain, err := openAdminTOTP(totpSecret.String)
+		if err != nil || !auth.VerifyTOTP(secretPlain, strings.TrimSpace(req.TOTPCode)) {
 			JSONError(w, http.StatusUnauthorized, "That authenticator code did not match.")
 			return
 		}
@@ -92,7 +92,7 @@ func (h AdminAuthHandler) Seed(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusForbidden, "Creating the first admin is only allowed from this machine. Set auth.admin_seed_token to seed remotely.")
 			return
 		}
-	} else if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Seed-Token")), []byte(seedToken)) != 1 {
+	} else if !security.ConstantTimeEqual(r.Header.Get("X-Seed-Token"), seedToken) {
 		JSONError(w, http.StatusForbidden, "Invalid or missing seed token.")
 		return
 	}
@@ -195,15 +195,30 @@ func (h AdminAuthHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusForbidden, "Sign in with an admin account to set up two-factor authentication.")
 		return
 	}
+	var totpEnabled int
+	err := h.DB.QueryRow(`SELECT totp_enabled FROM admin_accounts WHERE id = ?`, adminID).Scan(&totpEnabled)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load this admin account. Try again.")
+		return
+	}
+	if totpEnabled == 1 {
+		JSONError(w, http.StatusConflict, "Two-factor authentication is already on.")
+		return
+	}
 	secret, err := auth.GenerateTOTPSecret()
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not create an authenticator secret. Try again.")
 		return
 	}
+	sealed, err := security.SealString(secret)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not protect the authenticator secret. Try again.")
+		return
+	}
 	var email string
 	_ = h.DB.QueryRow(`SELECT email FROM admin_accounts WHERE id = ?`, adminID).Scan(&email)
 	uri := auth.TOTPURI(secret, email, "Luna Connect Admin")
-	_, err = h.DB.Exec(`UPDATE admin_accounts SET totp_secret = ?, updated_at = ? WHERE id = ?`, secret, time.Now().Unix(), adminID)
+	_, err = h.DB.Exec(`UPDATE admin_accounts SET totp_secret = ?, updated_at = ? WHERE id = ?`, sealed, time.Now().Unix(), adminID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not save the authenticator secret. Try again.")
 		return
@@ -230,7 +245,8 @@ func (h AdminAuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Set up two-factor authentication first.")
 		return
 	}
-	if !auth.VerifyTOTP(secret.String, strings.TrimSpace(req.Code)) {
+	secretPlain, err := openAdminTOTP(secret.String)
+	if err != nil || !auth.VerifyTOTP(secretPlain, strings.TrimSpace(req.Code)) {
 		JSONError(w, http.StatusUnauthorized, "That authenticator code did not match.")
 		return
 	}
@@ -280,7 +296,24 @@ func (h AdminAuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusInternalServerError, "Could not update the password. Try again.")
 		return
 	}
+	current := security.BearerToken(r.Header.Get("Authorization"))
+	if current != "" {
+		_, _ = h.DB.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND token_hash != ?`, adminID, security.HashToken(current))
+	} else {
+		_, _ = h.DB.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, adminID)
+	}
 	JSON(w, http.StatusOK, map[string]any{"message": "Password updated."})
+}
+
+func openAdminTOTP(blob string) (string, error) {
+	if blob == "" {
+		return "", sql.ErrNoRows
+	}
+	if strings.HasPrefix(blob, "v1:") {
+		return security.OpenString(blob)
+	}
+	// Legacy plaintext rows until the admin re-runs setup.
+	return blob, nil
 }
 
 func (h AdminAuthHandler) ListAdmins(w http.ResponseWriter, r *http.Request) {
@@ -378,18 +411,20 @@ func (h AdminAuthHandler) DeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "You cannot deactivate your own account.")
 		return
 	}
-	var activeCount int
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM admin_accounts WHERE is_active = 1`).Scan(&activeCount)
-	if activeCount <= 1 {
-		JSONError(w, http.StatusBadRequest, "You cannot deactivate the last active admin account.")
-		return
-	}
-	res, err := h.DB.Exec(`UPDATE admin_accounts SET is_active = 0, updated_at = ? WHERE id = ? AND is_active = 1`, time.Now().Unix(), targetID)
+	res, err := h.DB.Exec(`UPDATE admin_accounts SET is_active = 0, updated_at = ?
+WHERE id = ? AND is_active = 1
+AND (SELECT COUNT(*) FROM (SELECT id FROM admin_accounts WHERE is_active = 1) AS active) > 1`, time.Now().Unix(), targetID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not deactivate that admin. Try again.")
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		var activeCount int
+		_ = h.DB.QueryRow(`SELECT COUNT(*) FROM admin_accounts WHERE is_active = 1`).Scan(&activeCount)
+		if activeCount <= 1 {
+			JSONError(w, http.StatusBadRequest, "You cannot deactivate the last active admin account.")
+			return
+		}
 		JSONError(w, http.StatusNotFound, "That admin account was not found or is already inactive.")
 		return
 	}

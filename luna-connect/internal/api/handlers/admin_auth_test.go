@@ -41,6 +41,10 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 	if token == "" {
 		t.Fatal("expected session token")
 	}
+	adminID, _ := loginOut["id"].(string)
+	if adminID != "" && (token == adminID || len(token) > len(adminID) && token[:len(adminID)+1] == adminID+"_") {
+		t.Fatalf("session token must be opaque, got prefix of admin id")
+	}
 
 	mintReq := httptest.NewRequest(http.MethodPost, "/admin/setup-tokens", bytes.NewBufferString(`{}`))
 	mintReq.Header.Set("Authorization", "Bearer "+token)
@@ -100,5 +104,20 @@ func TestAdminSeedRejectedRemoteWithoutToken(t *testing.T) {
 	adm.Seed(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("want 403 got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminSeedRejectedProxiedLoopback(t *testing.T) {
+	d := testDeps(t)
+	config.C.Auth.AdminSeedToken = ""
+	adm := AdminAuthHandler{Deps: d}
+	req := httptest.NewRequest(http.MethodPost, "/admin/seed", bytes.NewBufferString(
+		`{"email":"admin@example.com","password":"password1234"}`))
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	rec := httptest.NewRecorder()
+	adm.Seed(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("proxied seed %d %s", rec.Code, rec.Body.String())
 	}
 }
