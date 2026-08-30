@@ -38,7 +38,8 @@ afterEach(() => {
 describe("SystemUpdatesCard", () => {
   it("uses the comet dot spinner on Check for updates, not a circular Loader2", async () => {
     const user = userEvent.setup();
-    let finishCheck;
+    /** @type {() => void} */
+    let finishCheck = () => {};
     const checkGate = new Promise((resolve) => {
       finishCheck = resolve;
     });
