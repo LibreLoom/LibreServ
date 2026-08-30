@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AboutCategory from "./AboutCategory";
@@ -37,6 +37,12 @@ function stubFetch(sourceBody) {
     }
     if (path.startsWith("/api/v1/connect/status")) {
       return new Response(JSON.stringify({ enabled: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (path.startsWith("/api/v1/system/updates/source/keys")) {
+      return new Response(JSON.stringify({ keys: ["RWFROMREPO"] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -182,5 +188,34 @@ describe("AboutCategory", () => {
     await user.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(await screen.findByText(/not a valid minisign public key/i)).toBeTruthy();
+  });
+
+  it("fetches signing keys from the current form values into the textarea", async () => {
+    const user = userEvent.setup();
+    const fetchImpl = stubFetch();
+    renderPage(fetchImpl);
+    await screen.findByText("Default source");
+    await user.click(screen.getByRole("button", { name: /^Update source$/i }));
+    await user.click(screen.getByRole("button", { name: /Edit update source/i }));
+
+    expect(screen.getByRole("button", { name: /Fetch from repo/i })).toBeTruthy();
+    await user.clear(screen.getByPlaceholderText("LibreLoom"));
+    await user.type(screen.getByPlaceholderText("LibreLoom"), "MyOrg");
+    await user.click(screen.getByRole("button", { name: /Fetch from repo/i }));
+
+    const keysField = /** @type {HTMLTextAreaElement} */ (
+      screen.getByRole("textbox", { name: /Signing keys/i })
+    );
+    await waitFor(() => expect(keysField.value).toBe("RWFROMREPO"));
+
+    const calls = /** @type {[string, any][]} */ (fetchImpl.mock.calls);
+    const post = calls.find(
+      ([path, options]) => path.endsWith("/updates/source/keys") && options?.method === "POST",
+    );
+    expect(post).toBeTruthy();
+    const body = JSON.parse(post?.[1]?.body ?? "{}");
+    expect(body.api_base).toBe("https://gt.plainskill.net/api/v1");
+    expect(body.owner).toBe("MyOrg");
+    expect(body.repo).toBe("LibreServ");
   });
 });

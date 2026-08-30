@@ -9,7 +9,7 @@ import Pill from "../../common/Pill";
 import SettingsCard from "../SettingsCard";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
 import { InfoHint } from "../../ui/Tooltip";
-import { getJson, putJson, apiErrorMessage } from "../../../lib/api";
+import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
 
 const INPUT_CLASS =
   "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono";
@@ -166,6 +166,24 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     onError: (err) => setSaveError(apiErrorMessage(err)),
   });
 
+  const fetchKeys = useMutation({
+    mutationFn: () =>
+      postJson("/api/v1/system/updates/source/keys", {
+        api_base: baseUrl.trim(),
+        owner: owner.trim(),
+        repo: repo.trim(),
+      }),
+    onSuccess: (data) => {
+      const keys = Array.isArray(data?.keys) ? data.keys : [];
+      setKeysText(keys.join("\n"));
+      setSaveError(null);
+    },
+    onError: () =>
+      setSaveError(
+        "Luna couldn't get signing keys from that project page. Check the address, owner, and repo, then try again.",
+      ),
+  });
+
   const handleSave = () => {
     const trimmed = baseUrl.trim();
     if (!trimmed) {
@@ -193,6 +211,26 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     }
     setSaveError(null);
     save.mutate();
+  };
+
+  const handleFetchKeys = () => {
+    const trimmed = baseUrl.trim();
+    if (!trimmed) {
+      setSaveError("The API address needs a value. Put in the old address if you want to keep it.");
+      return;
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      setSaveError("The API address must start with http:// or https://.");
+      return;
+    }
+    if (!owner.trim() || !repo.trim()) {
+      setSaveError(
+        "Both the owner and the repo need a value — they say which project page the updates come from.",
+      );
+      return;
+    }
+    setSaveError(null);
+    fetchKeys.mutate();
   };
 
   const restoreDefaults = () => {
@@ -264,13 +302,26 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-sm text-primary" htmlFor="us-keys">
-              Signing keys{" "}
-              <InfoHint
-                label="What signing keys do"
-                content="An update is only installed when it carries a signature made with the matching secret key. These public keys are how Luna knows an update really comes from the project and wasn't tampered with. Luna already ships with the LibreLoom release key filled in below — you only need to change this if your updates are signed by someone else."
-              />
-            </label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="block text-sm text-primary" htmlFor="us-keys">
+                Signing keys{" "}
+                <InfoHint
+                  label="What signing keys do"
+                  content="An update is only installed when it carries a signature made with the matching secret key. These public keys are how Luna knows an update really comes from the project and wasn't tampered with. Luna already ships with the LibreLoom release key filled in below — you only need to change this if your updates are signed by someone else."
+                />
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                surface="secondary"
+                size="sm"
+                loading={fetchKeys.isPending}
+                disabled={save.isPending}
+                onClick={handleFetchKeys}
+              >
+                Fetch from repo
+              </Button>
+            </div>
             <textarea
               id="us-keys"
               value={keysText}
@@ -294,7 +345,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               type="button"
               variant="primary"
               loading={save.isPending}
-              disabled={!dirty}
+              disabled={!dirty || fetchKeys.isPending}
               onClick={handleSave}
               className="flex-1"
             >
