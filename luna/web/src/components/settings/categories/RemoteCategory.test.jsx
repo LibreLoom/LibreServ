@@ -25,6 +25,8 @@ describe("RemoteCategory", () => {
     expect(screen.getByRole("button", { name: /Use the code that came with this Luna/i })).toBeTruthy();
     expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
     expect(screen.getAllByText(/About → Advanced/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Other options/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tailscale/i)).not.toBeInTheDocument();
   });
 
   it("shows hostname and change field when on", async () => {
