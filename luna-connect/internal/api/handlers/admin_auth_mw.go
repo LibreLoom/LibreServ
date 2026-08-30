@@ -73,7 +73,7 @@ func AdminIDFrom(ctx context.Context) string {
 }
 
 func CreateAdminSession(db *sql.DB, adminID string) (string, error) {
-	token := adminID + "_" + security.RandomHex(32)
+	token := security.RandomHex(32)
 	ttl := config.C.Auth.SessionTTLHours
 	if ttl <= 0 {
 		ttl = 168
@@ -103,6 +103,11 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func IsLocalRequest(r *http.Request) bool {
+	// Behind Caddy/loopback bind, RemoteAddr is always 127.0.0.1. Any client
+	// identity header means this is a proxied request, not an on-box seed.
+	if strings.TrimSpace(r.Header.Get("X-Forwarded-For")) != "" || strings.TrimSpace(r.Header.Get("X-Real-IP")) != "" {
+		return false
+	}
 	host := remoteHost(r.RemoteAddr)
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
