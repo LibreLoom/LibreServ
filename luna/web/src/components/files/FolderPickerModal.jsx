@@ -157,7 +157,10 @@ export default function FolderPickerModal({
             busy={createBusy}
             error={createError}
             onSubmit={submitCreateFolder}
-            onClose={() => setCreating(false)}
+            onClose={() => {
+              setCreateError(null);
+              setCreating(false);
+            }}
           />
         </>
       )}

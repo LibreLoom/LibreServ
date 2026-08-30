@@ -486,10 +486,11 @@ export default function DriveFileExplorer({
   const renameSnapRef = useRef(/** @type {{ fullPath: string, name: string }|null} */ (null));
   if (renameTarget) renameSnapRef.current = renameTarget;
   const shownRename = renameTarget ?? renameSnapRef.current;
+  const nameModalOpen = createKind != null || renameTarget != null;
 
   return (
     <>
-      {actionError && (
+      {actionError && !nameModalOpen && (
         <PageNotice variant="error" className="mb-3">{actionError}</PageNotice>
       )}
       {uploads.length > 0 && (
@@ -519,6 +520,7 @@ export default function DriveFileExplorer({
         onCopy={(paths) => setTransfer({ kind: "copy", paths })}
         onMove={(paths) => setTransfer({ kind: "move", paths })}
         onRename={(ctx) => {
+          setActionError(null);
           setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
           setRenameValue(ctx.entry.name);
         }}
@@ -601,6 +603,7 @@ export default function DriveFileExplorer({
                   size="iconSm"
                   aria-label={`Rename ${ctx.entry.name}`}
                   onClick={() => {
+                    setActionError(null);
                     setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
                     setRenameValue(ctx.entry.name);
                   }}
@@ -693,13 +696,19 @@ export default function DriveFileExplorer({
         busy={mkdirMutation.isPending || createFileMutation.isPending}
         error={actionError}
         onSubmit={submitCreate}
-        onClose={() => setCreateKind(null)}
+        onClose={() => {
+          setActionError(null);
+          setCreateKind(null);
+        }}
       />
 
       <ModalCard
         open={renameTarget != null}
         title={`Rename ${shownRename?.name || ""}`}
-        onClose={() => setRenameTarget(null)}
+        onClose={() => {
+          setActionError(null);
+          setRenameTarget(null);
+        }}
       >
         {({ close }) => (
           <>

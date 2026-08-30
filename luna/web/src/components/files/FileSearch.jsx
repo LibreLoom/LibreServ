@@ -151,7 +151,7 @@ export default function FileSearch() {
         </span>
       </label>
 
-      {actionError && (
+      {actionError && deleteTarget == null && (
         <PageNotice variant="error" className="mt-3">
           {actionError}
         </PageNotice>
@@ -282,7 +282,10 @@ export default function FileSearch() {
       <ModalCard
         open={deleteTarget != null}
         title="Move to trash?"
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => {
+          setActionError(null);
+          setDeleteTarget(null);
+        }}
       >
         {({ close }) => (
           <>

@@ -229,6 +229,23 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
   });
 
+  it("keeps an empty new-folder name error inside the modal", async () => {
+    stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "New folder" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create folder" }));
+    expect(await within(dialog).findByText("Choose a name.")).toBeInTheDocument();
+    expect(screen.getAllByText("Choose a name.")).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Choose a name.")).not.toBeInTheDocument();
+    });
+  });
+
   it("creates a folder in the current folder", async () => {
     const fetchMock = stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
