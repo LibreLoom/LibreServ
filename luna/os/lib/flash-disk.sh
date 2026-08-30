@@ -53,7 +53,10 @@ _write_grub_cfg() {
 		echo 'insmod search_fs_uuid'
 		echo 'insmod search_label'
 		echo 'insmod loadenv'
-		echo 'search --no-floppy --label LUNAESP --set=esp'
+		# Label search fails on some thin-client UEFI (Wyse) when \$root is already
+		# the ESP. Prefer the grubenv file that only exists on LUNAESP.
+		echo 'search --no-floppy --file --set=esp /grub/grubenv'
+		echo 'if [ -z "$esp" ]; then search --no-floppy --label LUNAESP --set=esp; fi'
 		echo 'set envfile=($esp)/grub/grubenv'
 		echo 'load_env -f $envfile'
 		echo 'if [ -z "$luna_slot" ]; then set luna_slot=A; fi'
@@ -90,21 +93,65 @@ _write_grub_cfg() {
 	} >"$_cfgpath"
 }
 
-# UEFI fallback loader on the ESP — loads the shared grub.cfg next to grubenv.
+# UEFI paths: Debian grub-install --removable uses prefix /EFI/BOOT and
+# overwrites EFI/BOOT/grub.cfg. Always rewrite after grub-install.
+# Prefer a full copy of /grub/grub.cfg so a Wyse that never finds LUNAESP
+# still gets the Luna menu. Stub is only when the shared file is not there yet.
 _write_efi_grub_cfg() {
 	_espmnt="$1"
 
 	mkdir -p "$_espmnt/EFI/BOOT/grub"
+	if [ -f "$_espmnt/grub/grub.cfg" ]; then
+		cp "$_espmnt/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg"
+		cp "$_espmnt/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub/grub.cfg"
+		return 0
+	fi
 	{
 		echo 'insmod part_gpt'
 		echo 'insmod fat'
 		echo 'insmod search'
+		echo 'insmod search_fs_file'
 		echo 'insmod search_label'
-		echo 'search --no-floppy --label LUNAESP --set=root'
+		echo 'search --no-floppy --file --set=root /grub/grub.cfg'
+		echo 'if [ -z "$root" ]; then search --no-floppy --label LUNAESP --set=root; fi'
 		echo 'set prefix=($root)/grub'
 		echo 'export prefix'
 		echo 'configfile $prefix/grub.cfg'
 	} >"$_espmnt/EFI/BOOT/grub/grub.cfg"
+	cp "$_espmnt/EFI/BOOT/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg"
+}
+
+# Self-contained UEFI GRUB (same idea as the rapidinstall ISO). prefix=/grub
+# so firmware that ignores our grub.cfg still looks at ESP/grub/grub.cfg.
+_embed_uefi_grub() {
+	_espmnt="$1"
+	_efi_ok=0
+	mkdir -p "$_espmnt/EFI/BOOT"
+	if [ -f /usr/lib/grub/x86_64-efi/moddep.lst ] && command -v grub-mkimage >/dev/null 2>&1; then
+		if grub-mkimage \
+			-O x86_64-efi \
+			-o "$_espmnt/EFI/BOOT/BOOTX64.EFI" \
+			-p /grub \
+			-d /usr/lib/grub/x86_64-efi \
+			all_video boot cat configfile echo efi_gop efi_uga ext2 fat font \
+			gzio halt linux loadenv ls lsefi normal part_gpt part_msdos \
+			reboot search search_fs_file search_fs_uuid search_label \
+			sleep test true; then
+			_efi_ok=1
+		fi
+	fi
+	if [ -f /usr/lib/grub/i386-efi/moddep.lst ] && command -v grub-mkimage >/dev/null 2>&1; then
+		grub-mkimage \
+			-O i386-efi \
+			-o "$_espmnt/EFI/BOOT/BOOTIA32.EFI" \
+			-p /grub \
+			-d /usr/lib/grub/i386-efi \
+			all_video boot cat configfile echo efi_gop ext2 fat font \
+			gzio halt linux loadenv ls lsefi normal part_gpt part_msdos \
+			reboot search search_fs_file search_fs_uuid search_label \
+			sleep test true 2>/dev/null || true
+	fi
+	[ "$_efi_ok" -eq 1 ]
 }
 
 _write_grubenv() {
@@ -216,27 +263,53 @@ _flash_guards() {
 
 # Extract rootfs onto a mounted slot and stamp fstab for LUNA_DATA.
 _populate_slot() {
-	_mnt="$1"
+	_slotmnt="$1"
 	_tarball="$2"
 	_label="$3"
-	tar -xzf "$_tarball" -C "$_mnt"
+	tar -xzf "$_tarball" -C "$_slotmnt"
 	# Ensure data mountpoint exists; fstab is completed by build-rootfs, but
 	# older tarballs may lack the LUNA_DATA line — append if missing.
-	mkdir -p "$_mnt/var/lib/luna"
-	if [ -f "$_mnt/etc/fstab" ] && ! grep -q 'LABEL=LUNA_DATA' "$_mnt/etc/fstab" 2>/dev/null; then
-		printf 'LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2\n' >>"$_mnt/etc/fstab"
+	mkdir -p "$_slotmnt/var/lib/luna"
+	if [ -f "$_slotmnt/etc/fstab" ] && ! grep -q 'LABEL=LUNA_DATA' "$_slotmnt/etc/fstab" 2>/dev/null; then
+		printf 'LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2\n' >>"$_slotmnt/etc/fstab"
 	fi
 	# Slot identity for operators (not a Settings split).
-	printf 'slot=%s\n' "$_label" >"$_mnt/etc/luna-slot"
+	printf 'slot=%s\n' "$_label" >"$_slotmnt/etc/luna-slot"
+}
+
+# Write hex SHA256 to $1/os-image.sha256. First field only (GNU sha256sum line).
+_record_os_image_hash() {
+	_dir="$1"
+	_hash="$2"
+	_hash=$(printf '%s' "$_hash" | awk '{print $1}')
+	[ -n "$_hash" ] || return 1
+	mkdir -p "$_dir" || return 1
+	printf '%s\n' "$_hash" >"$_dir/os-image.sha256" || return 1
+	chmod 644 "$_dir/os-image.sha256" 2>/dev/null || true
+	return 0
+}
+
+# Hash from an in-memory value, a .sha256 companion (first field), or sha256sum of $2.
+_resolve_os_image_hash() {
+	if [ -n "${1:-}" ]; then
+		printf '%s\n' "$1" | awk '{print $1}'
+		return 0
+	fi
+	_img="${2:-}"
+	if [ -n "$_img" ] && [ -f "${_img}.sha256" ]; then
+		awk '{print $1; exit}' "${_img}.sha256"
+		return 0
+	fi
+	if [ -n "$_img" ] && [ -f "$_img" ]; then
+		sha256sum "$_img" | awk '{print $1}'
+		return 0
+	fi
+	return 1
 }
 
 # Record the OS image SHA256 onto the data partition so OTA can compare.
 _write_os_image_hash() {
-	_datamnt="$1"
-	_hash="$2"
-	mkdir -p "$_datamnt"
-	printf '%s\n' "$_hash" >"$_datamnt/os-image.sha256"
-	chmod 644 "$_datamnt/os-image.sha256"
+	_record_os_image_hash "$1" "$2"
 }
 
 flash_luna_disk() {
@@ -346,8 +419,16 @@ PART
 		printf 'slot=B\n' >"$_mnt_b/etc/luna-slot"
 	fi
 
-	if [ -n "$_os_hash" ]; then
-		_write_os_image_hash "$_datamnt" "$_os_hash"
+	if [ -z "$_os_hash" ] && [ -f "$_tarball" ]; then
+		_os_hash="$(sha256sum "$_tarball" | awk '{print $1}')"
+	fi
+	if [ -z "$_os_hash" ]; then
+		echo "Could not checksum the OS image. Stopped — updates need that hash on disk." >&2
+		return 1
+	fi
+	if ! _write_os_image_hash "$_datamnt" "$_os_hash"; then
+		echo "Could not write os-image.sha256 onto the data partition. Install failed." >&2
+		return 1
 	fi
 
 	echo "==> installing bootloader (BIOS and UEFI, A/B tryboot)"
@@ -361,7 +442,6 @@ PART
 	# Mirror onto both slots so a BIOS boot-directory fallback still works.
 	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
 	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
-	_write_efi_grub_cfg "$_espmnt"
 	_write_grubenv "$_espmnt" A
 
 	_bios_ok=0
@@ -372,12 +452,20 @@ PART
 	elif grub-install --target=i386-pc --boot-directory="$_mnt_a/boot" --root-directory="$_mnt_a" "$_dev"; then
 		_bios_ok=1
 	fi
+	# Debian --removable writes EFI/BOOT/BOOTX64.EFI and a stub grub.cfg
+	# that search.fs_uuid's the ESP — that stub is what drops Wyse to a
+	# GRUB shell. Install the binary, then replace cfg + embed our core.
 	if grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
 		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev"; then
 		_efi_ok=1
 	fi
 	grub-install --target=i386-efi --efi-directory="$_espmnt" \
 		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev" 2>/dev/null || true
+	if _embed_uefi_grub "$_espmnt"; then
+		_efi_ok=1
+	fi
+	# Must run after grub-install so Debian cannot wipe our cfg.
+	_write_efi_grub_cfg "$_espmnt"
 	if [ -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] || [ -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
 		_efi_ok=1
 	fi
@@ -388,6 +476,8 @@ PART
 			return 1
 		}
 	fi
+	# Same modules under EFI/BOOT so a prefix of /EFI/BOOT can insmod.
+	_install_grub_modules "$_espmnt/EFI/BOOT" x86_64-efi 2>/dev/null || true
 	_install_grub_modules "$_espmnt/grub" i386-pc 2>/dev/null || true
 	_install_grub_modules "$_mnt_a/boot/grub" i386-pc 2>/dev/null || true
 	if [ "$_bios_ok" -eq 0 ] && [ "$_efi_ok" -eq 0 ]; then

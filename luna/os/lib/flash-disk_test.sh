@@ -55,8 +55,16 @@ assert_has "$_tmp/grub/grub.cfg" 'luna_boot_ok' "grub.cfg must track luna_boot_o
 
 _esptmp="$(mktemp -d)"
 _write_efi_grub_cfg "$_esptmp"
-assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'configfile $prefix/grub.cfg' "ESP grub.cfg must chain to shared grub"
-assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'LUNAESP' "ESP grub.cfg must find the ESP by label"
+assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'configfile $prefix/grub.cfg' "ESP stub (no shared cfg yet) must chain to /grub/grub.cfg"
+assert_has "$_esptmp/EFI/BOOT/grub.cfg" 'search --no-floppy --file --set=root /grub/grub.cfg' "EFI/BOOT stub must search for /grub/grub.cfg"
+mkdir -p "$_esptmp/grub"
+_write_grub_cfg "$_esptmp/grub/grub.cfg" \
+	'11111111-2222-3333-4444-555555555555' \
+	'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' \
+	vmlinuz-lts initramfs-lts
+_write_efi_grub_cfg "$_esptmp"
+assert_has "$_esptmp/EFI/BOOT/grub.cfg" 'menuentry "Luna"' "after shared cfg exists, EFI/BOOT/grub.cfg must be the full menu (grub-install prefix)"
+assert_has "$_tmp/grub/grub.cfg" 'search --no-floppy --file --set=esp /grub/grubenv' "shared grub.cfg must find ESP by grubenv file"
 
 if [ -f /usr/lib/grub/x86_64-efi/ext2.mod ]; then
 	_install_grub_modules "$_tmp/grub" x86_64-efi
@@ -153,6 +161,19 @@ LUNA_PROC_MOUNTS="$_mnt_dir/mounts"
 export LUNA_PROC_MOUNTS
 if ! _disk_is_mounted /dev/sda || ! _disk_is_mounted /dev/nvme1n1; then
 	echo "FAIL mount-guard fixtures drifted from flash_luna_disk usage" >&2
+	fail=$((fail + 1))
+fi
+
+# Hex-only stamp: companion file may be a GNU sha256sum line; dest is one hash.
+printf 'deadbeefcafebabe  luna-os-x86_64.img\n' >"$_tmp/img.sha256"
+_got="$(_resolve_os_image_hash "" "$_tmp/img")"
+if [ "$_got" != "deadbeefcafebabe" ]; then
+	echo "FAIL _resolve_os_image_hash must take first field of companion: got '$_got'" >&2
+	fail=$((fail + 1))
+fi
+_record_os_image_hash "$_tmp/data" "aabbccdd  extra"
+if [ "$(cat "$_tmp/data/os-image.sha256")" != "aabbccdd" ]; then
+	echo "FAIL _record_os_image_hash must write hex only" >&2
 	fail=$((fail + 1))
 fi
 

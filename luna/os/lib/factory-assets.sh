@@ -59,22 +59,23 @@ factory_assets_device() {
 }
 
 # Mount LUNAASSETS rw at $1. Returns 0 on success.
+# Variable names must not collide with rapidinstall's data-partition mount (_mnt).
 factory_assets_mount() {
-	_mnt="$1"
+	_fa_mnt="$1"
 	_dev="$(factory_assets_device)"
 	[ -n "$_dev" ] || return 1
 	[ -b "$_dev" ] || return 1
-	mkdir -p "$_mnt" || return 1
-	mount -t vfat -o rw,utf8,umask=000 "$_dev" "$_mnt" 2>/dev/null \
-		|| mount -o rw,umask=000 "$_dev" "$_mnt" 2>/dev/null \
+	mkdir -p "$_fa_mnt" || return 1
+	mount -t vfat -o rw,utf8,umask=000 "$_dev" "$_fa_mnt" 2>/dev/null \
+		|| mount -o rw,umask=000 "$_dev" "$_fa_mnt" 2>/dev/null \
 		|| return 1
 	return 0
 }
 
 factory_assets_umount() {
-	_mnt="$1"
-	umount "$_mnt" 2>/dev/null || true
-	rmdir "$_mnt" 2>/dev/null || true
+	_fa_mnt="$1"
+	umount "$_fa_mnt" 2>/dev/null || true
+	rmdir "$_fa_mnt" 2>/dev/null || true
 }
 
 # Peel one token from a mounted LUNAASSETS directory ($1).

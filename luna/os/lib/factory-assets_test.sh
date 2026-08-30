@@ -81,8 +81,10 @@ mkdir -p "$WORK/payload" "$WORK/root2"
 printf '%s\n' 'LEGACY-TOKEN-AAAA-BBBB-CCCC' >"$WORK/payload/setup-token"
 # Override device lookup so apply does not try a real mount.
 factory_assets_device() { printf ''; }
+_mnt=/sentinel-luna-data
 assert_true factory_apply_setup_token "$WORK/root2" "$WORK/payload" >/dev/null
 assert_eq "$(cat "$WORK/root2/setup-token")" "LEGACY-TOKEN-AAAA-BBBB-CCCC" "legacy setup-token fallback"
+assert_eq "$_mnt" "/sentinel-luna-data" "factory_apply must not clobber caller _mnt (Wyse os-image.sha256 cp)"
 
 # CR-stripped Windows line endings.
 printf 'CRLF-TOKEN-1111-2222-3333\r\nNEXT-TOKEN-4444-5555-6666\r\n' >"$WORK/crlf"
