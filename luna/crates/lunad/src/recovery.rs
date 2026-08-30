@@ -1,10 +1,8 @@
 //! Local-console admin recovery.
 //!
 //! If an admin forgets their password, they plug a USB keyboard into Luna,
-//! type `pwreset`, and press Enter. That signs into the local pwreset
-//! recovery session and starts the reset wizard. It works headless (no
-//! screen required); a screen lets you read the on-screen prompts, but
-//! this process is designed to work without a screen.
+//! sign in as Linux user `pwreset` (blank password), and follow the prompts.
+//! The `pwreset` login shell (`luna-pwreset`) talks to lunad on loopback only.
 //! It never runs over the network.
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
@@ -18,15 +16,15 @@
 //!   4. Plug a USB keyboard into Luna.
 //!      (Optional: plug in a screen too — it lets you read the on-screen
 //!      prompts, but this process is designed to work without a screen.)
-//!   5. Type pwreset and press Enter.
-//!   6. Type your admin username and press Enter.
-//!   7. Type a new password (at least 12 characters, with letters and
-//!      numbers) and press Enter.
-//!   8. Type logout and press Enter.
-//!   9. On your phone or computer, open the Luna web page and sign in
+//!   5. At the login prompt, type pwreset and press Enter.
+//!   6. At the password prompt, press Enter (no password).
+//!   7. Type your admin username and press Enter.
+//!   8. Type a new password (at least 12 characters, with letters and
+//!      numbers) and press Enter, then confirm it.
+//!   9. Type exit and press Enter.
+//!  10. On your phone or computer, open the Luna web page and sign in
 //!      with that username and the new password.
 //!
-//! Typing pwreset once is enough — do not ask the user to type it twice.
 //! Only an admin account can be reset this way.
 
 use std::io::{BufRead, Read, Write};
@@ -55,15 +53,15 @@ pub const CARD_STEPS: &[&str] = &[
     "Press the power button once to turn it back on.",
     "Wait about 2 minutes (until Luna has finished starting).",
     "Plug a USB keyboard into Luna. A screen is optional — it lets you read the on-screen prompts, but this process is designed to work without a screen.",
-    "Type pwreset and press Enter.",
+    "At the login prompt, type pwreset and press Enter.",
+    "At the password prompt, press Enter (no password).",
     "Type your admin username and press Enter.",
-    "Type a new password (at least 12 characters, with letters and numbers) and press Enter.",
-    "Type logout and press Enter.",
+    "Type a new password (at least 12 characters, with letters and numbers) and press Enter, then confirm it.",
+    "Type exit and press Enter.",
     "On your phone or computer, open the Luna web page and sign in with that username and the new password.",
 ];
 
-/// Soft-login name for console recovery. Typing this once signs into the
-/// pwreset session and starts the reset wizard — do not ask for it twice.
+/// Linux login name for console recovery (`/usr/local/sbin/luna-pwreset`).
 pub const PWRESET_USER: &str = "pwreset";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,8 +75,7 @@ pub enum ConsoleCommand {
     Ignore,
 }
 
-/// Map one console line to a recovery action. `signed_in` is the soft
-/// pwreset session (not a Linux or Luna account login).
+/// Map one console line to a recovery action (legacy soft-console path; kept for tests).
 pub fn console_command(line: &str, signed_in: bool) -> ConsoleCommand {
     match line.trim().to_lowercase().as_str() {
         PWRESET_USER => ConsoleCommand::StartReset,
@@ -592,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn card_steps_use_single_pwreset_login() {
+    fn card_steps_use_login_prompt_pwreset() {
         assert_eq!(
             CARD_STEPS.iter().filter(|s| s.contains("pwreset")).count(),
             1
@@ -615,10 +612,19 @@ mod tests {
                 .any(|s| s.contains("designed to work without a screen")),
             "card must say recovery is designed to work without a screen"
         );
-        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type pwreset")));
+        assert!(
+            CARD_STEPS
+                .iter()
+                .any(|s| s.contains("login prompt") && s.contains("pwreset"))
+        );
+        assert!(
+            CARD_STEPS
+                .iter()
+                .any(|s| s.contains("password prompt") && s.contains("no password"))
+        );
         assert!(CARD_STEPS.iter().any(|s| s.contains("admin username")));
         assert!(CARD_STEPS.iter().any(|s| s.contains("new password")));
-        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type logout")));
+        assert!(CARD_STEPS.iter().any(|s| s.starts_with("Type exit")));
         assert_eq!(CARD_TITLE, "If you forget your password");
     }
 }

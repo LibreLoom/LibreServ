@@ -1,9 +1,14 @@
 //! HDMI / local-console help for Ethernet-only setup.
+//!
+//! Getty owns tty1; lunad writes the same help into `/var/lib/luna/issue`
+//! so the login screen stays current (IP, cable, setup code).
 
-use std::io::Write;
+use std::path::{Path, PathBuf};
 
 pub const BANNER_TITLE: &str =
     "Luna is running. Open it from a phone or computer on your home internet.";
+
+pub const ISSUE_FILE: &str = "issue";
 
 #[derive(Debug, Clone, Default)]
 pub struct ConsoleSnapshot {
@@ -12,6 +17,10 @@ pub struct ConsoleSnapshot {
     pub setup_code: Option<String>,
     pub connect_hostname: Option<String>,
     pub unclaimed: bool,
+}
+
+pub fn issue_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(ISSUE_FILE)
 }
 
 pub fn help_text(snap: &ConsoleSnapshot) -> String {
@@ -58,15 +67,13 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     lines
 }
 
-pub fn print_snapshot(snap: &ConsoleSnapshot) {
-    let text = help_text(snap);
-    for path in ["/dev/tty1", "/dev/console", "/dev/tty"] {
-        if let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open(path) {
-            let _ = tty.write_all(text.as_bytes());
-            let _ = tty.flush();
-            return;
-        }
+/// Write help text for getty (`getty -f /var/lib/luna/issue`).
+pub fn write_issue(data_dir: &Path, snap: &ConsoleSnapshot) -> std::io::Result<()> {
+    let path = issue_path(data_dir);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
+    std::fs::write(path, help_text(snap))
 }
 
 #[cfg(test)]
@@ -100,5 +107,18 @@ mod tests {
         });
         assert!(text.contains("Waiting for an address"));
         assert!(!text.contains("169.254"));
+    }
+
+    #[test]
+    fn write_issue_creates_file_under_data_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let snap = ConsoleSnapshot {
+            ipv4: vec!["10.0.0.5".into()],
+            cable_in: true,
+            ..Default::default()
+        };
+        write_issue(dir.path(), &snap).unwrap();
+        let body = std::fs::read_to_string(issue_path(dir.path())).unwrap();
+        assert!(body.contains("10.0.0.5"));
     }
 }

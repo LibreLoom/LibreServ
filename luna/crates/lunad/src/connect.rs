@@ -248,13 +248,13 @@ impl ConnectService {
         Some((factory, "anonymous"))
     }
 
-    pub fn hello_once(&self, setup_completed: bool) {
+    pub fn hello_once(&self, setup_completed: bool) -> bool {
         let Some((token, source)) = self.setup_hello_token(setup_completed) else {
-            return;
+            return false;
         };
         let ws = http_to_ws(&self.base_url) + "/api/v1/setup/ws";
         let Ok((mut socket, _)) = tungstenite::connect(&ws) else {
-            return;
+            return false;
         };
         let hello = json!({
             "type": "hello",
@@ -266,8 +266,9 @@ impl ConnectService {
             .send(tungstenite::Message::Text(hello.to_string().into()))
             .is_err()
         {
-            return;
+            return false;
         }
+        let mut held = false;
         while let Ok(msg) = socket.read() {
             let tungstenite::Message::Text(text) = msg else {
                 continue;
@@ -281,9 +282,15 @@ impl ConnectService {
                     let _ = self.apply_claimed(&v);
                     break;
                 }
-                _ => {}
+                Some("accepted") | Some("attached") | Some("waiting_for_website") => {
+                    held = true;
+                }
+                _ => {
+                    held = true;
+                }
             }
         }
+        held
     }
 
     pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {

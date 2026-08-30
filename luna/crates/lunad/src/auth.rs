@@ -617,6 +617,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     let mut is_public = path == "/health"
         || path == "/api/v1/health"
         || path.starts_with("/api/v1/auth/")
+        || path == "/api/v1/console/reset-password"
         || path.starts_with("/api/v1/setup")
         || path.starts_with("/api/v1/public/")
         || path.starts_with("/s/")

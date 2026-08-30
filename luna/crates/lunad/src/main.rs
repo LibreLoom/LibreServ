@@ -56,13 +56,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    {
-        let auth = state.auth.clone();
-        std::thread::Builder::new()
-            .name("luna-recovery".into())
-            .spawn(move || lunad::recovery::run_console_loop(auth))
-            .ok();
-    }
+    // Password recovery is the Linux `pwreset` login shell (luna-pwreset),
+    // which POSTs to /api/v1/console/reset-password on loopback.
 
     std::thread::Builder::new()
         .name("luna-dhcp-link".into())
@@ -80,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
         std::thread::Builder::new()
             .name("luna-connect-hello".into())
             .spawn(move || {
+                let mut had_live = false;
                 loop {
                     let setup_done = db
                         .lock()
@@ -88,8 +84,18 @@ async fn main() -> anyhow::Result<()> {
                         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                         .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
                         .unwrap_or(false);
-                    connect.hello_once(setup_done);
-                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let held = connect.hello_once(setup_done);
+                    if held {
+                        had_live = true;
+                    }
+                    // After a previously live setup socket drops, reconnect quickly
+                    // so Connect Name does not race a multi-second gap.
+                    let backoff = if had_live && !held {
+                        std::time::Duration::from_millis(250)
+                    } else {
+                        std::time::Duration::from_secs(3)
+                    };
+                    std::thread::sleep(backoff);
                 }
             })
             .ok();
@@ -97,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
 
     {
         let connect = state.connect.clone();
+        let data_dir = cfg.data_dir.clone();
         std::thread::Builder::new()
             .name("luna-console-help".into())
             .spawn(move || {
@@ -117,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
                     };
                     let text = lunad::console::help_text(&snap);
                     if text != last {
-                        lunad::console::print_snapshot(&snap);
+                        let _ = lunad::console::write_issue(&data_dir, &snap);
                         last = text;
                     }
                     std::thread::sleep(std::time::Duration::from_secs(5));
