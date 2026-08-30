@@ -150,7 +150,14 @@ describe("FilesPage", () => {
     expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to files" })).toHaveAttribute("href", "/drives/d1");
     fireEvent.click(screen.getByRole("button", { name: "Put photo.jpg back" }));
-    expect(await screen.findByRole("heading", { name: "Put this back?" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Put this back?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Put it back" }));
+    expect(await within(dialog).findByText("Request failed (500)")).toBeInTheDocument();
+    expect(screen.getAllByText("Request failed (500)")).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Request failed (500)")).not.toBeInTheDocument();
+    });
   });
 
   it("shows copy/move progress and cancel", async () => {

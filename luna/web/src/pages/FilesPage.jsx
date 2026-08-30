@@ -148,7 +148,9 @@ export default function FilesPage() {
         </Card>
       ) : null}
 
-      {actionError && <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>}
+      {actionError && restoreTarget == null && purgeTarget == null && (
+        <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
+      )}
 
       {!inTrash && drive && (
         <DriveFileExplorer
@@ -226,7 +228,10 @@ export default function FilesPage() {
       <ModalCard
         open={restoreTarget != null}
         title="Put this back?"
-        onClose={() => setRestoreTarget(null)}
+        onClose={() => {
+          setActionError(null);
+          setRestoreTarget(null);
+        }}
       >
         {({ close }) => (
           <>
@@ -262,7 +267,10 @@ export default function FilesPage() {
       <ModalCard
         open={purgeTarget != null}
         title="Delete forever?"
-        onClose={() => setPurgeTarget(null)}
+        onClose={() => {
+          setActionError(null);
+          setPurgeTarget(null);
+        }}
       >
         {({ close }) => (
           <>
