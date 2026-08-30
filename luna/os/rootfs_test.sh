@@ -15,6 +15,16 @@ assert_file_has() {
 	}
 }
 
+assert_file_lacks() {
+	file="$1"
+	needle="$2"
+	msg="$3"
+	if grep -Eq "$needle" "$file"; then
+		echo "FAIL: $msg (found '$needle' in $file)" >&2
+		exit 1
+	fi
+}
+
 assert_file_has "$BUILD" 'luna-network-up' "rootfs must ship wired bring-up script"
 assert_file_has "$BUILD" 'etc/init.d/luna-network' "rootfs must ship luna-network OpenRC service"
 assert_file_has "$BUILD" '/etc/network/interfaces' "rootfs must ship a minimal interfaces file"
@@ -59,8 +69,16 @@ assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 assert_file_has "$BUILD" 'cloudflared' \
 	"rootfs must ship cloudflared so Luna Connect tunnels can start"
-assert_file_has "$BUILD" 'Disable getty so lunad' \
-	"rootfs must disable getty so HDMI keeps the booklet code"
+assert_file_has "$BUILD" 'tty1::respawn:/sbin/getty -f /var/lib/luna/issue' \
+	"rootfs must enable tty1 getty with issue file on LUNA_DATA"
+assert_file_has "$BUILD" 'luna-pwreset' \
+	"rootfs must ship luna-pwreset as the pwreset login shell"
+assert_file_has "$BUILD" 'pwreset:x:1001' \
+	"rootfs must bake the pwreset Linux account"
+assert_file_has "$BUILD" 'luna:x:1000' \
+	"rootfs must bake the luna Linux account"
+assert_file_lacks "$BUILD" 'openssh|dropbear' \
+	"rootfs must not package SSH (console accounts are local only)"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
 assert_file_has "$FLASH" 'rootflags=ro,noatime' \

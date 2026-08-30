@@ -79,9 +79,12 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
-# Disable getty so lunad owns tty1 (IP + booklet code). Recovery uses evdev.
+# tty1 getty for shell login (root / luna / pwreset). Booklet + IP help is
+# /var/lib/luna/issue (writable on LUNA_DATA); leave tty2–6 commented.
 if [ -f "$ROOTFS/etc/inittab" ]; then
     sed -i -E 's/^[[:space:]]*tty[0-9]+::.*getty/# &/' "$ROOTFS/etc/inittab"
+    sed -i -E '/^#?[[:space:]]*tty1::/d' "$ROOTFS/etc/inittab"
+    printf 'tty1::respawn:/sbin/getty -f /var/lib/luna/issue 38400 tty1\n' >> "$ROOTFS/etc/inittab"
 fi
 
 # cloudflared is not in Alpine 3.24; official Go binaries are static.
@@ -311,6 +314,93 @@ chmod +x "$ROOTFS/etc/local.d/luna-boot-ok.start"
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"
 mkdir -p "$ROOTFS/var/lib/luna"
+
+# Console password reset: Linux user `pwreset` runs this as its login shell.
+cat > "$ROOTFS/usr/local/sbin/luna-pwreset" <<'PWRESET'
+#!/bin/sh
+# Interactive admin password reset. Talks to lunad on loopback only.
+echo
+echo "Luna recovery"
+echo "Reset an admin password, then sign in from a phone or computer."
+echo
+printf "Admin username: "
+read -r _user || exit 1
+stty -echo 2>/dev/null || true
+printf "New password: "
+read -r _pass || { stty echo 2>/dev/null || true; exit 1; }
+echo
+printf "Type it again: "
+read -r _pass2 || { stty echo 2>/dev/null || true; exit 1; }
+echo
+stty echo 2>/dev/null || true
+if [ -z "$_user" ] || [ -z "$_pass" ]; then
+	echo "Username and password are required. Nothing was changed."
+	exit 1
+fi
+if [ "$_pass" != "$_pass2" ]; then
+	echo "Those didn't match. Nothing was changed."
+	exit 1
+fi
+_port="${LUNA_PORT:-80}"
+_url="http://127.0.0.1:${_port}/api/v1/console/reset-password"
+_esc() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+_body=$(printf '{"username":"%s","password":"%s"}' "$(_esc "$_user")" "$(_esc "$_pass")")
+_tmp=$(mktemp) || exit 1
+_code=$(curl -sS -o "$_tmp" -w '%{http_code}' -X POST "$_url" \
+	-H 'Content-Type: application/json' \
+	--data-binary "$_body" 2>/dev/null || echo 000)
+_msg=$(cat "$_tmp" 2>/dev/null || true)
+rm -f "$_tmp"
+case "$_code" in
+200)
+	echo "Password updated. Sign in on your phone or computer, then type exit."
+	;;
+*)
+	echo "Could not reset the password (HTTP ${_code}). Is Luna running?"
+	[ -n "$_msg" ] && echo "$_msg"
+	exit 1
+	;;
+esac
+# Stay in a shell so the user can type exit when done (getty respawns).
+exec /bin/sh
+PWRESET
+chmod 755 "$ROOTFS/usr/local/sbin/luna-pwreset"
+
+# Seed getty issue file (lunad overwrites with live IP / setup code).
+cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
+
+============================================================
+  Luna is starting. Open it from a phone or computer on your home internet.
+============================================================
+
+ISSUE
+
+# Console accounts: empty passwords (HDMI/USB keyboard only; no SSH).
+# Rootfs is remounted read-only later — bake credentials into the image.
+podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
+    if ! grep -q "^luna:" /rootfs/etc/passwd; then
+        echo "luna:x:1000:1000:Luna:/home/luna:/bin/sh" >> /rootfs/etc/passwd
+        echo "luna:x:1000:" >> /rootfs/etc/group
+        mkdir -p /rootfs/home/luna
+        chown 1000:1000 /rootfs/home/luna
+    fi
+    if ! grep -q "^pwreset:" /rootfs/etc/passwd; then
+        echo "pwreset:x:1001:1001:Luna recovery:/home/pwreset:/usr/local/sbin/luna-pwreset" >> /rootfs/etc/passwd
+        echo "pwreset:x:1001:" >> /rootfs/etc/group
+        mkdir -p /rootfs/home/pwreset
+        chown 1001:1001 /rootfs/home/pwreset
+    fi
+    # Empty password hashes (login accepts blank password).
+    for u in root luna pwreset; do
+        if grep -q "^${u}:" /rootfs/etc/shadow; then
+            sed -i -E "s|^${u}:[^:]*:|${u}::|" /rootfs/etc/shadow
+        else
+            echo "${u}::19000:0:99999:7:::" >> /rootfs/etc/shadow
+        fi
+    done
+'
 
 # Cloudflare tunnel helper (remote access). Bake it so Luna OS does not need
 # apk repos or a first-boot GitHub download when claimed.
