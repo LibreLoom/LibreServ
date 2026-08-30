@@ -234,26 +234,34 @@ echo
 echo "Installation complete."
 
 # Official setup code + OS hash live on LUNA_DATA, not on an OS slot.
+# Mount at /mnt/luna-data (not mktemp under /tmp): a failed cp onto
+# /tmp/tmp.* used to abort a finished flash (set -e) on thin clients.
 _datap="$(partition_data "$TARGET")"
-_mnt="$(mktemp -d)"
-if mount "$_datap" "$_mnt" 2>/dev/null; then
+_mnt=/mnt/luna-data
+mkdir -p "$_mnt"
+if mount -o rw "$_datap" "$_mnt" 2>/dev/null; then
 	if ! factory_apply_setup_token "$_mnt" "$HERE"; then
 		umount "$_mnt" 2>/dev/null || true
-		rmdir "$_mnt" 2>/dev/null || true
 		echo
 		echo "Install wrote the disk, but the official setup code step failed."
 		echo "Fix the TOKENS magazine on LUNAASSETS (or use setup-token), then re-run."
 		exit 1
 	fi
-	# If flash already wrote os-image.sha256, keep it; else copy from staged image.
-	if [ ! -f "$_mnt/os-image.sha256" ] && [ -n "$_slot_img" ] && [ -f "${_slot_img}.sha256" ]; then
-		cp "${_slot_img}.sha256" "$_mnt/os-image.sha256"
-	elif [ ! -f "$_mnt/os-image.sha256" ] && [ -n "$_slot_img" ]; then
-		sha256sum "$_slot_img" | awk '{print $1}' >"$_mnt/os-image.sha256"
+	# Flash usually already wrote this. If not, stamp hex only — never cp the
+	# companion file (ISO9660 + set -e turned a dest error into a dead install).
+	if [ ! -f "$_mnt/os-image.sha256" ]; then
+		_hash="${_os_hash:-}"
+		if [ -z "$_hash" ]; then
+			_hash="$(_resolve_os_image_hash "" "${_slot_img:-}")" || _hash=""
+		fi
+		if [ -n "$_hash" ]; then
+			if ! _record_os_image_hash "$_mnt" "$_hash"; then
+				echo "Could not save the OS image checksum. Luna still installed; updates may re-download this image."
+			fi
+		fi
 	fi
 	umount "$_mnt" 2>/dev/null || true
 fi
-rmdir "$_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."
 echo "Luna will reboot and show its address on the screen. Stay on home internet on your phone."

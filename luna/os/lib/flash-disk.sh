@@ -230,13 +230,39 @@ _populate_slot() {
 	printf 'slot=%s\n' "$_label" >"$_mnt/etc/luna-slot"
 }
 
+# Write hex SHA256 to $1/os-image.sha256. First field only (GNU sha256sum line).
+_record_os_image_hash() {
+	_dir="$1"
+	_hash="$2"
+	_hash=$(printf '%s' "$_hash" | awk '{print $1}')
+	[ -n "$_hash" ] || return 1
+	mkdir -p "$_dir" || return 1
+	printf '%s\n' "$_hash" >"$_dir/os-image.sha256" || return 1
+	chmod 644 "$_dir/os-image.sha256" 2>/dev/null || true
+	return 0
+}
+
+# Hash from an in-memory value, a .sha256 companion (first field), or sha256sum of $2.
+_resolve_os_image_hash() {
+	if [ -n "${1:-}" ]; then
+		printf '%s\n' "$1" | awk '{print $1}'
+		return 0
+	fi
+	_img="${2:-}"
+	if [ -n "$_img" ] && [ -f "${_img}.sha256" ]; then
+		awk '{print $1; exit}' "${_img}.sha256"
+		return 0
+	fi
+	if [ -n "$_img" ] && [ -f "$_img" ]; then
+		sha256sum "$_img" | awk '{print $1}'
+		return 0
+	fi
+	return 1
+}
+
 # Record the OS image SHA256 onto the data partition so OTA can compare.
 _write_os_image_hash() {
-	_datamnt="$1"
-	_hash="$2"
-	mkdir -p "$_datamnt"
-	printf '%s\n' "$_hash" >"$_datamnt/os-image.sha256"
-	chmod 644 "$_datamnt/os-image.sha256"
+	_record_os_image_hash "$1" "$2"
 }
 
 flash_luna_disk() {
