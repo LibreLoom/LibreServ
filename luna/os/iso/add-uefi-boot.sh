@@ -55,6 +55,8 @@ mkdir -p "$ROOT"
 echo "==> extracting ISO for UEFI remaster"
 xorriso -osirrox on:auto_chmod_on -indev "$IN" -extract / "$ROOT" >/dev/null 2>&1 \
 	|| die "could not extract $IN"
+# live-build / prior remasters can leave root-owned or mode-0444 trees.
+chmod -R u+w "$ROOT" 2>/dev/null || true
 
 [ -f "$ROOT/isolinux/isolinux.bin" ] || die "ISO missing isolinux (BIOS) bootloader"
 [ -f "$ROOT/live/vmlinuz" ] || die "ISO missing /live/vmlinuz"
@@ -83,7 +85,13 @@ set timeout=2
 set default=0
 insmod all_video
 insmod gfxterm
+insmod iso9660
+insmod part_gpt
+insmod part_msdos
 terminal_output gfxterm
+# UEFI hybrid boots often start with \$root on the small ESP FAT (efi.img),
+# which has no /live/. Find the ISO9660 volume that holds the live kernel.
+search --no-floppy --set=root --file /live/vmlinuz
 menuentry "Luna rapidinstall" {
 	linux /live/vmlinuz $LIVE_APPEND
 	initrd /live/initrd.img
