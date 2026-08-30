@@ -280,7 +280,7 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /Drive details/i })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("hides Connected as behind collapsible Drive details", async () => {
+  it("hides device connection behind collapsible Drive details", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({
       fetch: (u) => {
@@ -327,7 +327,7 @@ describe("DrivesPage", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(panel).toHaveAttribute("aria-hidden", "false");
     expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
-    expect(screen.getByText(/Connected as sdmock/i)).toBeInTheDocument();
+    expect(screen.getByText(/^sdmock$/i)).toBeInTheDocument();
     expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
     // Card-style collapsible + ValueDisplay rows (storage is outside)
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);

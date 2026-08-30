@@ -201,7 +201,7 @@ function AdoptedDriveDetails({ drive }) {
   const partitionsValue = device
     ? (drive.fs_type ? `${device} · ${fsLabel}` : device)
     : (drive.fs_type ? `One volume · ${fsLabel}` : "One volume");
-  const connectionValue = device ? `Connected as ${device}` : "Plugged in";
+  const connectionValue = device || "Plugged in";
 
   return (
     <CollapsibleSection title="Drive details" size="sm" mono pill>
