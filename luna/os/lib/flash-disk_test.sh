@@ -56,7 +56,9 @@ assert_has "$_tmp/grub/grub.cfg" 'luna_boot_ok' "grub.cfg must track luna_boot_o
 _esptmp="$(mktemp -d)"
 _write_efi_grub_cfg "$_esptmp"
 assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'configfile $prefix/grub.cfg' "ESP grub.cfg must chain to shared grub"
-assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'LUNAESP' "ESP grub.cfg must find the ESP by label"
+assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'search --no-floppy --file --set=root /grub/grub.cfg' "ESP stub must search for /grub/grub.cfg (not only LUNAESP label)"
+assert_has "$_esptmp/EFI/BOOT/grub.cfg" 'search --no-floppy --file --set=root /grub/grub.cfg' "EFI/BOOT/grub.cfg must match the stub (default prefix)"
+assert_has "$_tmp/grub/grub.cfg" 'search --no-floppy --file --set=esp /grub/grubenv' "shared grub.cfg must find ESP by grubenv file"
 
 if [ -f /usr/lib/grub/x86_64-efi/ext2.mod ]; then
 	_install_grub_modules "$_tmp/grub" x86_64-efi

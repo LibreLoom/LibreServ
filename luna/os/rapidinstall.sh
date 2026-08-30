@@ -234,34 +234,37 @@ echo
 echo "Installation complete."
 
 # Official setup code + OS hash live on LUNA_DATA, not on an OS slot.
-# Mount at /mnt/luna-data (not mktemp under /tmp): a failed cp onto
-# /tmp/tmp.* used to abort a finished flash (set -e) on thin clients.
+# Mount at /mnt/luna-data (not mktemp under /tmp). Missing hash = failed install.
 _datap="$(partition_data "$TARGET")"
 _mnt=/mnt/luna-data
 mkdir -p "$_mnt"
-if mount -o rw "$_datap" "$_mnt" 2>/dev/null; then
-	if ! factory_apply_setup_token "$_mnt" "$HERE"; then
+if ! mount -o rw "$_datap" "$_mnt"; then
+	echo
+	echo "Install wrote the slots, but the data partition could not be mounted."
+	echo "The OS image checksum is missing. This install did not finish."
+	exit 1
+fi
+if ! factory_apply_setup_token "$_mnt" "$HERE"; then
+	umount "$_mnt" 2>/dev/null || true
+	echo
+	echo "Install wrote the disk, but the official setup code step failed."
+	echo "Fix the TOKENS magazine on LUNAASSETS (or use setup-token), then re-run."
+	exit 1
+fi
+if [ ! -f "$_mnt/os-image.sha256" ]; then
+	_hash="${_os_hash:-}"
+	if [ -z "$_hash" ]; then
+		_hash="$(_resolve_os_image_hash "" "${_slot_img:-}")" || _hash=""
+	fi
+	if [ -z "$_hash" ] || ! _record_os_image_hash "$_mnt" "$_hash"; then
 		umount "$_mnt" 2>/dev/null || true
 		echo
-		echo "Install wrote the disk, but the official setup code step failed."
-		echo "Fix the TOKENS magazine on LUNAASSETS (or use setup-token), then re-run."
+		echo "Could not write the OS image checksum (os-image.sha256)."
+		echo "Without it, Luna cannot apply OS updates. This install did not finish."
 		exit 1
 	fi
-	# Flash usually already wrote this. If not, stamp hex only — never cp the
-	# companion file (ISO9660 + set -e turned a dest error into a dead install).
-	if [ ! -f "$_mnt/os-image.sha256" ]; then
-		_hash="${_os_hash:-}"
-		if [ -z "$_hash" ]; then
-			_hash="$(_resolve_os_image_hash "" "${_slot_img:-}")" || _hash=""
-		fi
-		if [ -n "$_hash" ]; then
-			if ! _record_os_image_hash "$_mnt" "$_hash"; then
-				echo "Could not save the OS image checksum. Luna still installed; updates may re-download this image."
-			fi
-		fi
-	fi
-	umount "$_mnt" 2>/dev/null || true
 fi
+umount "$_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."
 echo "Luna will reboot and show its address on the screen. Stay on home internet on your phone."

@@ -53,7 +53,10 @@ _write_grub_cfg() {
 		echo 'insmod search_fs_uuid'
 		echo 'insmod search_label'
 		echo 'insmod loadenv'
-		echo 'search --no-floppy --label LUNAESP --set=esp'
+		# Label search fails on some thin-client UEFI (Wyse) when \$root is already
+		# the ESP. Prefer the grubenv file that only exists on LUNAESP.
+		echo 'search --no-floppy --file --set=esp /grub/grubenv'
+		echo 'if [ -z "$esp" ]; then search --no-floppy --label LUNAESP --set=esp; fi'
 		echo 'set envfile=($esp)/grub/grubenv'
 		echo 'load_env -f $envfile'
 		echo 'if [ -z "$luna_slot" ]; then set luna_slot=A; fi'
@@ -91,6 +94,8 @@ _write_grub_cfg() {
 }
 
 # UEFI fallback loader on the ESP — loads the shared grub.cfg next to grubenv.
+# Firmware often sets \$root / prefix to EFI/BOOT (no /grub). Find the volume
+# that has /grub/grub.cfg (same class of bug as the rapidinstall ISO vmlinuz search).
 _write_efi_grub_cfg() {
 	_espmnt="$1"
 
@@ -99,12 +104,16 @@ _write_efi_grub_cfg() {
 		echo 'insmod part_gpt'
 		echo 'insmod fat'
 		echo 'insmod search'
+		echo 'insmod search_fs_file'
 		echo 'insmod search_label'
-		echo 'search --no-floppy --label LUNAESP --set=root'
+		echo 'search --no-floppy --file --set=root /grub/grub.cfg'
+		echo 'if [ -z "$root" ]; then search --no-floppy --label LUNAESP --set=root; fi'
 		echo 'set prefix=($root)/grub'
 		echo 'export prefix'
 		echo 'configfile $prefix/grub.cfg'
 	} >"$_espmnt/EFI/BOOT/grub/grub.cfg"
+	# Default prefix for removable BOOTX64.EFI is often /EFI/BOOT.
+	cp "$_espmnt/EFI/BOOT/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg"
 }
 
 _write_grubenv() {
@@ -372,8 +381,16 @@ PART
 		printf 'slot=B\n' >"$_mnt_b/etc/luna-slot"
 	fi
 
-	if [ -n "$_os_hash" ]; then
-		_write_os_image_hash "$_datamnt" "$_os_hash"
+	if [ -z "$_os_hash" ] && [ -f "$_tarball" ]; then
+		_os_hash="$(sha256sum "$_tarball" | awk '{print $1}')"
+	fi
+	if [ -z "$_os_hash" ]; then
+		echo "Could not checksum the OS image. Stopped — updates need that hash on disk." >&2
+		return 1
+	fi
+	if ! _write_os_image_hash "$_datamnt" "$_os_hash"; then
+		echo "Could not write os-image.sha256 onto the data partition. Install failed." >&2
+		return 1
 	fi
 
 	echo "==> installing bootloader (BIOS and UEFI, A/B tryboot)"
@@ -414,6 +431,8 @@ PART
 			return 1
 		}
 	fi
+	# Same modules under EFI/BOOT so a prefix of /EFI/BOOT can insmod.
+	_install_grub_modules "$_espmnt/EFI/BOOT" x86_64-efi 2>/dev/null || true
 	_install_grub_modules "$_espmnt/grub" i386-pc 2>/dev/null || true
 	_install_grub_modules "$_mnt_a/boot/grub" i386-pc 2>/dev/null || true
 	if [ "$_bios_ok" -eq 0 ] && [ "$_efi_ok" -eq 0 ]; then
