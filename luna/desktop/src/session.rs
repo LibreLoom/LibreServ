@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -18,8 +17,18 @@ pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("LUNA_DESKTOP_DATA") {
         return PathBuf::from(dir);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".local/share/luna-desktop")
+    #[cfg(windows)]
+    {
+        if let Ok(dir) = std::env::var("LOCALAPPDATA") {
+            return PathBuf::from(dir).join("Luna Desktop");
+        }
+        return PathBuf::from(".").join("Luna Desktop");
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        PathBuf::from(home).join(".local/share/luna-desktop")
+    }
 }
 
 fn session_path() -> PathBuf {
@@ -38,12 +47,14 @@ pub fn save(session: &SessionData) -> anyhow::Result<()> {
     let tmp = dir.join("session.json.tmp");
     let json = serde_json::to_vec_pretty(session)?;
     {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
+        let mut opts = fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(&tmp)?;
         file.write_all(&json)?;
         file.sync_all()?;
     }

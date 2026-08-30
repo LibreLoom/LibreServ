@@ -84,7 +84,7 @@ describe("AboutCategory", () => {
     expect(screen.queryByText("Software")).toBeNull();
     expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
-    expect(screen.getByText("Setup code")).toBeTruthy();
+    expect(screen.getAllByText("Setup code").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Default source")).toBeTruthy();
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
   });

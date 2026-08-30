@@ -13,8 +13,8 @@ use std::sync::Arc;
 use adw::prelude::*;
 use gtk::glib;
 
-use luna_desktop::tray::{TrayCmd, TrayHandle, spawn_tray};
 use luna_desktop::AppState;
+use luna_desktop::tray::{TrayCmd, TrayHandle, spawn_tray};
 
 use login::LoginView;
 use window::ShellView;

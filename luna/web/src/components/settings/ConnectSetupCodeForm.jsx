@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
-import Button from "../../ui/Button";
-import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
+import Button from "../ui/Button";
+import { getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 /**
  * Enter or replace the Luna Connect setup code (booklet / site code).

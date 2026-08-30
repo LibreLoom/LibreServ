@@ -115,8 +115,6 @@ export default function NewItemMenu({ onPick, ids }) {
     }
   }
 
-  let flatIndex = -1;
-
   return (
     <div className="relative inline-flex" ref={containerRef}>
       <span ref={buttonRef} className="inline-flex">
@@ -164,16 +162,19 @@ export default function NewItemMenu({ onPick, ids }) {
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open",
             )}
           >
-            {groups.map((group) => (
+            {groups.map((group, groupIdx) => {
+              const baseIndex = groups
+                .slice(0, groupIdx)
+                .reduce((n, g) => n + g.items.length, 0);
+              return (
               <div key={group.label || "items"}>
                 {showGroupLabels && group.label ? (
                   <p className="px-4 pt-2.5 pb-1 font-mono text-xs uppercase tracking-widest text-primary">
                     {group.label}
                   </p>
                 ) : null}
-                {group.items.map((kind) => {
-                  flatIndex += 1;
-                  const index = flatIndex;
+                {group.items.map((kind, itemIdx) => {
+                  const index = baseIndex + itemIdx;
                   const Icon = kind.icon;
                   return (
                     <button
@@ -198,7 +199,8 @@ export default function NewItemMenu({ onPick, ids }) {
                   );
                 })}
               </div>
-            ))}
+              );
+            })}
           </div>,
           document.body,
         )

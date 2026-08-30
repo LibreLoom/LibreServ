@@ -96,20 +96,14 @@ pub fn restore_session(state: &AppState) -> Result<Option<SessionInfo>, String> 
     }
 }
 
-pub fn login(
-    state: &AppState,
-    base_url: &str,
-    access_token: &str,
-) -> Result<SessionInfo, String> {
+pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<SessionInfo, String> {
     let base_url = base_url.trim().trim_end_matches('/').to_string();
     if base_url.is_empty() {
         return Err("Enter your Luna address (for example http://luna.local).".into());
     }
     let token = access_token.trim().to_string();
     if token.is_empty() {
-        return Err(
-            "Paste an access token from Luna → Settings → Apps and access tokens.".into(),
-        );
+        return Err("Paste an access token from Luna → Settings → Apps and access tokens.".into());
     }
     let (username, _) = luna::auth_me(&base_url, &token)?;
     // Confirm the token can see drives (same check restore_session uses).
