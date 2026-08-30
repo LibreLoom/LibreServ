@@ -93,13 +93,19 @@ _write_grub_cfg() {
 	} >"$_cfgpath"
 }
 
-# UEFI fallback loader on the ESP — loads the shared grub.cfg next to grubenv.
-# Firmware often sets \$root / prefix to EFI/BOOT (no /grub). Find the volume
-# that has /grub/grub.cfg (same class of bug as the rapidinstall ISO vmlinuz search).
+# UEFI paths: Debian grub-install --removable uses prefix /EFI/BOOT and
+# overwrites EFI/BOOT/grub.cfg. Always rewrite after grub-install.
+# Prefer a full copy of /grub/grub.cfg so a Wyse that never finds LUNAESP
+# still gets the Luna menu. Stub is only when the shared file is not there yet.
 _write_efi_grub_cfg() {
 	_espmnt="$1"
 
 	mkdir -p "$_espmnt/EFI/BOOT/grub"
+	if [ -f "$_espmnt/grub/grub.cfg" ]; then
+		cp "$_espmnt/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg"
+		cp "$_espmnt/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub/grub.cfg"
+		return 0
+	fi
 	{
 		echo 'insmod part_gpt'
 		echo 'insmod fat'
@@ -112,8 +118,40 @@ _write_efi_grub_cfg() {
 		echo 'export prefix'
 		echo 'configfile $prefix/grub.cfg'
 	} >"$_espmnt/EFI/BOOT/grub/grub.cfg"
-	# Default prefix for removable BOOTX64.EFI is often /EFI/BOOT.
 	cp "$_espmnt/EFI/BOOT/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg"
+}
+
+# Self-contained UEFI GRUB (same idea as the rapidinstall ISO). prefix=/grub
+# so firmware that ignores our grub.cfg still looks at ESP/grub/grub.cfg.
+_embed_uefi_grub() {
+	_espmnt="$1"
+	_efi_ok=0
+	mkdir -p "$_espmnt/EFI/BOOT"
+	if [ -f /usr/lib/grub/x86_64-efi/moddep.lst ] && command -v grub-mkimage >/dev/null 2>&1; then
+		if grub-mkimage \
+			-O x86_64-efi \
+			-o "$_espmnt/EFI/BOOT/BOOTX64.EFI" \
+			-p /grub \
+			-d /usr/lib/grub/x86_64-efi \
+			all_video boot cat configfile echo efi_gop efi_uga ext2 fat font \
+			gzio halt linux loadenv ls lsefi normal part_gpt part_msdos \
+			reboot search search_fs_file search_fs_uuid search_label \
+			sleep test true; then
+			_efi_ok=1
+		fi
+	fi
+	if [ -f /usr/lib/grub/i386-efi/moddep.lst ] && command -v grub-mkimage >/dev/null 2>&1; then
+		grub-mkimage \
+			-O i386-efi \
+			-o "$_espmnt/EFI/BOOT/BOOTIA32.EFI" \
+			-p /grub \
+			-d /usr/lib/grub/i386-efi \
+			all_video boot cat configfile echo efi_gop ext2 fat font \
+			gzio halt linux loadenv ls lsefi normal part_gpt part_msdos \
+			reboot search search_fs_file search_fs_uuid search_label \
+			sleep test true 2>/dev/null || true
+	fi
+	[ "$_efi_ok" -eq 1 ]
 }
 
 _write_grubenv() {
@@ -404,7 +442,6 @@ PART
 	# Mirror onto both slots so a BIOS boot-directory fallback still works.
 	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
 	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
-	_write_efi_grub_cfg "$_espmnt"
 	_write_grubenv "$_espmnt" A
 
 	_bios_ok=0
@@ -415,12 +452,20 @@ PART
 	elif grub-install --target=i386-pc --boot-directory="$_mnt_a/boot" --root-directory="$_mnt_a" "$_dev"; then
 		_bios_ok=1
 	fi
+	# Debian --removable writes EFI/BOOT/BOOTX64.EFI and a stub grub.cfg
+	# that search.fs_uuid's the ESP — that stub is what drops Wyse to a
+	# GRUB shell. Install the binary, then replace cfg + embed our core.
 	if grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
 		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev"; then
 		_efi_ok=1
 	fi
 	grub-install --target=i386-efi --efi-directory="$_espmnt" \
 		--boot-directory="$_espmnt/grub" --removable --no-nvram "$_dev" 2>/dev/null || true
+	if _embed_uefi_grub "$_espmnt"; then
+		_efi_ok=1
+	fi
+	# Must run after grub-install so Debian cannot wipe our cfg.
+	_write_efi_grub_cfg "$_espmnt"
 	if [ -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] || [ -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
 		_efi_ok=1
 	fi

@@ -71,6 +71,8 @@ assert_file_has "$OSROOT/rapidinstall.sh" 'This install did not finish' "missing
 assert_file_lacks "$OSROOT/rapidinstall.sh" 'cp "${_slot_img}.sha256"' "os-image.sha256 must not be a raw cp (set -e abort)"
 assert_file_has "$OSROOT/lib/flash-disk.sh" '_record_os_image_hash' "flash helper must write hex-only os-image.sha256"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'search --no-floppy --file --set=root /grub/grub.cfg' "installed UEFI stub must search for /grub/grub.cfg"
+assert_file_has "$OSROOT/lib/flash-disk.sh" 'grub-mkimage' "flash must embed BOOTX64.EFI with prefix /grub"
+assert_file_has "$OSROOT/lib/flash-disk.sh" '_write_efi_grub_cfg "$_espmnt"' "EFI grub.cfg must be rewritten after grub-install"
 assert_file_has "$OSROOT/lib/factory-assets.sh" 'LUNAASSETS' "factory assets helper must look for LUNAASSETS"
 assert_file_has "$OSROOT/lib/factory-assets.sh" 'TOKENS' "factory assets helper must peel TOKENS magazine"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'lib/console.sh' "stage script must copy console helpers onto the ISO"
