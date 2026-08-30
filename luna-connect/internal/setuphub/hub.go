@@ -160,7 +160,15 @@ func (h *Hub) dropLocked(tokenHash string) {
 func (h *Hub) Live(tokenHash string) *Socket {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.sockets[tokenHash]
+	sock, ok := h.sockets[tokenHash]
+	if !ok {
+		return nil
+	}
+	if sock.Dead() {
+		h.dropLocked(tokenHash)
+		return nil
+	}
+	return sock
 }
 
 func (h *Hub) HasLive(tokenHash string) bool {

@@ -26,6 +26,9 @@ func TestRegisterRejectsLiveDuplicate(t *testing.T) {
 	}
 
 	first.Close()
+	if h.HasLive("tok-hash") {
+		t.Fatal("HasLive must be false after the socket dies")
+	}
 	third := NewSocket("tok-hash", "203.0.113.4", "anonymous", 8090)
 	if err := h.Register(third); err != nil {
 		t.Fatalf("register after close: %v", err)

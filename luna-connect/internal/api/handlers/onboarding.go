@@ -132,6 +132,7 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		"session_id": id,
 		"status":     status,
 		"kind":       tok.Kind,
+		"live":       status == "attached",
 		"message":    plugCopy,
 		"timeout_s":  int(setuphub.SessionTTL.Seconds()),
 	})
@@ -148,6 +149,12 @@ func (h OnboardingHandler) Session(w http.ResponseWriter, r *http.Request) {
 	if live && status == "waiting_device" {
 		status = "attached"
 		_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'attached' WHERE id = ?`, sess.id)
+	}
+	// Sticky DB "attached" without a live socket is not ready to name —
+	// report waiting so the website returns to the plug-in step.
+	if !live && status == "attached" {
+		status = "waiting_device"
+		_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'waiting_device' WHERE id = ?`, sess.id)
 	}
 	msg := ""
 	if status == "waiting_device" {

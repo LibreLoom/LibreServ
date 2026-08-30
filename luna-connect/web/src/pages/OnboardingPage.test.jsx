@@ -215,8 +215,8 @@ describe("OnboardingPage done card", () => {
     authState.isAuthenticated = true;
     authState.me = { email: "owner@example.com", email_verified: true };
     api.mockImplementation(async (path) => {
-      if (path === "/api/v1/onboarding/bind") return { status: "attached", message: "ok" };
-      if (path === "/api/v1/onboarding/session") return { status: "attached" };
+      if (path === "/api/v1/onboarding/bind") return { status: "attached", live: true, message: "ok" };
+      if (path === "/api/v1/onboarding/session") return { status: "attached", live: true };
       if (path === "/api/v1/onboarding/attach-account") return { ok: true };
       if (path === "/api/v1/onboarding/name") {
         return {
@@ -252,5 +252,25 @@ describe("OnboardingPage done card", () => {
     expect(screen.getByText(/paste this one-time code/i)).toBeTruthy();
     expect(screen.getByText(/Create your Luna login and paste the code once/i)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/\?setup=/);
+  });
+
+  it("stays on wait when bind is attached but not live", async () => {
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/bind") {
+        return { status: "attached", live: false, message: "Plug Luna in" };
+      }
+      if (path === "/api/v1/onboarding/session") {
+        return { status: "waiting_device", live: false, message: "Plug Luna in" };
+      }
+      if (path === "/api/v1/onboarding/attach-account") return { ok: true };
+      return {};
+    });
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" } });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    expect(await screen.findByText(/Waiting for Luna/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Name$/i)).toBeNull();
   });
 });

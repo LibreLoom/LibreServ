@@ -230,8 +230,14 @@ export default function OnboardingPage() {
       try {
         const s = await api("/api/v1/onboarding/session");
         setWaitMsg(s.message || "");
-        if (s.status === "attached" && step === "wait") goTo("name");
-        if (s.status === "attached" && step === "code" && isAuthenticated && emailVerified) goTo("wait");
+        const live = Boolean(s.live);
+        if (live && s.status === "attached" && step === "wait") goTo("name");
+        if (live && s.status === "attached" && step === "code" && isAuthenticated && emailVerified) {
+          goTo("wait");
+        }
+        if (!live && step === "name") {
+          goTo("wait");
+        }
       } catch {
         /* waiting room is optional until bind */
       }
@@ -308,7 +314,7 @@ export default function OnboardingPage() {
   async function afterOfficialAccount() {
     const session = code ? await bindCode(code) : null;
     await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-    goTo(session?.status === "attached" ? "name" : "wait");
+    goTo(session?.status === "attached" && session?.live ? "name" : "wait");
   }
 
   async function continueAfterVerification(account) {
@@ -488,7 +494,7 @@ export default function OnboardingPage() {
                 return;
               }
               await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-              goTo(s.status === "attached" ? "name" : "wait");
+              goTo(s.status === "attached" && s.live ? "name" : "wait");
             } else {
               setAuthSubStep(0);
               goTo("account");

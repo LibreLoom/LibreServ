@@ -164,6 +164,9 @@ func TestWaitingRoomCodeBeforeHello(t *testing.T) {
 	if bound["status"] != "waiting_device" {
 		t.Fatalf("status %v", bound)
 	}
+	if bound["live"] != false {
+		t.Fatalf("live want false, got %v", bound["live"])
+	}
 	if !strings.Contains(bound["message"].(string), "cable") {
 		t.Fatalf("plug copy missing: %v", bound["message"])
 	}
@@ -521,7 +524,19 @@ func TestNameInsertOkPushFailKeepsDeviceThenRetry(t *testing.T) {
 	if brec.Code != 200 {
 		t.Fatalf("bind %d %s", brec.Code, brec.Body.String())
 	}
-	registerHubSocket(t, onb, token, true)
+	// Live socket with a full outbound buffer: HasLive is true, but ClaimAndDrop
+	// cannot deliver "claimed" (Send returns false).
+	registerHubSocket(t, onb, token, false)
+	hash := security.HashToken(security.NormalizeToken(token))
+	sock := onb.Hub.Live(hash)
+	if sock == nil {
+		t.Fatal("expected live socket")
+	}
+	for i := 0; i < 32; i++ {
+		if !sock.Send(setuphub.Message{Type: "fill"}) {
+			break
+		}
+	}
 
 	nameReq := httptest.NewRequest(http.MethodPost, "/onboarding/name", bytes.NewBufferString(`{"subdomain":"retryme"}`))
 	nameReq.AddCookie(cookie)
@@ -545,6 +560,7 @@ func TestNameInsertOkPushFailKeepsDeviceThenRetry(t *testing.T) {
 		t.Fatalf("must not roll back Cloudflare after insert: deletes %v", cloud.deletes)
 	}
 
+	onb.Hub.Drop(hash)
 	registerHubSocket(t, onb, token, false)
 	retry := httptest.NewRequest(http.MethodPost, "/onboarding/name", bytes.NewBufferString(`{"subdomain":"retryme"}`))
 	retry.AddCookie(cookie)
@@ -652,6 +668,63 @@ func TestNameRejectsReplacedSession(t *testing.T) {
 	nrec := withAccount(acct, onb.Name, nameReq)
 	if nrec.Code != http.StatusNotFound {
 		t.Fatalf("replaced session %d %s", nrec.Code, nrec.Body.String())
+	}
+}
+
+func TestSessionRevertsAttachedWhenSocketGone(t *testing.T) {
+	onb, acct, _ := testOnboarding(t)
+	token := mintOfficial(t, onb)
+	cookie := registerAccount(t, acct, "sticky@b.co")
+
+	bind := httptest.NewRequest(http.MethodPost, "/onboarding/bind", bytes.NewBufferString(`{"code":"`+token+`"}`))
+	bind.AddCookie(cookie)
+	bind.RemoteAddr = "203.0.113.55:1"
+	brec := httptest.NewRecorder()
+	onb.Bind(brec, bind)
+	if brec.Code != 200 {
+		t.Fatalf("bind %d %s", brec.Code, brec.Body.String())
+	}
+	setupCookie := brec.Result().Cookies()[0]
+
+	registerHubSocket(t, onb, token, false)
+	sessLive := httptest.NewRequest(http.MethodGet, "/onboarding/session", nil)
+	sessLive.AddCookie(setupCookie)
+	liveRec := httptest.NewRecorder()
+	onb.Session(liveRec, sessLive)
+	if liveRec.Code != 200 {
+		t.Fatalf("session live %d %s", liveRec.Code, liveRec.Body.String())
+	}
+	var liveBody map[string]any
+	_ = json.Unmarshal(liveRec.Body.Bytes(), &liveBody)
+	if liveBody["status"] != "attached" || liveBody["live"] != true {
+		t.Fatalf("want attached+live, got %v", liveBody)
+	}
+
+	hash := security.HashToken(security.NormalizeToken(token))
+	onb.Hub.Drop(hash)
+
+	sessGone := httptest.NewRequest(http.MethodGet, "/onboarding/session", nil)
+	sessGone.AddCookie(setupCookie)
+	goneRec := httptest.NewRecorder()
+	onb.Session(goneRec, sessGone)
+	if goneRec.Code != 200 {
+		t.Fatalf("session gone %d %s", goneRec.Code, goneRec.Body.String())
+	}
+	var goneBody map[string]any
+	_ = json.Unmarshal(goneRec.Body.Bytes(), &goneBody)
+	if goneBody["status"] != "waiting_device" || goneBody["live"] != false {
+		t.Fatalf("want waiting_device without live, got %v", goneBody)
+	}
+
+	nameReq := httptest.NewRequest(http.MethodPost, "/onboarding/name", bytes.NewBufferString(`{"subdomain":"kitchen"}`))
+	nameReq.AddCookie(cookie)
+	nameReq.AddCookie(setupCookie)
+	nrec := withAccount(acct, onb.Name, nameReq)
+	if nrec.Code != http.StatusConflict {
+		t.Fatalf("name without live socket %d %s", nrec.Code, nrec.Body.String())
+	}
+	if !strings.Contains(nrec.Body.String(), "not online") {
+		t.Fatalf("want not-online copy, got %s", nrec.Body.String())
 	}
 }
 
