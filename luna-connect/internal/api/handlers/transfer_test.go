@@ -123,6 +123,18 @@ VALUES ('obj_tx', ?, ?, 'Photos/a.jpg', 7, 'h', ?)`, acctID, deviceID, time.Now(
 	if len(security.NormalizeToken(code)) < 16 {
 		t.Fatalf("transfer code %q", code)
 	}
+	if minted["expires_in"] == nil {
+		t.Fatal("transfer code should expire")
+	}
+	var tokAccount string
+	var tokExp int64
+	_ = acct.DB.QueryRow(`SELECT COALESCE(account_id,''), COALESCE(expires_at,0) FROM issued_tokens WHERE token_hash = ?`, security.HashToken(security.NormalizeToken(code))).Scan(&tokAccount, &tokExp)
+	if tokAccount != acctID {
+		t.Fatalf("transfer token account %q want %q", tokAccount, acctID)
+	}
+	if tokExp <= time.Now().Unix() {
+		t.Fatalf("transfer token missing expiry %d", tokExp)
+	}
 
 	var n int
 	_ = acct.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE id = ?`, deviceID).Scan(&n)
