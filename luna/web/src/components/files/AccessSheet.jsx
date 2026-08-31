@@ -32,16 +32,54 @@ function expiryLabel(expiresAt) {
   return `expires ${when.toLocaleDateString()}`;
 }
 
+/** Strip leading/trailing slashes so `/photos` and `photos/` match `photos`. */
 function pathKey(value) {
-  return value || "";
+  return String(value ?? "").replace(/^\/+|\/+$/g, "");
+}
+
+/** Accept a raw array or a wrapped `{ grants|shares|users|items: [] }` payload. */
+function asList(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data.grants)) return data.grants;
+  if (Array.isArray(data.shares)) return data.shares;
+  if (Array.isArray(data.users)) return data.users;
+  return [];
+}
+
+function rowDriveId(row) {
+  return row.drive_id || row.driveId || "";
 }
 
 function grantCovers(grant, driveId, path) {
-  if (grant.drive_id !== driveId) return false;
+  if (rowDriveId(grant) !== driveId) return false;
   const granted = pathKey(grant.path);
   const target = pathKey(path);
   if (!granted) return true;
   return target === granted || target.startsWith(`${granted}/`);
+}
+
+/** This folder, parents that include it, or folders inside it on the same drive. */
+function grantRelates(grant, driveId, path) {
+  if (rowDriveId(grant) !== driveId) return false;
+  const granted = pathKey(grant.path);
+  const target = pathKey(path);
+  if (!granted || !target) return true;
+  return (
+    target === granted
+    || target.startsWith(`${granted}/`)
+    || granted.startsWith(`${target}/`)
+  );
+}
+
+function grantScopeNote(grant, objectPath, kind) {
+  const granted = pathKey(grant.path);
+  const target = pathKey(objectPath);
+  if (granted === target) return "";
+  if (!granted) return kind === "file" ? " (includes this file)" : " (includes this folder)";
+  if (!target || granted.startsWith(`${target}/`)) return ` (only ${granted})`;
+  return kind === "file" ? " (includes this file)" : " (includes this folder)";
 }
 
 /**
@@ -63,7 +101,7 @@ export function AccessButton({ label, onClick, surface = "secondary" }) {
   );
 }
 
-export default function AccessSheet({ driveId, path = "", kind: _kind = "folder", onClose, open = true }) {
+export default function AccessSheet({ driveId, path = "", kind = "folder", onClose, open = true }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
@@ -90,12 +128,12 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
     queryFn: () => getJson("/api/v1/shares"),
   });
 
-  const matchingGrants = (grants.data || []).filter((g) => grantCovers(g, driveId, objectPath));
-  const matchingShares = (shares.data || []).filter(
-    (s) => s.drive_id === driveId && pathKey(s.path) === objectPath,
+  const matchingGrants = asList(grants.data).filter((g) => grantRelates(g, driveId, objectPath));
+  const matchingShares = asList(shares.data).filter((s) => grantRelates(s, driveId, objectPath));
+  const members = asList(users.data).filter((u) => u.role !== "admin");
+  const grantedUserIds = new Set(
+    matchingGrants.filter((g) => grantCovers(g, driveId, objectPath)).map((g) => g.user_id),
   );
-  const members = (users.data || []).filter((u) => u.role !== "admin");
-  const grantedUserIds = new Set(matchingGrants.map((g) => g.user_id));
   const addablePeople = members.filter((u) => !grantedUserIds.has(u.id));
   const noPeopleToAdd = users.isSuccess && addablePeople.length === 0;
 
@@ -132,7 +170,7 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
   });
 
   function personName(userId) {
-    const found = (users.data || []).find((u) => u.id === userId);
+    const found = asList(users.data).find((u) => u.id === userId);
     return found?.display_name || found?.username || userId;
   }
 
@@ -167,11 +205,11 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
           {matchingGrants.map((g) => {
             const name = personName(g.user_id);
             return (
-              <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
+              <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <span className="text-primary text-xs truncate">
+                  <span className="text-secondary text-xs truncate">
                     {name}
-                    {pathKey(g.path) !== objectPath ? " (includes this folder)" : ""}
+                    {grantScopeNote(g, objectPath, kind)}
                   </span>
                   <Dropdown
                     options={PERMISSION_OPTIONS}
@@ -179,7 +217,7 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
                     onChange={(next) => changePermission(g, next)}
                     disabled={updatingGrantId === g.id}
                     aria-label={`Access for ${name}`}
-                    bg="primary"
+                    bg="secondary"
                   />
                 </div>
                 <Button size="iconSm" variant="danger" aria-label={`Remove access for ${name}`} onClick={() => revokeGrant.mutate(g.id)}>
@@ -189,8 +227,8 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
             );
           })}
           {noPeopleToAdd ? (
-            <div className="space-y-3 rounded-large-element border border-primary/20 p-3">
-              <p className="text-primary text-sm">
+            <div className="space-y-3 rounded-large-element bg-primary text-secondary p-3">
+              <p className="text-secondary text-sm">
                 {members.length === 0
                   ? "No people to share with yet. Add a Member on the Users page."
                   : "Everyone already has access. Add more people on the Users page."}
@@ -252,10 +290,13 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
         {matchingShares.map((s) => {
           const url = rememberedUrl(s.id);
           return (
-            <div key={s.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
+            <div key={s.id} className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3">
               <div className="min-w-0">
-                <p className="text-primary text-xs">
-                  {s.has_password ? "Password" : "Anyone with the link"} · {expiryLabel(s.expires_at)}
+                <p className="text-secondary text-xs">
+                  {s.has_password ? "Password" : "Anyone with the link"}
+                  {pathKey(s.path) && pathKey(s.path) !== objectPath ? ` · ${pathKey(s.path)}` : ""}
+                  {" · "}
+                  {expiryLabel(s.expires_at)}
                 </p>
                 {url && (
                   <CopyableValue

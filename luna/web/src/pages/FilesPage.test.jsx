@@ -67,6 +67,15 @@ function stubFilesApi(byPath) {
       const listing = byPath[filesPath(u)] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.endsWith("/users")) {
+      return new Response(JSON.stringify(byPath.__users || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/grants")) {
+      return new Response(JSON.stringify(byPath.__grants || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/shares")) {
+      return new Response(JSON.stringify(byPath.__shares || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     return new Response("{}", { status: 500 });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -294,6 +303,25 @@ describe("FilesPage", () => {
     });
     expect(await screen.findByRole("heading", { name: "Edit note.txt" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
+  });
+
+  it("lists people who already have access in the Sharing sheet", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      __grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "album", permission: "read" }],
+      __shares: [],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Sharing for Photos Drive" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sharing" });
+    expect(await within(dialog).findByText(/Sam/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Grant access" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "New link" })).toBeInTheDocument();
   });
 
   it("offers New folder in the copy destination picker", async () => {

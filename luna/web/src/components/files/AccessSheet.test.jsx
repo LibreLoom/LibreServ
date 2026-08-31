@@ -150,4 +150,39 @@ describe("AccessSheet", () => {
     expect(screen.getByRole("link", { name: "Go to Users" })).toHaveAttribute("href", "/settings/users");
     expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
   });
+
+  it("lists folder grants and links when Sharing is opened on the drive", async () => {
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "/photos/", permission: "write" }],
+      shares: [{ id: "s1", drive_id: "d1", path: "photos", has_password: false, expires_at: null }],
+    });
+    renderSheet({ path: "" });
+    expect(await screen.findByText(/Sam/)).toBeInTheDocument();
+    expect(screen.getByText(/only photos/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove access for Sam" })).toBeInTheDocument();
+    expect(screen.getByText(/Anyone with the link/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove this link" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
+    const row = screen.getByText(/Sam/).closest("div.bg-primary");
+    expect(row).toHaveClass("text-secondary");
+  });
+
+  it("unwraps a grants object from the API", async () => {
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      grants: { grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "photos", permission: "read" }] },
+      shares: [],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Sam/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
+  });
 });
