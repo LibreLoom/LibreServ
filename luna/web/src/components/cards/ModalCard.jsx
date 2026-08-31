@@ -22,6 +22,15 @@ export function useModalClose() {
 /** Longest modal exit animation (overlay + card pop-out). */
 export const EXIT_ANIMATION_MS = 300;
 
+/** Card `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
+export const POP_IN_ANIMATION_MS = 300;
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
 export const NESTED_OVERLAY_CLASS = "z-[90]";
 
@@ -66,6 +75,7 @@ export default function ModalCard({
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [present, setPresent] = useState(open);
+  const [scrollReady, setScrollReady] = useState(() => prefersReducedMotion());
   const titleId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -118,6 +128,7 @@ export default function ModalCard({
       isClosingRef.current = false;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setIsClosing(false);
+      setScrollReady(prefersReducedMotion());
       setPresent(true);
       return;
     }
@@ -128,6 +139,22 @@ export default function ModalCard({
   }, [open]);
 
   useEffect(() => () => clearExitTimer(), [clearExitTimer]);
+
+  useEffect(() => {
+    if (!present || scrollReady) return undefined;
+    if (prefersReducedMotion()) {
+      setScrollReady(true);
+      return undefined;
+    }
+    const id = window.setTimeout(() => setScrollReady(true), POP_IN_ANIMATION_MS);
+    return () => window.clearTimeout(id);
+  }, [present, scrollReady]);
+
+  const handlePopInEnd = useCallback((event) => {
+    if (event.target !== event.currentTarget) return;
+    const name = event.animationName || "";
+    if (name.includes("pop-in")) setScrollReady(true);
+  }, []);
 
   const content = loading
     ? null
@@ -240,12 +267,17 @@ export default function ModalCard({
         style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div ref={innerRef} className={cn(maxHeightClasses, "overflow-y-auto")}>
+        <div
+          ref={innerRef}
+          data-slot="dialog-scroller"
+          className={cn(maxHeightClasses, scrollReady ? "overflow-y-auto" : "overflow-hidden")}
+        >
         <ModalCloseContext.Provider value={handleClose}>
         <Card
           noHeightAnim
           noPopIn
           className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
+          onAnimationEnd={handlePopInEnd}
         >
           {showCloseButton && (
             <button

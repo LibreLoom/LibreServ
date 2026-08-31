@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
-import ModalCard, { useModalClose, EXIT_ANIMATION_MS } from "./ModalCard";
+import ModalCard, { useModalClose, EXIT_ANIMATION_MS, POP_IN_ANIMATION_MS } from "./ModalCard";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -92,6 +92,66 @@ describe("ModalCard", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("hides scroller overflow until pop-in ends", () => {
+    render(
+      <ModalCard title="Scroll lock" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+
+    fireEvent.animationEnd(screen.getByRole("dialog").querySelector("[data-slot=card]"), {
+      animationName: "pop-in",
+    });
+
+    expect(scroller).toHaveClass("overflow-y-auto");
+    expect(scroller).not.toHaveClass("overflow-hidden");
+  });
+
+  it("unlocks scroller overflow after the pop-in fallback duration", () => {
+    vi.useFakeTimers();
+    render(
+      <ModalCard title="Scroll fallback" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-hidden");
+
+    act(() => {
+      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+    });
+
+    expect(scroller).toHaveClass("overflow-y-auto");
+  });
+
+  it("allows scroller overflow immediately when motion is reduced", () => {
+    const original = window.matchMedia;
+    window.matchMedia = (query) => ({
+      matches: String(query).includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    });
+    try {
+      render(
+        <ModalCard title="Reduced motion" onClose={() => {}}>
+          Body
+        </ModalCard>,
+      );
+      const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+      expect(scroller).toHaveClass("overflow-y-auto");
+      expect(scroller).not.toHaveClass("overflow-hidden");
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it("stays unmounted while open is false", () => {
