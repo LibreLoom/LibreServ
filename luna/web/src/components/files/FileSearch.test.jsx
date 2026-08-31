@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import FileSearch from "./FileSearch";
 
-function renderSearch(hits) {
+function renderSearch(hits, { searchHold } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
@@ -27,6 +27,7 @@ function renderSearch(hits) {
       });
     }
     if (u.includes("/search")) {
+      if (searchHold) await searchHold;
       return new Response(JSON.stringify(hits), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -53,6 +54,25 @@ function renderSearch(hits) {
 }
 
 describe("FileSearch", () => {
+  it("shows Searching and a spinner inside the results card", async () => {
+    let releaseSearch;
+    const searchHold = new Promise((resolve) => {
+      releaseSearch = resolve;
+    });
+    renderSearch([], { searchHold });
+    fireEvent.change(screen.getByLabelText("Search for a file"), {
+      target: { value: "zz" },
+    });
+    const searching = await screen.findByText(/Searching/i);
+    expect(searching).toBeInTheDocument();
+    const card = searching.closest("[data-slot=card]");
+    expect(card).toBeTruthy();
+    expect(card.querySelector("[data-slot=spinner]")).toBeTruthy();
+    releaseSearch();
+    expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Searching/i)).not.toBeInTheDocument();
+  });
+
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
     fireEvent.change(screen.getByLabelText("Search for a file"), {
