@@ -233,3 +233,23 @@ func TestVerificationStatusUngated(t *testing.T) {
 		t.Fatalf("got %v", out)
 	}
 }
+
+func TestResendVerificationAlreadyVerifiedIsOK(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	cookie := registerAccount(t, acct, "done@example.com")
+	verifyEmailFor(t, acct, "done@example.com")
+
+	req := httptest.NewRequest(http.MethodPost, "/account/resend-verification",
+		bytes.NewBufferString(`{"source":"onboarding"}`))
+	req.AddCookie(cookie)
+	rec := withAccount(acct, acct.ResendVerification, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["email_verified"] != true || out["already_verified"] != true {
+		t.Fatalf("got %#v, want email_verified+already_verified", out)
+	}
+}

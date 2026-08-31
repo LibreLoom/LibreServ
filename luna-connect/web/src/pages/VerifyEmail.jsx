@@ -7,7 +7,7 @@ import { Button } from "../components/ui/button.jsx";
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
-  const { markEmailVerified } = useAuth();
+  const { markEmailVerified, refresh } = useAuth();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
   const fromOnboarding = searchParams.get("from") === "onboarding";
@@ -24,15 +24,20 @@ export default function VerifyEmail() {
       method: "POST",
       body: JSON.stringify({ token }),
     })
-      .then(() => {
+      .then(async () => {
         markEmailVerified();
+        try {
+          await refresh?.();
+        } catch {
+          /* local mark is enough for onboarding to advance */
+        }
         setStatus("success");
       })
       .catch((err) => {
         setStatus("error");
         setError(err.message || "This verification link is invalid or has expired.");
       });
-  }, [token, markEmailVerified]);
+  }, [token, markEmailVerified, refresh]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
@@ -56,7 +61,11 @@ export default function VerifyEmail() {
                 ? "Your email address has been confirmed. Head back to finish setting up Luna."
                 : "Your email address has been confirmed. You can use Luna Connect now."}
             </p>
-            <Button size="lg" className="mt-2" onClick={() => navigate(fromOnboarding ? "/onboarding" : "/")}>
+            <Button
+              size="lg"
+              className="mt-2"
+              onClick={() => navigate(fromOnboarding ? "/onboarding" : "/", { replace: true })}
+            >
               {fromOnboarding ? "Back to Setup" : "Go to Luna Connect"}
             </Button>
           </div>
@@ -70,7 +79,7 @@ export default function VerifyEmail() {
             <h1 className="font-mono text-2xl text-foreground">Verification failed</h1>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">{error}</p>
             <div className="flex gap-3 mt-2">
-              <Button variant="outline" onClick={() => navigate("/onboarding")}>
+              <Button variant="outline" onClick={() => navigate("/onboarding", { replace: true })}>
                 Back to setup
               </Button>
               <Button onClick={() => navigate("/")}>Go to Luna Connect</Button>

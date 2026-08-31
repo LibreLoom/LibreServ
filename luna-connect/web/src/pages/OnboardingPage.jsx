@@ -306,6 +306,7 @@ export default function OnboardingPage() {
   const [checkingVerification, setCheckingVerification] = useState(false);
   const [resendState, setResendState] = useState("idle");
   const [cooldown, setCooldown] = useState(0);
+  const verifyAdvanceLock = useRef(false);
 
   const emailVerified = Boolean(me?.email_verified);
 
@@ -374,30 +375,6 @@ export default function OnboardingPage() {
   }, [step, isAuthenticated, emailVerified, me?.email]);
 
   useEffect(() => {
-    if (step !== "verify" || emailVerified) return undefined;
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const status = await api("/api/v1/account/verification-status");
-        if (!cancelled && status.email_verified) {
-          markEmailVerified?.();
-          const account = await refresh();
-          if (!cancelled) await continueAfterVerification(account);
-        }
-      } catch {
-        /* keep waiting */
-      }
-    };
-    check();
-    const timer = setInterval(check, 4000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, emailVerified, markEmailVerified, refresh]);
-
-  useEffect(() => {
     if (cooldown <= 0) return undefined;
     const timer = setTimeout(() => setCooldown((value) => value - 1), 1000);
     return () => clearTimeout(timer);
@@ -453,6 +430,62 @@ export default function OnboardingPage() {
     }
     await afterOfficialAccount();
   }
+
+  /**
+   * Leave the inbox-wait step once email is confirmed.
+   * Lock avoids the poll→markEmailVerified race: marking verified re-runs the
+   * effect cleanup and used to cancel continueAfterVerification mid-flight.
+   */
+  async function advancePastVerify() {
+    if (verifyAdvanceLock.current) return;
+    verifyAdvanceLock.current = true;
+    setError("");
+    try {
+      markEmailVerified?.();
+      const account = await refresh();
+      await continueAfterVerification(account);
+    } catch (err) {
+      verifyAdvanceLock.current = false;
+      throw err;
+    }
+  }
+
+  // Poll / auto-advance off verify. Also runs when already verified (Back to Setup).
+  useEffect(() => {
+    if (step !== "verify") {
+      verifyAdvanceLock.current = false;
+      return undefined;
+    }
+    let cancelled = false;
+
+    if (emailVerified) {
+      advancePastVerify().catch((err) => {
+        if (!cancelled) {
+          setError(err.message || "Could not continue. Try again.");
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const check = async () => {
+      try {
+        const status = await api("/api/v1/account/verification-status");
+        if (cancelled || !status.email_verified) return;
+        await advancePastVerify();
+      } catch {
+        /* keep waiting */
+      }
+    };
+    check();
+    const timer = setInterval(check, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, emailVerified, markEmailVerified, refresh]);
 
   const authFields = isLoginMode
     ? [
@@ -784,9 +817,7 @@ export default function OnboardingPage() {
                   setError("We do not see the verification yet. Open the link in the email, then try again.");
                   return;
                 }
-                markEmailVerified?.();
-                const account = await refresh();
-                await continueAfterVerification(account);
+                await advancePastVerify();
               } catch (err) {
                 setError(err.message || "Could not check your verification. Try again in a moment.");
               } finally {
@@ -810,13 +841,28 @@ export default function OnboardingPage() {
                     setResendState("sending");
                     setError("");
                     try {
-                      await api("/api/v1/account/resend-verification", {
+                      const res = await api("/api/v1/account/resend-verification", {
                         method: "POST",
                         body: JSON.stringify({ source: "onboarding" }),
                       });
+                      if (res?.email_verified || res?.already_verified) {
+                        await advancePastVerify();
+                        return;
+                      }
                       setResendState("sent");
                       setCooldown(60);
                     } catch (err) {
+                      // Older backends returned 400 "already verified" — still advance.
+                      if (/already verified/i.test(err.message || "")) {
+                        try {
+                          await advancePastVerify();
+                          return;
+                        } catch (advanceErr) {
+                          setError(advanceErr.message || "Could not continue. Try again.");
+                          setResendState("idle");
+                          return;
+                        }
+                      }
                       setError(err.message || "Could not resend the email. Try again.");
                       setResendState("idle");
                     }

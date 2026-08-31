@@ -113,7 +113,12 @@ func (h AccountHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if acct.EmailVerified {
-		JSONError(w, http.StatusBadRequest, "Your email is already verified.")
+		// Client treats this as success-to-advance (onboarding must not dead-end).
+		JSON(w, http.StatusOK, map[string]any{
+			"email_verified":   true,
+			"already_verified": true,
+			"message":          "Your email is already verified.",
+		})
 		return
 	}
 	if !emailRateLimitOK(acct.ID) {

@@ -169,6 +169,126 @@ describe("OnboardingPage DIY verify", () => {
     expect(markEmailVerified).toHaveBeenCalled();
   });
 
+  it("advances when Check again finds the email already verified", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    let statusCalls = 0;
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") {
+        statusCalls += 1;
+        // First poll(s) still waiting; Check again sees verified.
+        return { email_verified: statusCalls > 1 };
+      }
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Check again/i }));
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(screen.queryByText(/already verified/i)).toBeNull();
+  });
+
+  it("advances when Resend reports the email is already verified", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
+      if (path === "/api/v1/account/resend-verification") {
+        return { email_verified: true, already_verified: true, message: "Your email is already verified." };
+      }
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Resend the email/i }));
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(screen.queryByText(/already verified/i)).toBeNull();
+  });
+
+  it("advances when Resend returns a legacy already-verified error", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
+      if (path === "/api/v1/account/resend-verification") {
+        const err = new Error("Your email is already verified.");
+        err.status = 400;
+        throw err;
+      }
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Resend the email/i }));
+
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(screen.queryByText(/already verified/i)).toBeNull();
+  });
+
+  it("skips inbox wait after verify when Back to Setup restores the verify step", async () => {
+    localStorage.setItem(
+      "luna-connect-onboarding-progress",
+      JSON.stringify({ step: "verify", path: "diy", email: "owner@example.com" }),
+    );
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com", email_verified: true };
+    refresh.mockResolvedValue({ email: "owner@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: true };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "BACK-TO-SETUP-CODE-1234-5678", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/diyonboarding");
+
+    expect(await screen.findByText("BACK-TO-SETUP-CODE-1234-5678")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Check your inbox/i })).toBeNull();
+  });
+
+  it("skips inbox wait on official path after verify when progress still says verify", async () => {
+    localStorage.setItem(
+      "luna-connect-onboarding-progress",
+      JSON.stringify({ step: "verify", path: "official", email: "owner@example.com" }),
+    );
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com", email_verified: true };
+    refresh.mockResolvedValue({ email: "owner@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: true };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByLabelText(/^Device code$/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Check your inbox/i })).toBeNull();
+  });
+
   it("does not charge again when the signed-in account is already human-verified", async () => {
     authState.isAuthenticated = true;
     authState.me = {
