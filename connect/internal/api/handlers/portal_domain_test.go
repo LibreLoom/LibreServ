@@ -30,9 +30,9 @@ func TestGetDomainDetailsReturnsRenewalPrice(t *testing.T) {
 		accountID, accountID+"@test.com")
 	deviceID := "dev-det-" + security.RandomString(8)
 	_, _ = db.Exec(`INSERT INTO devices (id, account_id, plan_id) VALUES ($1, $2, 'free')`, deviceID, accountID)
-	_, _ = db.Exec(`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
-		VALUES ($1, $2, 'test.com', 'cloudflare', 1011, 1011, TRUE, 'active', $3)`,
-		"dom-det", deviceID, time.Now().AddDate(1, 0, 0))
+	_, _ = db.Exec(`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+		VALUES ($1, $2, $3, 'test.com', 'cloudflare', 1011, 1011, TRUE, 'active', $4)`,
+		"dom-det", deviceID, accountID, time.Now().AddDate(1, 0, 0))
 
 	// Mock the CF registrar API — GetDomain + CheckDomain.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,9 +107,9 @@ func TestCancelDomainDisablesAutoRenew(t *testing.T) {
 		accountID, accountID+"@test.com")
 	deviceID := "dev-can-" + security.RandomString(8)
 	_, _ = db.Exec(`INSERT INTO devices (id, account_id, plan_id) VALUES ($1, $2, 'free')`, deviceID, accountID)
-	_, _ = db.Exec(`INSERT INTO custom_domains (id, device_id, domain, registered_via, auto_renew, status, expires_at)
-		VALUES ($1, $2, 'cancel.com', 'cloudflare', TRUE, 'active', $3)`,
-		"dom-can", deviceID, time.Now().AddDate(1, 0, 0))
+	_, _ = db.Exec(`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, auto_renew, status, expires_at)
+		VALUES ($1, $2, $3, 'cancel.com', 'cloudflare', TRUE, 'active', $4)`,
+		"dom-can", deviceID, accountID, time.Now().AddDate(1, 0, 0))
 
 	// Mock CF registrar — PUT should be called to disable auto-renew.
 	autoRenewCalled := false
