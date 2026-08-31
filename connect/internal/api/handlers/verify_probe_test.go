@@ -16,13 +16,18 @@ import (
 // probeWithDevice runs a verify-probe request as the given device.
 func probeWithDevice(t *testing.T, db *sql.DB, deviceID string, payload map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
+	return probeWithHandler(t, NewVerifyProbeHandler(db), deviceID, payload)
+}
+
+func probeWithHandler(t *testing.T, h *VerifyProbeHandler, deviceID string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/verify-probe", bytes.NewReader(body))
 	// Simulate the DeviceAuth middleware having run.
 	ctx := middleware.WithDeviceID(req.Context(), deviceID)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
-	NewVerifyProbeHandler(db).Probe(w, req)
+	h.Probe(w, req)
 	return w
 }
 
@@ -59,13 +64,12 @@ func TestVerifyProbeOwnSubdomainAllowed(t *testing.T) {
 	deviceID := activateDevice(t, db, "free")
 
 	// Give the device a subdomain.
-	if _, err := db.Exec(`UPDATE devices SET subdomain = $1 WHERE id = $2`, "test-device.free.servers.libreloom.org", deviceID); err != nil {
+	if _, err := db.Exec(`UPDATE devices SET subdomain = $1 WHERE id = $2`, "example.com", deviceID); err != nil {
 		t.Fatalf("set subdomain: %v", err)
 	}
 
-	// Own subdomain → allowed (probe runs; reachable=false for an unresolvable
-	// name is fine — the guard is about the 403, not the probe result).
-	w := probeWithDevice(t, db, deviceID, map[string]any{"host": "test-device.free.servers.libreloom.org", "port": 443})
+	// Own, publicly resolvable subdomain → allowed.
+	w := probeWithDevice(t, db, deviceID, map[string]any{"host": "example.com", "port": 443})
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (own domain allowed), body=%s", w.Code, w.Body.String())
 	}
@@ -87,16 +91,17 @@ func TestVerifyProbeRejectsBlockedIP(t *testing.T) {
 func TestVerifyProbeRateLimit(t *testing.T) {
 	db := database.OpenTestDB(t)
 	deviceID := activateDevice(t, db, "free")
-	if _, err := db.Exec(`UPDATE devices SET subdomain = $1 WHERE id = $2`, "rl.free.servers.libreloom.org", deviceID); err != nil {
+	if _, err := db.Exec(`UPDATE devices SET subdomain = $1 WHERE id = $2`, "example.com", deviceID); err != nil {
 		t.Fatalf("set subdomain: %v", err)
 	}
 
 	// First probe OK, immediate second → 429.
-	w1 := probeWithDevice(t, db, deviceID, map[string]any{"host": "rl.free.servers.libreloom.org", "port": 443})
+	h := NewVerifyProbeHandler(db)
+	w1 := probeWithHandler(t, h, deviceID, map[string]any{"host": "example.com", "port": 443})
 	if w1.Code != http.StatusOK {
 		t.Fatalf("first probe status = %d, want 200", w1.Code)
 	}
-	w2 := probeWithDevice(t, db, deviceID, map[string]any{"host": "rl.free.servers.libreloom.org", "port": 443})
+	w2 := probeWithHandler(t, h, deviceID, map[string]any{"host": "example.com", "port": 443})
 	if w2.Code != http.StatusTooManyRequests {
 		t.Fatalf("second probe status = %d, want 429", w2.Code)
 	}

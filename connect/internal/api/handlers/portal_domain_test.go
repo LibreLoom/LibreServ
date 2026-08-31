@@ -70,7 +70,7 @@ func TestGetDomainDetailsReturnsRenewalPrice(t *testing.T) {
 	h := NewPortalHandler(db)
 	h.registrar.SetBaseURL(ts.URL)
 
-	req := httptest.NewRequest(http.MethodGet, "/portal/domains/test.com", nil)
+	req := chiRequest(http.MethodGet, "/portal/domains/test.com", nil, map[string]string{"domain": "test.com"})
 	req = req.WithContext(middleware.WithCustomerDeviceID(req.Context(), accountID))
 	w := httptest.NewRecorder()
 
@@ -125,7 +125,7 @@ func TestCancelDomainDisablesAutoRenew(t *testing.T) {
 	h := NewPortalHandler(db)
 	h.registrar.SetBaseURL(ts.URL)
 
-	req := httptest.NewRequest(http.MethodPost, "/portal/domains/cancel.com/cancel", nil)
+	req := chiRequest(http.MethodPost, "/portal/domains/cancel.com/cancel", nil, map[string]string{"domain": "cancel.com"})
 	req = req.WithContext(middleware.WithCustomerDeviceID(req.Context(), accountID))
 	w := httptest.NewRecorder()
 
