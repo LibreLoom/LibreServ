@@ -159,7 +159,7 @@ func TestACMEManagerAutomaticAndExternalCoverage(t *testing.T) {
 	}
 
 	external.WithUsePodman(false)
-	if err := external.RequestWildcardCert(context.Background(), "wild.example.test", "", &DNSProviderConfig{
+	if err := external.RequestWildcardCert(context.Background(), "wild.example.test", "default@example.test", &DNSProviderConfig{
 		Provider: ProviderCloudflare,
 		APIToken: "token",
 	}); err != nil {
