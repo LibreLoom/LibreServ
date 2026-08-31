@@ -1,6 +1,5 @@
 use axum::extract::{ConnectInfo, Extension, State};
-use axum::http::StatusCode;
-use axum::middleware::{self, Next};
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -56,21 +55,7 @@ struct ValidateCodeBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/setup/validate-code", post(validate_code))
-        .merge(
-            Router::new()
-                .route("/api/v1/setup", get(get_setup).post(save_setup))
-                .route_layer(middleware::from_fn(setup_gate)),
-        )
-}
-
-/// Thin adapter so route_layer can use typed State without cloning AppState at build time.
-async fn setup_gate(
-    State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    req: axum::extract::Request,
-    next: Next,
-) -> axum::response::Response {
-    crate::setup_access::middleware(State(state), ConnectInfo(addr), req, next).await
+        .route("/api/v1/setup", get(get_setup).post(save_setup))
 }
 
 async fn validate_code(
@@ -102,8 +87,11 @@ async fn validate_code(
 
 async fn get_setup(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
+    crate::setup_access::check(&state, &addr, &headers)?;
     let has_users = state.auth.count_users().unwrap_or(0) > 0;
     if has_users && current.is_none() {
         return Err(json_error(
@@ -126,9 +114,12 @@ async fn get_setup(
 
 async fn save_setup(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
+    crate::setup_access::check(&state, &addr, &headers)?;
     let has_users = state.auth.count_users().unwrap_or(0) > 0;
     if has_users {
         let Some(Extension(user)) = current else {

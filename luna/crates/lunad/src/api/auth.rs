@@ -26,32 +26,13 @@ struct LoginBody {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .merge(
-            Router::new()
-                .route("/api/v1/auth/register", post(register))
-                .route_layer(axum::middleware::from_fn(register_setup_gate)),
-        )
+        .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/revoke-sessions", post(revoke_sessions))
         .route("/api/v1/auth/revoke-devices", post(revoke_devices))
         .route("/api/v1/auth/me", get(me))
         .route("/api/v1/auth/status", get(status))
-}
-
-async fn register_setup_gate(
-    State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    req: Request,
-    next: axum::middleware::Next,
-) -> Response {
-    // Only gate first-account creation during the open wizard. Later admin-invited
-    // users still need a signed-in admin (checked in register).
-    let has_users = state.auth.count_users().unwrap_or(1) > 0;
-    if has_users {
-        return next.run(req).await;
-    }
-    crate::setup_access::middleware(State(state), ConnectInfo(addr), req, next).await
 }
 
 async fn register(
@@ -68,6 +49,9 @@ async fn register(
         ));
     }
     let has_users = state.auth.count_users().map_err(map_auth_err)? > 0;
+    if !has_users {
+        crate::setup_access::check(&state, &addr, &headers)?;
+    }
     if has_users {
         let Some(Extension(user)) = current else {
             return Err(json_error(

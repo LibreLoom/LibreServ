@@ -4,56 +4,48 @@
 //! requests need `X-Setup-Token` matching `prefix(device_code)`. Missing or
 //! malformed device-code files refuse remote setup (never fail-open).
 
-use axum::extract::{ConnectInfo, Request, State};
-use axum::http::StatusCode;
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
-use serde_json::json;
+use axum::http::{HeaderMap, StatusCode};
+use axum::Json;
+use serde_json::Value;
 
 use crate::AppState;
+use crate::api::response::json_error;
 use crate::auth::setup_wizard_open;
 
 const SETUP_FORBIDDEN: &str = "This setup step needs a setup code. Open the setup screen on Luna itself, or enter the first eight characters (****-****) from your device code.";
 
-pub async fn middleware(
-    State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    req: Request,
-    next: Next,
-) -> Response {
-    if !setup_wizard_open(&state) {
-        return next.run(req).await;
+/// Enforce the remote setup unlock for an incomplete wizard.
+/// Returns `Ok(())` when the request may proceed.
+pub fn check(
+    state: &AppState,
+    addr: &std::net::SocketAddr,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    if !setup_wizard_open(state) {
+        return Ok(());
     }
-    if is_loopback_request(&addr, req.headers()) {
-        return next.run(req).await;
+    if is_loopback_request(addr, headers) {
+        return Ok(());
     }
 
-    let Some(_expected) = state.connect.setup_prefix() else {
-        return (
+    if state.connect.setup_prefix().is_none() {
+        return Err(json_error(
             StatusCode::FORBIDDEN,
-            axum::Json(json!({
-                "error": "Remote setup is not available on this Luna. Finish setup on Luna itself (the screen plugged into it), or add a device code in Settings and try again."
-            })),
-        )
-            .into_response();
-    };
+            "Remote setup is not available on this Luna. Finish setup on Luna itself (the screen plugged into it), or add a device code in Settings and try again.",
+        ));
+    }
 
-    let token = req
-        .headers()
+    let token = headers
         .get("X-Setup-Token")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if !state.connect.matches_setup_prefix(token) {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(json!({ "error": SETUP_FORBIDDEN })),
-        )
-            .into_response();
+        return Err(json_error(StatusCode::FORBIDDEN, SETUP_FORBIDDEN));
     }
-    next.run(req).await
+    Ok(())
 }
 
-fn is_loopback_request(addr: &std::net::SocketAddr, headers: &axum::http::HeaderMap) -> bool {
+fn is_loopback_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     // Tunnel / reverse-proxy clients must not count as local even if the
     // immediate TCP peer is loopback (Caddy → lunad).
     if has_proxy_client_headers(headers) {
@@ -65,7 +57,7 @@ fn is_loopback_request(addr: &std::net::SocketAddr, headers: &axum::http::Header
     }
 }
 
-fn has_proxy_client_headers(headers: &axum::http::HeaderMap) -> bool {
+fn has_proxy_client_headers(headers: &HeaderMap) -> bool {
     headers.get("cf-connecting-ip").is_some()
         || headers.get("x-forwarded-for").is_some()
         || headers.get("x-real-ip").is_some()
@@ -163,7 +155,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("setup-token"),
-            "ABCD-EFGH-IJKM-NPQR-STUV\n",
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
         )
         .unwrap();
         let app = app(dir.path());
@@ -195,7 +187,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("setup-token"),
-            "ABCD-EFGH-IJKM-NPQR-STUV\n",
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
         )
         .unwrap();
         let app = app(dir.path());

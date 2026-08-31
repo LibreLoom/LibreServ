@@ -711,7 +711,7 @@ mod tests {
     fn deactivate_keeps_device_code_file() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-IJKM-NPQR-STUV").unwrap();
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         service
             .apply_claimed(&json!({
                 "hostname": "photos.luna.servers.libreloom.org",
@@ -727,7 +727,7 @@ mod tests {
             std::fs::read_to_string(dir.path().join("setup-token"))
                 .unwrap()
                 .trim(),
-            "ABCD-EFGH-IJKM-NPQR-STUV"
+            "ABCD-EFGH-JKMN-PQRS-TVWX"
         );
     }
 
