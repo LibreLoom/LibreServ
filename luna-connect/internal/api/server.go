@@ -13,7 +13,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -33,7 +32,7 @@ func NewServer(db *sql.DB, objectStore store.Store) *Server {
 	s := &Server{
 		db: db,
 		deps: handlers.Deps{
-			DB: db, Store: objectStore, Tunnel: tunnel, DNS: dns, Hub: setuphub.New(), Mail: mail.New(),
+			DB: db, Store: objectStore, Tunnel: tunnel, DNS: dns, Mail: mail.New(),
 		},
 	}
 	s.routes()
@@ -76,13 +75,6 @@ func (s *Server) routes() {
 				r.Post("/account/register", acct.Register)
 				r.Post("/account/login", acct.Login)
 				r.Post("/account/verify-email", acct.VerifyEmail)
-				r.Get("/setup/ws", onb.SetupWS)
-
-				r.Group(func(r chi.Router) {
-					r.Use(acct.OptionalAccountAuth)
-					r.Post("/onboarding/bind", onb.Bind)
-					r.Get("/onboarding/session", onb.Session)
-				})
 
 				r.Group(func(r chi.Router) {
 					r.Use(dev.DeviceAuth)
@@ -95,32 +87,29 @@ func (s *Server) routes() {
 
 				r.Group(func(r chi.Router) {
 					r.Use(acct.AccountAuth)
-					// Reachable without a verified email so unverified users can
-					// manage verification itself.
 					r.Get("/account/me", acct.Me)
 					r.Post("/account/logout", acct.Logout)
 					r.Post("/account/resend-verification", acct.ResendVerification)
 					r.Get("/account/verification-status", acct.GetVerificationStatus)
 					r.Post("/account/email", acct.UpdateEmail)
 
-					// Everything below requires a verified email.
 					r.Group(func(r chi.Router) {
 						r.Use(acct.RequireVerifiedEmail)
 						r.Get("/billing/usage", acct.Usage)
 						r.Post("/billing/attach-card", acct.AttachCard)
 						r.Post("/billing/cancel", acct.CancelBilling)
-						r.Post("/account/pair", acct.Pair)
-						r.Post("/account/pairing-token", acct.PairingToken)
-						r.Post("/account/transfer-token", acct.TransferToken)
 						r.Get("/account/devices", acct.Devices)
+						r.Get("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
+						r.Post("/devices/bind", dev.Bind)
+						r.Delete("/devices/{deviceID}", dev.Unbind)
+						r.Post("/devices/{deviceID}/domain", dev.SetDomain)
 						r.Get("/backups", bak.List)
 						r.Post("/backups/download", bak.Download)
 						r.Delete("/backups", bak.DeleteAccountObject)
-						r.Post("/onboarding/attach-account", onb.AttachAccount)
-						r.Post("/onboarding/name", onb.Name)
 						r.Post("/onboarding/backups", onb.Backups)
+						r.Post("/onboarding/progress", onb.SetOnboardingProgress)
 						r.Post("/account/verify-human", onb.VerifyHuman)
-						r.Post("/account/oss-token", onb.MintOSS)
+						r.Post("/account/diy-token", onb.MintDIY)
 					})
 				})
 			})

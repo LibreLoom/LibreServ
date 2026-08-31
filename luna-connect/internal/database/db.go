@@ -36,9 +36,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   has_card INTEGER NOT NULL DEFAULT 0,
   billing_status TEXT NOT NULL DEFAULT 'none',
   email_verified INTEGER NOT NULL DEFAULT 0,
-  activated_at INTEGER,
   backup_purge_after INTEGER,
   purge_mail_day INTEGER,
+  onboarding_path TEXT,
+  onboarding_step TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
@@ -51,17 +52,20 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL UNIQUE,
+  code_hint TEXT,
+  code_sealed TEXT,
+  kind TEXT NOT NULL DEFAULT 'official',
   account_id TEXT,
-  token_hash TEXT NOT NULL UNIQUE,
   name TEXT,
-  subdomain TEXT NOT NULL UNIQUE,
+  subdomain TEXT UNIQUE,
   tunnel_id TEXT,
   tunnel_token TEXT,
-  device_token TEXT,
   setup_secret TEXT,
   local_port INTEGER NOT NULL DEFAULT 8090,
-  pairing_code TEXT,
-  pairing_expires INTEGER,
+  last_seen_at INTEGER,
+  order_ref TEXT,
+  revoked INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   FOREIGN KEY(account_id) REFERENCES accounts(id)
 );
@@ -81,29 +85,20 @@ CREATE TABLE IF NOT EXISTS backup_objects (
   updated_at INTEGER NOT NULL,
   UNIQUE(account_id, device_id, relative_path)
 );
+CREATE TABLE IF NOT EXISTS backup_bindings (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  archived_at INTEGER,
+  archive_key TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(account_id, device_id)
+);
 CREATE TABLE IF NOT EXISTS register_attempts (
   ip TEXT PRIMARY KEY,
   count INTEGER NOT NULL,
   start INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS issued_tokens (
-  id TEXT PRIMARY KEY,
-  token_hash TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL,
-  status TEXT NOT NULL,
-  account_id TEXT,
-  claimed_device_id TEXT,
-  expires_at INTEGER,
-  created_at INTEGER NOT NULL,
-  token_hint TEXT
-);
-CREATE TABLE IF NOT EXISTS setup_sessions (
-  id TEXT PRIMARY KEY,
-  token_hash TEXT NOT NULL,
-  account_id TEXT,
-  status TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS guess_attempts (
   key TEXT PRIMARY KEY,
@@ -175,16 +170,23 @@ CREATE TABLE IF NOT EXISTS billing_period_egress (
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	// Existing files created before these columns; ignore duplicate-column errors.
-	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN device_token TEXT`)
-	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN setup_secret TEXT`)
+	// Additive columns for older DBs / forward-compatible fields.
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN stripe_subscription_item_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
-	_, _ = db.Exec(`ALTER TABLE issued_tokens ADD COLUMN token_hint TEXT`)
-	_, _ = db.Exec(`ALTER TABLE backup_objects ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0`)
-	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN activated_at INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_purge_after INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN purge_mail_day INTEGER`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN onboarding_path TEXT`)
+	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN onboarding_step TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN code_hash TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN code_hint TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN code_sealed TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN kind TEXT NOT NULL DEFAULT 'official'`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN setup_secret TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN last_seen_at INTEGER`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN order_ref TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN tunnel_token TEXT`)
+	_, _ = db.Exec(`ALTER TABLE backup_objects ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'`)
 	return nil
 }

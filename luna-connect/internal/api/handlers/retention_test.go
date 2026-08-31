@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func TestCancelSetsPurgeAndReattachClears(t *testing.T) {
@@ -152,39 +151,5 @@ func TestPurgeMailAsksForDataNotACard(t *testing.T) {
 	subj, body = purgeMail(30)
 	if !strings.Contains(subj, "were deleted") {
 		t.Fatalf("day30 %q %q", subj, body)
-	}
-}
-
-func TestTransferTokenRateLimit(t *testing.T) {
-	onb, acct, _ := testOnboarding(t)
-	cookie := registerAccount(t, acct, "rl@b.co")
-	tok := mintOfficial(t, onb)
-	if rec := pairOfficial(t, onb, acct, cookie, tok, "rate", "203.0.113.90:1"); rec.Code != 201 {
-		t.Fatalf("name %d %s", rec.Code, rec.Body.String())
-	}
-	for i := 0; i < 3; i++ {
-		// Re-insert a device after each transfer so the next mint is allowed by the live-device check.
-		if i > 0 {
-			var id string
-			_ = acct.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'rl@b.co'`).Scan(&id)
-			_, _ = acct.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, local_port, created_at)
-VALUES (?, ?, ?, 'Luna', ?, '', 8090, ?)`, security.NewID("dev"), id, security.HashToken(security.NewID("tok")), "rate"+string(rune('a'+i)), time.Now().Unix())
-		}
-		req := httptest.NewRequest(http.MethodPost, "/account/transfer-token", nil)
-		req.AddCookie(cookie)
-		rec := withAccount(acct, acct.TransferToken, req)
-		if rec.Code != 201 {
-			t.Fatalf("mint %d: %d %s", i, rec.Code, rec.Body.String())
-		}
-	}
-	var id string
-	_ = acct.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'rl@b.co'`).Scan(&id)
-	_, _ = acct.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, local_port, created_at)
-VALUES (?, ?, ?, 'Luna', 'ratez', 8090, ?)`, security.NewID("dev"), id, security.HashToken("rl-last"), time.Now().Unix())
-	req := httptest.NewRequest(http.MethodPost, "/account/transfer-token", nil)
-	req.AddCookie(cookie)
-	rec := withAccount(acct, acct.TransferToken, req)
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("4th mint %d %s", rec.Code, rec.Body.String())
 	}
 }

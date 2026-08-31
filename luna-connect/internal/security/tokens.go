@@ -90,3 +90,22 @@ func TokenHint(norm string) string {
 	}
 	return "…" + norm[len(norm)-4:]
 }
+
+// SetupPrefix returns the first two Crockford groups (8 chars) used to unlock
+// remote Luna setup. Empty if the normalized code is too short.
+func SetupPrefix(normOrGrouped string) string {
+	norm := NormalizeToken(normOrGrouped)
+	if len(norm) < 8 {
+		return ""
+	}
+	return GroupCrockford(norm[:8])
+}
+
+// SetupPrefixNorm returns the ungrouped 8-char prefix for constant-time compare.
+func SetupPrefixNorm(normOrGrouped string) string {
+	norm := NormalizeToken(normOrGrouped)
+	if len(norm) < 8 {
+		return ""
+	}
+	return norm[:8]
+}

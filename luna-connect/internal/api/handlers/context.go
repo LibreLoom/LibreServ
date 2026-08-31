@@ -9,7 +9,6 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -20,24 +19,36 @@ const (
 	accountKey ctxKey = "account"
 )
 
+// MaxDevicesPerAccount caps how many Lunas one account may bind.
+// Schema supports many; the product UI is built for one.
+const MaxDevicesPerAccount = 1
+
+// OnlineWithinSec is how recent last_seen_at must be for "Online" (2× 5m refresh).
+const OnlineWithinSec = 10 * 60
+
 type Device struct {
-	ID        string
-	AccountID sql.NullString
-	Subdomain string
-	TunnelID  string
-	Name      string
+	ID         string
+	AccountID  sql.NullString
+	Subdomain  string
+	TunnelID   string
+	Name       string
+	CodeHash   string
+	Kind       string
+	LastSeenAt sql.NullInt64
+	Revoked    bool
 }
 
 type Account struct {
 	ID               string
 	Email            string
 	HasCard          bool
-	Activated        bool
 	BillingStatus    string
 	StripeCustomer   string
 	StripeSub        string
 	BackupPurgeAfter int64
 	EmailVerified    bool
+	OnboardingPath   string
+	OnboardingStep   string
 }
 
 func WithDevice(ctx context.Context, d Device) context.Context {
@@ -63,7 +74,6 @@ type Deps struct {
 	Store  store.Store
 	Tunnel providers.Tunnel
 	DNS    providers.DNS
-	Hub    *setuphub.Hub
 	Mail   mail.Sender
 }
 
@@ -104,4 +114,8 @@ func stripPort(addr string) string {
 func trustedProxy(ip string) bool {
 	parsed := net.ParseIP(strings.Trim(ip, "[]"))
 	return parsed != nil && parsed.IsLoopback()
+}
+
+func deviceOnline(lastSeen sql.NullInt64, now int64) bool {
+	return lastSeen.Valid && lastSeen.Int64 > 0 && now-lastSeen.Int64 <= OnlineWithinSec
 }
