@@ -45,6 +45,7 @@ async fn list(
         crate::db::list_grants_for_user(&conn, &user.id)
     }
     .map_err(|e| map_err(AuthError::Db(e)))?;
+    let grants = crate::grants::dedupe_identical(&grants);
     Ok(Json(
         grants
             .into_iter()
@@ -79,7 +80,7 @@ async fn create(
         .map_err(|_| AuthError::Unauthenticated)
         .map_err(map_err)?;
     let id = Uuid::new_v4().to_string();
-    crate::db::insert_grant(
+    crate::grants::create_user_grant(
         &conn,
         &id,
         &body.user_id,
@@ -388,5 +389,47 @@ mod http_tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn create_grant_supersedes_an_equal_row() {
+        let (_dir, app) = test_app();
+        let (admin_cookie, admin_csrf, sam_id) = admin_and_sam(&app).await;
+        let body = format!(
+            r#"{{"user_id":"{sam_id}","drive_id":"photos","path":"album/","permission":"read"}}"#
+        );
+        for _ in 0..2 {
+            let res = call(
+                &app,
+                json_req(
+                    Method::POST,
+                    "/api/v1/grants",
+                    &body,
+                    Some(&admin_cookie),
+                    Some(&admin_csrf),
+                ),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::OK);
+        }
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                "/api/v1/grants",
+                "",
+                Some(&admin_cookie),
+                Some(&admin_csrf),
+            ),
+        )
+        .await;
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let rows = v.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["path"], "album");
+        assert_eq!(rows[0]["permission"], "read");
     }
 }
