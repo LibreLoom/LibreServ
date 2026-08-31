@@ -456,7 +456,7 @@ describe("connect component coverage", () => {
     expect(screen.getByText("Backup Recovery Key")).toBeVisible();
     await user.click(screen.getByRole("button", { name: /Add Destination/ }));
     expect(screen.getByText("Add a new backup destination")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(updateConnectServiceMock).toHaveBeenCalledWith(
       "backup",
