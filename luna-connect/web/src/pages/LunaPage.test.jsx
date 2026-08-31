@@ -38,7 +38,7 @@ describe("LunaPage one Luna", () => {
     api.mockResolvedValue({ devices: [] });
   });
 
-  it("sends owners without a Luna to booklet or bring-your-own setup", async () => {
+  it("sends owners without a Luna to official or bring-your-own setup", async () => {
     mount();
     expect(await screen.findByText(/No Luna linked yet/i)).toBeTruthy();
     expect(screen.getByRole("heading", { name: /My Luna/i })).toBeTruthy();

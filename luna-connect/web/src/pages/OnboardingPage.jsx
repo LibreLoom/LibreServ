@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
-  BookOpen,
   Check,
   ChevronLeft,
   Copy,
@@ -502,7 +501,7 @@ export default function OnboardingPage() {
     <StepShell icon={Sparkles} title="Set up Luna Connect">
       <div className="space-y-4 mb-10 text-left">
         <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-          The booklet sent you here so we can give this Luna a name on the internet. That address is free.
+          This setup is only for Lunas bought from LibreLoom. We give this Luna a free name on the internet.
         </p>
         <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
           Stay on your home internet. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.
@@ -517,7 +516,7 @@ export default function OnboardingPage() {
             goTo("account");
           }}
         >
-          I have a booklet <ArrowRight className="w-5 h-5" />
+          Continue <ArrowRight className="w-5 h-5" />
         </Button>
         <Button
           size="lg"
@@ -654,7 +653,7 @@ export default function OnboardingPage() {
             ? me?.human_verified
               ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
               : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
-            : "You are already signed in. Continue to link this Luna with the device code from your booklet."}
+            : "You are already signed in. Continue to link this Luna with its device code."}
         </p>
         <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
         <Button
@@ -760,9 +759,9 @@ export default function OnboardingPage() {
   };
 
   const renderCode = () => (
-    <StepShell icon={BookOpen} title="Type the booklet code">
+    <StepShell icon={Key} title="Enter the device code">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        Groups of letters and numbers, the same as the printed booklet. HDMI on Luna shows the same code if you lost the paper.
+        The code that came with your Luna (****-****-****-****-****). Luna&apos;s screen shows the same code if you need it.
       </p>
       <form
         className="space-y-5 text-left"
@@ -781,7 +780,7 @@ export default function OnboardingPage() {
         }}
       >
         <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-          Device code from the booklet
+          Device code
         </label>
         <Input
           id="code"
@@ -832,7 +831,7 @@ export default function OnboardingPage() {
   );
 
   const renderBind = () => (
-    <StepShell icon={BookOpen} title="Link this Luna">
+    <StepShell icon={Key} title="Link this Luna">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         Confirm the full device code so we can attach this Luna to your account. Put the same code on Luna during install if you have not yet.
       </p>

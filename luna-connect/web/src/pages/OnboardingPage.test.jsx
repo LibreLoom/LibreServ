@@ -140,15 +140,17 @@ describe("OnboardingPage DIY verify", () => {
   it("starts /onboarding on a welcome step, not a register form", () => {
     mount();
     expect(screen.getByRole("heading", { name: /Set up Luna Connect/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /I have a booklet/i })).toBeTruthy();
+    expect(screen.getByText(/only for Lunas bought from LibreLoom/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Continue/i })).toBeTruthy();
     expect(screen.queryByLabelText(/email/i)).toBeNull();
+    expect(screen.queryByText(/booklet/i)).toBeNull();
   });
 
   it("starts /diyonboarding on the bring-your-own account step", () => {
     mount("/diyonboarding");
     expect(screen.getByRole("heading", { name: /Set up your own hardware/i })).toBeTruthy();
     expect(screen.getByLabelText(/email address/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /I have a booklet/i })).toBeNull();
+    expect(screen.queryByText(/booklet/i)).toBeNull();
   });
 
   it("does not call verify-human before a card action when Stripe looks configured", async () => {
@@ -186,7 +188,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
-  it("keeps the booklet path free of a card step and binds after account", async () => {
+  it("keeps the official path free of a card step and binds after account", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
@@ -194,16 +196,16 @@ describe("OnboardingPage DIY verify", () => {
       return {};
     });
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
     await waitFor(() => {
       expect(screen.getByLabelText(/email address/i)).toBeTruthy();
     });
-    await fillAccount("book@example.com", "password1234");
+    await fillAccount("owner@example.com", "password1234");
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/device code from the booklet/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/device code from the booklet/i), {
+    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
@@ -244,13 +246,13 @@ describe("OnboardingPage done card", () => {
 
   it("shows the hostname and one-time code after name is taken", async () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/device code from the booklet/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/device code from the booklet/i), {
+    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
@@ -276,13 +278,13 @@ describe("OnboardingPage done card", () => {
 
   it("goes straight to name after bind without waiting for Luna", async () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/device code from the booklet/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/device code from the booklet/i), {
+    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
