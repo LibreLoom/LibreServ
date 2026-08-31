@@ -103,6 +103,7 @@ export default function FolderPickerModal({
                   setPicked("");
                 }}
                 fullWidth
+                bg="primary"
               />
             </div>
           )}

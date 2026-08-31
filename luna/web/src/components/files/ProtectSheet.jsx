@@ -123,6 +123,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   onChange={setTargetDrive}
                   placeholder="Copy onto"
                   fullWidth
+                  bg="primary"
                 />
                 <Button
                   size="sm"

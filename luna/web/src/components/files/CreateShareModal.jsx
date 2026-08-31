@@ -75,6 +75,7 @@ export default function CreateShareModal({
             value={days}
             onChange={setDays}
             fullWidth
+            bg="primary"
           />
           <div className="flex gap-3">
             <Button

@@ -56,6 +56,9 @@ describe("ProtectSheet", () => {
     expect(await screen.findByRole("heading", { name: /Protect/ })).toBeInTheDocument();
     expect(screen.getByText(/copies this folder onto another drive/i)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Protect" })).toBeInTheDocument();
+    const copyOnto = screen.getByRole("button", { name: "Copy onto" });
+    expect(copyOnto.className).toMatch(/bg-primary/);
+    expect(copyOnto.className).toMatch(/text-secondary/);
     expect(screen.queryByRole("button", { name: "New link" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
   });

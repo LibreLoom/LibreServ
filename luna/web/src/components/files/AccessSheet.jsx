@@ -179,6 +179,7 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
                     onChange={(next) => changePermission(g, next)}
                     disabled={updatingGrantId === g.id}
                     aria-label={`Access for ${name}`}
+                    bg="primary"
                   />
                 </div>
                 <Button size="iconSm" variant="danger" aria-label={`Remove access for ${name}`} onClick={() => revokeGrant.mutate(g.id)}>
@@ -208,12 +209,14 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
                 onChange={setPersonId}
                 placeholder="Add a person"
                 fullWidth
+                bg="primary"
               />
               <Dropdown
                 options={PERMISSION_OPTIONS}
                 value={permission}
                 onChange={setPermission}
                 fullWidth
+                bg="primary"
               />
               <p className="text-primary text-xs">
                 <TermHint content="Can open files in this folder, but cannot save changes.">

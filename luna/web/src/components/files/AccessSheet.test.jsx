@@ -78,6 +78,12 @@ describe("AccessSheet", () => {
     expect(screen.getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New link" })).toBeInTheDocument();
+    const addPerson = screen.getByRole("button", { name: "Add a person" });
+    expect(addPerson.className).toMatch(/bg-primary/);
+    expect(addPerson.className).toMatch(/text-secondary/);
+    const grantPerm = screen.getByRole("button", { name: /Access for Sam/ });
+    expect(grantPerm.className).toMatch(/bg-primary/);
+    expect(grantPerm.className).toMatch(/text-secondary/);
     expect(screen.queryByRole("button", { name: "Protect" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Protect" })).not.toBeInTheDocument();
   });
