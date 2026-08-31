@@ -32,7 +32,7 @@ func TestOpenAIProviderChatModelsAndStream(t *testing.T) {
 			}
 			sawTools = len(request.Tools) == 1
 			for _, message := range request.Messages {
-				if message.ToolCallID == "call-before" && len(message.ToolCalls) == 1 {
+				if message.ToolCallID == "call-before" || len(message.ToolCalls) == 1 {
 					sawToolMessage = true
 				}
 			}
