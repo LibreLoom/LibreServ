@@ -29,7 +29,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {Record<string, any>} */ (await importOriginal());
   return {
     ...original,
     Link: ({ children, to, ...props }) => (
@@ -43,7 +43,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 vi.mock("@tanstack/react-query", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {Record<string, any>} */ (await importOriginal());
   return {
     ...original,
     useQueryClient: () => testState.queryClient,
@@ -137,7 +137,7 @@ vi.mock("../components/ui/Button", () => ({
       children
     ) : (
       <button
-        type={type}
+        type={/** @type {"button" | "reset" | "submit"} */ (type)}
         disabled={disabled || loading}
         onClick={onClick}
       >
@@ -466,7 +466,7 @@ describe("AppDetailPage", () => {
     expect(screen.getByText("Error: App service unavailable")).toBeVisible();
     failed.unmount();
 
-    const missing = new Error("not found");
+    const missing = /** @type {any} */ (new Error("not found"));
     missing.cause = { status: 404 };
     testState.appError = missing;
     render(<AppDetailPage />);

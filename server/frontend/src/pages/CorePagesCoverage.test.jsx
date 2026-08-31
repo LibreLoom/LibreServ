@@ -16,7 +16,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {Record<string, any>} */ (await importOriginal());
   return {
     ...original,
     Link: ({ children, to, ...props }) => (
@@ -99,7 +99,7 @@ vi.mock("../components/ui/Button", () => ({
       children
     ) : (
       <button
-        type={type}
+        type={/** @type {"button" | "reset" | "submit"} */ (type)}
         disabled={disabled || loading}
         onClick={onClick}
         aria-label={props["aria-label"]}
@@ -392,7 +392,7 @@ describe("MyProfile", () => {
   it("shows local validation and API errors", async () => {
     const user = userEvent.setup();
     testState.auth.request.mockImplementation(async (path) => {
-      const error = new Error("already used");
+      const error = /** @type {any} */ (new Error("already used"));
       error.cause = { status: path === "/auth/profile" ? 409 : 401 };
       throw error;
     });
@@ -473,7 +473,12 @@ describe("UsersPage", () => {
   });
 
   it("renders empty and failed list states", async () => {
-    testState.auth.me = { id: "admin-1", role: "admin" };
+    testState.auth.me = {
+      id: "admin-1",
+      username: "Admin",
+      email: "admin@example.test",
+      role: "admin",
+    };
     testState.api.mockResolvedValue(response({ data: [] }));
     const { unmount } = render(<UsersPage />);
     expect(await screen.findByText("No people yet")).toBeVisible();
@@ -498,7 +503,12 @@ describe("UserDetailPage", () => {
 
   it("renders details and completes account actions", async () => {
     const user = userEvent.setup();
-    testState.auth.me = { id: "admin-1", role: "admin" };
+    testState.auth.me = {
+      id: "admin-1",
+      username: "Admin",
+      email: "admin@example.test",
+      role: "admin",
+    };
     testState.api.mockImplementation(async (path) => {
       if (path === "/users/user-2") return response(detailedUser);
       if (path === "/auth/csrf") return response({ csrf_token: "csrf" });
@@ -529,7 +539,12 @@ describe("UserDetailPage", () => {
   });
 
   it("shows private MFA actions and hides unsafe self-management", async () => {
-    testState.auth.me = { id: "user-2", role: "admin" };
+    testState.auth.me = {
+      id: "user-2",
+      username: "Lin",
+      email: "lin@example.test",
+      role: "admin",
+    };
     testState.api.mockResolvedValue(response(detailedUser));
 
     render(<UserDetailPage />);
@@ -543,7 +558,7 @@ describe("UserDetailPage", () => {
   });
 
   it("distinguishes missing users from other request failures", async () => {
-    const missing = new Error("not found");
+    const missing = /** @type {any} */ (new Error("not found"));
     missing.cause = { status: 404 };
     testState.api.mockRejectedValue(missing);
     const { unmount } = render(<UserDetailPage />);

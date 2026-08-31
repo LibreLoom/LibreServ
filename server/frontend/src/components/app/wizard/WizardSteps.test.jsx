@@ -21,7 +21,7 @@ vi.mock("../../../utils/clipboard.js", () => ({
   copyWithFeedback: copyMock,
 }));
 vi.mock("react-router-dom", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {Record<string, any>} */ (await importOriginal());
   return { ...original, useNavigate: () => navigateMock };
 });
 vi.mock("../../ui/Button.jsx", () => ({
@@ -33,7 +33,7 @@ vi.mock("../../ui/Button.jsx", () => ({
     type = "button",
   }) => (
     <button
-      type={type}
+      type={/** @type {"button" | "reset" | "submit"} */ (type)}
       disabled={disabled || loading}
       onClick={onClick}
     >
@@ -204,6 +204,7 @@ describe("installation wizard steps", () => {
         onSubdomainChange={onSubdomainChange}
         onContinue={onContinue}
         onBack={() => {}}
+        loading={false}
       />,
     );
 
