@@ -99,8 +99,37 @@ describe("OnboardingPage DIY verify", () => {
     await createDiyAccount();
 
     expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+    expect(screen.getByText(/Want to change the email\?/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Go Back/i })).toBeTruthy();
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/diy-token");
+  });
+
+  it("returns to Change your email address from the inbox wait screen with email prefilled", async () => {
+    authState.isAuthenticated = true;
+    authState.me = { email: "me@example.com", email_verified: false };
+    mount("/diyonboarding");
+
+    expect(await screen.findByRole("heading", { name: "Change your email address" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Continue to verification/i }));
+
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+    expect(screen.getByText(/Want to change the email\?/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Go Back/i }));
+
+    expect(await screen.findByRole("heading", { name: "Change your email address" })).toBeTruthy();
+    expect(screen.getByLabelText(/email address/i).value).toBe("me@example.com");
+    expect(screen.getByRole("button", { name: /Continue to verification/i })).toBeTruthy();
+  });
+
+  it("shows Change your email address for a signed-in unverified account", async () => {
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com", email_verified: false };
+    mount("/diyonboarding");
+
+    expect(await screen.findByRole("heading", { name: "Change your email address" })).toBeTruthy();
+    expect(screen.getByLabelText(/email address/i).value).toBe("owner@example.com");
+    expect(screen.getByText(/Fix the address here if there is a typo/i)).toBeTruthy();
   });
 
   it("continues after the email verification check succeeds", async () => {
@@ -152,6 +181,30 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.getByRole("heading", { name: /Set up your own hardware/i })).toBeTruthy();
     expect(screen.getByLabelText(/email address/i)).toBeTruthy();
     expect(screen.queryByText(/booklet/i)).toBeNull();
+  });
+
+  it("shows Password placeholder, helper copy, and live requirement chips while typing", async () => {
+    mount("/diyonboarding");
+    fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "me@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    const passwordInput = await screen.findByLabelText(/password/i);
+    expect(passwordInput.getAttribute("placeholder")).toBe("Password");
+    expect(
+      screen.getByText("Use at least 12 characters, including a letter and a number."),
+    ).toBeTruthy();
+
+    fireEvent.change(passwordInput, { target: { value: "abc" } });
+    expect(screen.getByText("12+ chars")).toBeTruthy();
+    expect(screen.getByText("letters")).toBeTruthy();
+    expect(screen.getByText("numbers")).toBeTruthy();
+    expect(screen.getByText("symbols")).toBeTruthy();
+    expect(screen.getByText("Not strong enough yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /create account/i }).disabled).toBe(true);
+
+    fireEvent.change(passwordInput, { target: { value: "password1234" } });
+    expect(screen.getByText("✓ Acceptable")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /create account/i }).disabled).toBe(false);
   });
 
   it("does not call verify-human before a card action when Stripe looks configured", async () => {
