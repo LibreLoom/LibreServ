@@ -151,9 +151,10 @@ export default function ModalCard({
   }, [present, scrollReady]);
 
   const handlePopInEnd = useCallback((event) => {
-    if (event.target !== event.currentTarget) return;
-    const name = event.animationName || "";
-    if (name.includes("pop-in")) setScrollReady(true);
+    const name = String(event.animationName || event.nativeEvent?.animationName || "");
+    if (name.includes("pop-out")) return;
+    if (name && !name.includes("pop-in")) return;
+    setScrollReady(true);
   }, []);
 
   const content = loading
@@ -271,13 +272,13 @@ export default function ModalCard({
           ref={innerRef}
           data-slot="dialog-scroller"
           className={cn(maxHeightClasses, scrollReady ? "overflow-y-auto" : "overflow-hidden")}
+          onAnimationEnd={handlePopInEnd}
         >
         <ModalCloseContext.Provider value={handleClose}>
         <Card
           noHeightAnim
           noPopIn
           className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
-          onAnimationEnd={handlePopInEnd}
         >
           {showCloseButton && (
             <button

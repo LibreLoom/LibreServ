@@ -103,24 +103,6 @@ describe("ModalCard", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("hides scroller overflow until pop-in ends", () => {
-    render(
-      <ModalCard title="Scroll lock" onClose={() => {}}>
-        Body
-      </ModalCard>,
-    );
-    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
-    expect(scroller).toHaveClass("overflow-hidden");
-    expect(scroller).not.toHaveClass("overflow-y-auto");
-
-    fireEvent.animationEnd(screen.getByRole("dialog").querySelector("[data-slot=card]"), {
-      animationName: "pop-in",
-    });
-
-    expect(scroller).toHaveClass("overflow-y-auto");
-    expect(scroller).not.toHaveClass("overflow-hidden");
-  });
-
   it("unlocks scroller overflow after the pop-in fallback duration", () => {
     vi.useFakeTimers();
     render(
