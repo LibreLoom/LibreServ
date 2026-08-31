@@ -497,7 +497,7 @@ describe("AppDetailPage", () => {
 
     render(<AppDetailPage />);
     expect(screen.getByText("N/A")).toBeVisible();
-    expect(screen.getByText("0 B / 0 B")).toBeVisible();
+    expect(screen.getAllByText("0 B / 0 B")).toHaveLength(2);
     expect(screen.getByText("Setup Required")).toBeVisible();
     expect(screen.getByText(/Choose a storage folder/)).toBeVisible();
   });
