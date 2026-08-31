@@ -75,8 +75,22 @@ assert_file_has "$BUILD" 'luna-pwreset' \
 	"rootfs must ship luna-pwreset as the pwreset login shell"
 assert_file_has "$BUILD" 'pwreset:x:1001' \
 	"rootfs must bake the pwreset Linux account"
+assert_file_has "$BUILD" '/usr/local/sbin/luna-pwreset' \
+	"pwreset account must use luna-pwreset as its login shell"
 assert_file_has "$BUILD" 'luna:x:1000' \
 	"rootfs must bake the luna Linux account"
+assert_file_has "$BUILD" '/sbin/nologin' \
+	"luna console account must use nologin"
+assert_file_has "$BUILD" 'root:!:' \
+	"root must be locked in the baked shadow (not empty password)"
+assert_file_has "$BUILD" 'luna:!:' \
+	"luna must be locked in the baked shadow (not empty password)"
+assert_file_has "$BUILD" 'pwreset::' \
+	"pwreset may keep an empty password hash for local recovery login"
+assert_file_lacks "$BUILD" 'for u in root luna pwreset' \
+	"build must not empty passwords for root/luna/pwreset in one loop"
+assert_file_lacks "$BUILD" 'exec /bin/sh' \
+	"luna-pwreset must exit after success, not exec a shell"
 assert_file_lacks "$BUILD" 'openssh|dropbear' \
 	"rootfs must not package SSH (console accounts are local only)"
 

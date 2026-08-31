@@ -341,6 +341,12 @@ if [ "$_pass" != "$_pass2" ]; then
 	echo "Those didn't match. Nothing was changed."
 	exit 1
 fi
+# Soft client check: Luna rejects weak passwords; fail before curl when empty
+# or obviously short so the console stays free of API JSON.
+if [ "${#_pass}" -lt 12 ]; then
+	echo "Passwords need at least 12 characters with a letter and a number. Nothing was changed."
+	exit 1
+fi
 _port="${LUNA_PORT:-80}"
 _url="http://127.0.0.1:${_port}/api/v1/console/reset-password"
 _esc() {
@@ -351,20 +357,18 @@ _tmp=$(mktemp) || exit 1
 _code=$(curl -sS -o "$_tmp" -w '%{http_code}' -X POST "$_url" \
 	-H 'Content-Type: application/json' \
 	--data-binary "$_body" 2>/dev/null || echo 000)
-_msg=$(cat "$_tmp" 2>/dev/null || true)
 rm -f "$_tmp"
 case "$_code" in
 200)
-	echo "Password updated. Sign in on your phone or computer, then type exit."
+	echo "Password updated. Sign in on your phone or computer."
+	exit 0
 	;;
 *)
 	echo "Could not reset the password (HTTP ${_code}). Is Luna running?"
-	[ -n "$_msg" ] && echo "$_msg"
+	echo "Passwords must meet Luna's rules (12+ characters, letter and number)."
 	exit 1
 	;;
 esac
-# Stay in a shell so the user can type exit when done (getty respawns).
-exec /bin/sh
 PWRESET
 chmod 755 "$ROOTFS/usr/local/sbin/luna-pwreset"
 
@@ -377,14 +381,17 @@ cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
 
 ISSUE
 
-# Console accounts: empty passwords (HDMI/USB keyboard only; no SSH).
-# Rootfs is remounted read-only later — bake credentials into the image.
+# Console accounts (HDMI/USB keyboard only; no SSH).
+# Only `pwreset` keeps an empty password so recovery can log in without a
+# secret. `root` and `luna` are locked (!). Rootfs is remounted read-only later.
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     if ! grep -q "^luna:" /rootfs/etc/passwd; then
-        echo "luna:x:1000:1000:Luna:/home/luna:/bin/sh" >> /rootfs/etc/passwd
+        echo "luna:x:1000:1000:Luna:/home/luna:/sbin/nologin" >> /rootfs/etc/passwd
         echo "luna:x:1000:" >> /rootfs/etc/group
         mkdir -p /rootfs/home/luna
         chown 1000:1000 /rootfs/home/luna
+    else
+        sed -i -E "s|^luna:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|luna:\1:\2:\3:\4:\5:/sbin/nologin|" /rootfs/etc/passwd
     fi
     if ! grep -q "^pwreset:" /rootfs/etc/passwd; then
         echo "pwreset:x:1001:1001:Luna recovery:/home/pwreset:/usr/local/sbin/luna-pwreset" >> /rootfs/etc/passwd
@@ -392,14 +399,22 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         mkdir -p /rootfs/home/pwreset
         chown 1001:1001 /rootfs/home/pwreset
     fi
-    # Empty password hashes (login accepts blank password).
-    for u in root luna pwreset; do
-        if grep -q "^${u}:" /rootfs/etc/shadow; then
-            sed -i -E "s|^${u}:[^:]*:|${u}::|" /rootfs/etc/shadow
-        else
-            echo "${u}::19000:0:99999:7:::" >> /rootfs/etc/shadow
-        fi
-    done
+    # Lock root and luna; empty hash only for pwreset (blank password login).
+    if grep -q "^root:" /rootfs/etc/shadow; then
+        sed -i -E "s|^root:[^:]*:|root:!:|" /rootfs/etc/shadow
+    else
+        echo "root:!:19000:0:99999:7:::" >> /rootfs/etc/shadow
+    fi
+    if grep -q "^luna:" /rootfs/etc/shadow; then
+        sed -i -E "s|^luna:[^:]*:|luna:!:|" /rootfs/etc/shadow
+    else
+        echo "luna:!:19000:0:99999:7:::" >> /rootfs/etc/shadow
+    fi
+    if grep -q "^pwreset:" /rootfs/etc/shadow; then
+        sed -i -E "s|^pwreset:[^:]*:|pwreset::|" /rootfs/etc/shadow
+    else
+        echo "pwreset::19000:0:99999:7:::" >> /rootfs/etc/shadow
+    fi
 '
 
 # Cloudflare tunnel helper (remote access). Bake it so Luna OS does not need
