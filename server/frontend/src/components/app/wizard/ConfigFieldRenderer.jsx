@@ -94,6 +94,7 @@ const inputBaseClasses = `
             onChange={handleChange}
             disabled={disabled}
             fullWidth
+            bg={surface === "secondary" ? "primary" : "secondary"}
             options={
               field.options?.length > 0 && field.options[0]?.value !== undefined
                 ? field.options.map((option) => ({ value: option.value, label: option.label || option.value }))

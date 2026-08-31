@@ -50,7 +50,7 @@ function ActivityFilterDropdown({ value, onChange }) {
     <Dropdown
       value={value}
       onChange={onChange}
-      surface="primary"
+      bg="primary"
       options={ACTIVITY_FILTER_OPTIONS}
     />
   );

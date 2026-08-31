@@ -175,7 +175,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     value={mainModel}
                     onChange={setMainModel}
                     fullWidth
-                    surface="primary"
+                    bg="primary"
                     placeholder="Select a model"
                     options={modelOptions}
                   />
@@ -199,7 +199,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     value={reviewModel}
                     onChange={setReviewModel}
                     fullWidth
-                    surface="primary"
+                    bg="primary"
                     placeholder="Select a model"
                     options={modelOptions}
                   />
@@ -222,7 +222,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                   value={apiFormat}
                   onChange={setApiFormat}
                   fullWidth
-                  surface="primary"
+                  bg="primary"
                   options={FORMAT_OPTIONS}
                 />
                 <p className="text-xs text-accent mt-1 px-4">

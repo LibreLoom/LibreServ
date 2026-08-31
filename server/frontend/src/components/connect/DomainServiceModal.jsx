@@ -123,7 +123,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
                 onChange={(v) => setForm({ ...form, provider: v })}
                 placeholder="Select a DNS provider"
                 fullWidth
-                surface="primary"
+                bg="primary"
               />
             </div>
             <div>
