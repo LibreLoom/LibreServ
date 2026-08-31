@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users } from "lucide-react";
-import ModalCard from "../cards/ModalCard";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard";
 import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
@@ -187,23 +187,8 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     updateGrant.mutate({ id: grant.id, permission: next });
   }
 
-  if (creatingLink) {
-    return (
-      <CreateShareModal
-        open={open}
-        driveId={driveId}
-        path={objectPath}
-        onClose={() => setCreatingLink(false)}
-        onError={(msg) => setError(msg)}
-        onDone={() => {
-          setCreatingLink(false);
-          queryClient.invalidateQueries({ queryKey: ["shares"] });
-        }}
-      />
-    );
-  }
-
   return (
+    <>
     <ModalCard open={open} title="Sharing" onClose={onClose}>
       {sheetError && <PageNotice variant="error" className="mb-3">{sheetError}</PageNotice>}
 
@@ -327,5 +312,19 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
       </section>
 
     </ModalCard>
+    {creatingLink && (
+      <CreateShareModal
+        open
+        driveId={driveId}
+        path={objectPath}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => setCreatingLink(false)}
+        onDone={() => {
+          setCreatingLink(false);
+          queryClient.invalidateQueries({ queryKey: ["shares"] });
+        }}
+      />
+    )}
+    </>
   );
 }

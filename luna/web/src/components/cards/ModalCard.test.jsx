@@ -113,4 +113,33 @@ describe("ModalCard", () => {
       "z-[90]",
     );
   });
+
+  it("Escape on a nested overlay closes only the top modal", () => {
+    vi.useFakeTimers();
+    const onBottom = vi.fn();
+    const onTop = vi.fn();
+    render(
+      <>
+        <ModalCard title="Bottom" onClose={onBottom}>
+          Under
+        </ModalCard>
+        <ModalCard title="Top" onClose={onTop} overlayClassName="z-[90]">
+          Over
+        </ModalCard>
+      </>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onBottom).not.toHaveBeenCalled();
+    expect(onTop).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(EXIT_ANIMATION_MS);
+    });
+
+    expect(onTop).toHaveBeenCalledTimes(1);
+    expect(onBottom).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Bottom" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Top" })).not.toBeInTheDocument();
+  });
 });

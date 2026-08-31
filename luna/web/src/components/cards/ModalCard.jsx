@@ -22,6 +22,12 @@ export function useModalClose() {
 /** Longest modal exit animation (overlay + card pop-out). */
 export const EXIT_ANIMATION_MS = 300;
 
+/** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
+export const NESTED_OVERLAY_CLASS = "z-[90]";
+
+/** Present overlays, last entry is topmost for Escape / Tab / overflow. */
+const overlayStack = [];
+
 /**
  * @typedef {object} ModalCardProps
  * @property {import('react').ReactNode} [title]
@@ -37,7 +43,8 @@ export const EXIT_ANIMATION_MS = 300;
  * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
  * @property {string} [className]
  * @property {string} [overlayClassName] Extra classes on the fixed overlay (e.g. raise
- *   z-index above PhotoLightbox's z-[80] with `z-[90]`). Default overlay is `z-50`.
+ *   z-index above PhotoLightbox's z-[80] or another ModalCard with `NESTED_OVERLAY_CLASS`
+ *   / `z-[90]`). Default overlay is `z-50`.
  * @property {import('react').RefObject} [initialFocusRef]
  * @property {boolean} [loading] Show a skeleton body until content is ready.
  */
@@ -131,6 +138,8 @@ export default function ModalCard({
   useEffect(() => {
     if (!present) return undefined;
 
+    const overlayId = titleId;
+    overlayStack.push(overlayId);
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
@@ -139,10 +148,15 @@ export default function ModalCard({
       closeButtonRef.current?.focus();
     }
 
+    const isTopOverlay = () => overlayStack[overlayStack.length - 1] === overlayId;
+
     const handleKeyDown = (event) => {
+      if (!isTopOverlay()) return;
+
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
+        event.stopImmediatePropagation();
         handleClose();
       }
 
@@ -166,7 +180,11 @@ export default function ModalCard({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      const idx = overlayStack.lastIndexOf(overlayId);
+      if (idx !== -1) overlayStack.splice(idx, 1);
+      if (overlayStack.length === 0) {
+        document.body.style.overflow = "";
+      }
       document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus?.();
     };

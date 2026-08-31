@@ -289,10 +289,33 @@ describe("AccessSheet", () => {
     });
     renderSheet();
     await user.click(await screen.findByRole("button", { name: "New link" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "New link" })).toBeInTheDocument();
+    const newLinkHeading = await screen.findByRole("heading", { name: "New link" });
+    const dialog = newLinkHeading.closest("[role=dialog]");
+    expect(dialog).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Create link" }));
     expect(await within(dialog).findByText("Luna can't find that file or folder.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Link ready" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+  });
+
+  it("keeps Sharing open under New link and after New link closes", async () => {
+    const user = userEvent.setup();
+    stubAccessApi({
+      users: [{ id: "1", role: "admin", username: "admin", display_name: "Admin" }],
+      grants: [],
+      shares: [],
+    });
+    renderSheet();
+    expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "New link" }));
+    expect(await screen.findByRole("heading", { name: "New link" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+    const newLinkDialog = screen.getByRole("heading", { name: "New link" }).closest("[role=dialog]");
+    await user.click(within(newLinkDialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "New link" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
   });
 });
