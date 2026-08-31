@@ -120,7 +120,7 @@ func TestOpenAIProviderChatModelsAndStream(t *testing.T) {
 	}
 }
 
-func TestOpenAIProviderAdditionalErrorPaths(t *testing.T) {
+func TestProviderOpenAIClosedServerAndResponseErrors(t *testing.T) {
 	tests := []struct {
 		name   string
 		status int
