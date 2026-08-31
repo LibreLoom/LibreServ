@@ -132,6 +132,25 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.getByText(/Fix the address here if there is a typo/i)).toBeTruthy();
   });
 
+  it("keeps the email field empty when the user clears it", async () => {
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com", email_verified: false };
+    mount("/diyonboarding");
+
+    const input = await screen.findByLabelText(/email address/i);
+    expect(input.value).toBe("owner@example.com");
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(screen.getByLabelText(/email address/i).value).toBe("");
+
+    fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "new" } });
+    expect(screen.getByLabelText(/email address/i).value).toBe("new");
+
+    fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "" } });
+    expect(screen.getByLabelText(/email address/i).value).toBe("");
+    expect(screen.getByRole("button", { name: /Update email and send link/i }).disabled).toBe(true);
+  });
+
   it("continues after the email verification check succeeds", async () => {
     register.mockResolvedValue({ email: "me@example.com", email_verified: false });
     refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });

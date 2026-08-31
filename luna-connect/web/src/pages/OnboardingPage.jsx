@@ -289,7 +289,9 @@ export default function OnboardingPage() {
   const { outerRef, innerRef } = useAnimatedHeight();
 
   const [code, setCode] = useState(saved.current?.code || "");
-  const [email, setEmail] = useState(saved.current?.email || "");
+  // Prefill from the signed-in account on first paint when available; later seeding is step-entry only.
+  const [email, setEmail] = useState(() => saved.current?.email || me?.email || "");
+  const accountEmailVisitSeededRef = useRef(false);
   const [password, setPassword] = useState("");
   const [name, setName] = useState(saved.current?.name || "");
   const [diyCode, setDiyCode] = useState(saved.current?.diyCode || "");
@@ -358,6 +360,18 @@ export default function OnboardingPage() {
     // Only auto-resume once on entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, me?.onboarding_step, me?.onboarding_path]);
+
+  // Prefill the change-email field once when entering the account step — never on empty edits.
+  useEffect(() => {
+    if (step !== "account") {
+      accountEmailVisitSeededRef.current = false;
+      return;
+    }
+    if (accountEmailVisitSeededRef.current) return;
+    if (!isAuthenticated || emailVerified || !me?.email) return;
+    accountEmailVisitSeededRef.current = true;
+    setEmail((current) => current || me.email);
+  }, [step, isAuthenticated, emailVerified, me?.email]);
 
   useEffect(() => {
     if (step !== "verify" || emailVerified) return undefined;
@@ -666,10 +680,14 @@ export default function OnboardingPage() {
             className="space-y-4 text-left"
             onSubmit={async (event) => {
               event.preventDefault();
+              const nextEmail = email.trim();
+              if (!emailOk(nextEmail)) {
+                setError("Enter a valid email address.");
+                return;
+              }
               setError("");
               setLoading(true);
               try {
-                const nextEmail = (email || me?.email || "").trim();
                 if (nextEmail !== me?.email) {
                   await updateAccountEmail(nextEmail, "onboarding");
                 }
@@ -687,12 +705,18 @@ export default function OnboardingPage() {
             <Input
               id="signed-in-email"
               type="email"
-              value={email || me?.email || ""}
+              value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
             />
-            <Button type="submit" size="lg" className="w-full" loading={loading}>
-              {(email || me?.email || "").trim() === me?.email
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              loading={loading}
+              disabled={!emailOk(email)}
+            >
+              {email.trim() === me?.email
                 ? "Continue to verification"
                 : "Update email and send link"}
             </Button>
