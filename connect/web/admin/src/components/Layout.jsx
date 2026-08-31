@@ -24,7 +24,7 @@ export function Layout({ children }) {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-color-scheme: dark)").matches;
   const isDark = theme === "dark" || (theme === "system" && prefersDark);
-  const brandSrc = isDark ? "/admin/favicon-dark.svg" : "/admin/favicon.svg";
+  const brandSrc = isDark ? "/admin/favicon-dark.svg?v=6" : "/admin/favicon.svg?v=6";
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">

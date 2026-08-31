@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Luna — your files, your drives, your house." />
-    <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" id="favicon" />
+    <link rel="icon" href="/favicon.svg?v=6" type="image/svg+xml" id="favicon" />
     <title>Luna</title>
     <script>
       (function () {
@@ -12,7 +12,7 @@
           var f = document.getElementById("favicon");
           if (!f) return;
           function sync() {
-            f.href = (document.documentElement.classList.contains("dark")) ? "/favicon-dark.svg?v=2" : "/favicon.svg?v=2";
+            f.href = (document.documentElement.classList.contains("dark")) ? "/favicon-dark.svg?v=6" : "/favicon.svg?v=6";
           }
           sync();
           new MutationObserver(sync).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
