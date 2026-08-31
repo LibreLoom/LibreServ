@@ -99,7 +99,7 @@ describe("OnboardingPage DIY verify", () => {
     await createDiyAccount();
 
     expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
-    expect(screen.getByText(/Want to change the email\?/i)).toBeTruthy();
+    expect(screen.getByText(/Want to change your email\?/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Go Back/i })).toBeTruthy();
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/diy-token");
@@ -114,7 +114,7 @@ describe("OnboardingPage DIY verify", () => {
     fireEvent.click(screen.getByRole("button", { name: /Continue to verification/i }));
 
     expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
-    expect(screen.getByText(/Want to change the email\?/i)).toBeTruthy();
+    expect(screen.getByText(/Want to change your email\?/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Go Back/i }));
 
     expect(await screen.findByRole("heading", { name: "Change your email address" })).toBeTruthy();

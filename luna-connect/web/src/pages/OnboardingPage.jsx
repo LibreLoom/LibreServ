@@ -809,7 +809,7 @@ export default function OnboardingPage() {
             )}
           </p>
           <p className="text-center text-sm text-muted-foreground">
-            Want to change the email?{" "}
+            Want to change your email?{" "}
             <button
               type="button"
               className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors"
