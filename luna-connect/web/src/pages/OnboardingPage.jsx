@@ -498,35 +498,22 @@ export default function OnboardingPage() {
   };
 
   const renderWelcome = () => (
-    <StepShell icon={Sparkles} title="Set up Luna Connect">
+    <StepShell icon={Sparkles} title="Set up your Luna">
       <div className="space-y-4 mb-10 text-left">
         <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-          This setup is only for Lunas bought from LibreLoom. We give this Luna a free name on the internet.
-        </p>
-        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-          Stay on your home internet. Plug Luna into power and into your router or modem with the included RJ45 (ethernet) cable.
+          Using Luna Connect is the recommended way to set up Luna. If you wish to complete setup without Luna Connect, please follow those instructions in the quick-start guide instead.
         </p>
       </div>
-      <div className="space-y-3">
-        <Button
-          size="lg"
-          className="w-full"
-          onClick={() => {
-            setAuthSubStep(0);
-            goTo("account");
-          }}
-        >
-          Continue <ArrowRight className="w-5 h-5" />
-        </Button>
-        <Button
-          size="lg"
-          variant="outline"
-          className="w-full"
-          onClick={() => navigate("/diyonboarding")}
-        >
-          I set this computer up myself
-        </Button>
-      </div>
+      <Button
+        size="lg"
+        className="w-full"
+        onClick={() => {
+          setAuthSubStep(0);
+          goTo("account");
+        }}
+      >
+        Get Started <ArrowRight className="w-5 h-5" />
+      </Button>
     </StepShell>
   );
 
