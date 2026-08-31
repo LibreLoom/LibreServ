@@ -50,7 +50,16 @@ func (s *Server) routes() {
 	r.Use(handlers.SecurityHeaders)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
+		// Soft drain for ZDU: deploy.sh touches LUNACONNECT_DRAIN_FILE so Caddy
+		// marks this upstream unhealthy before the process is stopped.
+		if p := os.Getenv("LUNACONNECT_DRAIN_FILE"); p != "" {
+			if _, err := os.Stat(p); err == nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("draining"))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 

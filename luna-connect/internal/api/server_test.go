@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,6 +67,33 @@ func TestSecurityHeaders(t *testing.T) {
 	csp := rec.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Fatalf("csp %s", csp)
+	}
+}
+
+func TestHealthzSoftDrain(t *testing.T) {
+	h := testServer(t)
+
+	okReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	okRec := httptest.NewRecorder()
+	h.ServeHTTP(okRec, okReq)
+	if okRec.Code != http.StatusOK {
+		t.Fatalf("want 200 without drain file, got %d", okRec.Code)
+	}
+
+	drain := filepath.Join(t.TempDir(), "drain-a")
+	if err := os.WriteFile(drain, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LUNACONNECT_DRAIN_FILE", drain)
+
+	drainReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	drainRec := httptest.NewRecorder()
+	h.ServeHTTP(drainRec, drainReq)
+	if drainRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 while draining, got %d body=%q", drainRec.Code, drainRec.Body.String())
+	}
+	if !strings.Contains(drainRec.Body.String(), "draining") {
+		t.Fatalf("body %q", drainRec.Body.String())
 	}
 }
 

@@ -60,18 +60,20 @@ Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_toke
 
 ## Deploy (ZDU)
 
-Same blue/green pattern as LibreServ Connect: two systemd instances behind Caddy, `/healthz` drain, shared SQLite + object dir.
+Same blue/green pattern as LibreServ Connect: two systemd instances behind Caddy, shared SQLite + object dir.
+
+**How drain works:** `deploy.sh` touches `/var/lib/luna-connect/drain-{a|b}`. That instance’s `/healthz` returns **503** while it still serves in-flight requests. Caddy’s active health check drops it, then the script stops the unit, swaps the binary, clears the drain file, and starts it again. The peer must be healthy before either side is drained (otherwise you get a site-wide 503).
 
 ```bash
-# once on the box
+# once on the box (also re-run after unit-template changes)
 sudo bash luna-connect/deploy/setup.sh
-# merge deploy/Caddyfile.conf into /etc/caddy/Caddyfile, then:
+# merge deploy/Caddyfile.conf into /etc/caddy/Caddyfile (BOTH :8101 and :8102), then:
 sudo caddy reload --config /etc/caddy/Caddyfile
 
-# later
-./luna-connect/deploy/deploy.sh --head
+# later (must be root — systemctl stop/start)
+sudo ./luna-connect/deploy/deploy.sh --head
 # or after tagging: git tag luna-connect-v0.1.0 && git push --tags
-# ./luna-connect/deploy/deploy.sh
+# sudo ./luna-connect/deploy/deploy.sh
 ```
 
 Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreloom.org`.

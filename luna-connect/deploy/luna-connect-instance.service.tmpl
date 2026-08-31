@@ -13,6 +13,7 @@ User=luna-connect
 Group=luna-connect
 WorkingDirectory=/opt/luna-connect
 Environment=LUNACONNECT_CONFIG=/etc/luna-connect/luna-connect-{INSTANCE}.yaml
+Environment=LUNACONNECT_DRAIN_FILE=/var/lib/luna-connect/drain-{INSTANCE}
 ExecStart=/opt/luna-connect/luna-connect
 Restart=always
 RestartSec=3
