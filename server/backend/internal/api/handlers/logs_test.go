@@ -20,10 +20,10 @@ type fakeRuntime struct {
 	logsErr    error
 }
 
-func (f *fakeRuntime) ComposeUp(context.Context, string) error    { return nil }
-func (f *fakeRuntime) ComposeDown(context.Context, string) error  { return nil }
-func (f *fakeRuntime) ComposePull(context.Context, string) error  { return nil }
-func (f *fakeRuntime) ComposeStop(context.Context, string) error  { return nil }
+func (f *fakeRuntime) ComposeUp(context.Context, string) error   { return nil }
+func (f *fakeRuntime) ComposeDown(context.Context, string) error { return nil }
+func (f *fakeRuntime) ComposePull(context.Context, string) error { return nil }
+func (f *fakeRuntime) ComposeStop(context.Context, string) error { return nil }
 func (f *fakeRuntime) ListContainersByLabel(context.Context, string) ([]runtime.ContainerInfo, error) {
 	return nil, nil
 }

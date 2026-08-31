@@ -41,13 +41,13 @@ type fakeJobInfo struct {
 	id, status, domain string
 }
 
-func (f *fakeJobInfo) GetID() string       { return f.id }
-func (f *fakeJobInfo) GetStatus() string   { return f.status }
-func (f *fakeJobInfo) GetDomain() string   { return f.domain }
-func (f *fakeJobInfo) GetType() string     { return string(jobqueue.JobTypeRenewal) }
-func (f *fakeJobInfo) GetPriority() int    { return 0 }
-func (f *fakeJobInfo) GetRetryCount() int  { return 0 }
-func (f *fakeJobInfo) GetMaxRetries() int  { return 3 }
+func (f *fakeJobInfo) GetID() string      { return f.id }
+func (f *fakeJobInfo) GetStatus() string  { return f.status }
+func (f *fakeJobInfo) GetDomain() string  { return f.domain }
+func (f *fakeJobInfo) GetType() string    { return string(jobqueue.JobTypeRenewal) }
+func (f *fakeJobInfo) GetPriority() int   { return 0 }
+func (f *fakeJobInfo) GetRetryCount() int { return 0 }
+func (f *fakeJobInfo) GetMaxRetries() int { return 3 }
 func (f *fakeJobInfo) IsTerminal() bool {
 	switch f.status {
 	case string(jobqueue.JobStatusSucceeded), string(jobqueue.JobStatusFailed), string(jobqueue.JobStatusCancelled):
