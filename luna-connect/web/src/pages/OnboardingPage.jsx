@@ -30,7 +30,10 @@ import {
   PASSWORD_POLICY_HELPER,
   passwordChecks,
 } from "../lib/passwordPolicy.js";
+import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 import { cn } from "../lib/utils.js";
+
+const VERIFY_POLL_MS = 2000;
 
 const OFFICIAL_STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -267,7 +270,6 @@ export default function OnboardingPage() {
     login,
     me,
     refresh,
-    markEmailVerified,
     updateAccountEmail,
   } = useAuth();
   const { toggle } = useTheme();
@@ -433,16 +435,19 @@ export default function OnboardingPage() {
 
   /**
    * Leave the inbox-wait step once email is confirmed.
-   * Lock avoids the poll→markEmailVerified race: marking verified re-runs the
-   * effect cleanup and used to cancel continueAfterVerification mid-flight.
+   * Refresh from the server first (no optimistic mark) so polling does not
+   * re-run this effect mid-flight and cancel the advance.
    */
   async function advancePastVerify() {
     if (verifyAdvanceLock.current) return;
     verifyAdvanceLock.current = true;
     setError("");
     try {
-      markEmailVerified?.();
       const account = await refresh();
+      if (!account?.email_verified) {
+        verifyAdvanceLock.current = false;
+        return;
+      }
       await continueAfterVerification(account);
     } catch (err) {
       verifyAdvanceLock.current = false;
@@ -458,6 +463,17 @@ export default function OnboardingPage() {
     }
     let cancelled = false;
 
+    const checkVerified = async () => {
+      if (cancelled || verifyAdvanceLock.current) return;
+      try {
+        const status = await api("/api/v1/account/verification-status");
+        if (cancelled || !status.email_verified) return;
+        await advancePastVerify();
+      } catch {
+        /* keep waiting */
+      }
+    };
+
     if (emailVerified) {
       advancePastVerify().catch((err) => {
         if (!cancelled) {
@@ -469,23 +485,25 @@ export default function OnboardingPage() {
       };
     }
 
-    const check = async () => {
-      try {
-        const status = await api("/api/v1/account/verification-status");
-        if (cancelled || !status.email_verified) return;
-        await advancePastVerify();
-      } catch {
-        /* keep waiting */
-      }
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") checkVerified();
     };
-    check();
-    const timer = setInterval(check, 4000);
+
+    checkVerified();
+    const timer = setInterval(pollWhenVisible, VERIFY_POLL_MS);
+    const stopCrossTab = listenForEmailVerifiedCrossTab(checkVerified);
+    document.addEventListener("visibilitychange", pollWhenVisible);
+    window.addEventListener("focus", pollWhenVisible);
+
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopCrossTab();
+      document.removeEventListener("visibilitychange", pollWhenVisible);
+      window.removeEventListener("focus", pollWhenVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, emailVerified, markEmailVerified, refresh]);
+  }, [step, emailVerified, refresh]);
 
   const authFields = isLoginMode
     ? [

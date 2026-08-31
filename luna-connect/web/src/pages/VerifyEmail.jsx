@@ -4,6 +4,7 @@ import { Loader2, MailCheck, X } from "lucide-react";
 import { api } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import { notifyEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export default function VerifyEmail() {
     })
       .then(async () => {
         markEmailVerified();
+        notifyEmailVerifiedCrossTab();
         try {
           await refresh?.();
         } catch {

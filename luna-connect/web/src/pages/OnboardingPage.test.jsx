@@ -166,7 +166,56 @@ describe("OnboardingPage DIY verify", () => {
     await createDiyAccount();
 
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
-    expect(markEmailVerified).toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("auto-advances when a later poll detects verification", async () => {
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    let statusCalls = 0;
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") {
+        statusCalls += 1;
+        return { email_verified: statusCalls >= 2 };
+      }
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "POLL-ADVANCE-CODE-1234-5678", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+
+    expect(await screen.findByText("POLL-ADVANCE-CODE-1234-5678", {}, { timeout: 5000 })).toBeTruthy();
+  });
+
+  it("auto-advances when verification completes in another tab", async () => {
+    const { EMAIL_VERIFIED_STORAGE_KEY } = await import("../lib/emailVerifiedSync.js");
+    register.mockResolvedValue({ email: "me@example.com", email_verified: false });
+    refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: true };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "CROSS-TAB-CODE-1234-5678", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: EMAIL_VERIFIED_STORAGE_KEY,
+        newValue: "1",
+        storageArea: localStorage,
+      }),
+    );
+
+    expect(await screen.findByText("CROSS-TAB-CODE-1234-5678")).toBeTruthy();
   });
 
   it("advances when Check again finds the email already verified", async () => {
