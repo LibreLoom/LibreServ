@@ -20,6 +20,7 @@ import {
   passwordPolicyError,
 } from "../lib/passwordPolicy";
 import { useAuth } from "../context/AuthContext";
+import FieldLabel from "../components/common/forms/FieldLabel";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
@@ -262,23 +263,39 @@ function CreateUserModal({ open = true, onClose, onSubmit, busy }) {
     <ModalCard open={open} title="Add a user" onClose={onClose}>
       {({ close }) => (
       <div className="space-y-3">
-        <input
-          className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-          placeholder="Their name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          autoComplete="name"
-        />
-        <input
-          className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
-          required
-        />
         <div>
+          <FieldLabel htmlFor="add-user-name" surface="secondary">
+            Name
+          </FieldLabel>
           <input
+            id="add-user-name"
+            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+            placeholder="Their name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            autoComplete="name"
+          />
+        </div>
+        <div>
+          <FieldLabel htmlFor="add-user-username" surface="secondary" required>
+            Username
+          </FieldLabel>
+          <input
+            id="add-user-username"
+            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            required
+          />
+        </div>
+        <div>
+          <FieldLabel htmlFor="add-user-password" surface="secondary" required>
+            Password
+          </FieldLabel>
+          <input
+            id="add-user-password"
             type="password"
             className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
             placeholder={PASSWORD_POLICY_HINT}
