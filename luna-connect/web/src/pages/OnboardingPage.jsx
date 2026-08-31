@@ -277,10 +277,12 @@ export default function OnboardingPage() {
       hostname,
       setupSecret,
     });
-    if (step !== "welcome" && step !== "account" && step !== "verify") {
-      persistServerProgress(step);
-    }
-  }, [step, path, code, email, name, diyCode, deviceId, hostname, setupSecret, persistServerProgress]);
+  }, [step, path, code, email, name, diyCode, deviceId, hostname, setupSecret]);
+
+  useEffect(() => {
+    if (step === "welcome" || step === "account" || step === "verify") return;
+    persistServerProgress(step);
+  }, [step, persistServerProgress]);
 
   useEffect(() => {
     if (!isAuthenticated || !me) return;
