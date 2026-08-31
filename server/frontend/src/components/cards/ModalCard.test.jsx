@@ -94,6 +94,74 @@ describe("ModalCard", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("hides scroller overflow as soon as close starts pop-out", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <ModalCard title="Close overflow" onClose={onClose}>
+        {({ close }) => (
+          <button type="button" onClick={close}>
+            Done
+          </button>
+        )}
+      </ModalCard>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+    });
+
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-y-auto");
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+    expect(screen.getByRole("dialog").querySelector(".pop-out")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(EXIT_ANIMATION_MS - 1);
+    });
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides scroller overflow when controlled open becomes false", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <ModalCard open title="Controlled overflow" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+    });
+
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-y-auto");
+
+    rerender(
+      <ModalCard open={false} title="Controlled overflow" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+      .toHaveClass("animate-out");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("unlocks scroller overflow after the pop-in fallback duration", () => {
     vi.useFakeTimers();
     render(

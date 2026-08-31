@@ -113,6 +113,7 @@ export default function ModalCard({
     haptic("light");
     isClosingRef.current = true;
     setIsClosing(true);
+    setScrollReady(false);
     exitTimerRef.current = setTimeout(() => {
       finishExit(notify);
     }, EXIT_ANIMATION_MS);
@@ -141,14 +142,14 @@ export default function ModalCard({
   useEffect(() => () => clearExitTimer(), [clearExitTimer]);
 
   useEffect(() => {
-    if (!present || scrollReady) return undefined;
+    if (!present || scrollReady || isClosing) return undefined;
     if (prefersReducedMotion()) {
       setScrollReady(true);
       return undefined;
     }
     const id = window.setTimeout(() => setScrollReady(true), POP_IN_ANIMATION_MS);
     return () => window.clearTimeout(id);
-  }, [present, scrollReady]);
+  }, [present, scrollReady, isClosing]);
 
   const handlePopInEnd = useCallback((event) => {
     const name = String(event.animationName || event.nativeEvent?.animationName || "");
@@ -271,7 +272,7 @@ export default function ModalCard({
         <div
           ref={innerRef}
           data-slot="dialog-scroller"
-          className={cn(maxHeightClasses, scrollReady ? "overflow-y-auto" : "overflow-hidden")}
+          className={cn(maxHeightClasses, scrollReady && !isClosing ? "overflow-y-auto" : "overflow-hidden")}
           onAnimationEnd={handlePopInEnd}
         >
         <ModalCloseContext.Provider value={handleClose}>
