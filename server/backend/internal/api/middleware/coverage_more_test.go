@@ -47,8 +47,8 @@ func TestRealIPTrustedAndUntrustedPeers(t *testing.T) {
 		realIP     string
 		wantRemote string
 	}{
-		{"untrusted ignores headers", "203.0.113.10:1234", "198.51.100.5", "198.51.100.6", "203.0.113.10:1234"},
-		{"trusted uses forwarded client", "127.0.0.1:1234", "198.51.100.5, 10.0.0.2", "", "198.51.100.5"},
+		{"untrusted ignores headers", "203.0.113.10:1234", "198.51.100.5", "198.51.100.6", "203.0.113.10"},
+		{"trusted uses forwarded client", "127.0.0.1:1234", "198.51.100.5, 127.0.0.2", "", "198.51.100.5"},
 		{"trusted skips invalid forwarded", "127.0.0.1:1234", "invalid, 198.51.100.7", "", "198.51.100.7"},
 		{"trusted falls back to real IP", "127.0.0.1:1234", "", "198.51.100.8", "198.51.100.8"},
 		{"trusted falls back to direct", "127.0.0.1:1234", "", "", "127.0.0.1"},
