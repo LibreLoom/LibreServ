@@ -1,15 +1,12 @@
-//! Luna Connect client — setup websocket, then cloudflared after a name is picked.
+//! Luna Connect client — permanent device code, status pull, then cloudflared.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-
 use serde::Serialize;
 use serde_json::{Value, json};
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
-const OSS_TTL: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
@@ -36,18 +33,12 @@ pub struct ConnectStatus {
     pub backup_sources: Vec<Value>,
 }
 
-struct Ephemeral {
-    code: String,
-    until: Instant,
-}
-
 pub struct ConnectService {
     state_path: PathBuf,
     token_path: PathBuf,
     base_url: String,
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
-    ephemeral: Mutex<Option<Ephemeral>>,
     redeem: Mutex<bool>,
     local_port: u16,
 }
@@ -63,7 +54,6 @@ impl ConnectService {
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
             device_key,
             child: Arc::new(Mutex::new(None)),
-            ephemeral: Mutex::new(None),
             redeem: Mutex::new(false),
             local_port: 8090,
         }
@@ -93,9 +83,13 @@ impl ConnectService {
     fn status_inner(&self) -> ConnectStatus {
         let state = self.load();
         let enabled = state
-            .get("device_token")
+            .get("tunnel_token")
             .and_then(|v| v.as_str())
-            .is_some_and(|k| !k.is_empty());
+            .is_some_and(|k| !k.is_empty())
+            || state
+                .get("hostname")
+                .and_then(|v| v.as_str())
+                .is_some_and(|h| !h.is_empty());
         let hostname = state
             .get("hostname")
             .and_then(|v| v.as_str())
@@ -134,13 +128,7 @@ impl ConnectService {
         if claimed {
             return None;
         }
-        self.read_factory_token().or_else(|| {
-            self.ephemeral
-                .lock()
-                .unwrap()
-                .as_ref()
-                .map(|e| e.code.clone())
-        })
+        self.read_factory_token()
     }
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
@@ -150,10 +138,16 @@ impl ConnectService {
                 "That code should look like ****-****-****-****-**** from the Luna Connect site (or the printed booklet).".into(),
             ));
         }
-        *self.ephemeral.lock().unwrap() = Some(Ephemeral {
-            code: group_booklet(&norm),
-            until: Instant::now() + OSS_TTL,
-        });
+        let grouped = group_booklet(&norm);
+        std::fs::write(&self.token_path, format!("{grouped}\n")).map_err(|_| {
+            ConnectError::Other("Could not save the device code on this Luna. Try again.".into())
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ =
+                std::fs::set_permissions(&self.token_path, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 
@@ -185,7 +179,6 @@ impl ConnectService {
             state["first_user_secret"] = s.clone();
         }
         self.save(&state)?;
-        *self.ephemeral.lock().unwrap() = None;
         *self.redeem.lock().unwrap() = false;
         let _ = self.ensure_tunnel();
         Ok(())
@@ -230,67 +223,50 @@ impl ConnectService {
             .filter(|s| !s.is_empty())
     }
 
-    fn setup_hello_token(&self, _setup_completed: bool) -> Option<(String, &'static str)> {
-        if self.status().enabled {
-            return None;
+    /// Pull Connect status with the permanent device code. Call on boot and every 5 minutes.
+    /// Returns true when bound (200). On 403 unbound, clears local claim state but keeps the code file.
+    pub fn poll_status(&self) -> bool {
+        let Ok(code) = self.device_code() else {
+            return false;
+        };
+        match self.call_json_status("GET", "/api/v1/status", Some(&code), None) {
+            Ok(remote) => {
+                let mut state = self.load();
+                if let Some(h) = remote.get("hostname") {
+                    state["hostname"] = h.clone();
+                }
+                if let Some(s) = remote.get("subdomain") {
+                    state["subdomain"] = s.clone();
+                }
+                if let Some(t) = remote.get("tunnel_token") {
+                    state["tunnel_token"] = t.clone();
+                }
+                if let Some(s) = remote.get("setup_secret") {
+                    state["first_user_secret"] = s.clone();
+                }
+                state["backup_unlocked"] = json!(
+                    remote
+                        .get("backup_unlocked")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                );
+                state["paired"] = json!(true);
+                state["bound"] = json!(true);
+                let _ = self.save(&state);
+                let _ = self.ensure_tunnel();
+                true
+            }
+            Err(ConnectError::Other(msg)) if msg.contains("403") || msg.contains("unbound") => {
+                self.clear_claim_keep_code();
+                false
+            }
+            Err(_) => false,
         }
-        if let Some(e) = self.ephemeral.lock().unwrap().as_ref()
-            && Instant::now() < e.until
-        {
-            return Some((e.code.clone(), "anonymous"));
-        }
-        let factory = self.read_factory_token()?;
-        if *self.redeem.lock().unwrap() {
-            return Some((factory, "settings"));
-        }
-        // Keep helloing with the factory booklet until Connect claims this Luna.
-        // Finishing the local wizard must not hide the box from the booklet site.
-        Some((factory, "anonymous"))
     }
 
-    pub fn hello_once(&self, setup_completed: bool) -> bool {
-        let Some((token, source)) = self.setup_hello_token(setup_completed) else {
-            return false;
-        };
-        let ws = http_to_ws(&self.base_url) + "/api/v1/setup/ws";
-        let Ok((mut socket, _)) = tungstenite::connect(&ws) else {
-            return false;
-        };
-        let hello = json!({
-            "type": "hello",
-            "token": token,
-            "local_port": self.local_port,
-            "source": source,
-        });
-        if socket
-            .send(tungstenite::Message::Text(hello.to_string().into()))
-            .is_err()
-        {
-            return false;
-        }
-        let mut held = false;
-        while let Ok(msg) = socket.read() {
-            let tungstenite::Message::Text(text) = msg else {
-                continue;
-            };
-            let Ok(v) = serde_json::from_str::<Value>(&text) else {
-                continue;
-            };
-            match v.get("type").and_then(|t| t.as_str()) {
-                Some("error") => break,
-                Some("claimed") => {
-                    let _ = self.apply_claimed(&v);
-                    break;
-                }
-                Some("accepted") | Some("attached") | Some("waiting_for_website") => {
-                    held = true;
-                }
-                _ => {
-                    held = true;
-                }
-            }
-        }
-        held
+    fn clear_claim_keep_code(&self) {
+        self.stop_tunnel();
+        let _ = std::fs::remove_file(&self.state_path);
     }
 
     pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {
@@ -321,6 +297,7 @@ impl ConnectService {
         }
         self.stop_tunnel();
         let _ = std::fs::remove_file(&self.state_path);
+        // Keep setup-token (permanent device code) so factory reset / re-join works.
         Ok(())
     }
 
@@ -331,13 +308,16 @@ impl ConnectService {
     }
 
     pub fn refresh_remote(&self, state: &mut Value) -> Result<(), ConnectError> {
-        let token = state
-            .get("device_token")
-            .and_then(|v| v.as_str())
-            .ok_or(ConnectError::Other("Connect is not turned on.".into()))?;
-        let remote = self.call_json("GET", "/api/v1/status", Some(token), None)?;
+        let token = self.device_code()?;
+        let remote = self.call_json("GET", "/api/v1/status", Some(&token), None)?;
         if let Some(h) = remote.get("hostname") {
             state["hostname"] = h.clone();
+        }
+        if let Some(s) = remote.get("subdomain") {
+            state["subdomain"] = s.clone();
+        }
+        if let Some(t) = remote.get("tunnel_token") {
+            state["tunnel_token"] = t.clone();
         }
         state["backup_unlocked"] = json!(
             remote
@@ -355,20 +335,45 @@ impl ConnectService {
     }
 
     pub fn sync_status_from_cloud(&self) {
-        let mut state = self.load();
-        if self.refresh_remote(&mut state).is_ok() {
-            let _ = self.save(&state);
+        let _ = self.poll_status();
+    }
+
+    /// Permanent device code from disk (Bearer for Connect).
+    pub fn device_code(&self) -> Result<String, ConnectError> {
+        self.read_factory_token()
+            .ok_or_else(|| ConnectError::Other("This Luna has no device code yet.".into()))
+    }
+
+    /// Setup unlock prefix: first eight Crockford characters (XXXX-XXXX).
+    /// None when the device-code file is missing or malformed (fail closed for remote setup).
+    pub fn setup_prefix(&self) -> Option<String> {
+        let code = self.read_factory_token()?;
+        let norm = normalize_setup_code(&code);
+        if !is_booklet_code(&norm) || norm.len() < 8 {
+            return None;
         }
-        let _ = self.ensure_tunnel();
+        Some(group_booklet(&norm[..8]))
+    }
+
+    /// Constant-time-ish compare of a submitted unlock code against the on-disk prefix.
+    pub fn matches_setup_prefix(&self, submitted: &str) -> bool {
+        let Some(expected) = self.setup_prefix() else {
+            return false;
+        };
+        let got = normalize_setup_code(submitted);
+        let exp = normalize_setup_code(&expected);
+        if got.len() != 8 || exp.len() != 8 {
+            return false;
+        }
+        got.as_bytes()
+            .iter()
+            .zip(exp.as_bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0
     }
 
     pub fn token(&self) -> Result<String, ConnectError> {
-        self.load()
-            .get("device_token")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .ok_or_else(|| ConnectError::Other("Connect is not turned on.".into()))
+        self.device_code()
     }
 
     pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
@@ -473,6 +478,18 @@ impl ConnectService {
         key: Option<&str>,
         body: Option<Value>,
     ) -> Result<Value, ConnectError> {
+        self.call_json_status(method, path, key, body)
+    }
+
+    /// Like call_json, but maps HTTP 403 to `ConnectError::Other("403 unbound")` so callers
+    /// can clear local tunnel state after an unbind.
+    fn call_json_status(
+        &self,
+        method: &str,
+        path: &str,
+        key: Option<&str>,
+        body: Option<Value>,
+    ) -> Result<Value, ConnectError> {
         let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
         let auth = key.map(|k| format!("Bearer {k}"));
         let result = match (method, body) {
@@ -499,7 +516,13 @@ impl ConnectService {
             }
             _ => return Err(ConnectError::Other("unsupported method".into())),
         };
-        let mut response = result.map_err(map_transport_error)?;
+        let mut response = match result {
+            Ok(r) => r,
+            Err(ureq::Error::StatusCode(403)) => {
+                return Err(ConnectError::Other("403 unbound".into()));
+            }
+            Err(e) => return Err(map_transport_error(e)),
+        };
         response
             .body_mut()
             .read_json::<Value>()
@@ -534,16 +557,6 @@ impl ConnectService {
                 std::fs::set_permissions(&self.state_path, std::fs::Permissions::from_mode(0o600));
         }
         Ok(())
-    }
-}
-
-fn http_to_ws(base: &str) -> String {
-    if let Some(rest) = base.strip_prefix("https://") {
-        format!("wss://{}", rest.trim_end_matches('/'))
-    } else if let Some(rest) = base.strip_prefix("http://") {
-        format!("ws://{}", rest.trim_end_matches('/'))
-    } else {
-        base.trim_end_matches('/').to_string()
     }
 }
 
@@ -628,11 +641,16 @@ mod tests {
     }
 
     #[test]
-    fn oss_code_is_memory_only() {
+    fn device_code_persists_to_disk() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         service.set_oss_code("3097-v4yk-3hyx-2e3p-v4b3").unwrap();
-        assert!(!dir.path().join("setup-token").exists());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("setup-token"))
+                .unwrap()
+                .trim(),
+            "3097-V4YK-3HYX-2E3P-V4B3"
+        );
         assert_eq!(
             service.status().setup_code.as_deref(),
             Some("3097-V4YK-3HYX-2E3P-V4B3")
@@ -645,22 +663,30 @@ mod tests {
             service.set_oss_code("a1b2c3").is_err(),
             "short hex must be rejected"
         );
+        assert_eq!(
+            service.setup_prefix().as_deref(),
+            Some("3097-V4YK")
+        );
+        assert!(service.matches_setup_prefix("3097-V4YK"));
+        assert!(service.matches_setup_prefix("3097v4yk"));
+        assert!(!service.matches_setup_prefix("3097-XXXX"));
     }
 
     #[test]
-    fn local_complete_still_hellos_until_claimed() {
+    fn missing_device_code_refuses_prefix_match() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-IJKM-NPQR-STUV").unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(service.setup_hello_token(false).is_some());
-        assert!(
-            service.setup_hello_token(true).is_some(),
-            "local setup must not stop booklet hello until Connect claims the box"
-        );
-        service.redeem_booklet().unwrap();
-        let (code, source) = service.setup_hello_token(true).unwrap();
-        assert_eq!(source, "settings");
-        assert!(code.contains("ABCD"));
+        assert!(service.setup_prefix().is_none());
+        assert!(!service.matches_setup_prefix("ABCD-EFGH"));
+    }
+
+    #[test]
+    fn malformed_device_code_refuses_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("setup-token"), "not-a-code").unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        assert!(service.setup_prefix().is_none());
+        assert!(!service.matches_setup_prefix("ABCD-EFGH"));
     }
 
     #[test]
@@ -679,6 +705,30 @@ mod tests {
         );
         assert!(msg.contains("Settings → About → Advanced"), "{msg}");
         assert!(!msg.to_lowercase().contains("booklet"), "{msg}");
+    }
+
+    #[test]
+    fn deactivate_keeps_device_code_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-IJKM-NPQR-STUV").unwrap();
+        service
+            .apply_claimed(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        service.deactivate().unwrap();
+        assert!(
+            !dir.path().join("connect.json").exists(),
+            "claim state must clear"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("setup-token"))
+                .unwrap()
+                .trim(),
+            "ABCD-EFGH-IJKM-NPQR-STUV"
+        );
     }
 
     #[test]

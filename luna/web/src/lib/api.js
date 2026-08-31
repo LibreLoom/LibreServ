@@ -6,6 +6,25 @@
 // ("This page expired.") — or, with the Vite proxy rewriting Host, the
 // Origin guard returns "Cross-site request blocked."
 
+const SETUP_TOKEN_KEY = "luna_setup_token";
+
+export function getSetupToken() {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(SETUP_TOKEN_KEY) || "";
+}
+
+/** @param {string} token */
+export function setSetupToken(token) {
+  if (typeof window === "undefined") return;
+  const trimmed = String(token || "").trim();
+  if (trimmed) localStorage.setItem(SETUP_TOKEN_KEY, trimmed);
+  else localStorage.removeItem(SETUP_TOKEN_KEY);
+}
+
+export function clearSetupToken() {
+  setSetupToken("");
+}
+
 function readCookie(name) {
   if (typeof document === "undefined") return "";
   const prefix = `${name}=`;
@@ -40,6 +59,16 @@ export function withCsrfHeaders(method, headers = {}) {
 export async function apiFetch(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const headers = withCsrfHeaders(method, options.headers || {});
+  // Remote setup unlock (first ****-**** of the permanent device code).
+  if (
+    path.startsWith("/api/v1/setup") ||
+    path.startsWith("/api/v1/auth/register")
+  ) {
+    const setupToken = getSetupToken();
+    if (setupToken && !headers["X-Setup-Token"]) {
+      headers["X-Setup-Token"] = setupToken;
+    }
+  }
   try {
     // Spread options first, then force credentials + merged headers so a
     // caller's Content-Type object cannot wipe X-CSRF-Token.

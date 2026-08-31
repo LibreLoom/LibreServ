@@ -122,6 +122,31 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
   });
 
+  it("asks for the first eight characters when remote setup is locked", async () => {
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      const method = (init?.method || "GET").toUpperCase();
+      if (u.includes("/auth/me")) return jsonResponse({}, 401);
+      if (u.includes("/auth/status")) return jsonResponse({ has_admin: false });
+      if (u.includes("/api/v1/setup/validate-code") && method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      if (u.includes("/api/v1/setup")) {
+        return jsonResponse(
+          { error: "This setup step needs a setup code. Open the setup screen on Luna itself, or enter the first eight characters (****-****) from your device code." },
+          403,
+        );
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSetup();
+    expect(await screen.findByRole("heading", { name: /Enter your setup code/i })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Setup code/i), { target: { value: "ABCDEFGH" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
+  });
+
   it("asks for the Luna Connect setup code on a public hostname", async () => {
     vi.stubGlobal("fetch", stubFetch({ network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] } }));
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });

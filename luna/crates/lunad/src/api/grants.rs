@@ -207,7 +207,7 @@ mod http_tests {
     use tower::ServiceExt;
 
     const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 44)),
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         54321,
     );
 

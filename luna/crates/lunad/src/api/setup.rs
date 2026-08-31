@@ -1,9 +1,10 @@
-use axum::extract::{Extension, State};
+use axum::extract::{ConnectInfo, Extension, State};
 use axum::http::StatusCode;
+use axum::middleware::{self, Next};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
@@ -47,10 +48,56 @@ struct SaveBody {
     step_data: Option<Map<String, Value>>,
 }
 
+#[derive(Deserialize)]
+struct ValidateCodeBody {
+    code: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/setup", get(get_setup))
-        .route("/api/v1/setup", post(save_setup))
+        .route("/api/v1/setup/validate-code", post(validate_code))
+        .merge(
+            Router::new()
+                .route("/api/v1/setup", get(get_setup).post(save_setup))
+                .route_layer(middleware::from_fn(setup_gate)),
+        )
+}
+
+/// Thin adapter so route_layer can use typed State without cloning AppState at build time.
+async fn setup_gate(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    req: axum::extract::Request,
+    next: Next,
+) -> axum::response::Response {
+    crate::setup_access::middleware(State(state), ConnectInfo(addr), req, next).await
+}
+
+async fn validate_code(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    Json(body): Json<ValidateCodeBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let ip = addr.ip().to_string();
+    if !state.login_limiter.allow(&format!("setup-code:{ip}")) {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
+    if state.connect.setup_prefix().is_none() {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Remote setup is not available on this Luna. Finish setup on Luna itself (the screen plugged into it), or add a device code in Settings and try again.",
+        ));
+    }
+    if !state.connect.matches_setup_prefix(&body.code) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "That setup code doesn't match. Check the first eight characters (****-****) on your device card or Luna Connect page.",
+        ));
+    }
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn get_setup(
