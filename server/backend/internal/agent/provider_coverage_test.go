@@ -255,7 +255,7 @@ func TestOpenAIProviderProtocol(t *testing.T) {
 	}
 }
 
-func TestOpenAIProviderErrorPaths(t *testing.T) {
+func TestOpenAIProviderAdditionalErrorPaths(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		status     int
