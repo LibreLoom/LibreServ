@@ -658,7 +658,7 @@ export default function OnboardingPage() {
   const renderSignedInAccount = () => {
     if (!emailVerified) {
       return (
-        <StepShell icon={User} title="Check your email address">
+        <StepShell icon={User} title="Change your email address">
           <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
             We need to verify your email before setup continues. Fix the address here if there is a typo.
           </p>
@@ -807,6 +807,20 @@ export default function OnboardingPage() {
                 .
               </>
             )}
+          </p>
+          <p className="text-center text-sm text-muted-foreground">
+            Want to change the email?{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors"
+              onClick={() => {
+                setError("");
+                if (!email && displayEmail) setEmail(displayEmail);
+                goTo("account", "left");
+              }}
+            >
+              Go Back
+            </button>
           </p>
         </div>
       </StepShell>
