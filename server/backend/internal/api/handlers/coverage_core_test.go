@@ -442,6 +442,13 @@ func TestACMEHandlerCoverage(t *testing.T) {
 func TestOIDCHandlerCoverage(t *testing.T) {
 	f := newCoverageFixture(t)
 	seedCoverageApp(t, f, "oidc-app")
+	if _, err := f.db.Exec(`
+		INSERT INTO routes
+			(id, subdomain, domain, backend, app_id, ssl, enabled, restricted_access, created_at, updated_at)
+		VALUES ('route-one', 'oidc', 'example.test', 'http://127.0.0.1:19091',
+		        'oidc-app', 0, 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	authSvc := auth.NewService(f.db, "coverage-oidc-secret", logger)
 	user, err := authSvc.Register(context.Background(), &auth.RegisterRequest{
