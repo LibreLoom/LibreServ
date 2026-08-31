@@ -139,11 +139,12 @@ describe("OnboardingPage DIY verify", () => {
 
   it("starts /onboarding on a welcome step, not a register form", () => {
     mount();
-    expect(screen.getByRole("heading", { name: /Set up Luna Connect/i })).toBeTruthy();
-    expect(screen.getByText(/only for Lunas bought from LibreLoom/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Continue/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Set up your Luna/i })).toBeTruthy();
+    expect(screen.getByText(/recommended way to set up Luna/i)).toBeTruthy();
+    expect(screen.getByText(/quick-start guide/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Get Started/i })).toBeTruthy();
     expect(screen.queryByLabelText(/email/i)).toBeNull();
-    expect(screen.queryByText(/booklet/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /set this computer up myself/i })).toBeNull();
   });
 
   it("starts /diyonboarding on the bring-your-own account step", () => {
@@ -196,7 +197,7 @@ describe("OnboardingPage DIY verify", () => {
       return {};
     });
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
     await waitFor(() => {
       expect(screen.getByLabelText(/email address/i)).toBeTruthy();
     });
@@ -246,7 +247,7 @@ describe("OnboardingPage done card", () => {
 
   it("shows the hostname and one-time code after name is taken", async () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
@@ -278,7 +279,7 @@ describe("OnboardingPage done card", () => {
 
   it("goes straight to name after bind without waiting for Luna", async () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /^Continue/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
