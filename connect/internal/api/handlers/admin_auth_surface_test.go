@@ -96,8 +96,8 @@ func TestAdminPasswordAndAccountManagement(t *testing.T) {
 
 	for body, want := range map[string]int{
 		`{}`: http.StatusBadRequest,
-		`{"current_password":"original-password","new_password":"short"}`:          http.StatusBadRequest,
-		`{"current_password":"wrong-password","new_password":"new-password-123"}`: http.StatusUnauthorized,
+		`{"current_password":"original-password","new_password":"short"}`:            http.StatusBadRequest,
+		`{"current_password":"wrong-password","new_password":"new-password-123"}`:    http.StatusUnauthorized,
 		`{"current_password":"original-password","new_password":"new-password-123"}`: http.StatusOK,
 	} {
 		got := adminAuthRequest(t, h, adminID, http.MethodPost, "/admin/password", body, h.ChangePassword)

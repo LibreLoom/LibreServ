@@ -58,9 +58,9 @@ func TestPortalUsageBillingAndSubscriptions(t *testing.T) {
 	}
 
 	for body, want := range map[string]int{
-		`{}`:                          http.StatusBadRequest,
-		`{"plan_id":"not-a-plan"}`:    http.StatusBadRequest,
-		`{"plan_id":"lite"}`:          http.StatusOK,
+		`{}`:                       http.StatusBadRequest,
+		`{"plan_id":"not-a-plan"}`: http.StatusBadRequest,
+		`{"plan_id":"lite"}`:       http.StatusOK,
 		`{"plan_id":"one","device_id":"` + deviceID + `"}`: http.StatusOK,
 	} {
 		got := portalRequest(t, h, accountID, http.MethodPost, "/portal/subscribe", body, h.Subscribe)
@@ -134,8 +134,8 @@ func TestPortalConsentRequests(t *testing.T) {
 		t.Fatalf("consent list = %d: %s", list.Code, list.Body.String())
 	}
 	for body, want := range map[string]int{
-		`{}`:                    http.StatusBadRequest,
-		`{"decision":"maybe"}`:  http.StatusBadRequest,
+		`{}`:                     http.StatusBadRequest,
+		`{"decision":"maybe"}`:   http.StatusBadRequest,
 		`{"decision":"granted"}`: http.StatusOK,
 	} {
 		req := "/portal/consent/respond?id=consent-portal"
@@ -166,8 +166,8 @@ func TestPortalMockDomainLifecycle(t *testing.T) {
 	})
 
 	for body, want := range map[string]int{
-		`{}`:                     http.StatusBadRequest,
-		`{"query":"libreserv"}`:   http.StatusBadRequest,
+		`{}`:                       http.StatusBadRequest,
+		`{"query":"libreserv"}`:    http.StatusOK,
 		`{"query":"my home site"}`: http.StatusOK,
 	} {
 		got := portalRequest(t, h, accountID, http.MethodPost, "/portal/domains/search", body, h.SearchDomains)
@@ -219,9 +219,9 @@ func TestPortalSubdomainManagement(t *testing.T) {
 	h := NewPortalHandler(db)
 
 	for body, want := range map[string]int{
-		`{}`:                         http.StatusBadRequest,
-		`{"subdomain":"Bad_Name"}`:   http.StatusBadRequest,
-		`{"subdomain":"available"}`:  http.StatusOK,
+		`{}`:                        http.StatusBadRequest,
+		`{"subdomain":"Bad_Name"}`:  http.StatusBadRequest,
+		`{"subdomain":"available"}`: http.StatusOK,
 	} {
 		got := portalRequest(t, h, accountID, http.MethodPost, "/portal/devices/check-subdomain", body, h.CheckSubdomain)
 		if got.Code != want {

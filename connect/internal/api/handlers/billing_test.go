@@ -96,9 +96,9 @@ func TestStripeSubscriptionWebhookLifecycle(t *testing.T) {
 		"items": map[string]any{
 			"object": "list",
 			"data": []any{map[string]any{
-				"id":    "si_test",
+				"id":     "si_test",
 				"object": "subscription_item",
-				"price": map[string]any{"id": "price_lite", "object": "price"},
+				"price":  map[string]any{"id": "price_lite", "object": "price"},
 			}},
 		},
 	}
@@ -110,9 +110,9 @@ func TestStripeSubscriptionWebhookLifecycle(t *testing.T) {
 	subscription["items"] = map[string]any{
 		"object": "list",
 		"data": []any{map[string]any{
-			"id":    "si_test",
+			"id":     "si_test",
 			"object": "subscription_item",
-			"price": map[string]any{"id": "price_one", "object": "price"},
+			"price":  map[string]any{"id": "price_one", "object": "price"},
 		}},
 	}
 	updated := callStripeWebhook(t, h, "customer.subscription.updated", subscription)
@@ -190,10 +190,10 @@ func TestStripeCheckoutAndInvoiceWebhooks(t *testing.T) {
 	}
 
 	invoice := map[string]any{
-		"id":       "in_paid",
-		"object":   "invoice",
-		"amount_paid": 2500,
-		"metadata": map[string]string{"device_id": deviceID},
+		"id":           "in_paid",
+		"object":       "invoice",
+		"amount_paid":  2500,
+		"metadata":     map[string]string{"device_id": deviceID},
 		"subscription": map[string]any{"id": "sub_device_checkout", "object": "subscription"},
 	}
 	paid := callStripeWebhook(t, h, "invoice.paid", invoice)
