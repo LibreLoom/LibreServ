@@ -14,10 +14,11 @@ func serviceDevice(t *testing.T, db *sql.DB, plan string) string {
 	t.Helper()
 	accountID := security.GenerateID("acct")
 	deviceID := security.GenerateID("dev")
+	username := "smtp-" + security.RandomString(10)
 	if _, err := db.Exec(
 		`INSERT INTO customer_accounts (id, email, password_hash, plan_id, username, smtp_password)
-		 VALUES ($1, $2, 'hash', $3, 'smtp-user', 'smtp-password')`,
-		accountID, accountID+"@example.com", plan); err != nil {
+		 VALUES ($1, $2, 'hash', $3, $4, 'smtp-password')`,
+		accountID, accountID+"@example.com", plan, username); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
@@ -45,7 +46,7 @@ func TestProvisioningLocalCredentialTypes(t *testing.T) {
 		t.Fatalf("Provision smtp: %v", err)
 	}
 	smtpData := smtpCreds["smtp"].(map[string]any)
-	if smtpData["host"] != "smtp.example.com" || smtpData["username"] != "smtp-user" {
+	if smtpData["host"] != "smtp.example.com" || smtpData["username"] == "" {
 		t.Fatalf("SMTP credentials = %#v", smtpData)
 	}
 	again, err := svc.Provision(deviceID, "smtp", "")

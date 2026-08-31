@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -130,7 +129,7 @@ func TestAdminPasswordAndAccountManagement(t *testing.T) {
 	}
 
 	selfReq := chiRequest(http.MethodDelete, "/admin/admins/"+adminID, nil, map[string]string{"adminID": adminID})
-	selfReq = selfReq.WithContext(middleware.WithAdminID(context.Background(), adminID))
+	selfReq = selfReq.WithContext(middleware.WithAdminID(selfReq.Context(), adminID))
 	selfW := httptest.NewRecorder()
 	h.DeleteAdmin(selfW, selfReq)
 	if selfW.Code != http.StatusBadRequest {
@@ -138,7 +137,7 @@ func TestAdminPasswordAndAccountManagement(t *testing.T) {
 	}
 
 	deleteReq := chiRequest(http.MethodDelete, "/admin/admins/"+secondID, nil, map[string]string{"adminID": secondID})
-	deleteReq = deleteReq.WithContext(middleware.WithAdminID(context.Background(), adminID))
+	deleteReq = deleteReq.WithContext(middleware.WithAdminID(deleteReq.Context(), adminID))
 	deleteW := httptest.NewRecorder()
 	h.DeleteAdmin(deleteW, deleteReq)
 	if deleteW.Code != http.StatusOK {
