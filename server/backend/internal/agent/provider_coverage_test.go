@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -220,7 +221,7 @@ func TestOpenAIProviderProtocol(t *testing.T) {
 	if response.Content != "hello" || len(response.ToolCalls) != 2 || string(response.ToolCalls[0].Arguments) != "{}" {
 		t.Fatalf("chat response = %+v", response)
 	}
-	if usage.InputTokens != 0 || usage.OutputTokens != 4 || usage.CacheTokens != 5 || usage.CostUSD != 0.000023 {
+	if usage.InputTokens != 0 || usage.OutputTokens != 4 || usage.CacheTokens != 5 || math.Abs(usage.CostUSD-0.000023) > 1e-12 {
 		t.Fatalf("usage = %+v", usage)
 	}
 
@@ -360,7 +361,7 @@ func TestAnthropicProviderProtocol(t *testing.T) {
 				_, _ = io.WriteString(w, "event: content_block_delta\ndata: {\"text\":\"hello\"}\n\ndata: [DONE]\n\n")
 				return
 			}
-			if len(body.Tools) != 2 {
+			if len(body.Tools) != 3 {
 				t.Errorf("anthropic tools = %+v", body.Tools)
 			}
 			_, _ = io.WriteString(w, `{"content":[
