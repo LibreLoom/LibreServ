@@ -4,7 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import LunaPage from "./LunaPage.jsx";
 import { api } from "../api.js";
 
-const authState = vi.hoisted(() => ({ me: { email: "owner@example.com", activated: false } }));
+const refreshMe = vi.fn();
+const authState = vi.hoisted(() => ({ me: { email: "owner@example.com", email_verified: true } }));
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock("../api.js", () => ({
 vi.mock("../context/AuthContext.jsx", () => ({
   useAuth: () => ({
     me: authState.me,
+    refreshMe,
     logout: vi.fn(),
   }),
 }));
@@ -32,47 +34,40 @@ function mount() {
 describe("LunaPage one Luna", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    authState.me = { email: "owner@example.com", activated: false };
+    authState.me = { email: "owner@example.com", email_verified: true };
     api.mockResolvedValue({ devices: [] });
   });
 
-  it("sends unactivated owners to booklet or bring-your-own setup", async () => {
+  it("sends owners without a Luna to booklet or bring-your-own setup", async () => {
     mount();
-    expect(await screen.findByText(/This Luna is not paired yet/i)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /This Luna/i })).toBeTruthy();
+    expect(await screen.findByText(/No Luna linked yet/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /My Luna/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Start setup/i }).getAttribute("href")).toBe("/onboarding");
-    expect(screen.getByRole("link", { name: /I set this computer up myself/i }).getAttribute("href")).toBe("/register");
+    expect(screen.getByRole("link", { name: /I set this computer up myself/i }).getAttribute("href")).toBe(
+      "/diyonboarding",
+    );
     expect(screen.queryByRole("button", { name: /Get a new setup code/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Setup" })).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
-    expect(screen.queryByText(/Loading your Lunas/i)).toBeNull();
   });
 
-  it("lets an activated account mint a new setup code after reset", async () => {
-    authState.me = { email: "owner@example.com", activated: true };
-    api.mockImplementation(async (path, opts) => {
-      if (path === "/api/v1/account/devices") return { devices: [] };
-      if (path === "/api/v1/account/pairing-token" && opts?.method === "POST") {
-        return { code: "AAAA-BBBB-CCCC-DDDD-EEEE", message: "Enter this on Luna." };
-      }
-      return {};
-    });
+  it("shows a resume banner when onboarding is incomplete", async () => {
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      onboarding_path: "diy",
+      onboarding_step: "domain",
+    };
     mount();
-    expect(await screen.findByText(/After a factory reset/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Get a new setup code/i }));
-    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
-    await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/account/pairing-token", { method: "POST", body: "{}" });
-    });
+    expect(await screen.findByText(/You still have setup to finish/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Resume setup/i }).getAttribute("href")).toBe("/diyonboarding");
   });
 
   it("shows one Luna and never a device list or connect another", async () => {
-    authState.me = { email: "owner@example.com", activated: true };
     api.mockResolvedValue({
       devices: [
-        { id: "dev_1", hostname: "photos.luna.servers.libreloom.org", name: "Luna" },
-        { id: "dev_2", hostname: "extra.luna.servers.libreloom.org", name: "Extra" },
+        { id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: true, code_hint: "ABCD••••" },
+        { id: "dev_2", hostname: "extra.luna.servers.libreloom.org", online: false },
       ],
     });
     mount();
@@ -80,25 +75,33 @@ describe("LunaPage one Luna", () => {
     expect(screen.queryByText("extra.luna.servers.libreloom.org")).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /Transfer this Luna/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Unbind Luna/i })).toBeTruthy();
   });
 
-  it("confirms transfer then shows the code once", async () => {
-    authState.me = { email: "owner@example.com", activated: true };
+  it("reveals the device code and can unbind", async () => {
     api.mockImplementation(async (path, opts) => {
-      if (path === "/api/v1/account/devices") return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org" }] };
-      if (path === "/api/v1/account/transfer-token" && opts?.method === "POST") {
-        return { code: "TRAN-SFER-CODE-HERE-0001", message: "Give this code to the new owner." };
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: false }] };
+      }
+      if (path === "/api/v1/account/devices/dev_1/code") {
+        return { code: "AAAA-BBBB-CCCC-DDDD-EEEE" };
+      }
+      if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") {
+        return { ok: true };
       }
       return {};
     });
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: /Transfer this Luna/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Show code/i }));
+    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
     expect(screen.getByText(/The public address goes away/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Transfer this Luna/i }));
-    expect(await screen.findByText("TRAN-SFER-CODE-HERE-0001")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
+
     await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/account/transfer-token", { method: "POST", body: "{}" });
+      expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
     });
+    expect(refreshMe).toHaveBeenCalled();
   });
 });

@@ -68,7 +68,7 @@ export default function Login() {
             </span>
             <span className="block">
               Installing on your own computer?{" "}
-              <Link to="/register" className="font-mono text-foreground underline-offset-4 hover:underline">Bring your own device</Link>
+              <Link to="/diyonboarding" className="font-mono text-foreground underline-offset-4 hover:underline">Bring your own device</Link>
             </span>
           </p>
         </CardContent>

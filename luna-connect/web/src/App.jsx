@@ -58,9 +58,10 @@ export default function App() {
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
-        <Route path="/register" element={<OnboardingPage />} />
+        <Route path="/register" element={<Navigate to="/diyonboarding" replace />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/diyonboarding" element={<OnboardingPage />} />
         <Route
           path="/"
           element={

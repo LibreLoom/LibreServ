@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   BookOpen,
-  Cable,
   Check,
   ChevronLeft,
   Copy,
@@ -29,13 +28,22 @@ import { useTheme } from "../context/ThemeContext.jsx";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import { cn } from "../lib/utils.js";
 
-const STEPS = [
+const OFFICIAL_STEPS = [
   { id: "welcome", label: "Welcome" },
-  { id: "code", label: "Code" },
   { id: "account", label: "Account" },
-  { id: "wait", label: "Connect" },
-  { id: "name", label: "Name" },
-  { id: "copies", label: "Backup" },
+  { id: "code", label: "Code" },
+  { id: "domain", label: "Name" },
+  { id: "backup", label: "Backup" },
+  { id: "done", label: "Done" },
+];
+
+const DIY_STEPS = [
+  { id: "account", label: "Account" },
+  { id: "card", label: "Confirm" },
+  { id: "diy-code", label: "Code" },
+  { id: "bind", label: "Link" },
+  { id: "domain", label: "Name" },
+  { id: "backup", label: "Backup" },
   { id: "done", label: "Done" },
 ];
 
@@ -75,22 +83,38 @@ function emailOk(email) {
   return /^\S+@\S+\.\S+$/.test(email.trim());
 }
 
-function progressIndex(step, path) {
-  if (step === "welcome") return 0;
-  if (step === "code") return 1;
-  if (step === "account" || step === "verify" || step === "card") return 2;
-  if (step === "wait" || step === "oss-code") return 3;
-  if (step === "name") return 4;
-  if (step === "copies") return 5;
-  if (step === "done") return 6;
-  return path === "oss" ? 2 : 0;
+function pathFromLocation(pathname) {
+  if (pathname === "/diyonboarding" || pathname === "/register") return "diy";
+  return "official";
+}
+
+function progressIndex(stepId, path) {
+  const steps = path === "diy" ? DIY_STEPS : OFFICIAL_STEPS;
+  const map = {
+    welcome: "welcome",
+    account: "account",
+    verify: "account",
+    card: "card",
+    "diy-code": "diy-code",
+    code: "code",
+    bind: "bind",
+    domain: "domain",
+    name: "domain",
+    backup: "backup",
+    copies: "backup",
+    done: "done",
+  };
+  const mapped = map[stepId] || (path === "diy" ? "account" : "welcome");
+  const idx = steps.findIndex((s) => s.id === mapped);
+  return idx < 0 ? 0 : idx;
 }
 
 function ProgressBar({ stepId, path }) {
+  const steps = path === "diy" ? DIY_STEPS : OFFICIAL_STEPS;
   const step = progressIndex(stepId, path);
   return (
     <div className="flex items-center justify-center pt-10 pb-8 px-4" role="list" aria-label="Setup progress">
-      {STEPS.map((s, i) => (
+      {steps.map((s, i) => (
         <div key={s.id} className="flex items-center" role="listitem">
           <div className="flex flex-col items-center gap-2">
             <div
@@ -119,7 +143,7 @@ function ProgressBar({ stepId, path }) {
               {s.label}
             </span>
           </div>
-          {i < STEPS.length - 1 && (
+          {i < steps.length - 1 && (
             <div className="relative w-6 sm:w-12 h-0.5 mx-2 mb-0 sm:mb-6 bg-muted overflow-hidden rounded-full">
               <div
                 className="absolute inset-y-0 left-0 bg-foreground motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
@@ -162,6 +186,17 @@ function StepShell({ icon: Icon, title, children }) {
   );
 }
 
+function resumeStepFromServer(path, serverStep, saved) {
+  if (saved?.path === path && saved?.step) return saved.step;
+  const step = (serverStep || "").trim();
+  if (!step || step === "done") return path === "diy" ? "account" : "welcome";
+  if (step === "name" || step === "copies") return step === "name" ? "domain" : "backup";
+  if (step === "verify") return "account";
+  if (path === "diy" && (step === "code" || step === "oss-code")) return "diy-code";
+  if (path === "official" && step === "bind") return "code";
+  return step;
+}
+
 export default function OnboardingPage() {
   const {
     isAuthenticated,
@@ -175,13 +210,17 @@ export default function OnboardingPage() {
   const { toggle } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const byoEntry = location.pathname === "/register";
+  const path = pathFromLocation(location.pathname);
   const saved = useRef(loadProgress());
-  const resumeByo = Boolean(byoEntry && saved.current?.path === "oss");
-  const [step, setStep] = useState(
-    byoEntry && !resumeByo ? "account" : saved.current?.step || (byoEntry ? "account" : "welcome"),
-  );
-  const [path, setPath] = useState(byoEntry && !resumeByo ? "oss" : saved.current?.path || (byoEntry ? "oss" : "official"));
+
+  const [step, setStep] = useState(() => {
+    const local = saved.current?.path === path ? saved.current : null;
+    if (path === "diy") {
+      const resumed = resumeStepFromServer("diy", null, local);
+      return resumed === "welcome" ? "account" : resumed || "account";
+    }
+    return resumeStepFromServer("official", null, local) || "welcome";
+  });
   const [direction, setDirection] = useState("right");
   const [error, setError] = useState("");
   const { outerRef, innerRef } = useAnimatedHeight();
@@ -190,10 +229,10 @@ export default function OnboardingPage() {
   const [email, setEmail] = useState(saved.current?.email || "");
   const [password, setPassword] = useState("");
   const [name, setName] = useState(saved.current?.name || "");
-  const [ossCode, setOssCode] = useState(saved.current?.ossCode || "");
+  const [diyCode, setDiyCode] = useState(saved.current?.diyCode || "");
+  const [deviceId, setDeviceId] = useState(saved.current?.deviceId || "");
   const [hostname, setHostname] = useState(saved.current?.hostname || "");
   const [setupSecret, setSetupSecret] = useState(saved.current?.setupSecret || "");
-  const [waitMsg, setWaitMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [isLoginMode, setIsLoginMode] = useState(false);
   const [authSubStep, setAuthSubStep] = useState(0);
@@ -210,6 +249,21 @@ export default function OnboardingPage() {
     setStep(next);
   }, []);
 
+  const persistServerProgress = useCallback(
+    async (nextStep) => {
+      if (!isAuthenticated || !emailVerified) return;
+      try {
+        await api("/api/v1/onboarding/progress", {
+          method: "POST",
+          body: JSON.stringify({ path, step: nextStep }),
+        });
+      } catch {
+        /* local progress still saved */
+      }
+    },
+    [isAuthenticated, emailVerified, path],
+  );
+
   useEffect(() => {
     if (step === "welcome" && !email && !code) return;
     saveProgress({
@@ -218,32 +272,27 @@ export default function OnboardingPage() {
       code,
       email,
       name,
-      ossCode,
+      diyCode,
+      deviceId,
       hostname,
       setupSecret,
     });
-  }, [step, path, code, email, name, ossCode, hostname, setupSecret]);
+    if (step !== "welcome" && step !== "account" && step !== "verify") {
+      persistServerProgress(step);
+    }
+  }, [step, path, code, email, name, diyCode, deviceId, hostname, setupSecret, persistServerProgress]);
 
   useEffect(() => {
-    if (step !== "wait" && step !== "code" && step !== "name") return undefined;
-    const t = setInterval(async () => {
-      try {
-        const s = await api("/api/v1/onboarding/session");
-        setWaitMsg(s.message || "");
-        const live = Boolean(s.live);
-        if (live && s.status === "attached" && step === "wait") goTo("name");
-        if (live && s.status === "attached" && step === "code" && isAuthenticated && emailVerified) {
-          goTo("wait");
-        }
-        if (!live && step === "name") {
-          goTo("wait");
-        }
-      } catch {
-        /* waiting room is optional until bind */
-      }
-    }, 3000);
-    return () => clearInterval(t);
-  }, [step, isAuthenticated, emailVerified, goTo]);
+    if (!isAuthenticated || !me) return;
+    if (me.onboarding_path && me.onboarding_path !== path) return;
+    if (!me.onboarding_step || me.onboarding_step === "done") return;
+    const resumed = resumeStepFromServer(path, me.onboarding_step, null);
+    if (resumed && resumed !== step && step === (path === "diy" ? "account" : "welcome")) {
+      goTo(resumed);
+    }
+    // Only auto-resume once on entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, me?.onboarding_step, me?.onboarding_path]);
 
   useEffect(() => {
     if (step !== "verify" || emailVerified) return undefined;
@@ -266,7 +315,6 @@ export default function OnboardingPage() {
       cancelled = true;
       clearInterval(timer);
     };
-    // continueAfterVerification intentionally uses the current path and code.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, emailVerified, markEmailVerified, refresh]);
 
@@ -276,50 +324,52 @@ export default function OnboardingPage() {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  async function bindCode(value) {
-    const s = await api("/api/v1/onboarding/bind", { method: "POST", body: JSON.stringify({ code: value }) });
-    setWaitMsg(s.message || "");
-    return s;
+  async function bindDevice(value) {
+    const res = await api("/api/v1/devices/bind", {
+      method: "POST",
+      body: JSON.stringify({ code: value }),
+    });
+    if (res.device_id) setDeviceId(res.device_id);
+    return res;
   }
 
-  async function finishOssVerify(paymentMethodId) {
+  async function mintDiyToken() {
+    const minted = await api("/api/v1/account/diy-token", { method: "POST", body: "{}" });
+    setDiyCode(minted.code);
+    setCode(minted.code);
+    if (minted.device_id) setDeviceId(minted.device_id);
+    goTo("diy-code");
+  }
+
+  async function finishDiyVerify(paymentMethodId) {
     const body = paymentMethodId
       ? JSON.stringify({ payment_method_id: paymentMethodId })
       : "{}";
     await api("/api/v1/account/verify-human", { method: "POST", body });
     await refresh();
-    await mintOssCode();
+    await mintDiyToken();
   }
 
-  async function mintOssCode() {
-    const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
-    setOssCode(minted.code);
-    setWaitMsg(minted.message);
-    goTo("oss-code");
-  }
-
-  async function afterOssAccount(account) {
+  async function afterDiyAccount(account) {
     const current = account || me;
     if (current?.human_verified) {
-      await mintOssCode();
+      await mintDiyToken();
       return;
     }
     if (stripeLooksConfigured(current)) {
       goTo("card");
       return;
     }
-    await finishOssVerify();
+    await finishDiyVerify();
   }
 
   async function afterOfficialAccount() {
-    const session = code ? await bindCode(code) : null;
-    await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-    goTo(session?.status === "attached" && session?.live ? "name" : "wait");
+    goTo("code");
   }
 
   async function continueAfterVerification(account) {
-    if (path === "oss") {
-      await afterOssAccount(account);
+    if (path === "diy") {
+      await afterDiyAccount(account);
       return;
     }
     await afterOfficialAccount();
@@ -415,7 +465,7 @@ export default function OnboardingPage() {
 
   const handleBack = () => {
     setError("");
-    if (step === "welcome") {
+    if (step === "welcome" || (path === "diy" && step === "account" && authSubStep === 0)) {
       if (isAuthenticated) navigate("/");
       return;
     }
@@ -424,18 +474,26 @@ export default function OnboardingPage() {
       setAuthSubStep((s) => s - 1);
       return;
     }
-    const back = {
-      code: "welcome",
-      account: path === "oss" ? "welcome" : "code",
+    const officialBack = {
+      account: "welcome",
+      verify: "account",
+      code: "account",
+      domain: "code",
+      backup: "domain",
+      done: "backup",
+    };
+    const diyBack = {
+      account: "account",
       verify: "account",
       card: "account",
-      "oss-code": "account",
-      wait: path === "oss" ? "oss-code" : "account",
-      name: "wait",
-      copies: "name",
-      done: "copies",
+      "diy-code": "account",
+      bind: "diy-code",
+      domain: "bind",
+      backup: "domain",
+      done: "backup",
     };
-    goTo(back[step] || "welcome", "left");
+    const back = path === "diy" ? diyBack : officialBack;
+    goTo(back[step] || (path === "diy" ? "account" : "welcome"), "left");
   };
 
   const renderWelcome = () => (
@@ -453,8 +511,8 @@ export default function OnboardingPage() {
           size="lg"
           className="w-full"
           onClick={() => {
-            setPath("official");
-            goTo("code");
+            setAuthSubStep(0);
+            goTo("account");
           }}
         >
           I have a booklet <ArrowRight className="w-5 h-5" />
@@ -463,11 +521,7 @@ export default function OnboardingPage() {
           size="lg"
           variant="outline"
           className="w-full"
-          onClick={() => {
-            setPath("oss");
-            setAuthSubStep(0);
-            goTo("account");
-          }}
+          onClick={() => navigate("/diyonboarding")}
         >
           I set this computer up myself
         </Button>
@@ -475,62 +529,10 @@ export default function OnboardingPage() {
     </StepShell>
   );
 
-  const renderCode = () => (
-    <StepShell icon={BookOpen} title="Type the booklet code">
-      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        Groups of letters and numbers, the same as the printed booklet. HDMI on Luna shows the same code if you lost the paper. A transfer code from the previous owner goes in this same field.
-      </p>
-      <form
-        className="space-y-5 text-left"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setError("");
-          setLoading(true);
-          try {
-            const s = await bindCode(code);
-            if (isAuthenticated) {
-              if (!emailVerified) {
-                goTo("verify");
-                return;
-              }
-              await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-              goTo(s.status === "attached" && s.live ? "name" : "wait");
-            } else {
-              setAuthSubStep(0);
-              goTo("account");
-            }
-          } catch (err) {
-            setError(err.message);
-          } finally {
-            setLoading(false);
-          }
-        }}
-      >
-        <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-          Device code from the booklet
-        </label>
-        <Input
-          id="code"
-          className="font-mono uppercase tracking-widest"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="****-****-****-****-****"
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus
-        />
-        {waitMsg && <p className="text-sm text-foreground">{waitMsg}</p>}
-        <Button type="submit" size="lg" className="w-full" loading={loading} disabled={code.trim().length < 6}>
-          Continue <ArrowRight className="w-4 h-4" />
-        </Button>
-      </form>
-    </StepShell>
-  );
-
   const renderAccount = () => (
     <StepShell
       icon={User}
-      title={isLoginMode ? "Welcome back" : path === "oss" ? "Set up your own hardware" : "Create your account"}
+      title={isLoginMode ? "Welcome back" : path === "diy" ? "Set up your own hardware" : "Create your account"}
     >
       <div className="w-full mb-10">
         <div className="flex items-center justify-between mb-2.5">
@@ -646,11 +648,11 @@ export default function OnboardingPage() {
     return (
       <StepShell icon={User} title="Continue with your account">
         <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
-          {path === "oss"
+          {path === "diy"
             ? me?.human_verified
               ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
               : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
-            : "You are already signed in. Continue to connect and name this Luna."}
+            : "You are already signed in. Continue to link this Luna with the device code from your booklet."}
         </p>
         <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
         <Button
@@ -755,41 +757,126 @@ export default function OnboardingPage() {
     );
   };
 
-  const renderWait = () => (
-    <StepShell icon={Cable} title="Waiting for Luna">
+  const renderCode = () => (
+    <StepShell icon={BookOpen} title="Type the booklet code">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        Keep this page open. Plug Luna into your router or modem with the included RJ45 (ethernet) cable. We continue when Luna comes online.
+        Groups of letters and numbers, the same as the printed booklet. HDMI on Luna shows the same code if you lost the paper.
       </p>
-      {waitMsg && <p className="text-sm text-foreground mb-6">{waitMsg}</p>}
-      <p className="text-xs font-mono text-muted-foreground animate-pulse">Looking for Luna…</p>
-    </StepShell>
-  );
-
-  const renderOssCode = () => (
-    <StepShell icon={Key} title="Enter this on Luna">
-      <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{ossCode}</p>
-      <p className="text-sm text-foreground mb-8 leading-relaxed">
-        On Luna, open the address on the screen and enter this code (same shape as a booklet code: ****-****-****-****-****).
-      </p>
-      <Button
-        size="lg"
-        className="w-full"
-        onClick={async () => {
+      <form
+        className="space-y-5 text-left"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError("");
+          setLoading(true);
           try {
-            setError("");
-            await bindCode(ossCode);
-            goTo("wait");
+            await bindDevice(code);
+            goTo("domain");
           } catch (err) {
             setError(err.message);
+          } finally {
+            setLoading(false);
           }
         }}
       >
-        I entered it on Luna
-      </Button>
+        <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+          Device code from the booklet
+        </label>
+        <Input
+          id="code"
+          className="font-mono uppercase tracking-widest"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="****-****-****-****-****"
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+        />
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Luna picks up this link when it is online. You do not need to wait here.
+        </p>
+        <Button type="submit" size="lg" className="w-full" loading={loading} disabled={code.trim().length < 6}>
+          Continue <ArrowRight className="w-4 h-4" />
+        </Button>
+      </form>
     </StepShell>
   );
 
-  const renderName = () => (
+  const renderDiyCode = () => (
+    <StepShell icon={Key} title="Put this code on Luna">
+      <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
+      <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
+        During install on Luna, enter this full code (****-****-****-****-****). The first eight characters unlock setup from your phone.
+      </p>
+      <p className="text-sm text-muted-foreground mb-8 leading-relaxed text-pretty">
+        We already filled it in for the next step on this site, where you link the code to your account.
+      </p>
+      <div className="flex flex-col gap-3">
+        <Button size="lg" className="w-full" variant="outline" onClick={() => handleCopy("diy", diyCode)}>
+          {copied === "diy" ? (
+            <>
+              <Check className="w-4 h-4" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="w-4 h-4" /> Copy code
+            </>
+          )}
+        </Button>
+        <Button size="lg" className="w-full" onClick={() => goTo("bind")}>
+          Continue to link <ArrowRight className="w-4 h-4" />
+        </Button>
+      </div>
+    </StepShell>
+  );
+
+  const renderBind = () => (
+    <StepShell icon={BookOpen} title="Link this Luna">
+      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+        Confirm the full device code so we can attach this Luna to your account. Put the same code on Luna during install if you have not yet.
+      </p>
+      <form
+        className="space-y-5 text-left"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setError("");
+          setLoading(true);
+          try {
+            await bindDevice(code || diyCode);
+            goTo("domain");
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        }}
+      >
+        <label htmlFor="bind-code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+          Device code
+        </label>
+        <Input
+          id="bind-code"
+          className="font-mono uppercase tracking-widest"
+          value={code || diyCode}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="****-****-****-****-****"
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+        />
+        <Button
+          type="submit"
+          size="lg"
+          className="w-full"
+          loading={loading}
+          disabled={(code || diyCode).trim().length < 6}
+        >
+          Link Luna <ArrowRight className="w-4 h-4" />
+        </Button>
+      </form>
+    </StepShell>
+  );
+
+  const renderDomain = () => (
     <StepShell icon={Globe} title="Name this Luna">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         This name is the address you type to open Luna when you are not at home. Use letters and numbers, at least 3 characters.
@@ -801,11 +888,23 @@ export default function OnboardingPage() {
           setError("");
           setLoading(true);
           try {
-            await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
-            const created = await api("/api/v1/onboarding/name", { method: "POST", body: JSON.stringify({ subdomain: name }) });
+            let id = deviceId;
+            if (!id) {
+              const devices = await api("/api/v1/account/devices");
+              id = devices.devices?.[0]?.id || "";
+              if (id) setDeviceId(id);
+            }
+            if (!id) {
+              setError("We could not find a linked Luna yet. Go back and enter the device code again.");
+              return;
+            }
+            const created = await api(`/api/v1/devices/${id}/domain`, {
+              method: "POST",
+              body: JSON.stringify({ subdomain: name }),
+            });
             setHostname(created.hostname);
             setSetupSecret(created.setup_secret || "");
-            goTo("copies");
+            goTo("backup");
           } catch (err) {
             setError(err.message);
           } finally {
@@ -827,7 +926,9 @@ export default function OnboardingPage() {
         <p className="text-sm font-mono text-foreground">
           {name.trim() ? `${name.trim().toLowerCase()}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
         </p>
-        {waitMsg && <p className="text-sm">{waitMsg}</p>}
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Luna applies this address when it is online. You can finish here either way.
+        </p>
         <Button type="submit" size="lg" className="w-full" loading={loading} disabled={name.trim().length < 3}>
           Use this name <ArrowRight className="w-4 h-4" />
         </Button>
@@ -835,7 +936,7 @@ export default function OnboardingPage() {
     </StepShell>
   );
 
-  const renderCopies = () => (
+  const renderBackup = () => (
     <StepShell icon={HardDrive} title="Optional cloud backup">
       <p className="text-sm text-foreground leading-relaxed mb-8 text-pretty">
         Cloud backup costs $8 per terabyte each month, based on your average storage over the month.
@@ -854,7 +955,11 @@ export default function OnboardingPage() {
             try {
               await api("/api/v1/onboarding/backups", {
                 method: "POST",
-                body: JSON.stringify({ enable: true, payment_method_id: paymentMethodId }),
+                body: JSON.stringify({
+                  enable: true,
+                  payment_method_id: paymentMethodId,
+                  device_id: deviceId || undefined,
+                }),
               });
               goTo("done");
             } catch (err) {
@@ -868,19 +973,43 @@ export default function OnboardingPage() {
         <Button
           size="lg"
           className="w-full mb-3"
+          loading={loading}
           onClick={async () => {
+            setError("");
+            setLoading(true);
             try {
-              await api("/api/v1/onboarding/backups", { method: "POST", body: JSON.stringify({ enable: true }) });
+              await api("/api/v1/onboarding/backups", {
+                method: "POST",
+                body: JSON.stringify({ enable: true, device_id: deviceId || undefined }),
+              });
               goTo("done");
             } catch (err) {
               setError(err.message);
+            } finally {
+              setLoading(false);
             }
           }}
         >
           Turn on cloud backup
         </Button>
       )}
-      <Button variant="outline" size="lg" className="w-full mt-3" onClick={() => goTo("done")}>
+      <Button
+        variant="outline"
+        size="lg"
+        className="w-full mt-3"
+        onClick={async () => {
+          setError("");
+          try {
+            await api("/api/v1/onboarding/backups", {
+              method: "POST",
+              body: JSON.stringify({ enable: false }),
+            });
+          } catch {
+            /* still allow finishing */
+          }
+          goTo("done");
+        }}
+      >
         Skip for now
       </Button>
     </StepShell>
@@ -898,8 +1027,11 @@ export default function OnboardingPage() {
             </Button>
           </div>
         </div>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Luna applies these settings when it is online. Keep it plugged into your router or modem with the RJ45 (ethernet) cable.
+        </p>
         <p className="text-sm text-foreground leading-relaxed">
-          The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account. People who only know the address cannot.
+          The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account.
         </p>
         {setupSecret && (
           <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
@@ -938,8 +1070,7 @@ export default function OnboardingPage() {
   );
 
   let body = null;
-  if (step === "welcome") body = renderWelcome();
-  else if (step === "code") body = renderCode();
+  if (step === "welcome" && path === "official") body = renderWelcome();
   else if (step === "account" && !isAuthenticated) body = renderAccount();
   else if (step === "account" && isAuthenticated) body = renderSignedInAccount();
   else if (step === "verify") body = renderVerify();
@@ -956,7 +1087,7 @@ export default function OnboardingPage() {
             setError("");
             setLoading(true);
             try {
-              await finishOssVerify(paymentMethodId);
+              await finishDiyVerify(paymentMethodId);
             } catch (err) {
               setError(err.message);
             } finally {
@@ -966,11 +1097,20 @@ export default function OnboardingPage() {
         />
       </StepShell>
     );
-  } else if (step === "oss-code") body = renderOssCode();
-  else if (step === "wait") body = renderWait();
-  else if (step === "name") body = renderName();
-  else if (step === "copies") body = renderCopies();
+  } else if (step === "diy-code") body = renderDiyCode();
+  else if (step === "code") body = renderCode();
+  else if (step === "bind") body = renderBind();
+  else if (step === "domain") body = renderDomain();
+  else if (step === "backup") body = renderBackup();
   else if (step === "done") body = renderDone();
+  else if (path === "diy") body = isAuthenticated ? renderSignedInAccount() : renderAccount();
+  else body = renderWelcome();
+
+  const showBack = !(
+    (path === "official" && step === "welcome") ||
+    step === "done" ||
+    (path === "diy" && step === "account" && authSubStep === 0 && !isAuthenticated)
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -1002,7 +1142,7 @@ export default function OnboardingPage() {
           </div>
         </div>
       </div>
-      {step !== "welcome" && step !== "done" && (
+      {showBack && (
         <div className="px-4 pb-8 flex justify-center">
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="w-4 h-4 mr-1" /> Back
