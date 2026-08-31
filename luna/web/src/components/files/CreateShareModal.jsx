@@ -4,10 +4,13 @@ import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
+import PageNotice from "../common/PageNotice";
 import { postJson, apiErrorMessage } from "../../lib/api";
 
+const LINK_ERROR = "Couldn't create that link. Check that the file or folder is still on this drive, then try again.";
+
 /**
- * @param {{ driveId: any, path?: string, onClose: any, onError: any, onDone: any, open?: boolean, overlayClassName?: string }} props
+ * @param {{ driveId: any, path?: string, onClose: any, onError?: (msg: string) => void, onDone: any, open?: boolean, overlayClassName?: string }} props
  */
 export default function CreateShareModal({
   driveId,
@@ -21,9 +24,18 @@ export default function CreateShareModal({
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
   const [result, setResult] = useState(null);
+  const [error, setError] = useState(/** @type {string|null} */ (null));
   const mutation = useMutation({
     mutationFn: (/** @type {any} */ body) => postJson("/api/v1/shares", body),
+    onMutate: () => setError(null),
     onSuccess: (data) => {
+      if (!data?.url) {
+        const msg = LINK_ERROR;
+        setError(msg);
+        onError?.(msg);
+        return;
+      }
+      setError(null);
       const url = window.location.origin + data.url;
       try {
         sessionStorage.setItem(`luna-share-${data.id}`, url);
@@ -32,7 +44,11 @@ export default function CreateShareModal({
       }
       setResult({ ...data, fullUrl: url });
     },
-    onError: (err) => onError(apiErrorMessage(err)),
+    onError: (err) => {
+      const msg = apiErrorMessage(err, LINK_ERROR);
+      setError(msg);
+      onError?.(msg);
+    },
   });
 
   if (result) {
@@ -58,6 +74,7 @@ export default function CreateShareModal({
     <ModalCard open={open} title="New link" onClose={onClose} overlayClassName={overlayClassName}>
       {({ close }) => (
         <div className="space-y-3">
+          {error && <PageNotice variant="error">{error}</PageNotice>}
           <input
             type="password"
             className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"

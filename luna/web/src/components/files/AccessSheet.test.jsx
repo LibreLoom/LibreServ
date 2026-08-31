@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -10,12 +10,23 @@ import AccessSheet from "./AccessSheet";
  * @param {{
  *   role?: string,
  *   users?: any[],
- *   grants?: any[],
- *   shares?: any[],
+ *   grants?: any,
+ *   shares?: any,
  *   onPatch?: (url: string, body: any) => void,
+ *   postGrant?: (body: string) => Response,
+ *   postShare?: (body: string) => Response,
  * }} [opts]
  */
-function stubAccessApi({ role = "admin", users = [], grants = [], shares = [], onPatch } = {}) {
+function stubAccessApi({
+  role = "admin",
+  users = [],
+  grants = [],
+  shares = [],
+  onPatch,
+  postGrant,
+  postShare,
+} = {}) {
+  let grantStore = grants;
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
     const method = (init.method || "GET").toUpperCase();
@@ -38,18 +49,46 @@ function stubAccessApi({ role = "admin", users = [], grants = [], shares = [], o
       onPatch?.(u, init.body);
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.endsWith("/grants") && method === "POST") {
+      if (postGrant) return postGrant(String(init.body || ""));
+      const body = JSON.parse(String(init.body || "{}"));
+      const created = {
+        id: "g-new",
+        user_id: body.user_id,
+        drive_id: body.drive_id,
+        path: body.path || "",
+        permission: body.permission,
+      };
+      grantStore = Array.isArray(grantStore) ? [...grantStore, created] : [created];
+      return new Response(JSON.stringify({ id: created.id, ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (u.endsWith("/grants")) {
-      return new Response(JSON.stringify(grants), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(grantStore), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/shares") && method === "POST") {
+      if (postShare) return postShare(String(init.body || ""));
+      return new Response(JSON.stringify({ id: "s-new", url: "/s/tok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     if (u.endsWith("/shares")) {
       return new Response(JSON.stringify(shares), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    return new Response("{}", { status: 500 });
+    return new Response(JSON.stringify({ error: "Luna couldn't finish that. Try again." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }));
 }
 
 function renderSheet(props = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
@@ -62,6 +101,14 @@ function renderSheet(props = {}) {
 }
 
 describe("AccessSheet", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("lets an admin grant access and make a link", async () => {
     stubAccessApi({
       users: [
@@ -82,8 +129,8 @@ describe("AccessSheet", () => {
     expect(addPerson.className).toMatch(/bg-primary/);
     expect(addPerson.className).toMatch(/text-secondary/);
     const grantPerm = screen.getByRole("button", { name: /Access for Sam/ });
-    expect(grantPerm.className).toMatch(/bg-primary/);
-    expect(grantPerm.className).toMatch(/text-secondary/);
+    expect(grantPerm.className).toMatch(/bg-secondary/);
+    expect(grantPerm.className).toMatch(/text-primary/);
     expect(screen.queryByRole("button", { name: "Protect" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Protect" })).not.toBeInTheDocument();
   });
@@ -184,5 +231,72 @@ describe("AccessSheet", () => {
     renderSheet();
     expect(await screen.findByText(/Sam/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
+  });
+
+  it("shows an error in Sharing when grant creation fails", async () => {
+    const user = userEvent.setup();
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      grants: [],
+      shares: [],
+      postGrant: () =>
+        new Response(JSON.stringify({ error: "That person already has access to this folder." }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    renderSheet();
+    const dialog = await screen.findByRole("dialog");
+    await user.click(await screen.findByRole("button", { name: "Add a person" }));
+    await user.click(await screen.findByRole("option", { name: "Sam" }));
+    await user.click(screen.getByRole("button", { name: "Grant access" }));
+    expect(
+      await within(dialog).findByText("That person already has access to this folder."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove access for Sam" })).not.toBeInTheDocument();
+  });
+
+  it("adds a person when grant creation succeeds", async () => {
+    const user = userEvent.setup();
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      grants: [],
+      shares: [],
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "Add a person" }));
+    await user.click(await screen.findByRole("option", { name: "Sam" }));
+    await user.click(screen.getByRole("button", { name: "Grant access" }));
+    expect(await screen.findByRole("button", { name: "Remove access for Sam" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
+    expect(screen.getByText(/Everyone already has access/)).toBeInTheDocument();
+  });
+
+  it("shows an error in New link when creating a link fails", async () => {
+    const user = userEvent.setup();
+    stubAccessApi({
+      users: [{ id: "1", role: "admin", username: "admin", display_name: "Admin" }],
+      grants: [],
+      shares: [],
+      postShare: () =>
+        new Response(JSON.stringify({ error: "Luna can't find that file or folder." }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    renderSheet();
+    await user.click(await screen.findByRole("button", { name: "New link" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "New link" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Create link" }));
+    expect(await within(dialog).findByText("Luna can't find that file or folder.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Link ready" })).not.toBeInTheDocument();
   });
 });

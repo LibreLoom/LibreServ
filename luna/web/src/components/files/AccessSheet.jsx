@@ -136,16 +136,24 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   );
   const addablePeople = members.filter((u) => !grantedUserIds.has(u.id));
   const noPeopleToAdd = users.isSuccess && addablePeople.length === 0;
+  const sheetError = error
+    || (isAdmin && grants.isError
+      ? apiErrorMessage(grants.error, "Couldn't load who has access. Refresh and try again.")
+      : null)
+    || (shares.isError
+      ? apiErrorMessage(shares.error, "Couldn't load share links. Refresh and try again.")
+      : null);
 
   /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { user_id: string, drive_id: string, path: string, permission: string }, unknown>} */
   const grantMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/grants", body),
+    onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       setError(null);
       setPersonId("");
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't grant access. Try again.")),
   });
   /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { id: string, permission: string }, unknown>} */
   const updateGrant = useMutation({
@@ -161,7 +169,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const revokeGrant = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/grants/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["grants"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that person's access. Try again.")),
   });
   const revokeShare = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/shares/${id}`),
@@ -197,7 +205,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
 
   return (
     <ModalCard open={open} title="Sharing" onClose={onClose}>
-      {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
+      {sheetError && <PageNotice variant="error" className="mb-3">{sheetError}</PageNotice>}
 
       {isAdmin && (
         <section className="space-y-2">
