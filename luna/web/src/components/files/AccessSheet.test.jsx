@@ -172,6 +172,8 @@ describe("AccessSheet", () => {
     ).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "Go to Users" });
     expect(link).toHaveAttribute("href", "/settings/users");
+    expect(link).toHaveClass("bg-secondary", "text-primary");
+    expect(link).toHaveAttribute("data-surface", "primary");
     expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
     expect(screen.queryByText("Add a person")).not.toBeInTheDocument();
   });

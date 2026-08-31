@@ -223,7 +223,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
                   ? "No people to share with yet. Add a Member on the Users page."
                   : "Everyone already has access. Add more people on the Users page."}
               </p>
-              <Button variant="primary" size="sm" asChild>
+              <Button variant="secondary" surface="primary" size="sm" asChild>
                 <Link to="/settings/users" onClick={onClose}>
                   Go to Users
                 </Link>
