@@ -356,7 +356,7 @@ func TestInstallerPersistenceAndFilesystemHelpers(t *testing.T) {
 
 func TestPortManagerMetricsAndAccessHelpers(t *testing.T) {
 	db := openAppsCoverageDB(t)
-	pm := NewPortManager(db, nil, 8080)
+	pm := NewPortManager(db, &Catalog{apps: map[string]*AppDefinition{}}, 8080)
 
 	ports := pm.extractPorts("missing", `{"http_port":12345,"text":"23456","small":80,"bad":"no"}`)
 	if len(ports) != 2 {
