@@ -463,7 +463,11 @@ export default function DrivesPage() {
           ))}
         </div>
         {!access.isLoading && grants.length === 0 && (
-          <EmptyState icon={FolderOpen} title="Nothing shared with you yet" />
+          <EmptyState
+            icon={FolderOpen}
+            title="Nothing shared with you yet"
+            description="Ask an administrator to share a folder, drive, or file with you."
+          />
         )}
         <AccessSheet
           open={sharingDrive != null}
