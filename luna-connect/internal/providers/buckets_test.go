@@ -33,7 +33,7 @@ VALUES ('acct_1', 'a@example.com', 'x', 1, 'active', 1)`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, local_port, created_at)
+	_, err = db.Exec(`INSERT INTO devices (id, account_id, code_hash, name, subdomain, local_port, created_at)
 VALUES ('dev_abc12345abcdef', 'acct_1', 'th', 'Luna', 'kitchen', 8090, 1)`)
 	if err != nil {
 		t.Fatal(err)

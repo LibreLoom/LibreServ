@@ -71,31 +71,13 @@ async fn main() -> anyhow::Result<()> {
 
     {
         let connect = state.connect.clone();
-        let db = state.db.clone();
         std::thread::Builder::new()
-            .name("luna-connect-hello".into())
+            .name("luna-connect-status".into())
             .spawn(move || {
-                let mut had_live = false;
                 loop {
-                    let setup_done = db
-                        .lock()
-                        .ok()
-                        .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
-                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
-                        .unwrap_or(false);
-                    let held = connect.hello_once(setup_done);
-                    if held {
-                        had_live = true;
-                    }
-                    // After a previously live setup socket drops, reconnect quickly
-                    // so Connect Name does not race a multi-second gap.
-                    let backoff = if had_live && !held {
-                        std::time::Duration::from_millis(250)
-                    } else {
-                        std::time::Duration::from_secs(3)
-                    };
-                    std::thread::sleep(backoff);
+                    let _ = connect.poll_status();
+                    // Boot + every 5 minutes: pull tunnel/domain/backup and auto-apply.
+                    std::thread::sleep(std::time::Duration::from_secs(5 * 60));
                 }
             })
             .ok();

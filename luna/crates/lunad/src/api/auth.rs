@@ -49,6 +49,9 @@ async fn register(
         ));
     }
     let has_users = state.auth.count_users().map_err(map_auth_err)? > 0;
+    if !has_users {
+        crate::setup_access::check(&state, &addr, &headers)?;
+    }
     if has_users {
         let Some(Extension(user)) = current else {
             return Err(json_error(

@@ -33,7 +33,6 @@ tower-http.workspace = true
 tokio-util.workspace = true
 tower.workspace = true
 ureq.workspace = true
-tungstenite = { version = "0.26.2", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 dav-server.workspace = true
 bytes = "1"
 libc = "0.2"

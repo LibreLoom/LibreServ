@@ -11,7 +11,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -36,6 +35,7 @@ func testServerWithProviders(t *testing.T, tunnel providers.Tunnel, dns provider
 		t.Fatal(err)
 	}
 	config.C.Server.BaseURL = "https://connect.luna.libreloom.org"
+	config.C.Server.AtRestKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	if tunnel == nil {
 		tunnel = &providers.TunnelClient{MockMode: true}
 	}
@@ -45,7 +45,7 @@ func testServerWithProviders(t *testing.T, tunnel providers.Tunnel, dns provider
 	s := &Server{
 		db: db,
 		deps: handlers.Deps{
-			DB: db, Store: st, Tunnel: tunnel, DNS: dns, Hub: setuphub.New(),
+			DB: db, Store: st, Tunnel: tunnel, DNS: dns,
 		},
 	}
 	s.routes()

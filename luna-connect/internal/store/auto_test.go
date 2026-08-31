@@ -35,7 +35,7 @@ func TestAutoKeepsLocalObjectsAfterB2Enabled(t *testing.T) {
 	}
 	_, _ = db.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, created_at)
 VALUES ('acct_1', 'a@example.com', 'x', 1, 'active', 1)`)
-	_, _ = db.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, local_port, created_at)
+	_, _ = db.Exec(`INSERT INTO devices (id, account_id, code_hash, name, subdomain, local_port, created_at)
 VALUES ('dev_autotest000001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 
 	local, err := NewLocal(filepath.Join(dir, "data"))
@@ -187,7 +187,7 @@ func TestAutoOverwriteMigratesOffOldBackend(t *testing.T) {
 	}
 	_, _ = db.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, created_at)
 VALUES ('acct_1', 'a@example.com', 'x', 1, 'active', 1)`)
-	_, _ = db.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, local_port, created_at)
+	_, _ = db.Exec(`INSERT INTO devices (id, account_id, code_hash, name, subdomain, local_port, created_at)
 VALUES ('dev_migrate0000001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 
 	local, err := NewLocal(filepath.Join(dir, "data"))

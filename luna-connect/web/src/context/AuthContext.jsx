@@ -63,6 +63,7 @@ export function AuthProvider({ children }) {
         ready,
         isAuthenticated: Boolean(me),
         refresh,
+        refreshMe: refresh,
         login,
         register,
         logout,

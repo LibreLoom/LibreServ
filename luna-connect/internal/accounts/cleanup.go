@@ -9,10 +9,8 @@ import (
 
 const orphanGraceDays = 7
 
-// CleanupOrphans removes Luna Connect accounts that never became usable.
-// Activated accounts stay: official onboarding with a valid booklet code, or
-// the bring-your-own-device path. Those owners can remint a pairing code after
-// a factory reset even if the device row is gone.
+// CleanupOrphans removes Luna Connect accounts that never verified email,
+// never bound a Luna, and never added a card — idle signups only.
 func CleanupOrphans(ctx context.Context, db *sql.DB) (int64, error) {
 	if db == nil {
 		return 0, nil
@@ -21,7 +19,7 @@ func CleanupOrphans(ctx context.Context, db *sql.DB) (int64, error) {
 	res, err := db.ExecContext(ctx, `
 DELETE FROM accounts
 WHERE created_at < ?
-  AND COALESCE(activated_at, 0) = 0
+  AND email_verified = 0
   AND id NOT IN (SELECT DISTINCT account_id FROM devices WHERE account_id IS NOT NULL AND account_id != '')
   AND has_card = 0`, cutoff)
 	if err != nil {

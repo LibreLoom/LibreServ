@@ -2,11 +2,28 @@
 
 Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 
-The main feature is remote access: sign in to pair your Luna and open it away from home at `https://{name}.luna.servers.libreloom.org`. That address is free.
+Bind is **offline on the website**: you enter the permanent device code
+(`****-****-****-****-****`), pick a name, and optionally turn on cloud backup.
+Luna then pulls `GET /api/v1/status` on boot and every 5 minutes (Bearer = full
+device code). **200** applies tunnel/domain/backup; **403** means unbound and
+Luna clears remote access.
+
+Routes: `/onboarding` (official) and `/diyonboarding` (bring-your-own, $1 mint).
+`/register` redirects to `/diyonboarding`.
+
+The public address is free: `https://{name}.luna.servers.libreloom.org`.
 
 Cloud backups are an off-site copy of chosen folders or whole drives — not version history. They cost **$8 per terabyte each month** (Stripe metered at **$0.008 per GB-month** on the **month’s average** storage — Backblaze B2–style, not a last-day snapshot). Downloads are free up to **3× average storage**; overage is **$0.01 per GB**. Billed after you add a payment card here. Luna uploads during idle time. When Admin → Connections has an enabled Backblaze B2 provider, each Luna gets its own private B2 bucket; otherwise objects stay on this server’s disk.
 
 Backup to the cloud is planned as the only paid product. The address never requires a card.
+
+## Device codes
+
+One permanent **device code** per Luna. The **first eight characters** (`****-****`) unlock remote setup on the box; the **full code** binds on this site.
+
+Connect is optional. Local-only / air-gap installs may skip the code at flash time; then only loopback (on-box) setup is allowed — remote setup never fail-opens.
+
+Unbind on the dashboard archives backups (`User → Backups → Luna*-uuid`), frees the name, and returns 403 on status until rebound. Factory reset keeps the on-disk device-code file so a still-bound account auto re-provisions on the next status pull.
 
 ## Run
 
@@ -33,15 +50,13 @@ Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1
 
 Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud backup.
 
-## Official setup codes (purchased from LibreLoom)
+## Factory / support
 
-A Luna Connect account becomes usable after official onboarding with a valid booklet code, or after the bring-your-own-device path (`/register`). Those accounts can mint a new pairing code on the site after a factory reset — they do not need support.
+Staff mint official unbound device codes (single or bulk). DIY mints a code after the $1 payment on `/diyonboarding`. Bulk export is a single-code `TOKENS` list (plus metadata), not a paired setup+device file.
 
-Each account has one Luna. To sell the unit, the owner mints a **transfer code** on the Away from home page. That tears down the public address and the tunnel. Cloud copies stay on the seller account and stay billed until they turn payment off. The buyer types the transfer code in the same booklet field on this site, then picks a new name.
+Support looks up by order ref or code hint and can reveal or replace the device code (audited). Quick-start print shows one code; note that the first eight characters unlock phone setup.
 
-Units that never finished that first pairing, or that lost the booklet before an account existed, still need staff. There is no public “I lost my code” form. The owner contacts support and refers to their order id. Support then issues a replacement official token (admin New token page at `/admin/login`). Put it on Luna, or add it as a line in `TOKENS` on the installer USB’s **LUNAASSETS** partition (factory magazine: each flash peels the first line). A one-shot `setup-token` file next to the ISO payload still works for a single unit.
-
-Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Setup codes, Accounts, Connections, Security. Bulk factory lists download as a file named **`TOKENS`** (Crockford official setup codes, one per line — same format as a single remint).
+Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Device codes, Accounts, Connections, Security.
 
 ## Deploy (ZDU)
 

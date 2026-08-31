@@ -163,6 +163,7 @@ func TestUpdateEmailRejectsVerifiedAccounts(t *testing.T) {
 	d := testDeps(t)
 	acct := AccountHandler{Deps: d}
 	cookie := registerAccount(t, acct, "locked@example.com")
+	verifyEmailFor(t, acct, "locked@example.com")
 
 	req := httptest.NewRequest(http.MethodPost, "/account/email",
 		bytes.NewBufferString(`{"email":"other@example.com"}`))

@@ -23,7 +23,7 @@ vi.mock("../billing/stripeConfig.js", () => ({
 
 vi.mock("../components/VerifyHumanCard.jsx", () => ({
   VerifyHumanCard: ({ onConfirm, loading }) => (
-    <button type="button" disabled={loading} onClick={() => onConfirm("pm_test_oss")}>
+    <button type="button" disabled={loading} onClick={() => onConfirm("pm_test_diy")}>
       Confirm with a dollar
     </button>
   ),
@@ -36,6 +36,7 @@ vi.mock("../context/AuthContext.jsx", () => ({
     login,
     me: authState.me,
     refresh,
+    refreshMe: refresh,
     markEmailVerified,
     updateAccountEmail,
   }),
@@ -66,12 +67,12 @@ async function fillAccount(email, password) {
   fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 }
 
-async function createOssAccount() {
-  fireEvent.click(screen.getByRole("button", { name: /I set this computer up myself/i }));
+async function createDiyAccount() {
+  mount("/diyonboarding");
   await fillAccount("me@example.com", "password1234");
 }
 
-describe("OnboardingPage OSS verify", () => {
+describe("OnboardingPage DIY verify", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -85,21 +86,21 @@ describe("OnboardingPage OSS verify", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
       if (path === "/api/v1/account/verify-human") return { ok: true };
-      if (path === "/api/v1/account/oss-token") return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", message: "Enter this on Luna." };
-      if (path === "/api/v1/onboarding/bind") return { message: "ok" };
-      if (path === "/api/v1/onboarding/attach-account") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy", message: "Put this on Luna." };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
     });
   });
 
   it("waits for email verification before continuing a new account", async () => {
     register.mockResolvedValue({ email: "me@example.com", email_verified: false });
-    mount();
-    await createOssAccount();
+    await createDiyAccount();
 
     expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
-    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/oss-token");
+    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/diy-token");
   });
 
   it("continues after the email verification check succeeds", async () => {
@@ -108,13 +109,13 @@ describe("OnboardingPage OSS verify", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
       if (path === "/api/v1/account/verify-human") return { ok: true };
-      if (path === "/api/v1/account/oss-token") {
-        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", message: "Enter this on Luna." };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
     });
-    mount();
-    await createOssAccount();
+    await createDiyAccount();
 
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
     expect(markEmailVerified).toHaveBeenCalled();
@@ -129,23 +130,22 @@ describe("OnboardingPage OSS verify", () => {
       stripe_publishable_key: "pk_test_x",
     };
     stripeLooksConfigured.mockReturnValue(true);
-    mount();
-    fireEvent.click(screen.getByRole("button", { name: /I set this computer up myself/i }));
+    mount("/diyonboarding");
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
   });
 
-  it("starts on a welcome step, not a register form", () => {
+  it("starts /onboarding on a welcome step, not a register form", () => {
     mount();
     expect(screen.getByRole("heading", { name: /Set up Luna Connect/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /I have a booklet/i })).toBeTruthy();
     expect(screen.queryByLabelText(/email/i)).toBeNull();
   });
 
-  it("starts /register on the bring-your-own account step", () => {
-    mount("/register");
+  it("starts /diyonboarding on the bring-your-own account step", () => {
+    mount("/diyonboarding");
     expect(screen.getByRole("heading", { name: /Set up your own hardware/i })).toBeTruthy();
     expect(screen.getByLabelText(/email address/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /I have a booklet/i })).toBeNull();
@@ -153,8 +153,7 @@ describe("OnboardingPage OSS verify", () => {
 
   it("does not call verify-human before a card action when Stripe looks configured", async () => {
     stripeLooksConfigured.mockReturnValue(true);
-    mount();
-    await createOssAccount();
+    await createDiyAccount();
 
     await waitFor(() => {
       expect(register).toHaveBeenCalled();
@@ -167,7 +166,7 @@ describe("OnboardingPage OSS verify", () => {
     await waitFor(() => {
       expect(api).toHaveBeenCalledWith("/api/v1/account/verify-human", {
         method: "POST",
-        body: JSON.stringify({ payment_method_id: "pm_test_oss" }),
+        body: JSON.stringify({ payment_method_id: "pm_test_diy" }),
       });
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
@@ -175,8 +174,7 @@ describe("OnboardingPage OSS verify", () => {
 
   it("skips the card step when Stripe is not configured and still mints a code", async () => {
     stripeLooksConfigured.mockReturnValue(false);
-    mount();
-    await createOssAccount();
+    await createDiyAccount();
 
     await waitFor(() => {
       expect(api).toHaveBeenCalledWith("/api/v1/account/verify-human", {
@@ -188,23 +186,37 @@ describe("OnboardingPage OSS verify", () => {
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
-  it("keeps the booklet path free of a card step", async () => {
+  it("keeps the booklet path free of a card step and binds after account", async () => {
     stripeLooksConfigured.mockReturnValue(true);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
     mount();
     fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" } });
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-
     await waitFor(() => {
       expect(screen.getByLabelText(/email address/i)).toBeTruthy();
     });
     await fillAccount("book@example.com", "password1234");
 
     await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
+      expect(screen.getByLabelText(/device code from the booklet/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/device code from the booklet/i), {
+      target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/devices/bind", {
+        method: "POST",
+        body: JSON.stringify({ code: "ABCD-EFGH-IJKM-NPQR-STUV" }),
+      });
     });
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
   });
 });
 
@@ -215,10 +227,8 @@ describe("OnboardingPage done card", () => {
     authState.isAuthenticated = true;
     authState.me = { email: "owner@example.com", email_verified: true };
     api.mockImplementation(async (path) => {
-      if (path === "/api/v1/onboarding/bind") return { status: "attached", live: true, message: "ok" };
-      if (path === "/api/v1/onboarding/session") return { status: "attached", live: true };
-      if (path === "/api/v1/onboarding/attach-account") return { ok: true };
-      if (path === "/api/v1/onboarding/name") {
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
+      if (path === "/api/v1/devices/dev_1/domain") {
         return {
           device_id: "dev_1",
           hostname: "kitchen.luna.servers.libreloom.org",
@@ -226,6 +236,8 @@ describe("OnboardingPage done card", () => {
           setup_secret: "once-only-code",
         };
       }
+      if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
     });
   });
@@ -233,7 +245,14 @@ describe("OnboardingPage done card", () => {
   it("shows the hostname and one-time code after name is taken", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/device code from the booklet/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/device code from the booklet/i), {
+      target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
@@ -251,26 +270,24 @@ describe("OnboardingPage done card", () => {
     expect(screen.getByText("once-only-code")).toBeTruthy();
     expect(screen.getByText(/paste this one-time code/i)).toBeTruthy();
     expect(screen.getByText(/Create your Luna login and paste the code once/i)).toBeTruthy();
+    expect(screen.getByText(/Luna applies these settings when it is online/i)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/\?setup=/);
   });
 
-  it("stays on wait when bind is attached but not live", async () => {
-    api.mockImplementation(async (path) => {
-      if (path === "/api/v1/onboarding/bind") {
-        return { status: "attached", live: false, message: "Plug Luna in" };
-      }
-      if (path === "/api/v1/onboarding/session") {
-        return { status: "waiting_device", live: false, message: "Plug Luna in" };
-      }
-      if (path === "/api/v1/onboarding/attach-account") return { ok: true };
-      return {};
-    });
+  it("goes straight to name after bind without waiting for Luna", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
-    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/device code from the booklet/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/device code from the booklet/i), {
+      target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
-    expect(await screen.findByText(/Waiting for Luna/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/^Name$/i)).toBeNull();
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(screen.queryByText(/Waiting for Luna/i)).toBeNull();
   });
 });

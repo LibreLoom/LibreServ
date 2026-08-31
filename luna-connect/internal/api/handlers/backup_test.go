@@ -26,10 +26,10 @@ func seedBackupAccounts(t *testing.T) (BackupHandler, AccountHandler, *http.Cook
 	_ = bak.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'other@b.co'`).Scan(&otherID)
 	devMine := "dev_mine01"
 	devTheirs := "dev_theirs"
-	_, err := bak.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, local_port, created_at)
+	_, err := bak.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, name, subdomain, tunnel_id, local_port, created_at)
 VALUES (?, ?, ?, 'Luna', 'mine', '', 8090, ?), (?, ?, ?, 'Luna', 'theirs', '', 8090, ?)`,
-		devMine, ownerID, security.HashToken("tok-mine"), time.Now().Unix(),
-		devTheirs, otherID, security.HashToken("tok-theirs"), time.Now().Unix())
+		devMine, ownerID, security.HashToken(security.NormalizeToken("AAAA-BBBB-CCCC-DDDD-EEEE")), time.Now().Unix(),
+		devTheirs, otherID, security.HashToken(security.NormalizeToken("FFFF-GGGG-HHHH-JJJJ-KKKK")), time.Now().Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +119,8 @@ func TestPutObjectHashesServerSide(t *testing.T) {
 	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'hash@b.co'`).Scan(&acctID)
 	_, _ = d.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active' WHERE id = ?`, acctID)
 	tok := "device-plain-token"
-	_, _ = d.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, local_port, created_at)
-VALUES ('dev_hash1', ?, ?, 'Luna', 'hashy', 8090, ?)`, acctID, security.HashToken(tok), time.Now().Unix())
+	_, _ = d.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, name, subdomain, local_port, created_at)
+VALUES ('dev_hash1', ?, ?, 'Luna', 'hashy', 8090, ?)`, acctID, security.HashToken(security.NormalizeToken(tok)), time.Now().Unix())
 
 	body := []byte("hello-luna")
 	sum := sha256.Sum256(body)
@@ -160,8 +160,8 @@ func TestPutObjectQuota(t *testing.T) {
 	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'quota@b.co'`).Scan(&acctID)
 	_, _ = d.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active', backup_quota_bytes = 4 WHERE id = ?`, acctID)
 	tok := "quota-token"
-	_, _ = d.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, local_port, created_at)
-VALUES ('dev_quota', ?, ?, 'Luna', 'quota', 8090, ?)`, acctID, security.HashToken(tok), time.Now().Unix())
+	_, _ = d.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, name, subdomain, local_port, created_at)
+VALUES ('dev_quota', ?, ?, 'Luna', 'quota', 8090, ?)`, acctID, security.HashToken(security.NormalizeToken(tok)), time.Now().Unix())
 	put := httptest.NewRequest(http.MethodPut, "/backup/objects/big.txt", strings.NewReader("too-big"))
 	put.Header.Set("Authorization", "Bearer "+tok)
 	put.SetPathValue("*", "big.txt")

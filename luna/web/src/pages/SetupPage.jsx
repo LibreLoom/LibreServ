@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
-import { getJson, postJson } from "../lib/api";
+import { getJson, postJson, setSetupToken, clearSetupToken, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
 import {
   PASSWORD_POLICY_HINT,
@@ -21,6 +21,7 @@ import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
+  SETUP_CODE: "setup_code",
   WELCOME:    "welcome",
   NETWORK:    "network",
   ACCOUNT:    "account",
@@ -214,6 +215,97 @@ function WelcomeStep({ onBegin }) {
 }
 WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
+};
+
+// ─── STEP: Setup code (remote unlock) ─────────────────────────────────────────
+function SetupCodeStep({ onCodeVerified }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const normalize = (raw) =>
+    String(raw || "")
+      .toUpperCase()
+      .replace(/[^0-9A-Z]/g, "")
+      .slice(0, 8);
+
+  const handleSubmit = async () => {
+    const trimmed = normalize(code);
+    if (trimmed.length !== 8) {
+      setError("Enter the first eight characters (****-****) from your device code.");
+      return;
+    }
+    const grouped = `${trimmed.slice(0, 4)}-${trimmed.slice(4)}`;
+    setLoading(true);
+    setError("");
+    try {
+      await postJson("/api/v1/setup/validate-code", { code: grouped });
+      setSetupToken(grouped);
+      onCodeVerified(grouped);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError && err.status === 429
+          ? "Too many tries. Wait a minute and try again."
+          : err?.message ||
+            "That code doesn't match. Check the first eight characters on your device card.";
+      setError(msg);
+      clearSetupToken();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="mb-10">
+        <LogoMark size={120} />
+      </div>
+      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
+        Enter your setup code
+      </h1>
+      <p className="text-primary text-base leading-relaxed mb-10 max-w-[22rem]">
+        From a phone or another computer, Luna asks for the first eight characters of your device code (****-****). Find them on the card that came with Luna, or on the Luna Connect page.
+      </p>
+      <div className="w-full mb-6">
+        <input
+          className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
+          placeholder="XXXX-XXXX"
+          value={code}
+          onChange={(e) => {
+            const n = normalize(e.target.value);
+            setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4)}` : n);
+            setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !loading) handleSubmit();
+          }}
+          autoComplete="off"
+          autoFocus
+          disabled={loading}
+          aria-label="Setup code"
+        />
+      </div>
+      {error && (
+        <div className="flex items-center gap-2 text-error text-sm mb-6">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      <Button
+        variant="primary"
+        onClick={handleSubmit}
+        loading={loading}
+        disabled={loading || normalize(code).length !== 8}
+        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+      >
+        Continue
+        <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+      </Button>
+    </div>
+  );
+}
+SetupCodeStep.propTypes = {
+  onCodeVerified: PropTypes.func.isRequired,
 };
 
 // ─── Password strength (same policy as LibreServ + lunad) ─────────────────────
@@ -762,7 +854,16 @@ export default function SetupPage() {
           next = STEP.NAME;
         }
         setStep(next);
-      } catch {
+      } catch (err) {
+        if (
+          err instanceof ApiError &&
+          err.status === 403 &&
+          /setup code|Remote setup/i.test(err.message || "")
+        ) {
+          clearSetupToken();
+          if (alive) setStep(STEP.SETUP_CODE);
+          return;
+        }
         // After the first account exists, setup reads are signed-in only. If an
         // admin exists but this browser isn't signed in, land on the account
         // step so they can sign in and finish — not Welcome.
@@ -809,7 +910,17 @@ export default function SetupPage() {
     savingRef.current = true;
     try {
       await saveProgress(nextStep, data);
-    } catch {
+    } catch (err) {
+      const isSetupCodeError =
+        err instanceof ApiError &&
+        err.status === 403 &&
+        /setup code|Remote setup/i.test(err.message || "");
+      if (isSetupCodeError) {
+        clearSetupToken();
+        setStep(STEP.SETUP_CODE);
+        savingRef.current = false;
+        return;
+      }
       try {
         await saveProgress(nextStep, data);
       } catch {
@@ -823,6 +934,9 @@ export default function SetupPage() {
     setStep(nextStep);
   }, [saveProgress]);
 
+  const handleCodeVerified = useCallback(() => {
+    setStep(STEP.WELCOME);
+  }, []);
   const handleBegin = useCallback(() => advanceStep(STEP.NETWORK), [advanceStep]);
   const handleConnectionDone = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };
@@ -860,7 +974,9 @@ export default function SetupPage() {
   }
 
   let renderedStep;
-  if (step === STEP.WELCOME) {
+  if (step === STEP.SETUP_CODE) {
+    renderedStep = <SetupCodeStep onCodeVerified={handleCodeVerified} />;
+  } else if (step === STEP.WELCOME) {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
   } else if (step === STEP.NETWORK) {
     renderedStep = <NetworkStep name="Luna" onContinue={handleConnectionDone} />;
@@ -877,10 +993,11 @@ export default function SetupPage() {
   // active dot's width smoothly transitions (transition-all) and the card
   // resizes smoothly (useAnimatedHeight) as you move between steps — only the
   // inner content remounts and slides. Each step is content-only for this.
+  const showDots = step !== STEP.SETUP_CODE;
   return (
     <StepTransitionProvider stepKey={step} direction={animationDirection}>
       <SetupShell>
-        <SetupCard header={<StepDots current={step} />}>
+        <SetupCard header={showDots ? <StepDots current={step} /> : null}>
           {saveError && (
             <div className="mb-6 flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />

@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 type AdminConsoleHandler struct {
@@ -15,18 +17,19 @@ type AdminConsoleHandler struct {
 }
 
 func (h AdminConsoleHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	var accounts, devices, tokensIssued, tokensUnclaimed int64
+	var accounts, devices, unbound, revoked int64
 	var backupBytes int64
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&accounts)
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&devices)
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM issued_tokens WHERE kind = 'official'`).Scan(&tokensIssued)
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM issued_tokens WHERE kind = 'official' AND status = 'issued'`).Scan(&tokensUnclaimed)
+	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE (account_id IS NULL OR account_id = '') AND revoked = 0`).Scan(&unbound)
+	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE revoked != 0`).Scan(&revoked)
 	_ = h.DB.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM backup_objects`).Scan(&backupBytes)
 	JSON(w, http.StatusOK, map[string]any{
 		"accounts":         accounts,
 		"devices":          devices,
-		"tokens_issued":    tokensIssued,
-		"tokens_unclaimed": tokensUnclaimed,
+		"tokens_issued":    devices,
+		"tokens_unclaimed": unbound,
+		"tokens_revoked":   revoked,
 		"backup_bytes":     backupBytes,
 		"estimated_month":  billing.EstimateUSD(backupBytes),
 	})
@@ -34,7 +37,8 @@ func (h AdminConsoleHandler) Stats(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminConsoleHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(`
-SELECT d.id, COALESCE(d.name, ''), d.subdomain, d.account_id, COALESCE(a.email, ''), d.created_at
+SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), d.account_id, COALESCE(a.email, ''), d.created_at,
+  COALESCE(d.code_hint, ''), d.kind, COALESCE(d.last_seen_at, 0), d.revoked
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
 ORDER BY d.created_at DESC`)
@@ -44,13 +48,14 @@ ORDER BY d.created_at DESC`)
 	}
 	defer rows.Close()
 	zone := config.C.Server.PublicZone
+	now := time.Now().Unix()
 	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, name, sub string
+		var id, name, sub, email, hint, kind string
 		var accountID sql.NullString
-		var email string
-		var created int64
-		if err := rows.Scan(&id, &name, &sub, &accountID, &email, &created); err != nil {
+		var created, lastSeen int64
+		var revoked int
+		if err := rows.Scan(&id, &name, &sub, &accountID, &email, &created, &hint, &kind, &lastSeen, &revoked); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not list devices.")
 			return
 		}
@@ -58,13 +63,22 @@ ORDER BY d.created_at DESC`)
 		if accountID.Valid {
 			acctID = accountID.String
 		}
+		hostname := ""
+		if sub != "" {
+			hostname = sub + "." + zone
+		}
 		list = append(list, map[string]any{
 			"id":            id,
 			"name":          name,
 			"subdomain":     sub,
-			"hostname":      sub + "." + zone,
+			"hostname":      hostname,
 			"account_id":    acctID,
 			"account_email": email,
+			"code_hint":     hint,
+			"kind":          kind,
+			"last_seen_at":  lastSeen,
+			"online":        lastSeen > 0 && now-lastSeen <= OnlineWithinSec,
+			"revoked":       revoked != 0,
 			"created_at":    created,
 		})
 	}
@@ -102,70 +116,73 @@ ORDER BY a.created_at DESC`)
 	JSON(w, http.StatusOK, map[string]any{"accounts": list})
 }
 
+// SetupTokens lists permanent device codes for support / print (replaces issued_tokens admin UI).
 func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
 	all := strings.EqualFold(r.URL.Query().Get("all"), "1") ||
-		strings.EqualFold(r.URL.Query().Get("all"), "true") ||
-		r.URL.Query().Get("all") == "yes"
+		strings.EqualFold(r.URL.Query().Get("all"), "true")
 
-	q := `
-SELECT t.id, t.kind, t.status, COALESCE(t.token_hint, ''), t.account_id, COALESCE(a.email, ''),
-  t.claimed_device_id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), t.expires_at, t.created_at
-FROM issued_tokens t
-LEFT JOIN devices d ON d.id = t.claimed_device_id
-LEFT JOIN accounts a ON a.id = COALESCE(t.account_id, d.account_id)
-ORDER BY t.created_at DESC`
-	if !all {
-		q += "\nLIMIT 500"
+	query := `
+SELECT d.id, d.kind, CASE WHEN d.revoked != 0 THEN 'revoked' WHEN d.account_id IS NOT NULL AND d.account_id != '' THEN 'bound' ELSE 'unbound' END,
+  COALESCE(d.code_hint, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.subdomain, ''), COALESCE(d.order_ref, ''), d.created_at,
+  COALESCE(d.code_sealed, '')
+FROM devices d
+LEFT JOIN accounts a ON a.id = d.account_id
+WHERE 1=1`
+	args := []any{}
+	if q = strings.TrimSpace(q); q != "" {
+		query += ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ?)`
+		like := "%" + q + "%"
+		args = append(args, like, like, like, like)
 	}
-	rows, err := h.DB.Query(q)
+	query += ` ORDER BY d.created_at DESC`
+	if !all {
+		query += ` LIMIT 500`
+	}
+	rows, err := h.DB.Query(query, args...)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not list setup codes.")
+		JSONError(w, http.StatusInternalServerError, "Could not list device codes.")
 		return
 	}
 	defer rows.Close()
 	zone := config.C.Server.PublicZone
 	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, kind, status, hint, email, deviceName, subdomain string
-		var accountID, claimedDevice sql.NullString
-		var expires sql.NullInt64
+		var id, kind, status, hint, email, subdomain, orderRef, sealed string
+		var accountID sql.NullString
 		var created int64
-		if err := rows.Scan(&id, &kind, &status, &hint, &accountID, &email, &claimedDevice, &deviceName, &subdomain, &expires, &created); err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not list setup codes.")
+		if err := rows.Scan(&id, &kind, &status, &hint, &accountID, &email, &subdomain, &orderRef, &created, &sealed); err != nil {
+			JSONError(w, http.StatusInternalServerError, "Could not list device codes.")
 			return
 		}
 		acctID := ""
 		if accountID.Valid {
 			acctID = accountID.String
 		}
-		devID := ""
-		if claimedDevice.Valid {
-			devID = claimedDevice.String
-		}
 		hostname := ""
 		if subdomain != "" {
 			hostname = subdomain + "." + zone
 		}
-		var exp any
-		if expires.Valid && expires.Int64 > 0 {
-			exp = expires.Int64
-		} else {
-			exp = nil
+		item := map[string]any{
+			"id":              id,
+			"kind":            kind,
+			"status":          status,
+			"hint":            hint,
+			"account_id":      acctID,
+			"account_email":   email,
+			"device_hostname": hostname,
+			"order_ref":       orderRef,
+			"created_at":      created,
+			"can_revoke":      status == "unbound",
+			"setup_prefix":    "",
 		}
-		list = append(list, map[string]any{
-			"id":                id,
-			"kind":              kind,
-			"status":            status,
-			"hint":              hint,
-			"account_id":        acctID,
-			"account_email":     email,
-			"claimed_device_id": devID,
-			"device_name":       deviceName,
-			"device_hostname":   hostname,
-			"expires_at":        exp,
-			"created_at":        created,
-			"can_revoke":        status == "issued",
-		})
+		if sealed != "" {
+			if code, err := security.OpenString(sealed); err == nil && code != "" {
+				item["code"] = code
+				item["setup_prefix"] = security.SetupPrefix(code)
+			}
+		}
+		list = append(list, item)
 	}
 	JSON(w, http.StatusOK, map[string]any{
 		"tokens":  list,
@@ -177,32 +194,32 @@ ORDER BY t.created_at DESC`
 func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "Setup code id is required.")
+		JSONError(w, http.StatusBadRequest, "Device code id is required.")
 		return
 	}
-	var hash, status string
-	err := h.DB.QueryRow(`SELECT token_hash, status FROM issued_tokens WHERE id = ?`, id).Scan(&hash, &status)
+	var account sql.NullString
+	var revoked int
+	err := h.DB.QueryRow(`SELECT account_id, revoked FROM devices WHERE id = ?`, id).Scan(&account, &revoked)
 	if err == sql.ErrNoRows {
-		JSONError(w, http.StatusNotFound, "That setup code was not found.")
+		JSONError(w, http.StatusNotFound, "That device code was not found.")
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not revoke that setup code. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not revoke that device code. Try again.")
 		return
 	}
-	if status != "issued" {
-		JSONError(w, http.StatusConflict, "Only unused setup codes can be revoked.")
+	if revoked != 0 {
+		JSONError(w, http.StatusConflict, "That device code is already revoked.")
 		return
 	}
-	res, err := h.DB.Exec(`UPDATE issued_tokens SET status = 'revoked' WHERE id = ? AND status = 'issued'`, id)
+	if account.Valid && account.String != "" {
+		JSONError(w, http.StatusConflict, "Unbind this Luna from its account before revoking the code.")
+		return
+	}
+	_, err = h.DB.Exec(`UPDATE devices SET revoked = 1 WHERE id = ?`, id)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not revoke that setup code. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not revoke that device code. Try again.")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		JSONError(w, http.StatusConflict, "Only unused setup codes can be revoked.")
-		return
-	}
-	_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'replaced' WHERE token_hash = ? AND status IN ('waiting_device','attached')`, hash)
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "revoked"})
 }

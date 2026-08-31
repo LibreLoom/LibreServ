@@ -257,7 +257,7 @@ mod tests {
     use tower::ServiceExt;
 
     const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 9)),
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
         54321,
     );
 
@@ -334,6 +334,7 @@ mod tests {
                 "tunnel_token": "mock"
             }))
             .unwrap();
+        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-IJKM-NPQR-STUV\n").unwrap();
         assert!(dir.path().join("connect.json").exists());
         let app = test_app(dir.path());
 
@@ -392,6 +393,13 @@ mod tests {
         assert!(
             !dir.path().join("connect.json").exists(),
             "Connect state must be removed on factory reset"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("setup-token"))
+                .unwrap()
+                .trim(),
+            "ABCD-EFGH-IJKM-NPQR-STUV",
+            "device code must survive factory reset"
         );
     }
 }
