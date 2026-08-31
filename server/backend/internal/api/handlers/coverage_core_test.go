@@ -668,7 +668,7 @@ func TestMonitoringHandlersCoverage(t *testing.T) {
 		{"health missing", http.MethodGet, "/apps/x/health", "", nil, h.GetAppHealth, 400},
 		{"health", http.MethodGet, "/apps/x/health", "", map[string]string{"appID": "unknown"}, h.GetAppHealth, 200},
 		{"metrics missing", http.MethodGet, "/apps/x/metrics", "", nil, h.GetAppMetrics, 400},
-		{"metrics unavailable", http.MethodGet, "/apps/x/metrics", "", map[string]string{"appID": "unknown"}, h.GetAppMetrics, 503},
+		{"metrics cached", http.MethodGet, "/apps/x/metrics", "", map[string]string{"appID": "unknown"}, h.GetAppMetrics, 200},
 		{"history missing", http.MethodGet, "/apps/x/metrics/history", "", nil, h.GetMetricsHistory, 400},
 		{"history", http.MethodGet, "/apps/x/metrics/history?since=bad&limit=9999", "", map[string]string{"appID": "unknown"}, h.GetMetricsHistory, 200},
 		{"register missing", http.MethodPost, "/apps/x/health", `{}`, nil, h.RegisterHealthCheck, 400},
@@ -731,7 +731,7 @@ func TestMonitoringHandlersCoverage(t *testing.T) {
 func TestSettingsAndSecurityHandlersCoverage(t *testing.T) {
 	f := newCoverageFixture(t)
 	settingsService := settings.NewService(f.db.SQL())
-	securityService := security.NewService(f.db, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	securityService := security.NewService(f.db, slog.New(slog.NewTextHandler(io.Discard, nil)), security.NewEmailNotifier())
 	t.Cleanup(securityService.Close)
 	authService := auth.NewService(f.db, "coverage-settings-secret", slog.Default())
 	user, err := authService.Register(context.Background(), &auth.RegisterRequest{
