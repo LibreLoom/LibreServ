@@ -73,6 +73,13 @@ function stubFilesApi(byPath) {
     if (u.endsWith("/grants")) {
       return new Response(JSON.stringify(byPath.__grants || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.endsWith("/shares") && method === "POST") {
+      if (byPath.__postShare) return byPath.__postShare(String(init.body || ""));
+      return new Response(JSON.stringify({ error: "Luna can't find that file or folder." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (u.endsWith("/shares")) {
       return new Response(JSON.stringify(byPath.__shares || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
@@ -322,6 +329,23 @@ describe("FilesPage", () => {
     expect(within(dialog).getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Grant access" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "New link" })).toBeInTheDocument();
+  });
+
+  it("shows a New link error in Sharing when link creation fails", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __users: [{ id: "1", role: "admin", username: "admin", display_name: "Admin" }],
+      __grants: [],
+      __shares: [],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Sharing for album" }));
+    const sharing = await screen.findByRole("dialog", { name: "Sharing" });
+    fireEvent.click(within(sharing).getByRole("button", { name: "New link" }));
+    const linkDialog = await screen.findByRole("dialog", { name: "New link" });
+    fireEvent.click(within(linkDialog).getByRole("button", { name: "Create link" }));
+    expect(await within(linkDialog).findByText("Luna can't find that file or folder.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Link ready" })).not.toBeInTheDocument();
   });
 
   it("offers New folder in the copy destination picker", async () => {

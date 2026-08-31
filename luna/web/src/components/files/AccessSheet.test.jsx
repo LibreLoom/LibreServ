@@ -105,10 +105,6 @@ describe("AccessSheet", () => {
     vi.unstubAllGlobals();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("lets an admin grant access and make a link", async () => {
     stubAccessApi({
       users: [
