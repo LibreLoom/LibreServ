@@ -46,9 +46,15 @@ vi.mock("../context/ToastContext", () => ({
 }));
 
 vi.mock("../components/ui/Page", () => ({
-  default: ({ children, title }) => (
+  default: ({ children, leftContent, rightContent, title }) => (
     <main id="main-content" tabIndex={-1}>
-      {title && <h1>{title}</h1>}
+      {title && (
+        <header>
+          {leftContent}
+          <h1>{title}</h1>
+          {rightContent}
+        </header>
+      )}
       {children}
     </main>
   ),
