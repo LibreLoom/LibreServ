@@ -19,6 +19,8 @@ export default defineConfig({
     hookTimeout: 30000,
     teardownTimeout: 60000,
     pool: "forks",
+    maxForks: 1,
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "html", "lcov"],
