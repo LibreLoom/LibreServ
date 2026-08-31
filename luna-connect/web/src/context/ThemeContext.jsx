@@ -14,7 +14,7 @@ export function ThemeProvider({ children }) {
     document.documentElement.classList.toggle("dark", isDark);
     const favicon = document.getElementById("favicon");
     if (favicon) {
-      favicon.href = isDark ? "/favicon-dark.svg?v=3" : "/favicon.svg?v=3";
+      favicon.href = isDark ? "/favicon-dark.svg?v=6" : "/favicon.svg?v=6";
     }
   }, []);
 

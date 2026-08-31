@@ -19,7 +19,7 @@ export function Layout({ children }) {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-color-scheme: dark)").matches;
   const isDark = theme === "dark" || (theme === "system" && prefersDark);
-  const brandSrc = isDark ? "/favicon-dark.svg" : "/favicon.svg";
+  const brandSrc = isDark ? "/favicon-dark.svg?v=6" : "/favicon.svg?v=6";
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
