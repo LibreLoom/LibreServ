@@ -24,7 +24,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	containerruntime "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
