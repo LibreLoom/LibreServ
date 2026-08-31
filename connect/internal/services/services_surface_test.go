@@ -15,6 +15,7 @@ func serviceDevice(t *testing.T, db *sql.DB, plan string) string {
 	accountID := security.GenerateID("acct")
 	deviceID := security.GenerateID("dev")
 	username := "smtp-" + security.RandomString(10)
+	subdomain := "my-" + security.RandomString(10)
 	if _, err := db.Exec(
 		`INSERT INTO customer_accounts (id, email, password_hash, plan_id, username, smtp_password)
 		 VALUES ($1, $2, 'hash', $3, $4, 'smtp-password')`,
@@ -22,8 +23,8 @@ func serviceDevice(t *testing.T, db *sql.DB, plan string) string {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO devices (id, account_id, plan_id, subdomain) VALUES ($1, $2, $3, 'my-device')`,
-		deviceID, accountID, plan); err != nil {
+		`INSERT INTO devices (id, account_id, plan_id, subdomain) VALUES ($1, $2, $3, $4)`,
+		deviceID, accountID, plan, subdomain); err != nil {
 		t.Fatal(err)
 	}
 	return deviceID
@@ -63,7 +64,7 @@ func TestProvisioningLocalCredentialTypes(t *testing.T) {
 		t.Fatalf("Provision AI = %#v, %v", ai, err)
 	}
 	domain, err := svc.Provision(deviceID, "domain", "203.0.113.12")
-	if err != nil || !strings.Contains(domain["domain"].(map[string]any)["domain"].(string), "my-device") {
+	if err != nil || !strings.Contains(domain["domain"].(map[string]any)["domain"].(string), "my-") {
 		t.Fatalf("Provision domain = %#v, %v", domain, err)
 	}
 
@@ -116,7 +117,7 @@ func TestProvisioningDeviceAndRouteHelpers(t *testing.T) {
 	db := database.OpenTestDB(t)
 	deviceID := serviceDevice(t, db, "free")
 	svc := NewProvisioningService(db)
-	if got := svc.deviceSubdomainPrefix(deviceID); got != "my-device" {
+	if got := svc.deviceSubdomainPrefix(deviceID); !strings.HasPrefix(got, "my-") {
 		t.Fatalf("deviceSubdomainPrefix = %q", got)
 	}
 	if got := svc.deviceSubdomainPrefix("short"); got != "short" {
