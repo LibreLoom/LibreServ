@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -100,6 +101,9 @@ access_model: external
 	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(appYAML), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(appDir, "docker-compose.yml.tmpl"), []byte("services:\n  demo:\n    image: demo:latest\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := &config.Config{
 		Server: config.ServerConfig{Host: "127.0.0.1", Port: 8080, Mode: "development"},
@@ -168,9 +172,11 @@ func callCoverageHandler(t *testing.T, method, target, body string, params map[s
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	routeContext := chi.NewRouteContext()
 	for key, value := range params {
-		req = withChiURLParam(req, key, value)
+		routeContext.URLParams.Add(key, value)
 	}
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeContext))
 	fn(rec, req)
 	return rec
 }
