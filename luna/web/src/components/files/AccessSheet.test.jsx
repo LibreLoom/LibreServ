@@ -215,6 +215,42 @@ describe("AccessSheet", () => {
     expect(row).toHaveClass("text-secondary");
   });
 
+  it("shows a parent grant and a write exception as two rows", async () => {
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "max", display_name: "Max OG" },
+      ],
+      grants: [
+        { id: "g-drive", user_id: "2", drive_id: "d1", path: "", permission: "read" },
+        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "DCIM", permission: "write" },
+      ],
+      shares: [],
+    });
+    renderSheet({ path: "" });
+    expect(await screen.findAllByText(/Max OG/)).toHaveLength(2);
+    expect(screen.getByText(/only DCIM/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Access for Max OG/ })).toHaveLength(2);
+  });
+
+  it("dedupes identical share rows for the same person and folder", async () => {
+    stubAccessApi({
+      users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      grants: [
+        { id: "g1", user_id: "2", drive_id: "d1", path: "/photos/", permission: "read" },
+        { id: "g2", user_id: "2", drive_id: "d1", path: "photos", permission: "read" },
+      ],
+      shares: [],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Sam/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Access for Sam/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Remove access for Sam" })).toHaveLength(1);
+  });
+
   it("unwraps a grants object from the API", async () => {
     stubAccessApi({
       users: [

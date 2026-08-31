@@ -20,10 +20,12 @@ import {
   apiErrorMessage,
   deleteJson,
   getDrives,
+  getJson,
   postFormProgress,
   postJson,
   putBinaryProgress,
 } from "../../lib/api.js";
+import { canWriteOnPath } from "../../lib/shareTree.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { folderHref as defaultFolderHref, fmtSize, joinPath, pathBasename } from "../../lib/paths.js";
@@ -210,6 +212,12 @@ export default function DriveFileExplorer({
   const selectedRef = useRef(/** @type {string[]} */ ([]));
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  const grants = useQuery({
+    queryKey: ["grants"],
+    queryFn: () => getJson("/api/v1/grants"),
+    enabled: !isAdmin,
+  });
+  const folderWritable = isAdmin || canWriteOnPath(grants.data, driveId, path);
 
   function setUploadRows(next) {
     uploadsRef.current = next;
@@ -505,32 +513,32 @@ export default function DriveFileExplorer({
         linkNavigation={linkNavigation}
         folderHref={folderHref}
         enableDownload
-        enableUploadDrop
+        enableUploadDrop={folderWritable}
         dense={dense}
         multiSelect
         onSelectedPathsChange={(paths) => { selectedRef.current = paths; }}
-        onUploadFiles={uploadFiles}
-        onInternalMove={(paths, destFolder) =>
-          internalMoveMutation.mutate({ paths, destFolder })}
+        onUploadFiles={folderWritable ? uploadFiles : undefined}
+        onInternalMove={folderWritable ? (paths, destFolder) =>
+          internalMoveMutation.mutate({ paths, destFolder }) : undefined}
         onOpenFile={(ctx) => setViewerPath(ctx.fullPath)}
         onShare={(ctx) => setAccessTarget({
           path: ctx.fullPath,
           kind: ctx.entry.kind === "dir" ? "folder" : "file",
         })}
         onCopy={(paths) => setTransfer({ kind: "copy", paths })}
-        onMove={(paths) => setTransfer({ kind: "move", paths })}
-        onRename={(ctx) => {
+        onMove={folderWritable ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
+        onRename={folderWritable ? (ctx) => {
           setActionError(null);
           setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
           setRenameValue(ctx.entry.name);
-        }}
-        onDelete={setDeletePaths}
-        folderActions={<NewItemMenu onPick={openCreate} />}
-        emptyAction={(
+        } : undefined}
+        onDelete={folderWritable ? setDeletePaths : undefined}
+        folderActions={folderWritable ? <NewItemMenu onPick={openCreate} /> : null}
+        emptyAction={folderWritable ? (
           <div className="flex justify-center">
             <NewItemMenu onPick={openCreate} />
           </div>
-        )}
+        ) : null}
         breadcrumbExtra={(
           <>
             <AccessButton
@@ -585,43 +593,47 @@ export default function DriveFileExplorer({
                   <Copy size={14} />
                 </Button>
               </Tooltip>
-              <Tooltip content="Move">
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  aria-label={`Move ${ctx.entry.name}`}
-                  onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath] })}
-                >
-                  <FolderInput size={14} />
-                </Button>
-              </Tooltip>
-              <Tooltip content="Rename">
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  aria-label={`Rename ${ctx.entry.name}`}
-                  onClick={() => {
-                    setActionError(null);
-                    setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
-                    setRenameValue(ctx.entry.name);
-                  }}
-                >
-                  <Pencil size={14} />
-                </Button>
-              </Tooltip>
-              <Tooltip content="Move to trash">
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  aria-label={`Move ${ctx.entry.name} to trash`}
-                  onClick={() => setDeletePaths([ctx.fullPath])}
-                >
-                  <Trash2 size={14} />
-                </Button>
-              </Tooltip>
+              {(isAdmin || canWriteOnPath(grants.data, driveId, ctx.fullPath)) && (
+                <>
+                  <Tooltip content="Move">
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      aria-label={`Move ${ctx.entry.name}`}
+                      onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath] })}
+                    >
+                      <FolderInput size={14} />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Rename">
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      aria-label={`Rename ${ctx.entry.name}`}
+                      onClick={() => {
+                        setActionError(null);
+                        setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
+                        setRenameValue(ctx.entry.name);
+                      }}
+                    >
+                      <Pencil size={14} />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Move to trash">
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      aria-label={`Move ${ctx.entry.name} to trash`}
+                      onClick={() => setDeletePaths([ctx.fullPath])}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
             </div>
           </ActionTooltipGroup>
         )}
@@ -631,6 +643,7 @@ export default function DriveFileExplorer({
         open={viewerPath != null}
         driveId={driveId}
         path={viewerPath || ""}
+        canWrite={isAdmin || canWriteOnPath(grants.data, driveId, viewerPath || "")}
         onClose={() => setViewerPath(null)}
         onSaved={() => viewerPath && invalidate([viewerPath])}
       />

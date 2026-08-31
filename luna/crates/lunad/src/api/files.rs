@@ -118,9 +118,29 @@ async fn list(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
-    check_access(&state, &user, &id, &rel, false)?;
-    let entries =
+    check_browse(&state, &user, &id, &rel)?;
+    let mut entries =
         with_db(&state, |conn| files::list_dir(conn, &id, &rel)).map_err(map_files_err)?;
+    if user.role != "admin" {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        entries.retain(|entry| {
+            let child = if crate::grants::normalize_grant_path(&rel).is_empty() {
+                entry.name.clone()
+            } else {
+                format!(
+                    "{}/{}",
+                    crate::grants::normalize_grant_path(&rel),
+                    entry.name
+                )
+            };
+            crate::auth::can_browse_path(&user, &conn, &id, &child)
+        });
+    }
     Ok(Json(entries))
 }
 
@@ -543,6 +563,28 @@ async fn stream_to_temp(
     out.flush().await?;
     out.sync_all().await?;
     Ok(())
+}
+
+fn check_browse(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    path: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if crate::auth::can_browse_path(user, &conn, drive_id, path) {
+        Ok(())
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this folder.",
+        ))
+    }
 }
 
 fn check_access(

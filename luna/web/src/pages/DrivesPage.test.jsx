@@ -233,6 +233,39 @@ describe("DrivesPage", () => {
     expect(ignore.compareDocumentPosition(look) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("shows a member the highest shared folder plus a write exception", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([
+            { id: "g-drive", drive_id: "d1", drive_label: "Photos Drive", path: "", permission: "read" },
+            { id: "g-dcim", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM", permission: "write" },
+            { id: "g-print", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM/print", permission: "read" },
+          ]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("Whole drive")).toBeInTheDocument();
+    expect(screen.getByText("DCIM")).toBeInTheDocument();
+    expect(screen.queryByText("DCIM/print")).not.toBeInTheDocument();
+    const opens = screen.getAllByRole("link", { name: "Open" });
+    expect(opens).toHaveLength(2);
+    expect(opens[0]).toHaveAttribute("href", "/drives/d1?path=");
+    expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=DCIM");
+    expect(screen.queryByText(/Unknown Drives/i)).not.toBeInTheDocument();
+  });
+
   it("shows granted folders for a household member", async () => {
     stubDrivesApi({
       fetch: (u) => {

@@ -11,6 +11,7 @@ import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
 import { TermHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
+import { dedupeIdenticalGrants, pathKey } from "../../lib/shareTree.js";
 
 const PERMISSION_OPTIONS = [
   { value: "read", label: "Read" },
@@ -32,11 +33,6 @@ function expiryLabel(expiresAt) {
   return `expires ${when.toLocaleDateString()}`;
 }
 
-/** Strip leading/trailing slashes so `/photos` and `photos/` match `photos`. */
-function pathKey(value) {
-  return String(value ?? "").replace(/^\/+|\/+$/g, "");
-}
-
 /** Accept a raw array or a wrapped `{ grants|shares|users|items: [] }` payload. */
 function asList(data) {
   if (Array.isArray(data)) return data;
@@ -50,14 +46,6 @@ function asList(data) {
 
 function rowDriveId(row) {
   return row.drive_id || row.driveId || "";
-}
-
-function grantCovers(grant, driveId, path) {
-  if (rowDriveId(grant) !== driveId) return false;
-  const granted = pathKey(grant.path);
-  const target = pathKey(path);
-  if (!granted) return true;
-  return target === granted || target.startsWith(`${granted}/`);
 }
 
 /** This folder, parents that include it, or folders inside it on the same drive. */
@@ -128,11 +116,15 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     queryFn: () => getJson("/api/v1/shares"),
   });
 
-  const matchingGrants = asList(grants.data).filter((g) => grantRelates(g, driveId, objectPath));
+  const matchingGrants = dedupeIdenticalGrants(
+    asList(grants.data).filter((g) => grantRelates(g, driveId, objectPath)),
+  );
   const matchingShares = asList(shares.data).filter((s) => grantRelates(s, driveId, objectPath));
   const members = asList(users.data).filter((u) => u.role !== "admin");
   const grantedUserIds = new Set(
-    matchingGrants.filter((g) => grantCovers(g, driveId, objectPath)).map((g) => g.user_id),
+    matchingGrants
+      .filter((g) => rowDriveId(g) === driveId && pathKey(g.path) === objectPath)
+      .map((g) => g.user_id),
   );
   const addablePeople = members.filter((u) => !grantedUserIds.has(u.id));
   const noPeopleToAdd = users.isSuccess && addablePeople.length === 0;
@@ -150,6 +142,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["grants"] });
+      queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
       setPersonId("");
     },
@@ -161,6 +154,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     onMutate: ({ id }) => setUpdatingGrantId(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["grants"] });
+      queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
     },
     onError: (err) => setError(apiErrorMessage(err, "Couldn't change that person's access. Try again.")),
@@ -168,7 +162,10 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   });
   const revokeGrant = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/grants/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["grants"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["grants"] });
+      queryClient.invalidateQueries({ queryKey: ["my-access"] });
+    },
     onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that person's access. Try again.")),
   });
   const revokeShare = useMutation({

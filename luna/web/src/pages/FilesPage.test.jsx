@@ -21,7 +21,11 @@ function stubFilesApi(byPath) {
       return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
-      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        id: byPath.__userId || "1",
+        role: byPath.__role || "admin",
+        username: byPath.__role === "user" ? "sam" : "admin",
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/setup")) {
       return new Response(JSON.stringify({ setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -346,6 +350,42 @@ describe("FilesPage", () => {
     fireEvent.click(within(linkDialog).getByRole("button", { name: "Create link" }));
     expect(await within(linkDialog).findByText("Luna can't find that file or folder.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Link ready" })).not.toBeInTheDocument();
+  });
+
+  it("lets a member write only in a folder they can change", async () => {
+    const grants = {
+      __role: "user",
+      __userId: "2",
+      __grants: [
+        { id: "g-album", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
+        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "album/dcim", permission: "write" },
+      ],
+      album: [{ name: "dcim", kind: "dir", size: 0, modified: 0, hidden: false }],
+      "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
+    };
+    stubFilesApi(grants);
+    renderFiles("/drives/d1?path=album");
+    expect(await screen.findByText("dcim")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move dcim" })).toBeInTheDocument();
+  });
+
+  it("shows write actions in a member write exception folder", async () => {
+    stubFilesApi({
+      __role: "user",
+      __userId: "2",
+      __grants: [
+        { id: "g-album", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
+        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "album/dcim", permission: "write" },
+      ],
+      "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1?path=album/dcim");
+    expect(await screen.findByText("shot.jpg")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move shot.jpg" })).toBeInTheDocument();
   });
 
   it("offers New folder in the copy destination picker", async () => {

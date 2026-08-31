@@ -16,6 +16,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
 import { folderHref as driveFolderHref, pathBasename } from "../lib/paths.js";
+import { memberAccessRoots } from "../lib/shareTree.js";
 
 const STATE_PILLS = {
   as_is: "success",
@@ -624,7 +625,7 @@ export default function DashboardPage() {
     (drive) => drive.state === "missing" || drive.state === "failed",
   );
   const recentJobs = Array.isArray(jobs.data) ? jobs.data : [];
-  const grants = Array.isArray(access.data) ? access.data : [];
+  const grants = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
   const remoteOn = Boolean(connect.data?.enabled && connect.data?.tunnel_active);
   const remoteDomain = connect.data?.domain;
 
@@ -715,7 +716,7 @@ export default function DashboardPage() {
                       {grant.drive_label}
                       {grant.path ? ` · ${grant.path}` : ""}
                     </span>
-                    <TextLink surface="secondary" to={`/drives/${grant.drive_id}`}>
+                    <TextLink surface="secondary" to={driveFolderHref(grant.drive_id, grant.path || "")}>
                       Open
                     </TextLink>
                   </li>
