@@ -25,6 +25,11 @@ import { Input } from "../components/ui/input.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
+import {
+  meetsPasswordPolicy,
+  PASSWORD_POLICY_HELPER,
+  passwordChecks,
+} from "../lib/passwordPolicy.js";
 import { cn } from "../lib/utils.js";
 
 const OFFICIAL_STEPS = [
@@ -74,12 +79,71 @@ function clearProgress() {
   }
 }
 
-function passwordOk(pw) {
-  return pw.length >= 12 && /[A-Za-z]/.test(pw) && /\d/.test(pw);
-}
-
 function emailOk(email) {
   return /^\S+@\S+\.\S+$/.test(email.trim());
+}
+
+const STRENGTH_LABEL = ["", "Weak", "Fair", "Good", "Strong"];
+const STRENGTH_COLOR = ["", "bg-error", "bg-warning", "bg-warning", "bg-success"];
+const STRENGTH_TEXT = ["", "text-error", "text-warning", "text-warning", "text-success"];
+
+/** @param {{ score: number }} props */
+function PasswordStrengthBar({ score }) {
+  return (
+    <div className="flex gap-1 mt-2.5" aria-hidden="true">
+      {[1, 2, 3, 4].map((lvl) => (
+        <div
+          key={lvl}
+          className={cn(
+            "h-1 flex-1 rounded-full motion-safe:transition-all motion-safe:duration-300",
+            lvl <= score ? STRENGTH_COLOR[score] : "bg-muted",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** A single password requirement chip: green check when met, muted X when missing. */
+/** @param {{ ok: boolean, label: string }} props */
+function ReqChip({ ok, label }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 font-mono text-xs motion-safe:transition-colors motion-safe:duration-200",
+        ok ? "text-success" : "text-muted-foreground",
+      )}
+    >
+      {ok ? <Check className="w-3 h-3" aria-hidden="true" /> : <X className="w-3 h-3" aria-hidden="true" />}
+      {label}
+    </span>
+  );
+}
+
+/** Live checklist + strength bar — mirrors LibreServ / Luna setup. */
+/** @param {{ password: string }} props */
+function PasswordRequirements({ password }) {
+  const strength = passwordChecks(password);
+  if (!password) return null;
+  return (
+    <div className="mt-1" aria-live="polite">
+      <PasswordStrengthBar score={strength.score} />
+      <div className="flex items-center justify-between mt-1.5">
+        <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
+          {STRENGTH_LABEL[strength.score]}
+        </p>
+        <p className={cn("text-xs font-mono", strength.ok ? "text-success" : "text-muted-foreground")}>
+          {strength.ok ? "✓ Acceptable" : "Not strong enough yet"}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+        <ReqChip ok={strength.hasLength} label="12+ chars" />
+        <ReqChip ok={strength.hasLetter} label="letters" />
+        <ReqChip ok={strength.hasDigit} label="numbers" />
+        <ReqChip ok={strength.hasSpecial} label="symbols" />
+      </div>
+    </div>
+  );
 }
 
 function pathFromLocation(pathname) {
@@ -415,13 +479,14 @@ export default function OnboardingPage() {
         {
           id: "onb-password",
           question: "Choose a password",
-          hint: "At least 12 characters, including a letter and a number. That is so a stolen password list is less likely to open this account.",
+          hint: PASSWORD_POLICY_HELPER,
           value: password,
           setValue: setPassword,
           type: "password",
-          placeholder: "At least 12 characters, with a letter and a number",
+          placeholder: "Password",
           autoComplete: "new-password",
-          valid: passwordOk(password),
+          valid: meetsPasswordPolicy(password),
+          showPasswordRequirements: true,
         },
       ];
 
@@ -571,6 +636,9 @@ export default function OnboardingPage() {
           />
           {currentAuthField.hint && (
             <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
+          )}
+          {currentAuthField.showPasswordRequirements && (
+            <PasswordRequirements password={currentAuthField.value} />
           )}
         </div>
         <Button
