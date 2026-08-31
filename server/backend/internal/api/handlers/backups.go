@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,9 +83,9 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errMsg := "We couldn't complete the backup. Please try again."
 		if result != nil && result.Error != nil {
-			log.Printf("CreateBackup: failed for app %s: %s", req.AppID, result.Error)
+			slog.Error("CreateBackup failed", "app_id", req.AppID, "error", result.Error)
 		} else {
-			log.Printf("CreateBackup: failed for app %s: %s", req.AppID, err)
+			slog.Error("CreateBackup failed", "app_id", req.AppID, "error", err)
 		}
 		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
@@ -130,9 +130,9 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errMsg := "We couldn't complete the restore. Please try again."
 		if result != nil && result.Error != nil {
-			log.Printf("RestoreBackup: failed for backup %s: %s", backupID, result.Error)
+			slog.Error("RestoreBackup failed", "backup_id", backupID, "error", result.Error)
 		} else {
-			log.Printf("RestoreBackup: failed for backup %s: %s", backupID, err)
+			slog.Error("RestoreBackup failed", "backup_id", backupID, "error", err)
 		}
 		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
@@ -172,7 +172,7 @@ func (h *BackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Request) 
 
 	archivePath, cleanup, err := h.backupService.CreateDownloadArchive(r.Context(), backupID)
 	if err != nil {
-		log.Printf("DownloadBackup: %v", err)
+		slog.Error("DownloadBackup failed", "backup_id", backupID, "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't prepare the backup for download. Please try again.")
 		return
 	}
@@ -287,7 +287,7 @@ func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Req
 
 	backup, err := h.backupService.StoreUploadedDatabaseBackup(r.Context(), filename, file, header.Size)
 	if err != nil {
-		log.Printf("UploadDatabaseBackup: failed to store: %v", err)
+		slog.Error("UploadDatabaseBackup store failed", "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't save the database backup. Please try again.")
 		return
 	}
@@ -295,7 +295,7 @@ func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Req
 	if err := h.backupService.RestoreDatabase(r.Context(), backup.ID, storage.DatabaseRestoreOptions{
 		VerifyChecksum: true,
 	}); err != nil {
-		log.Printf("UploadDatabaseBackup: failed to restore: %v", err)
+		slog.Error("UploadDatabaseBackup restore failed", "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't restore the database backup. Please try again.")
 		return
 	}
@@ -432,13 +432,10 @@ func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
-	scheduleID := chi.URLParam(r, "scheduleID")
-	if scheduleID == "" {
+	if scheduleID := chi.URLParam(r, "scheduleID"); scheduleID == "" {
 		JSONError(w, http.StatusBadRequest, "Please choose a backup schedule.")
 		return
-	}
-
-	if err := h.backupService.DeleteSchedule(r.Context(), scheduleID); err != nil {
+	} else if err := h.backupService.DeleteSchedule(r.Context(), scheduleID); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't delete the backup schedule. Please try again.")
 		return
 	}
@@ -644,7 +641,7 @@ func (h *BackupHandlers) GetRepoStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.backupService.GetRepoStats(r.Context(), repoID)
 	if err != nil {
-		log.Printf("GetRepoStats: failed for repo %s: %v", repoID, err)
+		slog.Error("GetRepoStats failed", "repo_id", repoID, "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't load backup storage details. Please try again.")
 		return
 	}
@@ -661,7 +658,7 @@ func (h *BackupHandlers) GetRepositoryRecoveryKey(w http.ResponseWriter, r *http
 
 	key, err := h.backupService.GetRepositoryRecoveryKey(r.Context(), repoID)
 	if err != nil {
-		log.Printf("GetRepositoryRecoveryKey: failed for repo %s: %v", repoID, err)
+		slog.Error("GetRepositoryRecoveryKey failed", "repo_id", repoID, "error", err)
 		JSONError(w, http.StatusInternalServerError, "Could not retrieve recovery key. Please try again.")
 		return
 	}
