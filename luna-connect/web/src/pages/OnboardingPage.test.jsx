@@ -154,6 +154,30 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.queryByText(/booklet/i)).toBeNull();
   });
 
+  it("shows Password placeholder, helper copy, and live requirement chips while typing", async () => {
+    mount("/diyonboarding");
+    fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "me@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    const passwordInput = await screen.findByLabelText(/password/i);
+    expect(passwordInput.getAttribute("placeholder")).toBe("Password");
+    expect(
+      screen.getByText("Use at least 12 characters, including a letter and a number."),
+    ).toBeTruthy();
+
+    fireEvent.change(passwordInput, { target: { value: "abc" } });
+    expect(screen.getByText("12+ chars")).toBeTruthy();
+    expect(screen.getByText("letters")).toBeTruthy();
+    expect(screen.getByText("numbers")).toBeTruthy();
+    expect(screen.getByText("symbols")).toBeTruthy();
+    expect(screen.getByText("Not strong enough yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /create account/i }).disabled).toBe(true);
+
+    fireEvent.change(passwordInput, { target: { value: "password1234" } });
+    expect(screen.getByText("✓ Acceptable")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /create account/i }).disabled).toBe(false);
+  });
+
   it("does not call verify-human before a card action when Stripe looks configured", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     await createDiyAccount();
