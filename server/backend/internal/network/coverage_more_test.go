@@ -214,7 +214,7 @@ printf wildcard-key > %[1]q/certificates/'*.example.test.key'
 	if manager.usePodmanOverride == nil || *manager.usePodmanOverride {
 		t.Fatal("podman override was not stored")
 	}
-	if err := manager.RequestWildcardCert(context.Background(), "example.test", "", &DNSProviderConfig{
+	if err := manager.RequestWildcardCert(context.Background(), "example.test", "fallback@example.test", &DNSProviderConfig{
 		Provider: ProviderCloudflare,
 		APIToken: "token",
 	}); err != nil {
@@ -345,12 +345,12 @@ func TestValidationAndNetworkErrorHelpers(t *testing.T) {
 			t.Errorf("ValidateSubdomain(%q) succeeded", subdomain)
 		}
 	}
-	for _, backend := range []string{"http://localhost:8080", "https://example.test", "localhost:8080", "[::1]:8080", "unix:///tmp/app.sock"} {
+	for _, backend := range []string{"http://localhost:8080", "https://example.test", "http://[::1]:8080", "unix:///tmp/app.sock"} {
 		if err := ValidateBackend(backend); err != nil {
 			t.Errorf("ValidateBackend(%q): %v", backend, err)
 		}
 	}
-	for _, backend := range []string{"", "localhost", "ftp://example.test/file", "http://bad host", "unix:///tmp/bad path.sock"} {
+	for _, backend := range []string{"", "localhost", "localhost:8080", "[::1]:8080", "ftp://example.test/file", "http://bad host", "unix:///tmp/bad path.sock"} {
 		if err := ValidateBackend(backend); err == nil {
 			t.Errorf("ValidateBackend(%q) succeeded", backend)
 		}
