@@ -90,6 +90,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
           value={role}
           onChange={setRole}
           disabled={loading}
+          bg="primary"
           options={[
             { value: "user", label: "User" },
             { value: "admin", label: "Admin" },

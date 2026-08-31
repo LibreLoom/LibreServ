@@ -12,7 +12,9 @@ import { haptic } from "../../utils/haptics";
  * @property {(value: string) => void} onChange
  * @property {string} [placeholder]
  * @property {string} [label]
- * @property {"primary"|"secondary"} [surface]
+ * @property {"primary"|"secondary"} [surface] Pill color. Prefer `bg` at call sites.
+ * @property {"primary"|"secondary"} [bg] Alias for `surface`. On a card/modal (`bg-secondary`)
+ *   use `bg="primary"` (page-bg pill). On page background use `bg="secondary"`.
  * @property {boolean} [fullWidth]
  * @property {boolean} [disabled]
  * @property {boolean} [ghost]
@@ -27,7 +29,8 @@ export default function Dropdown({
   onChange,
   placeholder = "Select...",
   label,
-  surface = "secondary",
+  surface,
+  bg,
   fullWidth = false,
   disabled = false,
   ghost = false,
@@ -44,10 +47,11 @@ export default function Dropdown({
   useSmoothResize(buttonRef, { x: !fullWidth });
 
   const selectedOption = options.find((o) => o.value === value);
-  const textClass = surface === "primary" ? "text-secondary" : "text-primary";
-  const bgClass = ghost ? "bg-transparent" : `bg-${surface}`;
+  const pill = bg || surface || "secondary";
+  const textClass = pill === "primary" ? "text-secondary" : "text-primary";
+  const bgClass = ghost ? "bg-transparent" : `bg-${pill}`;
   const hoverClass = ghost
-    ? `hover:bg-${surface === "primary" ? "secondary" : "primary"}/10`
+    ? `hover:bg-${pill === "primary" ? "secondary" : "primary"}/10`
     : "";
 
   const updatePosition = useCallback(() => {
@@ -147,7 +151,7 @@ export default function Dropdown({
           "items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer rounded-pill",
           "motion-safe:transition-all no-focus-outline",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-          `focus-visible:ring-offset-${surface}`,
+          `focus-visible:ring-offset-${pill}`,
           "active:motion-safe:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
           fullWidth ? "w-full inline-flex" : "inline-flex",
           bgClass,

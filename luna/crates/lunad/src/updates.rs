@@ -663,6 +663,62 @@ pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'sta
     Ok(keys)
 }
 
+const FETCH_KEYS_ERR: &str = "Luna couldn't get signing keys from that project page. Check the address, owner, and repo, then try again.";
+
+const REPO_KEY_FILES: &[&str] = &["lsluna.minisign.pub", "libreserv.minisign.pub"];
+
+/// Download minisign public keys from a Forgejo/Gitea project's raw files.
+///
+/// Uses the given `api_base` / owner / repo (the values on the form, not
+/// necessarily the saved source). Tries `main` then `master` for each known
+/// key file name.
+pub fn fetch_repo_signing_keys(
+    http: &dyn HttpGet,
+    api_base: &str,
+    owner: &str,
+    repo: &str,
+) -> Result<Vec<String>, &'static str> {
+    let probe = UpdateSettings {
+        api_base: api_base.to_string(),
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+        keys: vec![],
+    };
+    validate_settings(&probe)?;
+
+    let host = api_base
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches("/api/v1")
+        .trim_end_matches("/api");
+    let owner = owner.trim();
+    let repo = repo.trim();
+
+    let mut parsed = Vec::new();
+    for name in REPO_KEY_FILES {
+        let main = format!("{host}/{owner}/{repo}/raw/branch/main/keys/{name}");
+        if let Some(text) = raw_text_if_ok(http, &main) {
+            parsed.extend(parse_minisign_pub(&text));
+            continue;
+        }
+        let master = format!("{host}/{owner}/{repo}/raw/branch/master/keys/{name}");
+        if let Some(text) = raw_text_if_ok(http, &master) {
+            parsed.extend(parse_minisign_pub(&text));
+        }
+    }
+    if parsed.is_empty() {
+        return Err(FETCH_KEYS_ERR);
+    }
+    normalize_pub_keys(&parsed)
+}
+
+fn raw_text_if_ok(http: &dyn HttpGet, url: &str) -> Option<String> {
+    match http.get(url) {
+        Ok((200, body)) => String::from_utf8(body).ok(),
+        _ => None,
+    }
+}
+
 pub struct UpdateService {
     http: Box<dyn HttpGet>,
     installer: Box<dyn Installer>,
@@ -758,6 +814,17 @@ impl UpdateService {
     /// True when the trusted keys are still the compiled-in release key.
     pub fn using_default_keys(&self) -> bool {
         self.source().keys == parse_minisign_pub(PINNED_PUB)
+    }
+
+    /// Download signing keys from the given project page using the HTTP
+    /// client already wired for updates (form values, not the saved source).
+    pub fn fetch_source_keys(
+        &self,
+        api_base: &str,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<String>, &'static str> {
+        fetch_repo_signing_keys(self.http.as_ref(), api_base, owner, repo)
     }
 
     /// Hot-swap the update source (admin saved new settings). Clears the
@@ -1479,6 +1546,108 @@ mod tests {
             ..base
         };
         assert_eq!(validate_settings(&file).unwrap(), vec![real]);
+    }
+
+    #[test]
+    fn fetch_repo_signing_keys_reads_main_lsluna_pub() {
+        let pk = ephemeral_sign(b"x").0;
+        let pub_file = format!("untrusted comment: luna release key\n{pk}\n");
+        let mut map = HashMap::new();
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/raw/branch/main/keys/lsluna.minisign.pub"
+                .into(),
+            (200, pub_file.into_bytes()),
+        );
+        let keys = fetch_repo_signing_keys(
+            &MapHttp { map },
+            "http://forgejo.test/api/v1",
+            "LibreLoom",
+            "LibreServ",
+        )
+        .unwrap();
+        assert_eq!(keys, vec![pk]);
+    }
+
+    #[test]
+    fn fetch_repo_signing_keys_falls_back_to_master_and_libreserv_file() {
+        let pk = ephemeral_sign(b"y").0;
+        let pub_file = format!("{pk}\n");
+        let mut map = HashMap::new();
+        map.insert(
+            "http://forgejo.test/MyOrg/LunaFork/raw/branch/main/keys/lsluna.minisign.pub".into(),
+            (404, b"not found".to_vec()),
+        );
+        map.insert(
+            "http://forgejo.test/MyOrg/LunaFork/raw/branch/main/keys/libreserv.minisign.pub".into(),
+            (404, b"not found".to_vec()),
+        );
+        map.insert(
+            "http://forgejo.test/MyOrg/LunaFork/raw/branch/master/keys/libreserv.minisign.pub"
+                .into(),
+            (200, pub_file.into_bytes()),
+        );
+        let keys = fetch_repo_signing_keys(
+            &MapHttp { map },
+            "http://forgejo.test/api/v1/",
+            " MyOrg ",
+            "LunaFork",
+        )
+        .unwrap();
+        assert_eq!(keys, vec![pk]);
+    }
+
+    #[test]
+    fn fetch_repo_signing_keys_merges_both_files() {
+        let a = ephemeral_sign(b"a").0;
+        let b = ephemeral_sign(b"b").0;
+        let mut map = HashMap::new();
+        map.insert(
+            "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/keys/lsluna.minisign.pub"
+                .into(),
+            (200, format!("{a}\n").into_bytes()),
+        );
+        map.insert(
+            "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/keys/libreserv.minisign.pub"
+                .into(),
+            (200, format!("{b}\n").into_bytes()),
+        );
+        let keys = fetch_repo_signing_keys(
+            &MapHttp { map },
+            "https://gt.plainskill.net/api/v1",
+            "LibreLoom",
+            "LibreServ",
+        )
+        .unwrap();
+        assert_eq!(keys, vec![a, b]);
+    }
+
+    #[test]
+    fn fetch_repo_signing_keys_errors_when_no_rw_keys() {
+        let mut map = HashMap::new();
+        map.insert(
+            "http://forgejo.test/LibreLoom/LibreServ/raw/branch/main/keys/lsluna.minisign.pub"
+                .into(),
+            (200, b"untrusted comment: empty\n".to_vec()),
+        );
+        let err = fetch_repo_signing_keys(
+            &MapHttp { map },
+            "http://forgejo.test/api/v1",
+            "LibreLoom",
+            "LibreServ",
+        )
+        .unwrap_err();
+        assert!(err.contains("couldn't get signing keys"));
+    }
+
+    #[test]
+    fn fetch_repo_signing_keys_validates_source_like_save() {
+        let http = MapHttp {
+            map: HashMap::new(),
+        };
+        assert!(fetch_repo_signing_keys(&http, "ftp://nope", "o", "r").is_err());
+        assert!(fetch_repo_signing_keys(&http, "", "o", "r").is_err());
+        assert!(fetch_repo_signing_keys(&http, "https://a.test/api/v1", "", "r").is_err());
+        assert!(fetch_repo_signing_keys(&http, "https://a.test/api/v1", "o", "").is_err());
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users } from "lucide-react";
-import ModalCard from "../cards/ModalCard";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard";
 import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
@@ -11,6 +11,7 @@ import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
 import { TermHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
+import { dedupeIdenticalGrants, pathKey } from "../../lib/shareTree.js";
 
 const PERMISSION_OPTIONS = [
   { value: "read", label: "Read" },
@@ -32,16 +33,41 @@ function expiryLabel(expiresAt) {
   return `expires ${when.toLocaleDateString()}`;
 }
 
-function pathKey(value) {
-  return value || "";
+/** Accept a raw array or a wrapped `{ grants|shares|users|items: [] }` payload. */
+function asList(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data.grants)) return data.grants;
+  if (Array.isArray(data.shares)) return data.shares;
+  if (Array.isArray(data.users)) return data.users;
+  return [];
 }
 
-function grantCovers(grant, driveId, path) {
-  if (grant.drive_id !== driveId) return false;
+function rowDriveId(row) {
+  return row.drive_id || row.driveId || "";
+}
+
+/** This folder, parents that include it, or folders inside it on the same drive. */
+function grantRelates(grant, driveId, path) {
+  if (rowDriveId(grant) !== driveId) return false;
   const granted = pathKey(grant.path);
   const target = pathKey(path);
-  if (!granted) return true;
-  return target === granted || target.startsWith(`${granted}/`);
+  if (!granted || !target) return true;
+  return (
+    target === granted
+    || target.startsWith(`${granted}/`)
+    || granted.startsWith(`${target}/`)
+  );
+}
+
+function grantScopeNote(grant, objectPath, kind) {
+  const granted = pathKey(grant.path);
+  const target = pathKey(objectPath);
+  if (granted === target) return "";
+  if (!granted) return kind === "file" ? " (includes this file)" : " (includes this folder)";
+  if (!target || granted.startsWith(`${target}/`)) return ` (only ${granted})`;
+  return kind === "file" ? " (includes this file)" : " (includes this folder)";
 }
 
 /**
@@ -63,7 +89,7 @@ export function AccessButton({ label, onClick, surface = "secondary" }) {
   );
 }
 
-export default function AccessSheet({ driveId, path = "", kind: _kind = "folder", onClose, open = true }) {
+export default function AccessSheet({ driveId, path = "", kind = "folder", onClose, open = true }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
@@ -90,24 +116,37 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
     queryFn: () => getJson("/api/v1/shares"),
   });
 
-  const matchingGrants = (grants.data || []).filter((g) => grantCovers(g, driveId, objectPath));
-  const matchingShares = (shares.data || []).filter(
-    (s) => s.drive_id === driveId && pathKey(s.path) === objectPath,
+  const matchingGrants = dedupeIdenticalGrants(
+    asList(grants.data).filter((g) => grantRelates(g, driveId, objectPath)),
   );
-  const members = (users.data || []).filter((u) => u.role !== "admin");
-  const grantedUserIds = new Set(matchingGrants.map((g) => g.user_id));
+  const matchingShares = asList(shares.data).filter((s) => grantRelates(s, driveId, objectPath));
+  const members = asList(users.data).filter((u) => u.role !== "admin");
+  const grantedUserIds = new Set(
+    matchingGrants
+      .filter((g) => rowDriveId(g) === driveId && pathKey(g.path) === objectPath)
+      .map((g) => g.user_id),
+  );
   const addablePeople = members.filter((u) => !grantedUserIds.has(u.id));
   const noPeopleToAdd = users.isSuccess && addablePeople.length === 0;
+  const sheetError = error
+    || (isAdmin && grants.isError
+      ? apiErrorMessage(grants.error, "Couldn't load who has access. Refresh and try again.")
+      : null)
+    || (shares.isError
+      ? apiErrorMessage(shares.error, "Couldn't load share links. Refresh and try again.")
+      : null);
 
   /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { user_id: string, drive_id: string, path: string, permission: string }, unknown>} */
   const grantMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/grants", body),
+    onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["grants"] });
+      queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
       setPersonId("");
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't grant access. Try again.")),
   });
   /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { id: string, permission: string }, unknown>} */
   const updateGrant = useMutation({
@@ -115,6 +154,7 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
     onMutate: ({ id }) => setUpdatingGrantId(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["grants"] });
+      queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
     },
     onError: (err) => setError(apiErrorMessage(err, "Couldn't change that person's access. Try again.")),
@@ -122,8 +162,11 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
   });
   const revokeGrant = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/grants/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["grants"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["grants"] });
+      queryClient.invalidateQueries({ queryKey: ["my-access"] });
+    },
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that person's access. Try again.")),
   });
   const revokeShare = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/shares/${id}`),
@@ -132,7 +175,7 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
   });
 
   function personName(userId) {
-    const found = (users.data || []).find((u) => u.id === userId);
+    const found = asList(users.data).find((u) => u.id === userId);
     return found?.display_name || found?.username || userId;
   }
 
@@ -141,25 +184,10 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
     updateGrant.mutate({ id: grant.id, permission: next });
   }
 
-  if (creatingLink) {
-    return (
-      <CreateShareModal
-        open={open}
-        driveId={driveId}
-        path={objectPath}
-        onClose={() => setCreatingLink(false)}
-        onError={(msg) => setError(msg)}
-        onDone={() => {
-          setCreatingLink(false);
-          queryClient.invalidateQueries({ queryKey: ["shares"] });
-        }}
-      />
-    );
-  }
-
   return (
+    <>
     <ModalCard open={open} title="Sharing" onClose={onClose}>
-      {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
+      {sheetError && <PageNotice variant="error" className="mb-3">{sheetError}</PageNotice>}
 
       {isAdmin && (
         <section className="space-y-2">
@@ -167,11 +195,11 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
           {matchingGrants.map((g) => {
             const name = personName(g.user_id);
             return (
-              <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
+              <div key={g.id} className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <span className="text-primary text-xs truncate">
+                  <span className="text-secondary text-xs truncate">
                     {name}
-                    {pathKey(g.path) !== objectPath ? " (includes this folder)" : ""}
+                    {grantScopeNote(g, objectPath, kind)}
                   </span>
                   <Dropdown
                     options={PERMISSION_OPTIONS}
@@ -179,6 +207,7 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
                     onChange={(next) => changePermission(g, next)}
                     disabled={updatingGrantId === g.id}
                     aria-label={`Access for ${name}`}
+                    bg="secondary"
                   />
                 </div>
                 <Button size="iconSm" variant="danger" aria-label={`Remove access for ${name}`} onClick={() => revokeGrant.mutate(g.id)}>
@@ -188,13 +217,13 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
             );
           })}
           {noPeopleToAdd ? (
-            <div className="space-y-3 rounded-large-element border border-primary/20 p-3">
-              <p className="text-primary text-sm">
+            <div className="space-y-3 rounded-large-element bg-primary text-secondary p-3">
+              <p className="text-secondary text-sm">
                 {members.length === 0
                   ? "No people to share with yet. Add a Member on the Users page."
                   : "Everyone already has access. Add more people on the Users page."}
               </p>
-              <Button variant="primary" size="sm" asChild>
+              <Button variant="secondary" surface="primary" size="sm" asChild>
                 <Link to="/settings/users" onClick={onClose}>
                   Go to Users
                 </Link>
@@ -208,12 +237,14 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
                 onChange={setPersonId}
                 placeholder="Add a person"
                 fullWidth
+                bg="primary"
               />
               <Dropdown
                 options={PERMISSION_OPTIONS}
                 value={permission}
                 onChange={setPermission}
                 fullWidth
+                bg="primary"
               />
               <p className="text-primary text-xs">
                 <TermHint content="Can open files in this folder, but cannot save changes.">
@@ -249,10 +280,13 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
         {matchingShares.map((s) => {
           const url = rememberedUrl(s.id);
           return (
-            <div key={s.id} className="flex items-center justify-between gap-2 rounded-large-element border border-primary/20 p-3">
+            <div key={s.id} className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3">
               <div className="min-w-0">
-                <p className="text-primary text-xs">
-                  {s.has_password ? "Password" : "Anyone with the link"} · {expiryLabel(s.expires_at)}
+                <p className="text-secondary text-xs">
+                  {s.has_password ? "Password" : "Anyone with the link"}
+                  {pathKey(s.path) && pathKey(s.path) !== objectPath ? ` · ${pathKey(s.path)}` : ""}
+                  {" · "}
+                  {expiryLabel(s.expires_at)}
                 </p>
                 {url && (
                   <CopyableValue
@@ -275,5 +309,19 @@ export default function AccessSheet({ driveId, path = "", kind: _kind = "folder"
       </section>
 
     </ModalCard>
+    {creatingLink && (
+      <CreateShareModal
+        open
+        driveId={driveId}
+        path={objectPath}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => setCreatingLink(false)}
+        onDone={() => {
+          setCreatingLink(false);
+          queryClient.invalidateQueries({ queryKey: ["shares"] });
+        }}
+      />
+    )}
+    </>
   );
 }

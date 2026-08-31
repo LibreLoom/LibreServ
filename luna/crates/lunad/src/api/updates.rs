@@ -34,6 +34,10 @@ pub fn router() -> Router<AppState> {
             "/api/v1/system/updates/source",
             get(get_source).put(save_source),
         )
+        .route(
+            "/api/v1/system/updates/source/keys",
+            post(fetch_source_keys),
+        )
 }
 
 async fn check(
@@ -206,6 +210,37 @@ async fn save_source(
     })))
 }
 
+/// Download minisign public keys from the project page in the request body
+/// (current form values — not only the saved source).
+async fn fetch_source_keys(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<SourceBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&user)?;
+    let api_base = body.api_base.unwrap_or_default();
+    let owner = body.owner.unwrap_or_default();
+    let repo = body.repo.unwrap_or_default();
+    let svc = state.updates.clone();
+    let keys = tokio::task::spawn_blocking(move || svc.fetch_source_keys(&api_base, &owner, &repo))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't get signing keys from that project page. Check the address, owner, and repo, then try again.",
+            )
+        })?
+        .map_err(|message| {
+            let status = if message.contains("couldn't get signing keys") {
+                StatusCode::BAD_GATEWAY
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            json_error(status, message)
+        })?;
+    Ok(Json(json!({ "keys": keys })))
+}
+
 fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
     if user.role != "admin" {
         return Err(json_error(
@@ -258,6 +293,13 @@ mod tests {
     }
 
     fn app(releases_json: &[u8]) -> (axum::Router, String, crate::AppState) {
+        app_with_http(releases_json, HashMap::new())
+    }
+
+    fn app_with_http(
+        releases_json: &[u8],
+        extra: HashMap<String, (u16, Vec<u8>)>,
+    ) -> (axum::Router, String, crate::AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let dm = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
@@ -266,6 +308,7 @@ mod tests {
             "http://forgejo.test/api/v1/repos/LibreLoom/LibreServ/releases?limit=50".into(),
             (200, releases_json.to_vec()),
         );
+        map.extend(extra);
         let updates = Arc::new(UpdateService::new(
             Box::new(MapHttp(map)),
             Box::new(NoopInstall),
@@ -488,5 +531,62 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert!(crate::updates::load_settings(&state.db.lock().unwrap()).is_none());
+    }
+
+    #[tokio::test]
+    async fn source_keys_post_returns_repo_keys() {
+        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let key = kp.pk.to_base64();
+        let mut extra = HashMap::new();
+        extra.insert(
+            "http://staging.forgejo.test/MyOrg/LunaFork/raw/branch/main/keys/lsluna.minisign.pub"
+                .into(),
+            (200, format!("untrusted comment: x\n{key}\n").into_bytes()),
+        );
+        let (router, token, _state) = app_with_http(b"[]", extra);
+        let body = r#"{"api_base":"http://staging.forgejo.test/api/v1","owner":"MyOrg","repo":"LunaFork"}"#;
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/system/updates/source/keys")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["keys"], json!([key]));
+    }
+
+    #[tokio::test]
+    async fn source_keys_is_admin_only() {
+        let (router, _token, state) = app(b"[]");
+        let member = state
+            .auth
+            .register("Mia", "Mia", "hunter22hunter1", "user")
+            .unwrap();
+        let member_token = state.auth.issue(&member).unwrap();
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/system/updates/source/keys")
+                    .header("Authorization", format!("Bearer {member_token}"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(
+                        r#"{"api_base":"https://a.test/api/v1","owner":"o","repo":"r"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

@@ -21,7 +21,11 @@ function stubFilesApi(byPath) {
       return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
-      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        id: byPath.__userId || "1",
+        role: byPath.__role || "admin",
+        username: byPath.__role === "user" ? "sam" : "admin",
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/setup")) {
       return new Response(JSON.stringify({ setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -66,6 +70,22 @@ function stubFilesApi(byPath) {
     if (u.includes("/files?")) {
       const listing = byPath[filesPath(u)] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/users")) {
+      return new Response(JSON.stringify(byPath.__users || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/grants")) {
+      return new Response(JSON.stringify(byPath.__grants || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/shares") && method === "POST") {
+      if (byPath.__postShare) return byPath.__postShare(String(init.body || ""));
+      return new Response(JSON.stringify({ error: "Luna can't find that file or folder." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.endsWith("/shares")) {
+      return new Response(JSON.stringify(byPath.__shares || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response("{}", { status: 500 });
   });
@@ -150,7 +170,14 @@ describe("FilesPage", () => {
     expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to files" })).toHaveAttribute("href", "/drives/d1");
     fireEvent.click(screen.getByRole("button", { name: "Put photo.jpg back" }));
-    expect(await screen.findByRole("heading", { name: "Put this back?" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Put this back?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Put it back" }));
+    expect(await within(dialog).findByText("Request failed (500)")).toBeInTheDocument();
+    expect(screen.getAllByText("Request failed (500)")).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Request failed (500)")).not.toBeInTheDocument();
+    });
   });
 
   it("shows copy/move progress and cancel", async () => {
@@ -229,6 +256,23 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
   });
 
+  it("keeps an empty new-folder name error inside the modal", async () => {
+    stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "New folder" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create folder" }));
+    expect(await within(dialog).findByText("Choose a name.")).toBeInTheDocument();
+    expect(screen.getAllByText("Choose a name.")).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Choose a name.")).not.toBeInTheDocument();
+    });
+  });
+
   it("creates a folder in the current folder", async () => {
     const fetchMock = stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
@@ -270,6 +314,78 @@ describe("FilesPage", () => {
     });
     expect(await screen.findByRole("heading", { name: "Edit note.txt" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
+  });
+
+  it("lists people who already have access in the Sharing sheet", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __users: [
+        { id: "1", role: "admin", username: "admin", display_name: "Admin" },
+        { id: "2", role: "user", username: "sam", display_name: "Sam" },
+      ],
+      __grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "album", permission: "read" }],
+      __shares: [],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Sharing for Photos Drive" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sharing" });
+    expect(await within(dialog).findByText(/Sam/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Grant access" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "New link" })).toBeInTheDocument();
+  });
+
+  it("shows a New link error in Sharing when link creation fails", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __users: [{ id: "1", role: "admin", username: "admin", display_name: "Admin" }],
+      __grants: [],
+      __shares: [],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Sharing for album" }));
+    const sharing = await screen.findByRole("dialog", { name: "Sharing" });
+    fireEvent.click(within(sharing).getByRole("button", { name: "New link" }));
+    const linkDialog = await screen.findByRole("dialog", { name: "New link" });
+    fireEvent.click(within(linkDialog).getByRole("button", { name: "Create link" }));
+    expect(await within(linkDialog).findByText("Luna can't find that file or folder.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Link ready" })).not.toBeInTheDocument();
+  });
+
+  it("lets a member write only in a folder they can change", async () => {
+    const grants = {
+      __role: "user",
+      __userId: "2",
+      __grants: [
+        { id: "g-album", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
+        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "album/dcim", permission: "write" },
+      ],
+      album: [{ name: "dcim", kind: "dir", size: 0, modified: 0, hidden: false }],
+      "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
+    };
+    stubFilesApi(grants);
+    renderFiles("/drives/d1?path=album");
+    expect(await screen.findByText("dcim")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move dcim" })).toBeInTheDocument();
+  });
+
+  it("shows write actions in a member write exception folder", async () => {
+    stubFilesApi({
+      __role: "user",
+      __userId: "2",
+      __grants: [
+        { id: "g-album", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
+        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "album/dcim", permission: "write" },
+      ],
+      "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1?path=album/dcim");
+    expect(await screen.findByText("shot.jpg")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move shot.jpg" })).toBeInTheDocument();
   });
 
   it("offers New folder in the copy destination picker", async () => {

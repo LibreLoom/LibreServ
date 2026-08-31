@@ -241,7 +241,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                   onChange={(v) => setSelectedUser(v)}
                   placeholder="Select a user..."
                   fullWidth
-                  bg="primary"
+                  bg="secondary"
                 />
               </div>
               <Button

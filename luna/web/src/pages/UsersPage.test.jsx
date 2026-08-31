@@ -135,10 +135,12 @@ describe("UsersPage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
 
-    const password = within(dialog).getByPlaceholderText(/At least 12 characters/i);
+    expect(within(dialog).getByLabelText(/^Name$/i)).toBeTruthy();
+    expect(within(dialog).getByLabelText(/Username/i)).toBeTruthy();
+    const password = within(dialog).getByLabelText(/^Password/i);
     const addBtn = within(dialog).getByRole("button", { name: /^Add user$/i });
 
-    await user.type(within(dialog).getByPlaceholderText(/Username/i), "jamie");
+    await user.type(within(dialog).getByLabelText(/Username/i), "jamie");
     await user.type(password, "short1");
     expect(within(dialog).getByText(/Passwords need at least 12 characters/i)).toBeTruthy();
     expect(addBtn).toBeDisabled();

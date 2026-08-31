@@ -22,6 +22,21 @@ export function useModalClose() {
 /** Longest modal exit animation (overlay + card pop-out). */
 export const EXIT_ANIMATION_MS = 300;
 
+/** Card `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
+export const POP_IN_ANIMATION_MS = 300;
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
+export const NESTED_OVERLAY_CLASS = "z-[90]";
+
+/** Present overlays, last entry is topmost for Escape / Tab / overflow. */
+const overlayStack = [];
+
 /**
  * @typedef {object} ModalCardProps
  * @property {import('react').ReactNode} [title]
@@ -37,7 +52,8 @@ export const EXIT_ANIMATION_MS = 300;
  * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
  * @property {string} [className]
  * @property {string} [overlayClassName] Extra classes on the fixed overlay (e.g. raise
- *   z-index above PhotoLightbox's z-[80] with `z-[90]`). Default overlay is `z-50`.
+ *   z-index above PhotoLightbox's z-[80] or another ModalCard with `NESTED_OVERLAY_CLASS`
+ *   / `z-[90]`). Default overlay is `z-50`.
  * @property {import('react').RefObject} [initialFocusRef]
  * @property {boolean} [loading] Show a skeleton body until content is ready.
  */
@@ -59,6 +75,7 @@ export default function ModalCard({
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [present, setPresent] = useState(open);
+  const [scrollReady, setScrollReady] = useState(() => prefersReducedMotion());
   const titleId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -96,6 +113,7 @@ export default function ModalCard({
     haptic("light");
     isClosingRef.current = true;
     setIsClosing(true);
+    setScrollReady(false);
     exitTimerRef.current = setTimeout(() => {
       finishExit(notify);
     }, EXIT_ANIMATION_MS);
@@ -111,6 +129,7 @@ export default function ModalCard({
       isClosingRef.current = false;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setIsClosing(false);
+      setScrollReady(prefersReducedMotion());
       setPresent(true);
       return;
     }
@@ -122,6 +141,23 @@ export default function ModalCard({
 
   useEffect(() => () => clearExitTimer(), [clearExitTimer]);
 
+  useEffect(() => {
+    if (!present || scrollReady || isClosing) return undefined;
+    if (prefersReducedMotion()) {
+      setScrollReady(true);
+      return undefined;
+    }
+    const id = window.setTimeout(() => setScrollReady(true), POP_IN_ANIMATION_MS);
+    return () => window.clearTimeout(id);
+  }, [present, scrollReady, isClosing]);
+
+  const handlePopInEnd = useCallback((event) => {
+    const name = String(event.animationName || event.nativeEvent?.animationName || "");
+    if (name.includes("pop-out")) return;
+    if (name && !name.includes("pop-in")) return;
+    setScrollReady(true);
+  }, []);
+
   const content = loading
     ? null
     : typeof children === "function"
@@ -131,6 +167,8 @@ export default function ModalCard({
   useEffect(() => {
     if (!present) return undefined;
 
+    const overlayId = titleId;
+    overlayStack.push(overlayId);
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
@@ -139,10 +177,15 @@ export default function ModalCard({
       closeButtonRef.current?.focus();
     }
 
+    const isTopOverlay = () => overlayStack[overlayStack.length - 1] === overlayId;
+
     const handleKeyDown = (event) => {
+      if (!isTopOverlay()) return;
+
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
+        event.stopImmediatePropagation();
         handleClose();
       }
 
@@ -166,7 +209,11 @@ export default function ModalCard({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      const idx = overlayStack.lastIndexOf(overlayId);
+      if (idx !== -1) overlayStack.splice(idx, 1);
+      if (overlayStack.length === 0) {
+        document.body.style.overflow = "";
+      }
       document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus?.();
     };
@@ -222,7 +269,12 @@ export default function ModalCard({
         style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div ref={innerRef} className={cn(maxHeightClasses, "overflow-y-auto")}>
+        <div
+          ref={innerRef}
+          data-slot="dialog-scroller"
+          className={cn(maxHeightClasses, scrollReady && !isClosing ? "overflow-y-auto" : "overflow-hidden")}
+          onAnimationEnd={handlePopInEnd}
+        >
         <ModalCloseContext.Provider value={handleClose}>
         <Card
           noHeightAnim

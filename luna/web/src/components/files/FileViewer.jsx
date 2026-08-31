@@ -18,9 +18,10 @@ import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
  *   onClose: () => void,
  *   onSaved?: () => void,
  *   open?: boolean,
+ *   canWrite?: boolean,
  * }} props
  */
-export default function FileViewer({ driveId, path, onClose, onSaved, open = true }) {
+export default function FileViewer({ driveId, path, onClose, onSaved, open = true, canWrite = true }) {
   const name = pathBasename(path) || path;
   const kind = openableKind(name);
   const [text, setText] = useState("");
@@ -89,7 +90,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const title =
     kind === "image" ? name
       : kind === "video" ? name
-        : kind === "text" ? `Edit ${name}`
+        : kind === "text" ? (canWrite ? `Edit ${name}` : name)
           : name;
 
   const modalSize = kind === "image" && expanded ? "fullscreen" : "lg";
@@ -130,6 +131,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
                 value={text}
                 onChange={(e) => { setText(e.target.value); setDirty(true); }}
                 spellCheck={false}
+                readOnly={!canWrite}
                 aria-label={`Contents of ${name}`}
               />
             )
@@ -157,7 +159,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
                 {expanded ? "Normal size" : "Full view"}
               </Button>
             )}
-            {kind === "text" && (
+            {kind === "text" && canWrite && (
               <Button
                 variant="accent"
                 surface="secondary"
@@ -191,4 +193,5 @@ FileViewer.propTypes = {
   onClose: PropTypes.func.isRequired,
   onSaved: PropTypes.func,
   open: PropTypes.bool,
+  canWrite: PropTypes.bool,
 };

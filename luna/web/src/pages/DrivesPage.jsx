@@ -24,6 +24,7 @@ import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../l
 import { describeDriveHealth } from "../lib/driveHealth";
 import { describeInspectSummary } from "../lib/fileCounts";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
+import { memberAccessRoots } from "../lib/shareTree.js";
 
 /** @param {number} n @param {string} one @param {string} many */
 function pluralCount(n, one, many) {
@@ -201,7 +202,7 @@ function AdoptedDriveDetails({ drive }) {
   const partitionsValue = device
     ? (drive.fs_type ? `${device} · ${fsLabel}` : device)
     : (drive.fs_type ? `One volume · ${fsLabel}` : "One volume");
-  const connectionValue = device ? `Connected as ${device}` : "Plugged in";
+  const connectionValue = device || "Plugged in";
 
   return (
     <CollapsibleSection title="Drive details" size="sm" mono pill>
@@ -437,7 +438,7 @@ export default function DrivesPage() {
     : null;
 
   if (user?.role === "user") {
-    const grants = access.data || [];
+    const grants = memberAccessRoots(access.data || []);
     return (
       <Page title="Files" titleId="drives-title">
         <FileSearch />
@@ -463,7 +464,11 @@ export default function DrivesPage() {
           ))}
         </div>
         {!access.isLoading && grants.length === 0 && (
-          <EmptyState icon={FolderOpen} title="Nothing shared with you yet" />
+          <EmptyState
+            icon={FolderOpen}
+            title="Nothing shared with you yet"
+            description="Ask an administrator to share a folder, drive, or file with you."
+          />
         )}
         <AccessSheet
           open={sharingDrive != null}

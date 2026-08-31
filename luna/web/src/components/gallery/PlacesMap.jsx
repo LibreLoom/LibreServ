@@ -296,7 +296,7 @@ export default function PlacesMap({ places, onSelect }) {
   const center = [markers[0].lat, markers[0].lon];
 
   return (
-    <div className="overflow-hidden rounded-large-element border-2 border-secondary/30 h-[min(70vh,640px)] bg-secondary text-primary">
+    <div className="overflow-hidden rounded-large-element border-2 border-secondary/30 h-[min(70vh,640px)] bg-secondary text-primary pop-in">
       <MapContainer
         center={center}
         zoom={4}

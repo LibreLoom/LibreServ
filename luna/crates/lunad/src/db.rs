@@ -600,6 +600,7 @@ pub fn insert_grant(
     path: &str,
     permission: &str,
 ) -> anyhow::Result<()> {
+    let path = crate::grants::normalize_grant_path(path);
     conn.execute(
         "INSERT INTO grants (id, user_id, drive_id, path, permission, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

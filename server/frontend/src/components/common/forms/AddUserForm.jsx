@@ -189,6 +189,7 @@ export default function AddUserForm({ onSuccess }) {
           value={formData.role}
           onChange={(val) => { setFormData((prev) => ({ ...prev, role: val })); setErrors((prev) => ({ ...prev, role: "" })); }}
           disabled={loading}
+          bg="primary"
           options={[
             { value: "user", label: "User" },
             { value: "admin", label: "Admin" },

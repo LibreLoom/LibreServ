@@ -17,6 +17,7 @@ import PhotoLightbox, {
   ABOVE_LIGHTBOX_OVERLAY_CLASS,
 } from "../components/gallery/PhotoLightbox.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
+import Spinner from "../components/ui/Spinner.jsx";
 import {
   apiErrorMessage,
   deleteJson,
@@ -522,7 +523,16 @@ export default function GalleryPage() {
 
 function AlbumsPanel({ albums, loading, onOpen, onCreate, onShare }) {
   if (loading) {
-    return <p className="text-secondary text-sm">Loading albums…</p>;
+    return (
+      <div
+        className="flex items-center justify-center gap-3 py-20 text-secondary"
+        role="status"
+        aria-live="polite"
+      >
+        <p className="text-sm font-mono">Loading albums…</p>
+        <Spinner size="lg" decorative className="text-secondary" />
+      </div>
+    );
   }
   return (
     <div className="space-y-4">

@@ -20,6 +20,7 @@ pub mod fsprobe;
 pub mod fstrim;
 pub mod gallery;
 pub mod gallery_indexer;
+pub mod grants;
 pub mod heif;
 pub mod hotspot;
 pub mod index;

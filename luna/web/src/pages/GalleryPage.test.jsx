@@ -7,7 +7,7 @@ import GalleryPage, { galleryUrl } from "./GalleryPage";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
-function stubGalleryFetch({ places = [] } = {}) {
+function stubGalleryFetch({ places = [], albumsHold } = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url) => {
@@ -34,6 +34,7 @@ function stubGalleryFetch({ places = [] } = {}) {
         });
       }
       if (u.includes("/gallery/albums")) {
+        if (albumsHold) await albumsHold;
         return new Response(JSON.stringify([]), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -141,6 +142,20 @@ describe("GalleryPage", () => {
       expect(window.location.hash).toBe("#library");
     });
     expect(screen.getByRole("radio", { name: /^Library$/i })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("shows a centered spinner while albums are still loading", async () => {
+    let releaseAlbums;
+    const albumsHold = new Promise((resolve) => {
+      releaseAlbums = resolve;
+    });
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch({ albumsHold });
+    renderGallery();
+    expect(await screen.findByText(/Loading albums/i)).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
+    releaseAlbums();
+    expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
   });
 
   it("opens Places when loaded with #places", async () => {

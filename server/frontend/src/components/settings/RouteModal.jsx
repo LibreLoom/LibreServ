@@ -463,6 +463,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                 placeholder="Choose an app..."
                 fullWidth
                 disabled={loading}
+                bg="primary"
                 options={appOptions}
               />
               {showBackendPicker && (
@@ -475,6 +476,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={(val) => handleChange("backendName")({ target: { value: val } })}
                     fullWidth
                     disabled={loading}
+                    bg="primary"
                     options={appBackends.map((backend) => ({
                       value: backend.name,
                       label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,

@@ -205,7 +205,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
             value={freq}
             onChange={setFreq}
             fullWidth
-            surface="primary"
+            bg="primary"
             options={FREQ_OPTIONS}
           />
         </div>
@@ -220,7 +220,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
               value={day}
               onChange={setDay}
               fullWidth
-              surface="primary"
+              bg="primary"
               options={DAY_OPTIONS}
             />
           </div>
@@ -235,7 +235,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
             value={hour}
             onChange={setHour}
             fullWidth
-            surface="primary"
+            bg="primary"
             options={HOUR_OPTIONS}
           />
           <p className="text-xs text-accent mt-1.5">
@@ -252,7 +252,7 @@ export default function ScheduleForm({ appId, appName, existingSchedule = null, 
             value={retention}
             onChange={setRetention}
             fullWidth
-            surface="primary"
+            bg="primary"
             options={KEEP_OPTIONS}
           />
           <p className="text-xs text-accent mt-1.5">

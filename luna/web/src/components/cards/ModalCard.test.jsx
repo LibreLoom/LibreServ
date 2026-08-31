@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
-import ModalCard, { useModalClose, EXIT_ANIMATION_MS } from "./ModalCard";
+import ModalCard, { useModalClose, EXIT_ANIMATION_MS, POP_IN_ANIMATION_MS } from "./ModalCard";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -103,6 +103,116 @@ describe("ModalCard", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("hides scroller overflow as soon as close starts pop-out", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <ModalCard title="Close overflow" onClose={onClose}>
+        {({ close }) => (
+          <button type="button" onClick={close}>
+            Done
+          </button>
+        )}
+      </ModalCard>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+    });
+
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-y-auto");
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+    expect(screen.getByRole("dialog").querySelector(".pop-out")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(EXIT_ANIMATION_MS - 1);
+    });
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides scroller overflow when controlled open becomes false", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <ModalCard open title="Controlled overflow" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+    });
+
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-y-auto");
+
+    rerender(
+      <ModalCard open={false} title="Controlled overflow" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+      .toHaveClass("animate-out");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("unlocks scroller overflow after the pop-in fallback duration", () => {
+    vi.useFakeTimers();
+    render(
+      <ModalCard title="Scroll fallback" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-hidden");
+
+    act(() => {
+      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+    });
+
+    expect(scroller).toHaveClass("overflow-y-auto");
+  });
+
+  it("allows scroller overflow immediately when motion is reduced", () => {
+    const original = window.matchMedia;
+    window.matchMedia = (query) => ({
+      matches: String(query).includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    });
+    try {
+      render(
+        <ModalCard title="Reduced motion" onClose={() => {}}>
+          Body
+        </ModalCard>,
+      );
+      const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+      expect(scroller).toHaveClass("overflow-y-auto");
+      expect(scroller).not.toHaveClass("overflow-hidden");
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it("applies overlayClassName on the fixed overlay for stacking", () => {
     render(
       <ModalCard title="Stacked" onClose={() => {}} overlayClassName="z-[90]">
@@ -112,5 +222,34 @@ describe("ModalCard", () => {
     expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]")).toHaveClass(
       "z-[90]",
     );
+  });
+
+  it("Escape on a nested overlay closes only the top modal", () => {
+    vi.useFakeTimers();
+    const onBottom = vi.fn();
+    const onTop = vi.fn();
+    render(
+      <>
+        <ModalCard title="Bottom" onClose={onBottom}>
+          Under
+        </ModalCard>
+        <ModalCard title="Top" onClose={onTop} overlayClassName="z-[90]">
+          Over
+        </ModalCard>
+      </>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onBottom).not.toHaveBeenCalled();
+    expect(onTop).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(EXIT_ANIMATION_MS);
+    });
+
+    expect(onTop).toHaveBeenCalledTimes(1);
+    expect(onBottom).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Bottom" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Top" })).not.toBeInTheDocument();
   });
 });

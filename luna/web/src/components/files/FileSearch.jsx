@@ -11,10 +11,12 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import EmptyState from "../common/EmptyState";
 import PageNotice from "../common/PageNotice";
 import Button from "../ui/Button";
+import Spinner from "../ui/Spinner.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
 import FolderPickerModal from "./FolderPickerModal";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
@@ -151,7 +153,7 @@ export default function FileSearch() {
         </span>
       </label>
 
-      {actionError && (
+      {actionError && deleteTarget == null && (
         <PageNotice variant="error" className="mt-3">
           {actionError}
         </PageNotice>
@@ -164,7 +166,16 @@ export default function FileSearch() {
       )}
 
       {q.length >= 2 && results.isLoading && (
-        <p className="text-secondary text-xs mt-3">Searching…</p>
+        <Card className="mt-3">
+          <div
+            className="flex items-center justify-center gap-3 py-4 text-primary"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="text-sm font-mono text-primary">Searching…</p>
+            <Spinner size="lg" decorative className="text-primary" />
+          </div>
+        </Card>
       )}
 
       {q.length >= 2 && !results.isLoading && (results.data || []).length === 0 && (
@@ -282,7 +293,10 @@ export default function FileSearch() {
       <ModalCard
         open={deleteTarget != null}
         title="Move to trash?"
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => {
+          setActionError(null);
+          setDeleteTarget(null);
+        }}
       >
         {({ close }) => (
           <>

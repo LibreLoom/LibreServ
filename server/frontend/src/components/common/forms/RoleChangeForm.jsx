@@ -66,6 +66,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
           onChange={setRole}
           fullWidth
           disabled={loading}
+          bg="primary"
           options={[
             { value: "user", label: "User" },
             { value: "admin", label: "Admin" },

@@ -684,11 +684,15 @@ pub fn can_access(
         if write && g.permission != "write" {
             return false;
         }
-        if !(g.path.is_empty() || path == g.path || path.starts_with(&format!("{}/", g.path))) {
+        if !crate::grants::path_contains(&g.path, path) {
             return false;
         }
         match mount.as_deref() {
-            Some(root) => grant_covers_canonical(root, &g.path, path),
+            Some(root) => grant_covers_canonical(
+                root,
+                &crate::grants::normalize_grant_path(&g.path),
+                &crate::grants::normalize_grant_path(path),
+            ),
             None => true,
         }
     })
@@ -761,16 +765,18 @@ pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, pa
         if g.drive_id != drive_id {
             return false;
         }
+        let grant_path = crate::grants::normalize_grant_path(&g.path);
+        let walk = crate::grants::normalize_grant_path(path);
         // Whole-drive grant already covered by can_access above.
-        if g.path.is_empty() {
+        if grant_path.is_empty() {
             return true;
         }
         // Empty path is the drive root — always an ancestor of any grant.
-        if path.is_empty() {
+        if walk.is_empty() {
             return true;
         }
         // path is a proper prefix of the grant (ancestor walk).
-        g.path == path || g.path.starts_with(&format!("{path}/"))
+        crate::grants::path_contains(&walk, &grant_path)
     })
 }
 

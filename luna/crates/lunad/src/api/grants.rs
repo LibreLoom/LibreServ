@@ -45,6 +45,7 @@ async fn list(
         crate::db::list_grants_for_user(&conn, &user.id)
     }
     .map_err(|e| map_err(AuthError::Db(e)))?;
+    let grants = crate::grants::dedupe_identical(&grants);
     Ok(Json(
         grants
             .into_iter()
@@ -79,7 +80,7 @@ async fn create(
         .map_err(|_| AuthError::Unauthenticated)
         .map_err(map_err)?;
     let id = Uuid::new_v4().to_string();
-    crate::db::insert_grant(
+    crate::grants::create_user_grant(
         &conn,
         &id,
         &body.user_id,
@@ -151,6 +152,7 @@ async fn my_access(
         .map_err(map_err)?;
     let grants =
         crate::db::list_grants_for_user(&conn, &user.id).map_err(|e| map_err(AuthError::Db(e)))?;
+    let grants = crate::grants::member_access_roots(&grants);
     let drives = crate::db::list_drives(&conn).map_err(|e| map_err(AuthError::Db(e)))?;
     let mut out = Vec::new();
     for grant in grants {
@@ -388,5 +390,100 @@ mod http_tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn create_grant_supersedes_an_equal_row() {
+        let (_dir, app) = test_app();
+        let (admin_cookie, admin_csrf, sam_id) = admin_and_sam(&app).await;
+        let body = format!(
+            r#"{{"user_id":"{sam_id}","drive_id":"photos","path":"album/","permission":"read"}}"#
+        );
+        for _ in 0..2 {
+            let res = call(
+                &app,
+                json_req(
+                    Method::POST,
+                    "/api/v1/grants",
+                    &body,
+                    Some(&admin_cookie),
+                    Some(&admin_csrf),
+                ),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::OK);
+        }
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                "/api/v1/grants",
+                "",
+                Some(&admin_cookie),
+                Some(&admin_csrf),
+            ),
+        )
+        .await;
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let rows = v.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["path"], "album");
+        assert_eq!(rows[0]["permission"], "read");
+    }
+
+    #[tokio::test]
+    async fn member_access_lists_parent_and_write_exception() {
+        let (dir, app) = test_app();
+        let (_admin_cookie, _admin_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g-drive", &sam_id, "photos", "", "read").unwrap();
+            crate::db::insert_grant(&conn, "g-dcim", &sam_id, "photos", "DCIM", "write").unwrap();
+            crate::db::insert_grant(&conn, "g-print", &sam_id, "photos", "DCIM/print", "read")
+                .unwrap();
+        }
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"sam","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (sam_session, sam_csrf) = auth_cookies(&res);
+        let sam_cookie = cookie_header(&sam_session, &sam_csrf);
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                "/api/v1/me/access",
+                "",
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let rows = v.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(
+            rows.iter()
+                .any(|g| g["path"] == "" && g["permission"] == "read")
+        );
+        assert!(
+            rows.iter()
+                .any(|g| g["path"] == "DCIM" && g["permission"] == "write")
+        );
+        assert!(!rows.iter().any(|g| g["path"] == "DCIM/print"));
     }
 }

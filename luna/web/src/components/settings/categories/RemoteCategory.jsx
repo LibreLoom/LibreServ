@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Globe2, KeyRound, ShieldOff, Unplug } from "lucide-react";
+import { Globe2 } from "lucide-react";
 import Button from "../../ui/Button";
 import CopyableValue from "../../ui/CopyableValue";
 import Pill from "../../common/Pill";
@@ -39,7 +39,7 @@ export default function RemoteCategory() {
   return (
     <>
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="space-y-5">
         <SettingsCard icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
           {s.enabled ? (
             <div className="space-y-3">
@@ -86,19 +86,6 @@ export default function RemoteCategory() {
               </div>
             </div>
           )}
-        </SettingsCard>
-
-        <SettingsCard icon={ShieldOff} title="Other options">
-          <ul className="space-y-3 text-sm text-primary">
-            <li className="flex items-start gap-2">
-              <Unplug size={14} className="text-accent mt-1 shrink-0" />
-              <span>Tailscale or WireGuard: install on Luna and your phone, then open Luna at the private address.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <KeyRound size={14} className="text-accent mt-1 shrink-0" />
-              <span>Port forwarding: send ports 80 and 443 to Luna, then open it at your public address.</span>
-            </li>
-          </ul>
         </SettingsCard>
       </div>
     </>

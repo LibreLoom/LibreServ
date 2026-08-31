@@ -233,6 +233,39 @@ describe("DrivesPage", () => {
     expect(ignore.compareDocumentPosition(look) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("shows a member the highest shared folder plus a write exception", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([
+            { id: "g-drive", drive_id: "d1", drive_label: "Photos Drive", path: "", permission: "read" },
+            { id: "g-dcim", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM", permission: "write" },
+            { id: "g-print", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM/print", permission: "read" },
+          ]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("Whole drive")).toBeInTheDocument();
+    expect(screen.getByText("DCIM")).toBeInTheDocument();
+    expect(screen.queryByText("DCIM/print")).not.toBeInTheDocument();
+    const opens = screen.getAllByRole("link", { name: "Open" });
+    expect(opens).toHaveLength(2);
+    expect(opens[0]).toHaveAttribute("href", "/drives/d1?path=");
+    expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=DCIM");
+    expect(screen.queryByText(/Unknown Drives/i)).not.toBeInTheDocument();
+  });
+
   it("shows granted folders for a household member", async () => {
     stubDrivesApi({
       fetch: (u) => {
@@ -253,6 +286,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ask an administrator to share a folder, drive, or file with you/i)).toBeInTheDocument();
     expect(screen.queryByText(/Unknown Drives/i)).not.toBeInTheDocument();
   });
 
@@ -280,7 +314,7 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /Drive details/i })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("hides Connected as behind collapsible Drive details", async () => {
+  it("hides device connection behind collapsible Drive details", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({
       fetch: (u) => {
@@ -327,7 +361,7 @@ describe("DrivesPage", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(panel).toHaveAttribute("aria-hidden", "false");
     expect(screen.getByText(/^exFAT$/i)).toBeInTheDocument();
-    expect(screen.getByText(/Connected as sdmock/i)).toBeInTheDocument();
+    expect(screen.getByText(/^sdmock$/i)).toBeInTheDocument();
     expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
     // Card-style collapsible + ValueDisplay rows (storage is outside)
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
