@@ -101,17 +101,17 @@ export default function AdminTokensPage() {
 
       <Card className="mb-6" data-testid="official-token-recovery">
         <CardHeader>
-          <CardTitle>Lost booklet code</CardTitle>
+          <CardTitle>Lost device code</CardTitle>
           <CardDescription>
-            Activated owners (booklet setup or bring-your-own) can make a new pairing code on their Luna Connect page. Use this page when there is no account yet, or the booklet was lost before first setup. The owner should contact support and refer to their order ID. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition.
+            Owners who already finished setup can mint a new device code on their Luna Connect page. Use this page when there is no account yet, or the code was lost before first setup. The owner should contact support and refer to their order ID. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
       </Card>
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Single booklet code</CardTitle>
-          <CardDescription>Create one booklet code to print in a box or give as a replacement (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
+          <CardTitle>Single device code</CardTitle>
+          <CardDescription>Create one device code to print in a box or give as a replacement (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -140,7 +140,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Bulk factory tokens</CardTitle>
           <CardDescription>
-            Create many booklet codes for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
+            Create many device codes for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
