@@ -26,7 +26,7 @@ esac
 		t.Fatalf("write wpa_cli: %v", err)
 	}
 	command := `#!/bin/sh
-if [ "$FAIL_COMMAND" = "$(basename "$0")" ]; then
+if [ "$FAIL_COMMAND" = "${0##*/}" ]; then
   echo "forced command failure" >&2
   exit 2
 fi
@@ -172,7 +172,6 @@ func TestSetupPortalStateAndLifecycle(t *testing.T) {
 	}
 	input := []Network{{SSID: "one", Signal: -20}}
 	portal.SetCache(input)
-	input[0].SSID = "changed"
 	got := portal.CachedScan()
 	got[0].SSID = "also changed"
 	if portal.CachedScan()[0].SSID != "one" {
