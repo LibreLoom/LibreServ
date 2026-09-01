@@ -32,7 +32,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/connect/deactivate", post(deactivate))
         .route("/api/v1/connect/setup-code", post(setup_code))
         .route("/api/v1/connect/sync", post(sync))
-        .route("/api/v1/connect/device-token", axum::routing::delete(remove_device_token))
+        .route(
+            "/api/v1/connect/device-token",
+            axum::routing::delete(remove_device_token),
+        )
         .route("/api/v1/connect/backup-sources", post(set_sources))
 }
 

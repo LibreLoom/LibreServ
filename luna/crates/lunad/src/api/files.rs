@@ -381,8 +381,7 @@ async fn list_trash(
     Path(id): Path<String>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
     check_trash_list(&state, &user, &id)?;
-    let entries =
-        with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
+    let entries = with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
     let visible = if user.role == "admin" {
         entries
     } else {
@@ -396,13 +395,7 @@ async fn list_trash(
             .into_iter()
             .filter(|entry| {
                 !entry.original_path.is_empty()
-                    && crate::auth::can_access(
-                        &user,
-                        &conn,
-                        &id,
-                        &entry.original_path,
-                        true,
-                    )
+                    && crate::auth::can_access(&user, &conn, &id, &entry.original_path, true)
             })
             .collect()
     };

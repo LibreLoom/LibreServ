@@ -753,7 +753,9 @@ pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str)
     let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
         return false;
     };
-    grants.iter().any(|g| g.drive_id == drive_id && g.permission == "write")
+    grants
+        .iter()
+        .any(|g| g.drive_id == drive_id && g.permission == "write")
 }
 
 /// True if WebDAV (or a file browser) may list/walk `path` on this drive.

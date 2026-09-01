@@ -40,10 +40,7 @@ impl Default for MagFetchOptions {
 }
 
 /// Try to populate `token_path` from the factory magazine when it is missing or invalid.
-pub fn fetch_device_token_from_mag(
-    token_path: &Path,
-    opts: &MagFetchOptions,
-) -> MagFetchOutcome {
+pub fn fetch_device_token_from_mag(token_path: &Path, opts: &MagFetchOptions) -> MagFetchOutcome {
     if token_path
         .is_file()
         .then(|| std::fs::read_to_string(token_path).ok())
@@ -232,10 +229,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(
-            &assets,
-            "not-a-code\nABCD-EFGH-JKMN-PQRS-TVWX\n",
-        );
+        write_tokens(&assets, "not-a-code\nABCD-EFGH-JKMN-PQRS-TVWX\n");
         let token = dir.path().join("device-token");
         let opts = MagFetchOptions {
             assets_root: Some(assets),

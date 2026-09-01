@@ -13,7 +13,8 @@ use crate::api::response::json_error;
 use crate::auth::setup_wizard_open;
 
 const REMOTE_NO_TOKEN: &str = "Finish setup from a device on the same home network as Luna (same Wi‑Fi or ethernet). Luna works fully without Luna Connect.";
-const REMOTE_WRONG_PREFIX: &str = "Enter the first eight characters of your device token (****-****).";
+const REMOTE_WRONG_PREFIX: &str =
+    "Enter the first eight characters of your device token (****-****).";
 
 /// Enforce the remote setup unlock for an incomplete wizard.
 /// Returns `Ok(())` when the request may proceed.
@@ -61,7 +62,8 @@ pub fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool 
 }
 
 pub fn is_loopback_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
-    is_lan_request(addr, headers) && matches!(client_ip(addr, headers), std::net::IpAddr::V4(v4) if v4.is_loopback())
+    is_lan_request(addr, headers)
+        && matches!(client_ip(addr, headers), std::net::IpAddr::V4(v4) if v4.is_loopback())
 }
 
 fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std::net::IpAddr {
@@ -83,9 +85,7 @@ fn header_ip(headers: &HeaderMap, name: &str) -> Option<std::net::IpAddr> {
 
 fn forwarded_for_first(headers: &HeaderMap) -> Option<std::net::IpAddr> {
     let raw = headers.get("x-forwarded-for")?.to_str().ok()?;
-    raw.split(',')
-        .next()
-        .and_then(|s| s.trim().parse().ok())
+    raw.split(',').next().and_then(|s| s.trim().parse().ok())
 }
 
 fn is_local_hostname(headers: &HeaderMap) -> bool {
@@ -222,7 +222,11 @@ mod tests {
     #[tokio::test]
     async fn remote_setup_accepts_matching_prefix() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("device-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::fs::write(
+            dir.path().join("device-token"),
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
         let app = app(dir.path());
         let denied = call(
             &app,
@@ -250,7 +254,11 @@ mod tests {
     #[tokio::test]
     async fn validate_code_works_without_prior_token_on_lan() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("device-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::fs::write(
+            dir.path().join("device-token"),
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
         let app = app(dir.path());
         let good = call(
             &app,
@@ -267,7 +275,11 @@ mod tests {
     #[tokio::test]
     async fn fetch_mag_reports_existing_token() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("device-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::fs::write(
+            dir.path().join("device-token"),
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
         let app = app(dir.path());
         let res = call(
             &app,
@@ -283,7 +295,10 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("existing"));
+        assert_eq!(
+            json.get("source").and_then(|v| v.as_str()),
+            Some("existing")
+        );
     }
 
     #[test]
