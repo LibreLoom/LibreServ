@@ -120,6 +120,8 @@ describe("SetupPage", () => {
     );
     renderSetup();
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
+    expect(screen.getByText("1 of 4")).toBeTruthy();
+    expect(screen.getByLabelText(/What's your name/i)).toBeTruthy();
   });
 
   it("asks for the first eight characters when remote setup is locked", async () => {
@@ -153,6 +155,16 @@ describe("SetupPage", () => {
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Continue/i }));
+    expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
+    expect(screen.getByText("1 of 5")).toBeTruthy();
+    // Advance through name, username, password, confirm to reach the device code substep.
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Choose a password/i), { target: { value: "SecurePass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     expect(await screen.findByLabelText(/Your device code/i)).toBeTruthy();
     expect(screen.getByText(/nobody else on the internet/i)).toBeTruthy();
   });
