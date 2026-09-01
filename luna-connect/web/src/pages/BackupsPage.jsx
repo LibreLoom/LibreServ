@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
+import { InfoHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api.js";
@@ -11,6 +12,68 @@ import { BackupBrowser } from "../components/BackupBrowser.jsx";
 function daysUntil(unixSeconds) {
   if (!unixSeconds) return null;
   return Math.max(0, Math.ceil((unixSeconds * 1000 - Date.now()) / 86400000));
+}
+
+function PricingChunks({ compact = false }) {
+  return (
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      <div className="rounded-large-element border border-border px-4 py-3">
+        <p className="font-mono text-sm">Storage</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          $8 per terabyte each month, based on your average storage over the month.
+        </p>
+      </div>
+      <div className="rounded-large-element border border-border px-4 py-3">
+        <p className="font-mono text-sm">Downloads</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Free up to three times your average storage. Extra download traffic is $0.01 per GB.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MonthlyEstimate({ amount }) {
+  return (
+    <div className="rounded-large-element border border-border bg-background px-5 py-4">
+      <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-1">
+        Estimated this month
+      </p>
+      <p className="font-mono text-3xl">${Number(amount || 0).toFixed(2)}</p>
+    </div>
+  );
+}
+
+function BackupFilesCard({ objects, note, unpairedNote, setError }) {
+  const fileList = objects.length === 0 ? (
+    <p className="text-sm text-muted-foreground">
+      Nothing stored yet. On Luna, choose folders or a whole drive after pairing.
+    </p>
+  ) : (
+    <BackupBrowser objects={objects} onError={(message) => setError(message)} />
+  );
+
+  return (
+    <Card className="animate-fade-in-up" data-testid="backups-files">
+      <CardHeader>
+        <CardTitle>
+          Your cloud copies
+          <InfoHint
+            content="These are the files we keep off-site. You can browse and download them here. We store the latest copy only, not older versions."
+            label="About your cloud copies"
+          />
+        </CardTitle>
+        <CardDescription>Browse and download files from your cloud backup.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {note && (
+          <p className="text-sm text-muted-foreground">{note}</p>
+        )}
+        {unpairedNote}
+        {fileList}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function BackupsTab({ me, objects, note, paired, onRefresh, setError, error }) {
@@ -77,20 +140,25 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
     )
   );
 
-  const fileList = objects.length === 0 ? (
-    <p className="text-sm text-muted-foreground">Nothing stored yet. On Luna, choose folders or a whole drive after pairing.</p>
-  ) : (
-    <BackupBrowser objects={objects} onError={(message) => setError(message)} />
-  );
-
   const unpairedNote = !paired && objects.length > 0 ? (
     <p className="text-sm leading-relaxed">
       These are copies from a Luna that is no longer paired. The monthly bill stays until you turn payment off.
     </p>
   ) : null;
 
+  const filesCard = (
+    <BackupFilesCard
+      objects={objects}
+      note={purging || !me.has_card ? "" : note}
+      unpairedNote={unpairedNote}
+      setError={setError}
+    />
+  );
+
+  let billingCard;
+
   if (purging) {
-    return (
+    billingCard = (
       <Card className="animate-fade-in-up" data-testid="backups-purging">
         <CardHeader>
           <CardTitle>Payment is off</CardTitle>
@@ -99,28 +167,62 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {unpairedNote}
-          {fileList}
+          <PricingChunks compact />
           {addCard}
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
     );
-  }
-
-  if (!me.has_card) {
-    return (
+  } else if (!me.has_card) {
+    billingCard = (
       <Card className="animate-fade-in-up" data-testid="backups-gated">
         <CardHeader>
           <CardTitle>Add a payment card</CardTitle>
           <CardDescription>
-            Add a payment card so we can store a cloud backup of your files off-site. It costs $8 per terabyte each month.
+            Add a payment card so we can store a cloud backup of your files off-site.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {unpairedNote}
-          {objects.length > 0 && fileList}
+          <PricingChunks />
           {addCard}
+          {error && <p className="text-sm text-error">{error}</p>}
+        </CardContent>
+      </Card>
+    );
+  } else {
+    billingCard = (
+      <Card className="animate-fade-in-up" data-testid="backups-open">
+        <CardHeader>
+          <CardTitle>Cloud backup</CardTitle>
+          <CardDescription>
+            Off-site copies of your files if a drive fails or your Luna is gone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <MonthlyEstimate amount={me.estimated_month} />
+          <PricingChunks />
+          <p className="text-sm text-muted-foreground">
+            {note || "This is the latest copy we have, not a history of old versions."}
+          </p>
+          {!confirmCancel ? (
+            <Button variant="destructive" onClick={() => setConfirmCancel(true)}>
+              Turn off payment
+            </Button>
+          ) : (
+            <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
+              <p className="text-sm leading-relaxed">
+                Payment stops today. We keep your cloud copies for 30 days. Download anything you need before then. After 30 days we delete them.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button variant="destructive" loading={busy} onClick={cancelPayment}>
+                  Turn off payment
+                </Button>
+                <Button variant="outline" onClick={() => setConfirmCancel(false)}>
+                  Keep payment on
+                </Button>
+              </div>
+            </div>
+          )}
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
@@ -128,40 +230,10 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
   }
 
   return (
-    <Card className="animate-fade-in-up" data-testid="backups-open">
-      <CardHeader>
-        <CardTitle>Cloud backup</CardTitle>
-        <CardDescription>
-          Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="font-mono">About ${Number(me.estimated_month || 0).toFixed(2)} this month</p>
-        <p className="text-sm text-muted-foreground">{note || "This is the latest copy we have, not a history of old versions."}</p>
-        {unpairedNote}
-        {fileList}
-        {!confirmCancel ? (
-          <Button variant="outline" onClick={() => setConfirmCancel(true)}>
-            Turn off payment
-          </Button>
-        ) : (
-          <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
-            <p className="text-sm leading-relaxed">
-              Payment stops today. We keep your cloud copies for 30 days. Download anything you need before then. After 30 days we delete them.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button variant="destructive" loading={busy} onClick={cancelPayment}>
-                Turn off payment
-              </Button>
-              <Button variant="outline" onClick={() => setConfirmCancel(false)}>
-                Keep payment on
-              </Button>
-            </div>
-          </div>
-        )}
-        {error && <p className="text-sm text-error">{error}</p>}
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      {billingCard}
+      {filesCard}
+    </div>
   );
 }
 
