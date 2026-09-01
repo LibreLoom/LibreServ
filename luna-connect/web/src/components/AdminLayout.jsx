@@ -5,7 +5,6 @@ import { Button } from "./ui/button.jsx";
 import { Separator } from "./ui/separator.jsx";
 import {
   LayoutDashboard,
-  Server,
   KeyRound,
   Users,
   Shield,
@@ -17,8 +16,7 @@ import {
 
 const navItems = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/devices", label: "Devices", icon: Server },
-  { to: "/admin/tokens", label: "Setup codes", icon: KeyRound },
+  { to: "/admin/tokens", label: "Device tokens", icon: KeyRound },
   { to: "/admin/accounts", label: "Accounts", icon: Users },
   { to: "/admin/providers", label: "Connections", icon: Cloud },
   { to: "/admin/security", label: "Security", icon: Shield },

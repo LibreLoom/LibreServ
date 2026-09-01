@@ -11,7 +11,6 @@ const OnboardingPage = lazy(() => import("./pages/OnboardingPage.jsx"));
 const AdminTokensPage = lazy(() => import("./pages/AdminTokensPage.jsx"));
 const AdminLogin = lazy(() => import("./pages/AdminLogin.jsx"));
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage.jsx"));
-const AdminDevicesPage = lazy(() => import("./pages/AdminDevicesPage.jsx"));
 const AdminAccountsPage = lazy(() => import("./pages/AdminAccountsPage.jsx"));
 const AdminSecurityPage = lazy(() => import("./pages/AdminSecurityPage.jsx"));
 const AdminProvidersPage = lazy(() => import("./pages/AdminProvidersPage.jsx"));
@@ -75,7 +74,7 @@ export default function App() {
         <Route path="/backups" element={<Protected><BackupsPage /></Protected>} />
         <Route path="/admin/login" element={adminAuthed ? <Navigate to="/admin" replace /> : <AdminLogin />} />
         <Route path="/admin" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} />
-        <Route path="/admin/devices" element={<AdminProtected><AdminDevicesPage /></AdminProtected>} />
+        <Route path="/admin/devices" element={<Navigate to="/admin/tokens" replace />} />
         <Route path="/admin/tokens" element={<AdminProtected><AdminTokensPage /></AdminProtected>} />
         <Route path="/admin/accounts" element={<AdminProtected><AdminAccountsPage /></AdminProtected>} />
         <Route path="/admin/providers" element={<AdminProtected><AdminProvidersPage /></AdminProtected>} />

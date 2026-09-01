@@ -41,4 +41,21 @@ export function StatusBadge({ status }) {
   return <Badge variant={map[status] || "default"}>{status}</Badge>;
 }
 
+const deviceTokenStatusLabels = {
+  unbound: "Unused",
+  bound: "Bound",
+  revoked: "Revoked",
+};
+
+/** @param {{ status: string }} props */
+export function DeviceTokenStatusBadge({ status }) {
+  const map = {
+    unbound: "warning",
+    bound: "success",
+    revoked: "destructive",
+  };
+  const label = deviceTokenStatusLabels[status] || status;
+  return <Badge variant={map[status] || "default"}>{label}</Badge>;
+}
+
 export { badgeVariants };
