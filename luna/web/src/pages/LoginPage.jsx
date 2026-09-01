@@ -5,7 +5,6 @@ import { login as loginQuips } from "../assets/greetings";
 import Card from "../components/cards/Card";
 import StepTransition from "../components/common/StepTransition";
 import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
 import FormInput from "../components/common/forms/FormInput";
 
 const LOGIN_STEPS = ["form"];
@@ -118,9 +117,7 @@ export default function LoginPage() {
                 Hey there! Log in to continue.
               </span>
               <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
-              <ShakeTarget
-                as="form"
-                shake={errorStatus}
+              <form
                 onSubmit={handleSubmit}
                 aria-busy={loading}
                 className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
@@ -145,6 +142,7 @@ export default function LoginPage() {
                   placeholder="e.g. hunter2"
                   autoComplete="current-password"
                   surface="primary"
+                  shake={errorStatus}
                   aria-invalid={Boolean(errorStatus)}
                   aria-describedby={errorStatus ? "login-error" : undefined}
                 />
@@ -169,7 +167,7 @@ export default function LoginPage() {
                 >
                   {errorStatus && calculateErrorHTML()}
                 </div>
-              </ShakeTarget>
+              </form>
             </StepTransition>
           </div>
         </Card>

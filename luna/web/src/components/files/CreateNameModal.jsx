@@ -37,9 +37,7 @@ export default function CreateNameModal({
   return (
     <ModalCard open={open} title={title} onClose={onClose}>
       {({ close }) => (
-        <ShakeTarget
-          as="form"
-          shake={error}
+        <form
           onSubmit={(event) => {
             event.preventDefault();
             Promise.resolve(onSubmit())
@@ -47,16 +45,18 @@ export default function CreateNameModal({
               .catch(() => {});
           }}
         >
-          <label className="block text-primary text-sm">
-            {label}
-            <input
-              className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              value={value}
-              maxLength={255}
-              autoFocus
-              onChange={(event) => onChange(event.target.value)}
-            />
-          </label>
+          <ShakeTarget shake={error}>
+            <label className="block text-primary text-sm">
+              {label}
+              <input
+                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={value}
+                maxLength={255}
+                autoFocus
+                onChange={(event) => onChange(event.target.value)}
+              />
+            </label>
+          </ShakeTarget>
           {hint ? (
             <p className="mt-2 text-sm text-primary">{hint}</p>
           ) : null}
@@ -71,7 +71,7 @@ export default function CreateNameModal({
               Cancel
             </Button>
           </div>
-        </ShakeTarget>
+        </form>
       )}
     </ModalCard>
   );

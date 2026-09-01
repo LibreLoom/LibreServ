@@ -56,20 +56,22 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
   }
 
   return (
-    <ShakeTarget as="form" shake={localError} className="space-y-3" onSubmit={handleSubmit} data-testid="verify-human-card">
+    <form className="space-y-3" onSubmit={handleSubmit} data-testid="verify-human-card">
       {description !== "" && (
         <p className="text-sm text-card-foreground">
           {description || "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
         </p>
       )}
-      <div className="rounded-large-element border border-border bg-secondary text-secondary-foreground p-4">
-        <PaymentElement />
-      </div>
+      <ShakeTarget shake={localError}>
+        <div className="rounded-large-element border border-border bg-secondary text-secondary-foreground p-4">
+          <PaymentElement />
+        </div>
+      </ShakeTarget>
       {localError && <p className="text-sm text-error">{localError}</p>}
       <Button type="submit" className="w-full" loading={loading || busy} disabled={!stripe}>
         {buttonLabel || "Confirm with a dollar"}
       </Button>
-    </ShakeTarget>
+    </form>
   );
 }
 

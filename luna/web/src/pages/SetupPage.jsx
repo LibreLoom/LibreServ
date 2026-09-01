@@ -262,29 +262,32 @@ function SetupCodeStep({ onCodeVerified }) {
         <LogoMark size={120} />
       </div>
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Enter your setup code
+        Your device code
       </h1>
       <p className="text-primary text-base leading-relaxed mb-10 max-w-[22rem]">
         From a phone or another computer, Luna asks for the first eight characters of your device code (****-****). Find them on the card that came with Luna, or on the Luna Connect page.
       </p>
       <div className="w-full mb-6">
-        <input
-          className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
-          placeholder="XXXX-XXXX"
-          value={code}
-          onChange={(e) => {
-            const n = normalize(e.target.value);
-            setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4)}` : n);
-            setError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !loading) handleSubmit();
-          }}
-          autoComplete="off"
-          autoFocus
-          disabled={loading}
-          aria-label="Setup code"
-        />
+        <ShakeTarget shake={error}>
+          <input
+            className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
+            placeholder="XXXX-XXXX"
+            value={code}
+            onChange={(e) => {
+              const n = normalize(e.target.value);
+              setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4)}` : n);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !loading) handleSubmit();
+            }}
+            autoComplete="off"
+            autoFocus
+            disabled={loading}
+            aria-label="Device code"
+            aria-invalid={Boolean(error)}
+          />
+        </ShakeTarget>
       </div>
       {error && (
         <div className="flex items-center gap-2 text-error text-sm mb-6">
@@ -473,7 +476,7 @@ function AccountStep({ hasAdmin, onContinue }) {
           </p>
         </div>
 
-        <ShakeTarget as="form" shake={fieldError} onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {/* Your name */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
             <FormField id="display_name" label="Your name" hint="Shown on this Luna when you sign in">
@@ -511,8 +514,9 @@ function AccountStep({ hasAdmin, onContinue }) {
 
           {/* Password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            <FormField id="password" label="Password">
-              <div className="relative">
+            <ShakeTarget shake={fieldError}>
+              <FormField id="password" label="Password">
+                <div className="relative">
                 <input
                   id="password"
                   name="password"
@@ -555,7 +559,8 @@ function AccountStep({ hasAdmin, onContinue }) {
                   </div>
                 </div>
               )}
-            </FormField>
+              </FormField>
+            </ShakeTarget>
           </div>
 
           {/* Confirm password */}
@@ -593,25 +598,28 @@ function AccountStep({ hasAdmin, onContinue }) {
 
           {needsSetupCode && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
-              <FormField
-                id="setup_secret"
-                label="One-time setup code"
-                hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
-              >
-                <input
+              <ShakeTarget shake={fieldError}>
+                <FormField
                   id="setup_secret"
-                  name="setup_secret"
-                  type="text"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Paste the code from Luna Connect"
-                  value={form.setup_secret}
-                  onChange={handleChange}
-                  disabled={submitting}
-                  required
-                  className={WIZARD_INPUT_CLASS}
-                />
-              </FormField>
+                  label="Your device code"
+                  hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
+                >
+                  <input
+                    id="setup_secret"
+                    name="setup_secret"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Paste the code from Luna Connect"
+                    value={form.setup_secret}
+                    onChange={handleChange}
+                    disabled={submitting}
+                    required
+                    className={WIZARD_INPUT_CLASS}
+                    aria-invalid={Boolean(fieldError)}
+                  />
+                </FormField>
+              </ShakeTarget>
             </div>
           )}
 
@@ -643,7 +651,7 @@ function AccountStep({ hasAdmin, onContinue }) {
               )}
             </Button>
           </div>
-        </ShakeTarget>
+        </form>
     </>
   );
 }
@@ -684,22 +692,24 @@ function NameStep({ initialName, onFinish }) {
         </p>
       </div>
 
-        <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-5">
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-            <FormField id="luna_name" label="Name" hint="1-40 characters">
-              <input
-                id="luna_name"
-                type="text"
-                maxLength={40}
-                autoComplete="off"
-                value={name}
-                onChange={(e) => { setName(e.target.value); if (error) setError(null); }}
-                disabled={saving}
-                required
-                className={WIZARD_INPUT_CLASS}
-              />
-            </FormField>
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <ShakeTarget shake={error}>
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
+              <FormField id="luna_name" label="Name" hint="1-40 characters">
+                <input
+                  id="luna_name"
+                  type="text"
+                  maxLength={40}
+                  autoComplete="off"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); if (error) setError(null); }}
+                  disabled={saving}
+                  required
+                  className={WIZARD_INPUT_CLASS}
+                />
+              </FormField>
+            </div>
+          </ShakeTarget>
 
           {/* Inline error */}
           {error && (
@@ -729,7 +739,7 @@ function NameStep({ initialName, onFinish }) {
               )}
             </Button>
           </div>
-        </ShakeTarget>
+        </form>
     </>
   );
 }

@@ -73,7 +73,7 @@ export default function AdminLogin() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {!needs2FA && (
               <>
                 {mode === "seed" && (
@@ -94,40 +94,44 @@ export default function AdminLogin() {
                     required
                   />
                 </div>
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"}
-                    required
-                  />
-                </div>
+                <ShakeTarget shake={error}>
+                  <div>
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"}
+                      required
+                    />
+                  </div>
+                </ShakeTarget>
               </>
             )}
             {needs2FA && (
-              <div>
-                <Label htmlFor="totp">Authenticator code</Label>
-                <Input
-                  id="totp"
-                  type="text"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value)}
-                  placeholder="000000"
-                  maxLength={6}
-                  autoFocus
-                  required
-                />
-              </div>
+              <ShakeTarget shake={error}>
+                <div>
+                  <Label htmlFor="totp">Authenticator code</Label>
+                  <Input
+                    id="totp"
+                    type="text"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    placeholder="000000"
+                    maxLength={6}
+                    autoFocus
+                    required
+                  />
+                </div>
+              </ShakeTarget>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             {info && <p className="text-sm text-muted-foreground">{info}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               {needs2FA ? "Verify" : mode === "seed" ? "Create admin" : "Sign in"}
             </Button>
-          </ShakeTarget>
+          </form>
           {mode === "login" && !needs2FA && (
             <button
               type="button"

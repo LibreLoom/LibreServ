@@ -50,18 +50,20 @@ export default function Login() {
           <CardDescription>Open your Luna from your phone or computer when you are not at home. You can also keep a cloud backup of your files here.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoFocus />
             </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
-            </div>
+            <ShakeTarget shake={error}>
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
+              </div>
+            </ShakeTarget>
             {error && <p className="text-sm text-error">{error}</p>}
             <Button type="submit" className="w-full" loading={loading}>Sign in</Button>
-          </ShakeTarget>
+          </form>
           <p className="mt-4 text-sm text-muted-foreground text-center space-y-1">
             <span className="block">
               New here?{" "}

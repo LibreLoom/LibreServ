@@ -117,25 +117,25 @@ export default function PublicSharePage() {
             <p className="text-primary text-sm">
               The person who sent this chose a password. Type it to see the files.
             </p>
-            <ShakeTarget
-              as="form"
-              shake={error}
+            <form
               className="mt-4 space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
                 setSubmittedPassword(password);
               }}
             >
-              <input
-                type="password"
-                className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-                placeholder="Password for this link"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="off"
-              />
+              <ShakeTarget shake={error}>
+                <input
+                  type="password"
+                  className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+                  placeholder="Password for this link"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="off"
+                />
+              </ShakeTarget>
               <Button type="submit" variant="primary" fullWidth>Open</Button>
-            </ShakeTarget>
+            </form>
           </Card>
         )}
 

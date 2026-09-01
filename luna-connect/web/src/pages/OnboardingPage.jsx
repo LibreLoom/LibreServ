@@ -943,9 +943,7 @@ export default function OnboardingPage() {
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         The code that came with your Luna (****-****-****-****-****). Luna&apos;s screen shows the same code if you need it.
       </p>
-      <ShakeTarget
-        as="form"
-        shake={error}
+      <form
         className="space-y-5 text-left"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -964,28 +962,31 @@ export default function OnboardingPage() {
         <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
           Device code
         </label>
-        <Input
-          id="code"
-          className="font-mono uppercase tracking-widest"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="****-****-****-****-****"
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus
-        />
+        <ShakeTarget shake={error}>
+          <Input
+            id="code"
+            className="font-mono uppercase tracking-widest"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="****-****-****-****-****"
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+            aria-invalid={Boolean(error)}
+          />
+        </ShakeTarget>
         <p className="text-xs text-muted-foreground leading-relaxed">
           Luna picks up this link when it is online. You do not need to wait here.
         </p>
         <Button type="submit" size="lg" className="w-full" loading={loading} disabled={code.trim().length < 6}>
           Continue <ArrowRight className="w-4 h-4" />
         </Button>
-      </ShakeTarget>
+      </form>
     </StepShell>
   );
 
   const renderDiyCode = () => (
-    <StepShell icon={Key} title="Put this code on Luna">
+    <StepShell icon={Key} title="Your device code">
       <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
       <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
         During install on Luna, enter this full code (****-****-****-****-****). The first eight characters unlock setup from your phone.
@@ -1017,9 +1018,7 @@ export default function OnboardingPage() {
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         Confirm the full device code so we can attach this Luna to your account. Put the same code on Luna during install if you have not yet.
       </p>
-      <ShakeTarget
-        as="form"
-        shake={error}
+      <form
         className="space-y-5 text-left"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -1038,16 +1037,19 @@ export default function OnboardingPage() {
         <label htmlFor="bind-code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
           Device code
         </label>
-        <Input
-          id="bind-code"
-          className="font-mono uppercase tracking-widest"
-          value={code || diyCode}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="****-****-****-****-****"
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus
-        />
+        <ShakeTarget shake={error}>
+          <Input
+            id="bind-code"
+            className="font-mono uppercase tracking-widest"
+            value={code || diyCode}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="****-****-****-****-****"
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+            aria-invalid={Boolean(error)}
+          />
+        </ShakeTarget>
         <Button
           type="submit"
           size="lg"
@@ -1057,7 +1059,7 @@ export default function OnboardingPage() {
         >
           Link Luna <ArrowRight className="w-4 h-4" />
         </Button>
-      </ShakeTarget>
+      </form>
     </StepShell>
   );
 
