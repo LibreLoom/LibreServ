@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { HardDrive } from "lucide-react";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
+import { Badge } from "../components/ui/badge.jsx";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
+import { Separator } from "../components/ui/separator.jsx";
 import { InfoHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -14,41 +17,133 @@ function daysUntil(unixSeconds) {
   return Math.max(0, Math.ceil((unixSeconds * 1000 - Date.now()) / 86400000));
 }
 
-function PricingChunks({ compact = false }) {
+/** Chunked pricing — Miller's Law / Law of Common Region. */
+function PricingSummary({ surface = "secondary" }) {
   return (
-    <div className={compact ? "space-y-2" : "space-y-3"}>
-      <div className="rounded-large-element border border-border px-4 py-3">
-        <p className="font-mono text-sm">Storage</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          $8 per terabyte each month, based on your average storage over the month.
-        </p>
+    <section
+      className="rounded-large-element border border-border bg-background text-foreground p-4 space-y-3"
+      aria-labelledby="backup-pricing-heading"
+    >
+      <div className="flex items-center gap-2">
+        <h4 id="backup-pricing-heading" className="font-mono text-xs uppercase tracking-widest">
+          Pricing
+        </h4>
+        <InfoHint
+          surface={surface}
+          delayMs={0}
+          label="How cloud backup pricing works"
+          content="We bill from your average storage over the month, not a single day. Downloads are free up to three times that average; extra download traffic costs $0.01 per GB."
+        />
       </div>
-      <div className="rounded-large-element border border-border px-4 py-3">
-        <p className="font-mono text-sm">Downloads</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          Free up to three times your average storage. Extra download traffic is $0.01 per GB.
-        </p>
-      </div>
-    </div>
+      <dl className="space-y-2 text-sm leading-relaxed">
+        <div className="flex justify-between gap-4">
+          <dt>Storage</dt>
+          <dd className="font-mono text-right">$8 / terabyte / month</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt>Downloads</dt>
+          <dd className="font-mono text-right">Free up to 3× average</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt>Extra download traffic</dt>
+          <dd className="font-mono text-right">$0.01 / GB</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
-function MonthlyEstimate({ amount }) {
+/** Von Restorff — current cost stands out from pricing details. */
+function MonthlyCostHighlight({ amount }) {
+  const formatted = Number(amount || 0).toFixed(2);
   return (
-    <div className="rounded-large-element border border-border bg-background px-5 py-4">
-      <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-1">
-        Estimated this month
+    <section
+      className="rounded-large-element border-2 border-accent bg-accent/10 text-foreground px-5 py-4"
+      aria-labelledby="backup-cost-heading"
+      data-testid="backup-monthly-cost"
+    >
+      <p id="backup-cost-heading" className="font-mono text-xs uppercase tracking-widest">
+        This month
       </p>
-      <p className="font-mono text-3xl">${Number(amount || 0).toFixed(2)}</p>
+      <p className="font-mono text-3xl mt-1">${formatted}</p>
+      <p className="text-sm mt-2">Estimated from your average storage so far.</p>
+    </section>
+  );
+}
+
+function EmptyStorageState({ paired }) {
+  return (
+    <div
+      className="rounded-large-element border border-dashed border-border px-6 py-8 text-center space-y-2"
+      data-testid="backup-empty-state"
+    >
+      <HardDrive className="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
+      <p className="font-mono text-sm">Nothing stored yet</p>
+      <p className="text-sm leading-relaxed max-w-md mx-auto">
+        {paired
+          ? "On Luna, choose folders or a whole drive to back up."
+          : "Pair a Luna, then choose folders or a whole drive to back up."}
+      </p>
     </div>
   );
 }
 
-function BackupFilesCard({ objects, note, unpairedNote, setError }) {
-  const fileList = objects.length === 0 ? (
-    <p className="text-sm text-muted-foreground">
-      Nothing stored yet. On Luna, choose folders or a whole drive after pairing.
+function VersionNote({ note }) {
+  const text = note || "This is the latest copy we have, not a history of old versions.";
+  return (
+    <p className="text-sm text-muted-foreground leading-relaxed flex flex-wrap items-center gap-1">
+      <span>{text}</span>
+      <InfoHint
+        surface="secondary"
+        delayMs={0}
+        label="About cloud backup copies"
+        content="Cloud backup keeps one current copy of each file you choose. It is not a timeline of older versions you can roll back to."
+      />
     </p>
+  );
+}
+
+function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel }) {
+  if (!confirmCancel) {
+    return (
+      <section className="space-y-2" aria-labelledby="backup-actions-heading">
+        <h4 id="backup-actions-heading" className="font-mono text-xs uppercase tracking-widest">
+          Payment
+        </h4>
+        <Button variant="destructive" size="lg" onClick={() => setConfirmCancel(true)}>
+          Turn off payment
+        </Button>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="rounded-large-element border border-error/30 bg-error/10 text-foreground px-4 py-4 space-y-3"
+      data-testid="backup-cancel-confirm"
+      aria-labelledby="backup-cancel-heading"
+    >
+      <h4 id="backup-cancel-heading" className="font-mono text-sm">
+        Turn off payment?
+      </h4>
+      <p className="text-sm leading-relaxed">
+        Payment stops today. We keep your cloud copies for 30 days. Download anything you need before then. After 30 days we delete them.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button variant="destructive" size="lg" loading={busy} onClick={onCancel}>
+          Turn off payment
+        </Button>
+        <Button variant="outline" size="lg" onClick={() => setConfirmCancel(false)}>
+          Keep payment on
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function BackupFilesCard({ objects, note, unpairedNote, paired, setError }) {
+  const storageSection = objects.length === 0 ? (
+    <EmptyStorageState paired={paired} />
   ) : (
     <BackupBrowser objects={objects} onError={(message) => setError(message)} />
   );
@@ -57,20 +152,19 @@ function BackupFilesCard({ objects, note, unpairedNote, setError }) {
     <Card className="animate-fade-in-up" data-testid="backups-files">
       <CardHeader>
         <CardTitle>
-          Your cloud copies
+          Your files
           <InfoHint
-            content="These are the files we keep off-site. You can browse and download them here. We store the latest copy only, not older versions."
+            surface="secondary"
+            delayMs={0}
             label="About your cloud copies"
+            content="These are the files we keep off-site. You can browse and download them here."
           />
         </CardTitle>
-        <CardDescription>Browse and download files from your cloud backup.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {note && (
-          <p className="text-sm text-muted-foreground">{note}</p>
-        )}
+        {note ? <VersionNote note={note} /> : null}
         {unpairedNote}
-        {fileList}
+        {storageSection}
       </CardContent>
     </Card>
   );
@@ -105,43 +199,42 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
     }
   }
 
-  const addCard = (
-    stripeLooksConfigured(me) ? (
-      <VerifyHumanCard
-        account={me}
-        loading={busy}
-        description="Add a payment card so we can store a cloud backup. It costs $8 per terabyte each month."
-        buttonLabel="Add a payment card"
-        onConfirm={async (paymentMethodId) => {
-          setError("");
-          setBusy(true);
-          try {
-            await attach(paymentMethodId);
-          } catch (err) {
-            setError(err.message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-    ) : (
-      <Button
-        type="button"
-        onClick={async () => {
-          try {
-            await attach("");
-          } catch (err) {
-            setError(err.message);
-          }
-        }}
-      >
-        Add a payment card
-      </Button>
-    )
+  const addCard = stripeLooksConfigured(me) ? (
+    <VerifyHumanCard
+      account={me}
+      loading={busy}
+      description="Add a payment card so we can store a cloud backup. It costs $8 per terabyte each month."
+      buttonLabel="Add a payment card"
+      onConfirm={async (paymentMethodId) => {
+        setError("");
+        setBusy(true);
+        try {
+          await attach(paymentMethodId);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    />
+  ) : (
+    <Button
+      type="button"
+      size="lg"
+      onClick={async () => {
+        try {
+          await attach("");
+        } catch (err) {
+          setError(err.message);
+        }
+      }}
+    >
+      Add a payment card
+    </Button>
   );
 
   const unpairedNote = !paired && objects.length > 0 ? (
-    <p className="text-sm leading-relaxed">
+    <p className="text-sm leading-relaxed rounded-large-element border border-warning/30 bg-warning/20 text-foreground px-4 py-3">
       These are copies from a Luna that is no longer paired. The monthly bill stays until you turn payment off.
     </p>
   ) : null;
@@ -151,6 +244,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
       objects={objects}
       note={purging || !me.has_card ? "" : note}
       unpairedNote={unpairedNote}
+      paired={paired}
       setError={setError}
     />
   );
@@ -161,14 +255,23 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
     billingCard = (
       <Card className="animate-fade-in-up" data-testid="backups-purging">
         <CardHeader>
-          <CardTitle>Payment is off</CardTitle>
-          <CardDescription>
-            We still have your cloud copies for {daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Download anything you need before they are gone.
-          </CardDescription>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>Payment is off</CardTitle>
+            <Badge variant="warning">Deleting soon</Badge>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <PricingChunks compact />
-          {addCard}
+        <CardContent className="space-y-5">
+          <p className="text-sm leading-relaxed">
+            We still have your cloud copies for {daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Download anything you need before they are gone.
+          </p>
+          <Separator />
+          <section className="space-y-3" aria-labelledby="backup-reactivate-heading">
+            <h4 id="backup-reactivate-heading" className="font-mono text-xs uppercase tracking-widest">
+              Turn payment back on
+            </h4>
+            <PricingSummary />
+            {addCard}
+          </section>
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
@@ -178,12 +281,13 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
       <Card className="animate-fade-in-up" data-testid="backups-gated">
         <CardHeader>
           <CardTitle>Add a payment card</CardTitle>
-          <CardDescription>
-            Add a payment card so we can store a cloud backup of your files off-site.
-          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <PricingChunks />
+        <CardContent className="space-y-5">
+          <p className="text-sm leading-relaxed">
+            Add a payment card so we can store a cloud backup of your files off-site.
+          </p>
+          <PricingSummary />
+          <Separator />
           {addCard}
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
@@ -193,36 +297,21 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
     billingCard = (
       <Card className="animate-fade-in-up" data-testid="backups-open">
         <CardHeader>
-          <CardTitle>Cloud backup</CardTitle>
-          <CardDescription>
-            Off-site copies of your files if a drive fails or your Luna is gone.
-          </CardDescription>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>Cloud backup</CardTitle>
+            <Badge variant="success">Payment on</Badge>
+          </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <MonthlyEstimate amount={me.estimated_month} />
-          <PricingChunks />
-          <p className="text-sm text-muted-foreground">
-            {note || "This is the latest copy we have, not a history of old versions."}
-          </p>
-          {!confirmCancel ? (
-            <Button variant="destructive" onClick={() => setConfirmCancel(true)}>
-              Turn off payment
-            </Button>
-          ) : (
-            <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
-              <p className="text-sm leading-relaxed">
-                Payment stops today. We keep your cloud copies for 30 days. Download anything you need before then. After 30 days we delete them.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button variant="destructive" loading={busy} onClick={cancelPayment}>
-                  Turn off payment
-                </Button>
-                <Button variant="outline" onClick={() => setConfirmCancel(false)}>
-                  Keep payment on
-                </Button>
-              </div>
-            </div>
-          )}
+          <MonthlyCostHighlight amount={me.estimated_month} />
+          <PricingSummary />
+          <Separator />
+          <CancelPaymentSection
+            confirmCancel={confirmCancel}
+            setConfirmCancel={setConfirmCancel}
+            busy={busy}
+            onCancel={cancelPayment}
+          />
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
