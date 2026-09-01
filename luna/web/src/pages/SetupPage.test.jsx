@@ -22,6 +22,9 @@ function stubFetch({
     if (u.includes("/auth/status")) {
       return jsonResponse({ has_admin: hasAdmin, connect_disabled: connectDisabled });
     }
+    if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
+      return jsonResponse({ ok: false, source: "none", attempts: 0 });
+    }
     if (u.includes("/api/v1/setup") && method === "POST") {
       const body = init?.body ? JSON.parse(init.body) : {};
       return jsonResponse({
@@ -94,9 +97,11 @@ describe("SetupPage", () => {
       const progressPosts = fetchMock.mock.calls.filter(([url, init]) => {
         return String(url).includes("/api/v1/setup") && (init?.method || "GET").toUpperCase() === "POST";
       });
-      expect(progressPosts.length).toBeGreaterThan(0);
-      const body = JSON.parse(progressPosts[0][1].body);
-      expect(body.current_step).toBe("network");
+      const savePost = progressPosts.find(([, init]) => {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        return body.current_step === "network";
+      });
+      expect(savePost).toBeTruthy();
     });
   });
 

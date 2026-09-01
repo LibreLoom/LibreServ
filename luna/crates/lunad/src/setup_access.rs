@@ -256,16 +256,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_mag_peels_valid_code_from_assets() {
+    async fn fetch_mag_reports_existing_token() {
         let dir = tempfile::tempdir().unwrap();
-        let assets = dir.path().join("assets");
-        std::fs::create_dir_all(&assets).unwrap();
-        std::fs::write(
-            assets.join("TOKENS"),
-            "BAD\nABCD-EFGH-JKMN-PQRS-TVWX\n",
-        )
-        .unwrap();
-        std::env::set_var("LUNA_TEST_MAG_ASSETS", assets.to_str().unwrap());
+        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let app = app(dir.path());
         let res = call(
             &app,
@@ -276,14 +269,11 @@ mod tests {
             None,
         )
         .await;
-        std::env::remove_var("LUNA_TEST_MAG_ASSETS");
         assert_eq!(res.status(), StatusCode::OK);
         let body = axum::body::to_bytes(res.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("mag"));
-        assert_eq!(json.get("attempts").and_then(|v| v.as_u64()), Some(2));
-        assert!(dir.path().join("setup-token").is_file());
+        assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("existing"));
     }
 }

@@ -57,7 +57,6 @@ impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
         let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
         Self {
-            data_dir: data_dir.to_path_buf(),
             state_path: data_dir.join("connect.json"),
             token_path: data_dir.join("setup-token"),
             disable_connect_path: data_dir.join(DISABLE_CONNECT_FILE),

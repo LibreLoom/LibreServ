@@ -14,6 +14,7 @@ pub mod dev_mock;
 pub mod dhcp;
 pub mod drives;
 pub mod exif;
+pub mod factory_mag;
 pub mod files;
 pub mod fixture_exif;
 pub mod fsprobe;
