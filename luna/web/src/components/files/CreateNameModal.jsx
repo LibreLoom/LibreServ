@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
-import ShakeTarget from "../components/ui/ShakeTarget.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import PageNotice from "../common/PageNotice.jsx";
 
 /**

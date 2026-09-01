@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
+import ShakeTarget from "../ui/ShakeTarget";
 import { getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 /**
