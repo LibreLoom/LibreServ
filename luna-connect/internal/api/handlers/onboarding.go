@@ -165,7 +165,7 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id,
 		"code":      code,
-		"message":   "Put this full code on Luna during install (paste when the installer asks after the disk is written), or later in Settings → About → Advanced → Setup code. The first eight characters unlock setup from your phone.",
+		"message":   "Put this full code on Luna during install (paste when the installer asks after the disk is written), or later in Settings → About → Advanced → Device token. The first eight characters unlock setup from your phone.",
 	})
 }
 

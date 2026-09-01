@@ -4,33 +4,26 @@ import (
 	"database/sql"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 // BoundDevice summarizes the Luna linked to an account for onboarding resume.
 type BoundDevice struct {
-	ID          string
-	Subdomain   string
-	Hostname    string
-	SetupSecret string
-	HasBound    bool
+	ID        string
+	Subdomain string
+	Hostname  string
+	HasBound  bool
 }
 
 func loadBoundDevice(db *sql.DB, accountID string) BoundDevice {
-	var id, sub, sealed string
-	err := db.QueryRow(`SELECT id, COALESCE(subdomain,''), COALESCE(setup_secret,'') FROM devices WHERE account_id = ? LIMIT 1`, accountID).
-		Scan(&id, &sub, &sealed)
+	var id, sub string
+	err := db.QueryRow(`SELECT id, COALESCE(subdomain,'') FROM devices WHERE account_id = ? LIMIT 1`, accountID).
+		Scan(&id, &sub)
 	if err != nil {
 		return BoundDevice{}
 	}
 	out := BoundDevice{ID: id, Subdomain: sub, HasBound: id != ""}
 	if sub != "" {
 		out.Hostname = sub + "." + config.C.Server.PublicZone
-	}
-	if sealed != "" {
-		if s, err := security.OpenString(sealed); err == nil && s != "" {
-			out.SetupSecret = s
-		}
 	}
 	return out
 }
@@ -102,12 +95,10 @@ func onboardingStatusFields(path, step string, dev BoundDevice) map[string]any {
 		"skip_code_entry":  dev.HasBound,
 		"device_id":        "",
 		"hostname":         "",
-		"setup_secret":     "",
 	}
 	if dev.HasBound {
 		out["device_id"] = dev.ID
 		out["hostname"] = dev.Hostname
-		out["setup_secret"] = dev.SetupSecret
 		if dev.Subdomain != "" {
 			out["subdomain"] = dev.Subdomain
 		}

@@ -630,8 +630,10 @@ describe("OnboardingPage done card", () => {
           device_id: "dev_1",
           hostname: "kitchen.luna.servers.libreloom.org",
           subdomain: "kitchen",
-          setup_secret: "once-only-code",
         };
+      }
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: true }] };
       }
       if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
       if (path === "/api/v1/onboarding/progress") return { ok: true };
@@ -639,7 +641,7 @@ describe("OnboardingPage done card", () => {
     });
   });
 
-  it("shows the hostname and one-time code after name is taken", async () => {
+  it("shows the hostname on the complete setup card after name is taken", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
@@ -663,11 +665,11 @@ describe("OnboardingPage done card", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
 
-    expect(await screen.findByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
-    expect(screen.getByText("once-only-code")).toBeTruthy();
-    expect(screen.getByText(/paste this one-time code/i)).toBeTruthy();
-    expect(screen.getByText(/Create your Luna login and paste the code once/i)).toBeTruthy();
-    expect(screen.getByText(/Luna applies these settings when it is online/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
+    expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
+    expect(screen.getByText(/initial connection is complete/i)).toBeTruthy();
+    expect(screen.queryByText(/one-time code/i)).toBeNull();
+    expect(screen.queryByText(/paste the code once/i)).toBeNull();
     expect(document.body.textContent).not.toMatch(/\?setup=/);
   });
 

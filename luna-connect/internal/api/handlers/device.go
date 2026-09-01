@@ -135,7 +135,7 @@ func unbindDevice(deps Deps, d Device, accountID string) {
 	archiveKey := d.ID + "-" + security.RandomHex(4)
 	_, _ = deps.DB.Exec(`UPDATE backup_bindings SET status = 'archived', archived_at = ?, archive_key = ? WHERE account_id = ? AND device_id = ? AND status = 'active'`,
 		now, archiveKey, accountID, d.ID)
-	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, setup_secret = NULL, name = NULL WHERE id = ?`, d.ID)
+	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL WHERE id = ?`, d.ID)
 }
 
 // SetDomain provisions tunnel+DNS for a bound device (account-side).
@@ -222,14 +222,8 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not protect the connection secret. Try again.")
 		return
 	}
-	setupSecret := security.RandomHex(12)
-	sealedSecret, err := security.SealString(setupSecret)
-	if err != nil {
-		sealedSecret = ""
-		setupSecret = ""
-	}
-	_, err = h.DB.Exec(`UPDATE devices SET subdomain = ?, tunnel_id = ?, tunnel_token = ?, local_port = ?, setup_secret = ?, name = ? WHERE id = ?`,
-		sub, tid, sealedTok, port, sealedSecret, sub, id)
+	_, err = h.DB.Exec(`UPDATE devices SET subdomain = ?, tunnel_id = ?, tunnel_token = ?, local_port = ?, name = ? WHERE id = ?`,
+		sub, tid, sealedTok, port, sub, id)
 	if err != nil {
 		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
@@ -239,7 +233,7 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','domain') THEN 'backup' ELSE onboarding_step END WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id, "hostname": host, "subdomain": sub,
-		"tunnel_token": ttoken, "setup_secret": setupSecret,
+		"tunnel_token": ttoken,
 	})
 }
 
@@ -264,10 +258,10 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, dev.AccountID.String).Scan(&hasCard, &status)
 	unlocked = billing.BackupsUnlocked(hasCard == 1, status)
 
-	var sealed, setupSealed sql.NullString
+	var sealed sql.NullString
 	var sub sql.NullString
-	_ = h.DB.QueryRow(`SELECT subdomain, tunnel_token, setup_secret, tunnel_id FROM devices WHERE id = ?`, dev.ID).
-		Scan(&sub, &sealed, &setupSealed, &dev.TunnelID)
+	_ = h.DB.QueryRow(`SELECT subdomain, tunnel_token, tunnel_id FROM devices WHERE id = ?`, dev.ID).
+		Scan(&sub, &sealed, &dev.TunnelID)
 
 	out := map[string]any{
 		"device_id":       dev.ID,
@@ -282,11 +276,6 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		if sealed.Valid && sealed.String != "" {
 			if tok, err := security.OpenString(sealed.String); err == nil {
 				out["tunnel_token"] = tok
-			}
-		}
-		if setupSealed.Valid && setupSealed.String != "" {
-			if s, err := security.OpenString(setupSealed.String); err == nil && s != "" {
-				out["setup_secret"] = s
 			}
 		}
 	}
@@ -346,12 +335,10 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h DeviceHandler) FirstUserUsed(w http.ResponseWriter, r *http.Request) {
-	dev, ok := DeviceFrom(r.Context())
-	if !ok {
+	if _, ok := DeviceFrom(r.Context()); !ok {
 		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE devices SET setup_secret = NULL WHERE id = ?`, dev.ID)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

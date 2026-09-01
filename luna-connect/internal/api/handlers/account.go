@@ -155,27 +155,26 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	status := onboardingStatusFields(resolvedPath, resolvedStep, dev)
 
 	JSON(w, http.StatusOK, map[string]any{
-		"id":                      acct.ID,
-		"email":                   acct.Email,
-		"email_verified":          acct.EmailVerified,
-		"has_card":                acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
-		"human_verified":          humanVerified,
-		"billing_status":          acct.BillingStatus,
-		"stored_bytes":            liveBytes,
-		"avg_stored_bytes":        avgBytes,
-		"egress_bytes":            egressBytes,
-		"estimated_month":         billing.EstimateMonthUSD(avgBytes, egressBytes),
-		"price_copy":              "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
-		"backup_purge_after":      acct.BackupPurgeAfter,
-		"onboarding_path":         status["path"],
-		"onboarding_step":         status["step"],
-		"has_bound_device":        status["has_bound_device"],
-		"skip_code_entry":         status["skip_code_entry"],
-		"onboarding_device_id":    status["device_id"],
-		"onboarding_hostname":     status["hostname"],
-		"onboarding_setup_secret": status["setup_secret"],
-		"stripe_publishable_key":  stripePublishableKey(),
-		"stripe_enabled":          config.C.Stripe.Enabled,
+		"id":                     acct.ID,
+		"email":                  acct.Email,
+		"email_verified":         acct.EmailVerified,
+		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
+		"human_verified":         humanVerified,
+		"billing_status":         acct.BillingStatus,
+		"stored_bytes":           liveBytes,
+		"avg_stored_bytes":       avgBytes,
+		"egress_bytes":           egressBytes,
+		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
+		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
+		"backup_purge_after":     acct.BackupPurgeAfter,
+		"onboarding_path":        status["path"],
+		"onboarding_step":        status["step"],
+		"has_bound_device":       status["has_bound_device"],
+		"skip_code_entry":        status["skip_code_entry"],
+		"onboarding_device_id":   status["device_id"],
+		"onboarding_hostname":    status["hostname"],
+		"stripe_publishable_key": stripePublishableKey(),
+		"stripe_enabled":         config.C.Stripe.Enabled,
 	})
 }
 
@@ -323,7 +322,7 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	rows, err := h.DB.Query(`SELECT id, COALESCE(name,''), COALESCE(subdomain,''), COALESCE(setup_secret,''), COALESCE(code_hint,''), COALESCE(last_seen_at,0), kind FROM devices WHERE account_id = ?`, acct.ID)
+	rows, err := h.DB.Query(`SELECT id, COALESCE(name,''), COALESCE(subdomain,''), COALESCE(code_hint,''), COALESCE(last_seen_at,0), kind FROM devices WHERE account_id = ?`, acct.ID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not load this Luna.")
 		return
@@ -332,9 +331,9 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, name, sub, sealed, hint, kind string
+		var id, name, sub, hint, kind string
 		var lastSeen int64
-		_ = rows.Scan(&id, &name, &sub, &sealed, &hint, &lastSeen, &kind)
+		_ = rows.Scan(&id, &name, &sub, &hint, &lastSeen, &kind)
 		item := map[string]any{
 			"id":           id,
 			"name":         name,
@@ -346,11 +345,6 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		}
 		if sub != "" {
 			item["hostname"] = sub + "." + config.C.Server.PublicZone
-		}
-		if sealed != "" {
-			if opened, err := security.OpenString(sealed); err == nil && opened != "" {
-				item["setup_secret"] = opened
-			}
 		}
 		out = append(out, item)
 	}

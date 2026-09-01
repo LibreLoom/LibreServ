@@ -141,12 +141,6 @@ export default function LunaPage() {
                     </Link>
                   </p>
                 )}
-                {luna.setup_secret && (
-                  <p className="text-sm leading-relaxed">
-                    First Luna login still needs this one-time code:{" "}
-                    <span className="font-mono break-all">{luna.setup_secret}</span>
-                  </p>
-                )}
                 <div className="flex flex-col sm:flex-row gap-2">
                   {luna.hostname && (
                     <Button variant="secondary" size="sm" asChild>

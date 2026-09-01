@@ -10,6 +10,7 @@ import {
   Loader2,
   MailOpen,
   Moon,
+  Plug,
   Sparkles,
   Sun,
   User,
@@ -19,8 +20,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
+import { EthernetDiagram, PowerPlugDiagram } from "../components/onboarding/PlugInDiagrams.jsx";
 import { Button } from "../components/ui/button.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
+import { TermHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -31,6 +34,7 @@ import {
   PASSWORD_POLICY_HELPER,
   passwordChecks,
 } from "../lib/passwordPolicy.js";
+import { DEVICE_ONLINE_POLL_MS, fetchDeviceOnline } from "../lib/deviceOnline.js";
 import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 import { cn } from "../lib/utils.js";
 
@@ -168,6 +172,7 @@ function progressIndex(stepId, path) {
     name: "domain",
     backup: "backup",
     copies: "backup",
+    "plug-in": "backup",
     done: "done",
   };
   const mapped = map[stepId] || (path === "diy" ? "account" : "welcome");
@@ -307,7 +312,6 @@ export default function OnboardingPage() {
   const [diyCode, setDiyCode] = useState(saved.current?.diyCode || "");
   const [deviceId, setDeviceId] = useState(saved.current?.deviceId || "");
   const [hostname, setHostname] = useState(saved.current?.hostname || "");
-  const [setupSecret, setSetupSecret] = useState(saved.current?.setupSecret || "");
   const [loading, setLoading] = useState(false);
   const [isLoginMode, setIsLoginMode] = useState(false);
   const [authSubStep, setAuthSubStep] = useState(0);
@@ -325,6 +329,15 @@ export default function OnboardingPage() {
     setStep(next);
   }, []);
 
+  const goToFinish = useCallback(async () => {
+    try {
+      const online = await fetchDeviceOnline(api, deviceId);
+      goTo(online ? "done" : "plug-in");
+    } catch {
+      goTo("plug-in");
+    }
+  }, [deviceId, goTo]);
+
   const seedFromOnboardingAccount = useCallback((account) => {
     if (!account) return;
     if (account.onboarding_device_id) setDeviceId(account.onboarding_device_id);
@@ -333,7 +346,6 @@ export default function OnboardingPage() {
       const sub = account.onboarding_hostname.split(".")[0];
       if (sub) setName(sub);
     }
-    if (account.onboarding_setup_secret) setSetupSecret(account.onboarding_setup_secret);
   }, []);
 
   const shouldSkipCodeEntry = useCallback((account) => {
@@ -366,14 +378,35 @@ export default function OnboardingPage() {
       diyCode,
       deviceId,
       hostname,
-      setupSecret,
     });
-  }, [step, path, code, email, name, diyCode, deviceId, hostname, setupSecret]);
+  }, [step, path, code, email, name, diyCode, deviceId, hostname]);
 
   useEffect(() => {
-    if (step === "welcome" || step === "account" || step === "verify") return;
+    if (step === "welcome" || step === "account" || step === "verify" || step === "plug-in") return;
     persistServerProgress(step);
   }, [step, persistServerProgress]);
+
+  useEffect(() => {
+    if (step !== "plug-in") return undefined;
+
+    let cancelled = false;
+
+    async function checkOnline() {
+      try {
+        const online = await fetchDeviceOnline(api, deviceId);
+        if (!cancelled && online) goTo("done");
+      } catch {
+        /* keep waiting */
+      }
+    }
+
+    checkOnline();
+    const timer = setInterval(checkOnline, DEVICE_ONLINE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [step, deviceId, goTo]);
 
   useEffect(() => {
     if (!isAuthenticated || !me) return;
@@ -678,6 +711,7 @@ export default function OnboardingPage() {
       code: "account",
       domain: "code",
       backup: "domain",
+      "plug-in": "backup",
       done: "backup",
     };
     const diyBack = {
@@ -687,6 +721,7 @@ export default function OnboardingPage() {
       "diy-code": "account",
       domain: "diy-code",
       backup: "domain",
+      "plug-in": "backup",
       done: "backup",
     };
     const back = path === "diy" ? diyBack : officialBack;
@@ -858,8 +893,8 @@ export default function OnboardingPage() {
             ? shouldSkipCodeEntry(me)
               ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
               : me?.human_verified
-                ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
-                : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
+                ? "You are already signed in. Continue to get a device code for this Luna. We will not charge another dollar."
+                : "You are already signed in. Next we confirm you are a real person, then give you a device code for this Luna."
             : shouldSkipCodeEntry(me)
               ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
               : "You are already signed in. Continue to link this Luna with its device code."}
@@ -998,8 +1033,8 @@ export default function OnboardingPage() {
     <StepShell icon={Key} title="Enter the device code">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         The code on your quick-start card (****-****-****-****-****). Luna&apos;s screen shows the same code while it is waiting to be linked.
-        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Setup code, paste the full code, and tap
-        Save setup code.
+        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Device token, paste the full code, and tap
+        Save.
       </p>
       <form
         className="space-y-5 text-left"
@@ -1052,8 +1087,7 @@ export default function OnboardingPage() {
         phone on your home network.
       </p>
       <p className="text-sm text-muted-foreground mb-4 leading-relaxed text-pretty">
-        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Setup code, paste this code, and tap Save
-        setup code.
+        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Device token, paste this code, and tap Save.
       </p>
       <p className="text-sm text-muted-foreground mb-8 leading-relaxed text-pretty">
         When you continue, we link this code to your account. Luna picks up the link when it is online.
@@ -1120,7 +1154,6 @@ export default function OnboardingPage() {
               body: JSON.stringify({ subdomain: name }),
             });
             setHostname(created.hostname);
-            setSetupSecret(created.setup_secret || "");
             goTo("backup");
           } catch (err) {
             setError(err.message);
@@ -1182,7 +1215,7 @@ export default function OnboardingPage() {
                   device_id: deviceId || undefined,
                 }),
               });
-              goTo("done");
+              await goToFinish();
             } catch (err) {
               setError(err.message);
             } finally {
@@ -1203,7 +1236,7 @@ export default function OnboardingPage() {
                 method: "POST",
                 body: JSON.stringify({ enable: true, device_id: deviceId || undefined }),
               });
-              goTo("done");
+              await goToFinish();
             } catch (err) {
               setError(err.message);
             } finally {
@@ -1228,7 +1261,7 @@ export default function OnboardingPage() {
           } catch {
             /* still allow finishing */
           }
-          goTo("done");
+          await goToFinish();
         }}
       >
         Skip for now
@@ -1236,11 +1269,44 @@ export default function OnboardingPage() {
     </StepShell>
   );
 
+  const renderPlugIn = () => (
+    <StepShell icon={Plug} title="Plug in Luna">
+      <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
+        Plug Luna into power and your router or modem with the included{" "}
+        <TermHint content="RJ45 is the wide plug on the ethernet cable in the box. It clicks into the port on Luna and your router.">
+          RJ45
+        </TermHint>{" "}
+        (
+        <TermHint content="Ethernet is wired internet. Luna needs this cable to reach Luna Connect and your public address.">
+          ethernet
+        </TermHint>
+        ) cable. We will continue once Luna is online.
+      </p>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="rounded-large-element bg-muted border border-border p-3 text-primary">
+          <PowerPlugDiagram className="mx-auto h-16 w-full text-foreground" />
+          <p className="mt-2 text-xs font-mono text-foreground">Power</p>
+        </div>
+        <div className="rounded-large-element bg-muted border border-border p-3 text-primary">
+          <EthernetDiagram className="mx-auto h-16 w-full text-foreground" />
+          <p className="mt-2 text-xs font-mono text-foreground">RJ45 cable</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        <span>Waiting for Luna to come online…</span>
+      </div>
+    </StepShell>
+  );
+
   const renderDone = () => (
-    <StepShell icon={Check} title="You can open Luna from away">
+    <StepShell icon={Check} title="Complete setup on Luna">
       <div className="space-y-6 text-left">
+        <p className="text-sm text-foreground leading-relaxed text-pretty">
+          The initial connection is complete, and your Luna can now be accessed over the internet.
+        </p>
         <div>
-          <p className="text-sm text-foreground mb-2">Open Luna at:</p>
+          <p className="text-sm text-foreground mb-2">Go to</p>
           <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
             <p className="font-mono text-sm break-all flex-1 text-foreground">{hostname}</p>
             <Button variant="ghost" size="icon" onClick={() => handleCopy("host", hostname)} aria-label="Copy address">
@@ -1248,34 +1314,6 @@ export default function OnboardingPage() {
             </Button>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Luna applies these settings when it is online. Keep it plugged into your router or modem with the RJ45 (ethernet) cable.
-        </p>
-        <p className="text-sm text-foreground leading-relaxed">
-          The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account.
-        </p>
-        {setupSecret && (
-          <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
-            <p className="font-mono text-sm break-all flex-1 text-foreground">{setupSecret}</p>
-            <Button variant="ghost" size="icon" onClick={() => handleCopy("secret", setupSecret)} aria-label="Copy one-time setup code">
-              {copied === "secret" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            </Button>
-          </div>
-        )}
-        <ol className="space-y-2.5 text-sm text-muted-foreground">
-          <li className="flex gap-2.5">
-            <span className="font-mono text-card-foreground">1.</span>
-            Copy the one-time code
-          </li>
-          <li className="flex gap-2.5">
-            <span className="font-mono text-card-foreground">2.</span>
-            Open the address above
-          </li>
-          <li className="flex gap-2.5">
-            <span className="font-mono text-card-foreground">3.</span>
-            Create your Luna login and paste the code once. Do not put it in the address bar.
-          </li>
-        </ol>
         <Button
           size="lg"
           className="w-full"
@@ -1322,6 +1360,7 @@ export default function OnboardingPage() {
   else if (step === "code") body = renderCode();
   else if (step === "domain") body = renderDomain();
   else if (step === "backup") body = renderBackup();
+  else if (step === "plug-in") body = renderPlugIn();
   else if (step === "done") body = renderDone();
   else if (path === "diy") body = isAuthenticated ? renderSignedInAccount() : renderAccount();
   else body = renderWelcome();
@@ -1329,6 +1368,7 @@ export default function OnboardingPage() {
   const showBack = !(
     (path === "official" && step === "welcome") ||
     step === "done" ||
+    step === "plug-in" ||
     (path === "diy" && step === "account" && authSubStep === 0 && !isAuthenticated)
   );
 
