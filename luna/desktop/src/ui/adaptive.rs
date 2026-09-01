@@ -1,5 +1,6 @@
 //! Responsive layout helpers for narrow screens (Linux Mobile, small windows).
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -46,6 +47,14 @@ pub fn widget_width(widget: &impl IsA<gtk::Widget>) -> i32 {
             .width_request()
             .max(0)
     }
+}
+
+/// Width of the top-level window containing `widget`.
+fn window_width(widget: &gtk::Widget) -> i32 {
+    widget
+        .root()
+        .map(|root| root.width())
+        .unwrap_or_else(|| widget.width())
 }
 
 /// Size a form dialog for the current parent width.
@@ -156,23 +165,42 @@ pub fn make_action_row(
     row
 }
 
-/// Call `on_change(true)` when `host` is narrower than [`NARROW_BREAKPOINT`].
+/// Call `on_change(true)` when the host's window is narrower than [`NARROW_BREAKPOINT`].
 pub fn bind_narrow(host: &impl IsA<gtk::Widget>, on_change: Rc<dyn Fn(bool)>) {
     let host = host.clone().upcast::<gtk::Widget>();
-    let fire = {
+    let last_narrow = Rc::new(RefCell::new(None::<bool>));
+
+    let check = {
         let host = host.clone();
         let on_change = on_change.clone();
+        let last_narrow = last_narrow.clone();
         Rc::new(move || {
-            let w = widget_width(&host);
-            if w > 0 {
-                on_change(w < NARROW_BREAKPOINT);
+            let w = window_width(&host);
+            if w <= 0 {
+                return;
+            }
+            let narrow = w < NARROW_BREAKPOINT;
+            let mut last = last_narrow.borrow_mut();
+            if *last != Some(narrow) {
+                *last = Some(narrow);
+                on_change(narrow);
             }
         })
     };
-    fire();
-    host.connect_notify_local(Some("width"), {
-        let fire = fire.clone();
-        move |_, _| fire()
+
+    check();
+    host.connect_map({
+        let host = host.clone();
+        let check = check.clone();
+        move |_| {
+            check();
+            if let Some(root) = host.root() {
+                root.connect_notify_local(Some("width"), {
+                    let check = check.clone();
+                    move |_, _| check()
+                });
+            }
+        }
     });
 }
 
