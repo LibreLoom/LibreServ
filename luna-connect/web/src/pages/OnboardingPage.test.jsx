@@ -471,7 +471,36 @@ describe("OnboardingPage DIY verify", () => {
       });
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(screen.getByText(/installer asks for your device code/i)).toBeTruthy();
+    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
+  });
+
+  it("binds and goes to name when continuing from the DIY code step", async () => {
+    stripeLooksConfigured.mockReturnValue(false);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_diy", already_bound: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/devices/bind", {
+        method: "POST",
+        body: JSON.stringify({ code: "A1B2-C3D4-E5F6-G7H8-J9K0" }),
+      });
+    });
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Link this Luna/i })).toBeNull();
   });
 
   it("keeps the official path free of a card step and binds after account", async () => {
@@ -491,6 +520,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
     });
+    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/^Device code$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });

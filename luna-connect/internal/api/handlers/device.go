@@ -89,7 +89,7 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not link this Luna. Try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','diy-code','code') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": false})
 }
 

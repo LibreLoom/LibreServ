@@ -161,11 +161,11 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not make a device code. Try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'bind' WHERE id = ?`, acct.ID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'diy-code' WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id,
 		"code":      code,
-		"message":   "Put this full code on Luna during install (or in Settings). The first eight characters unlock setup from your phone. Then bind it on this site.",
+		"message":   "Put this full code on Luna during install (paste when the installer asks after the disk is written), or later in Settings → About → Advanced → Setup code. The first eight characters unlock setup from your phone.",
 	})
 }
 
