@@ -43,7 +43,6 @@ pub struct ConnectStatus {
 }
 
 pub struct ConnectService {
-    data_dir: PathBuf,
     state_path: PathBuf,
     token_path: PathBuf,
     legacy_token_path: PathBuf,
@@ -59,7 +58,6 @@ impl ConnectService {
         // Legacy opt-out marker — Connect is off by default now; drop the file if present.
         let _ = std::fs::remove_file(data_dir.join("disable-connect"));
         Self {
-            data_dir: data_dir.to_path_buf(),
             state_path: data_dir.join("connect.json"),
             token_path: data_dir.join(DEVICE_TOKEN_FILE),
             legacy_token_path: data_dir.join(LEGACY_DEVICE_TOKEN_FILE),
