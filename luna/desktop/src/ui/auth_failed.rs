@@ -31,7 +31,7 @@ impl AuthFailedView {
 
         let continue_btn = gtk::Button::builder()
             .label("Continue")
-            .halign(gtk::Align::End)
+            .halign(gtk::Align::Start)
             .build();
         continue_btn.add_css_class("suggested-action");
         continue_btn.add_css_class("pill");
