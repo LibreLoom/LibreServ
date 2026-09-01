@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn parent_with_equal_or_higher_perm_drops_contained_children() {
-        let existing = vec![
+        let existing = [
             grant("child-write", "album/dcim", "write"),
             grant("child-read", "album/print", "read"),
             grant("other-drive", "album", "read"),
