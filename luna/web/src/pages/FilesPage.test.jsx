@@ -67,6 +67,15 @@ function stubFilesApi(byPath) {
     if (u.includes("/files/upload")) {
       return new Response(JSON.stringify({ name: "note.txt" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/files?") && method === "DELETE") {
+      if (byPath.__deleteFail) {
+        return new Response(JSON.stringify({ error: "Luna couldn't move that to Trash. Try again." }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/files?")) {
       const listing = byPath[filesPath(u)] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -256,6 +265,21 @@ describe("FilesPage", () => {
     expect(screen.queryByText(/copy it first/i)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Leave blank for the (top|root) of the drive/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start moving" })).toBeInTheDocument();
+  });
+
+  it("keeps delete errors inside the modal", async () => {
+    stubFilesApi({
+      __deleteFail: true,
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Move photo.jpg to trash" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move to trash?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => {
+      expect(within(dialog).getByText(/couldn't move that to Trash/i)).toBeInTheDocument();
+    });
+    expect(screen.getAllByText(/couldn't move that to Trash/i)).toHaveLength(1);
   });
 
   it("keeps an empty new-folder name error inside the modal", async () => {

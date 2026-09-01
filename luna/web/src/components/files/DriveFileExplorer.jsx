@@ -15,7 +15,9 @@ import Button from "../ui/Button.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import PageNotice from "../common/PageNotice.jsx";
+import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
 import ShakeTarget from "../ui/ShakeTarget.jsx";
+import { showPageLevelError } from "../../lib/modalScopedError.js";
 import {
   apiErrorMessage,
   deleteJson,
@@ -495,10 +497,11 @@ export default function DriveFileExplorer({
   if (renameTarget) renameSnapRef.current = renameTarget;
   const shownRename = renameTarget ?? renameSnapRef.current;
   const nameModalOpen = createKind != null || renameTarget != null;
+  const actionModalOpen = deletePaths != null || transfer != null || nameModalOpen;
 
   return (
     <>
-      {actionError && !nameModalOpen && (
+      {showPageLevelError(actionError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-3">{actionError}</PageNotice>
       )}
       {uploads.length > 0 && (
@@ -652,7 +655,11 @@ export default function DriveFileExplorer({
         initialPath={path}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
         busy={transferMutation.isPending}
-        onClose={() => setTransfer(null)}
+        error={transfer != null ? actionError : null}
+        onClose={() => {
+          setActionError(null);
+          setTransfer(null);
+        }}
         onConfirm={(dest, close) => {
           transferMutation.mutateAsync(dest)
             .then(() => close())
@@ -663,7 +670,10 @@ export default function DriveFileExplorer({
       <ModalCard
         open={deletePaths != null}
         title="Move to trash?"
-        onClose={() => setDeletePaths(null)}
+        onClose={() => {
+          setActionError(null);
+          setDeletePaths(null);
+        }}
       >
         {({ close }) => (
           <>
@@ -671,6 +681,7 @@ export default function DriveFileExplorer({
               <span className="font-mono">{deleteLabel}</span> will move to
               Luna&apos;s trash on this drive. You can get it back later from Trash.
             </p>
+            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"
@@ -725,7 +736,7 @@ export default function DriveFileExplorer({
                 onChange={(e) => setRenameValue(e.target.value)}
               />
             </ShakeTarget>
-            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="primary"

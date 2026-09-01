@@ -13,6 +13,8 @@ import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import ModalErrorNotice from "../components/common/ModalErrorNotice";
+import { showPageLevelError } from "../lib/modalScopedError";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import {
@@ -89,6 +91,8 @@ export default function FilesPage() {
   const activeJobs = (jobs.data || []).filter(jobBusy);
   const trashItems = trash.data || [];
 
+  const trashModalOpen = restoreTarget != null || purgeTarget != null;
+
   return (
     <Page
       title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
@@ -148,7 +152,7 @@ export default function FilesPage() {
         </Card>
       ) : null}
 
-      {actionError && restoreTarget == null && purgeTarget == null && (
+      {showPageLevelError(actionError, trashModalOpen) && (
         <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
       )}
 
@@ -244,7 +248,7 @@ export default function FilesPage() {
               onChange={(e) => setRestoreName(e.target.value)}
               aria-label="Restored file name"
             />
-            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            {actionError && <ModalErrorNotice error={actionError} />}
             <div className="mt-4 flex gap-3">
               <Button
                 variant="primary"
@@ -278,7 +282,7 @@ export default function FilesPage() {
               <span className="font-mono">{purgeTarget?.original_name}</span> will be
               removed for good. Luna cannot get it back after this.
             </p>
-            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"

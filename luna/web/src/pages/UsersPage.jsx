@@ -11,6 +11,8 @@ import Pill from "../components/common/Pill";
 import Table from "../components/common/Table";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import ModalErrorNotice from "../components/common/ModalErrorNotice";
+import { showPageLevelError } from "../lib/modalScopedError";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import { InfoHint } from "../components/ui/Tooltip";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
@@ -53,7 +55,6 @@ export default function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (err) => {
-      setUserToDelete(null);
       setError(apiErrorMessage(err, "Couldn't remove this user. Try again."));
     },
   });
@@ -75,6 +76,8 @@ export default function UsersPage() {
   const showList = !loading && !users.isError && list.length > 0;
   const showEmpty = !loading && !users.isError && list.length === 0;
 
+  const actionModalOpen = creating || userToDelete != null;
+
   return (
     <>
       <Page
@@ -82,7 +85,7 @@ export default function UsersPage() {
         titleId="users-title"
         className={userToDelete ? "pop-out" : "pop-in"}
       >
-        {error && (
+        {showPageLevelError(error, actionModalOpen) && (
           <PageNotice variant="error" className="mb-4">
             {error}
           </PageNotice>
@@ -241,8 +244,12 @@ export default function UsersPage() {
         variant="danger"
         icon={User}
         loading={deleteMutation.isPending}
+        error={userToDelete ? error : null}
         onConfirm={() => userToDelete && deleteMutation.mutate(userToDelete.id)}
-        onClose={() => setUserToDelete(null)}
+        onClose={() => {
+          setUserToDelete(null);
+          setError(null);
+        }}
       />
     </>
   );
@@ -331,6 +338,7 @@ function CreateUserModal({ open = true, onClose, onSubmit, busy, submitError = n
             </p>
           )}
         </div>
+        <ModalErrorNotice error={submitError} />
         <div className="flex gap-3">
           <Button
             variant="primary"

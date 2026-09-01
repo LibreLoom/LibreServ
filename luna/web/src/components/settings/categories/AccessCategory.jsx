@@ -9,6 +9,7 @@ import SettingsRow from "../SettingsRow";
 import PairingQrModal from "../PairingQrModal.jsx";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
 import PageNotice from "../../common/PageNotice";
+import { showPageLevelError } from "../../../lib/modalScopedError";
 import ShakeTarget from "../../ui/ShakeTarget";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 
@@ -147,7 +148,7 @@ export default function AccessCategory() {
 
   return (
     <div className="space-y-4">
-      {error && <PageNotice variant="error">{error}</PageNotice>}
+      {showPageLevelError(error, showQr) && <PageNotice variant="error">{error}</PageNotice>}
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
         <p className="text-primary text-sm px-4 pb-2 pt-4">

@@ -11,6 +11,8 @@ import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import PageNotice from "../components/common/PageNotice";
+import ModalErrorNotice from "../components/common/ModalErrorNotice";
+import { showPageLevelError } from "../lib/modalScopedError";
 import CollapsibleSection from "../components/common/CollapsibleSection";
 import ValueDisplay from "../components/common/ValueDisplay";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
@@ -480,10 +482,14 @@ export default function DrivesPage() {
     );
   }
 
+  const actionModalOpen = removeTarget != null || inspectFor != null;
+
   return (
     <Page title="Files" titleId="drives-title">
       <FileSearch />
-      {actionError && <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>}
+      {showPageLevelError(actionError, actionModalOpen) && (
+        <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
+      )}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
@@ -550,7 +556,10 @@ export default function DrivesPage() {
       <ModalCard
         open={removeTarget != null}
         title="Remove this drive?"
-        onClose={() => setRemoveTarget(null)}
+        onClose={() => {
+          setActionError(null);
+          setRemoveTarget(null);
+        }}
       >
         {({ close }) => (
           <>
@@ -559,6 +568,7 @@ export default function DrivesPage() {
               Your files stay on the drive. Luna only removes its tiny{" "}
               <span className="font-mono">.luna</span> sticker file.
             </p>
+            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="accent"

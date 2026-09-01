@@ -15,6 +15,8 @@ import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import EmptyState from "../common/EmptyState";
 import PageNotice from "../common/PageNotice";
+import ModalErrorNotice from "../common/ModalErrorNotice";
+import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "../ui/ShakeTarget";
 import Button from "../ui/Button";
 import Spinner from "../ui/Spinner.jsx";
@@ -138,9 +140,11 @@ export default function FileSearch() {
       ),
   });
 
+  const actionModalOpen = deleteTarget != null || copyTarget != null;
+
   return (
     <div className="mb-6" data-slot="file-search">
-      <ShakeTarget shake={actionError && deleteTarget == null ? actionError : null}>
+      <ShakeTarget shake={showPageLevelError(actionError, actionModalOpen) ? actionError : null}>
         <label className="block">
           <span className="sr-only">Search for a file</span>
           <span className="flex items-center gap-3 rounded-pill bg-secondary text-primary border-2 border-transparent px-4 py-2 focus-within:border-accent motion-safe:transition-colors">
@@ -156,7 +160,7 @@ export default function FileSearch() {
         </label>
       </ShakeTarget>
 
-      {actionError && deleteTarget == null && (
+      {showPageLevelError(actionError, actionModalOpen) && (
         <PageNotice variant="error" className="mt-3">
           {actionError}
         </PageNotice>
@@ -309,7 +313,7 @@ export default function FileSearch() {
                 Luna&apos;s trash on its drive. You can get it back later from Trash.
               </p>
             </ShakeTarget>
-            {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
+            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"
@@ -339,7 +343,11 @@ export default function FileSearch() {
         initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
         confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
         busy={copyMutation.isPending}
-        onClose={() => setCopyTarget(null)}
+        error={copyTarget != null ? actionError : null}
+        onClose={() => {
+          setActionError(null);
+          setCopyTarget(null);
+        }}
         onConfirm={(dest, close) => {
           copyMutation.mutateAsync(dest)
             .then(() => close())

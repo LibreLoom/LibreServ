@@ -9,6 +9,8 @@ import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import ModalErrorNotice from "../components/common/ModalErrorNotice";
+import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "../components/cards/ModalCard";
 import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
@@ -297,6 +299,13 @@ export default function GalleryPage() {
     (activeSegment === "places" && place) ||
     (activeSegment === "albums" && albumView);
 
+  const actionModalOpen =
+    newAlbumOpen
+    || albumPick != null
+    || trashPhoto != null
+    || sharePhoto != null
+    || lightbox != null;
+
   return (
     <Page title="Photos" titleId="gallery-title">
       <GalleryToolbar
@@ -306,7 +315,7 @@ export default function GalleryPage() {
         query={q}
         onQueryChange={handleQueryChange}
       />
-      {(error || galleryLoadError) && (
+      {showPageLevelError(error || galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
           {error || galleryLoadError}
         </PageNotice>
@@ -447,18 +456,25 @@ export default function GalleryPage() {
 
       <ConfirmModal
         open={!!trashPhoto}
-        onClose={() => setTrashPhoto(null)}
+        onClose={() => {
+          setTrashPhoto(null);
+          setError(null);
+        }}
         onConfirm={() => trashPhoto && trash.mutate(trashPhoto)}
         title="Move to trash?"
         message="Luna will move this file to Trash on its drive. You can restore it from Files later."
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trash.isPending}
+        error={trashPhoto ? error : null}
         overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
       />
 
       {newAlbumOpen && (
-        <ModalCard title="New album" onClose={() => setNewAlbumOpen(false)}>
+        <ModalCard title="New album" onClose={() => {
+          setNewAlbumOpen(false);
+          setError(null);
+        }}>
           {({ close }) => (
             <form
               className="space-y-4"
@@ -479,6 +495,7 @@ export default function GalleryPage() {
                   />
                 </label>
               </ShakeTarget>
+              <ModalErrorNotice error={error} />
               <div className="flex gap-2">
                 <Button type="submit" variant="accent" loading={createAlbum.isPending}>
                   Create
@@ -495,11 +512,15 @@ export default function GalleryPage() {
       {albumPick && (
         <ModalCard
           title="Add to album"
-          onClose={() => setAlbumPick(null)}
+          onClose={() => {
+            setAlbumPick(null);
+            setError(null);
+          }}
           overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         >
           {({ close }) => (
             <div className="space-y-2">
+              <ModalErrorNotice error={error} />
               {(albums.data || []).length === 0 && (
                 <p className="text-sm">Create an album first, then add photos to it.</p>
               )}

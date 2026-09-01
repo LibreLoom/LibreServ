@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
+import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
 import FileBrowser from "./FileBrowser.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
 import NewItemMenu from "./NewItemMenu.jsx";
@@ -24,6 +25,7 @@ import { joinPath } from "../../lib/paths.js";
  *   onClose: () => void,
  *   open?: boolean,
  *   busy?: boolean,
+ *   error?: string | null,
  * }} props
  */
 export default function FolderPickerModal({
@@ -36,6 +38,7 @@ export default function FolderPickerModal({
   onClose,
   open = true,
   busy = false,
+  error = null,
 }) {
   const queryClient = useQueryClient();
   const [driveId, setDriveId] = useState(initialDriveId);
@@ -91,6 +94,7 @@ export default function FolderPickerModal({
     <ModalCard open={open} title={title} size="lg" onClose={onClose}>
       {({ close }) => (
         <>
+          <ModalErrorNotice error={error} className="mb-3" />
           {drives.length > 1 && (
             <div className="mb-3">
               <label className="block text-primary text-xs mb-1">Which drive?</label>
@@ -182,4 +186,5 @@ FolderPickerModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   open: PropTypes.bool,
   busy: PropTypes.bool,
+  error: PropTypes.string,
 };
