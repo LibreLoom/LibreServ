@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import FileSearch from "./FileSearch";
 
+/** @param {unknown[]} hits @param {{ searchHold?: Promise<void> }} [options] */
 function renderSearch(hits, { searchHold } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
@@ -55,6 +56,7 @@ function renderSearch(hits, { searchHold } = {}) {
 
 describe("FileSearch", () => {
   it("shows Searching and a spinner inside the results card", async () => {
+    /** @type {((value?: unknown) => void) | undefined} */
     let releaseSearch;
     const searchHold = new Promise((resolve) => {
       releaseSearch = resolve;
@@ -68,7 +70,7 @@ describe("FileSearch", () => {
     const card = searching.closest("[data-slot=card]");
     expect(card).toBeTruthy();
     expect(card.querySelector("[data-slot=spinner]")).toBeTruthy();
-    releaseSearch();
+    releaseSearch?.();
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
     expect(screen.queryByText(/Searching/i)).not.toBeInTheDocument();
   });

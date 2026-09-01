@@ -328,7 +328,7 @@ describe("AccessSheet", () => {
     renderSheet();
     await user.click(await screen.findByRole("button", { name: "New link" }));
     const newLinkHeading = await screen.findByRole("heading", { name: "New link" });
-    const dialog = newLinkHeading.closest("[role=dialog]");
+    const dialog = /** @type {HTMLElement} */ (newLinkHeading.closest("[role=dialog]"));
     expect(dialog).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Create link" }));
@@ -349,7 +349,7 @@ describe("AccessSheet", () => {
     await user.click(screen.getByRole("button", { name: "New link" }));
     expect(await screen.findByRole("heading", { name: "New link" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
-    const newLinkDialog = screen.getByRole("heading", { name: "New link" }).closest("[role=dialog]");
+    const newLinkDialog = /** @type {HTMLElement} */ (screen.getByRole("heading", { name: "New link" }).closest("[role=dialog]"));
     await user.click(within(newLinkDialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "New link" })).not.toBeInTheDocument();

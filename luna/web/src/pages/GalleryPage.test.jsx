@@ -7,6 +7,7 @@ import GalleryPage, { galleryUrl } from "./GalleryPage";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
+/** @param {{ places?: unknown[], albumsHold?: Promise<void> }} [options] */
 function stubGalleryFetch({ places = [], albumsHold } = {}) {
   vi.stubGlobal(
     "fetch",
@@ -145,6 +146,7 @@ describe("GalleryPage", () => {
   });
 
   it("shows a centered spinner while albums are still loading", async () => {
+    /** @type {((value?: unknown) => void) | undefined} */
     let releaseAlbums;
     const albumsHold = new Promise((resolve) => {
       releaseAlbums = resolve;
@@ -154,7 +156,7 @@ describe("GalleryPage", () => {
     renderGallery();
     expect(await screen.findByText(/Loading albums/i)).toBeInTheDocument();
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
-    releaseAlbums();
+    releaseAlbums?.();
     expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
   });
 

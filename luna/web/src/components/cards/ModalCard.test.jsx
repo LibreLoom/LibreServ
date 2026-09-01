@@ -193,6 +193,7 @@ describe("ModalCard", () => {
     window.matchMedia = (query) => ({
       matches: String(query).includes("prefers-reduced-motion"),
       media: query,
+      onchange: null,
       addEventListener: () => {},
       removeEventListener: () => {},
       addListener: () => {},
