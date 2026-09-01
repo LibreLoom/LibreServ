@@ -256,4 +256,37 @@ cd "${REPO_ROOT}/luna/desktop"
 cargo test
 cargo build --release
 
+# ── 10. Luna release build deps (ISO / Flatpak / Windows / signing) ───────────
+# ./release.sh --luna needs musl for lunad, xorriso/live-build for ISO,
+# flatpak-builder for Desktop Linux, mingw+NSIS for Windows, minisign for checksums.
+install_luna_release_deps() {
+  local missing=0
+  for cmd in x86_64-linux-musl-gcc xorriso flatpak-builder makensis x86_64-w64-mingw32-gcc minisign; do
+    command -v "$cmd" >/dev/null 2>&1 || missing=1
+  done
+  if [ "$missing" -eq 0 ]; then
+    echo ">> Luna release build deps already present"
+    return
+  fi
+  echo ">> Installing Luna release build dependencies"
+  as_root apt-get update -qq
+  as_root env DEBIAN_FRONTEND=noninteractive \
+    apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+    install -y -qq \
+      musl-tools \
+      xorriso \
+      live-build \
+      debootstrap \
+      flatpak \
+      flatpak-builder \
+      nsis \
+      gcc-mingw-w64-x86-64 \
+      g++-mingw-w64-x86-64 \
+      minisign
+  if ! flatpak remote-list --user 2>/dev/null | grep -q '^flathub'; then
+    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+  fi
+}
+install_luna_release_deps
+
 echo ">> LibreServ + Luna install complete"
