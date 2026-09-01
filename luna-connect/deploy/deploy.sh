@@ -11,6 +11,7 @@ set -euo pipefail
 #   sudo ./luna-connect/deploy/deploy.sh
 #   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.1.0
 #   sudo ./luna-connect/deploy/deploy.sh --head
+#   sudo ./luna-connect/deploy/deploy.sh --head --force   # skip preflight when one instance is already sick
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -21,6 +22,27 @@ HEALTH_TIMEOUT=30
 # Must exceed Caddy health_interval (1s) × health_fails (1) with margin.
 CADDY_DRAIN_GRACE=3
 INSTANCES=("a:8101" "b:8102")
+FORCE_DEPLOY=0
+
+usage() {
+    cat <<EOF
+Luna Connect — Zero-Downtime Deploy (blue/green via Caddy)
+
+Usage (from repo root, as root):
+  sudo ./luna-connect/deploy/deploy.sh                    # latest luna-connect-v* tag
+  sudo ./luna-connect/deploy.sh --tag luna-connect-v0.2.16
+  sudo ./luna-connect/deploy/deploy.sh --head             # current checkout (after git pull)
+
+Options:
+  --force    Skip preflight that requires both instances healthy.
+             Use when one instance is already broken but its peer is healthy.
+             Drain still refuses to stop the only live instance (no site-wide 503).
+  --help     Show this help and exit.
+
+Examples:
+  git pull && sudo ./luna-connect/deploy/deploy.sh --head --force
+EOF
+}
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
 log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -179,8 +201,14 @@ preflight() {
         log_info "  ${name} healthy on :${port}"
     done
     if [ "$unhealthy" -ne 0 ]; then
+        if [ "$FORCE_DEPLOY" -eq 1 ]; then
+            log_warn "Preflight failed but --force set — continuing (peer must stay healthy during each drain)."
+            log_warn "If only one instance serves traffic, deploy fixes the sick one first (A, then B)."
+            return 0
+        fi
         log_error "Fix the unhealthy instance first (journalctl -u luna-connect-a -u luna-connect-b)."
         log_error "Draining the only live instance is what produces site-wide 503."
+        log_error "If one peer is healthy and you accept the risk: sudo $0 ... --force"
         exit 1
     fi
 
@@ -192,25 +220,55 @@ preflight() {
 
 main() {
     require_root "$@"
+
+    local ref=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            --force)
+                FORCE_DEPLOY=1
+                shift
+                ;;
+            --head)
+                ref="HEAD"
+                shift
+                ;;
+            --tag)
+                if [ -z "${2:-}" ]; then
+                    log_error "--tag requires a tag name"
+                    exit 1
+                fi
+                ref="$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
     log_step "Luna Connect — Zero-Downtime Deploy"
     cd "$REPO_ROOT"
     git fetch --tags --force
 
-    local ref=""
-    if [ "${1:-}" = "--head" ]; then
-        ref="HEAD"
+    if [ -z "$ref" ]; then
+        ref=$(git tag --list 'luna-connect-v*' --sort=-v:refname | head -1)
+        if [ -z "$ref" ]; then
+            log_error "No luna-connect-v* tags. Create one: git tag luna-connect-v0.1.0 && git push --tags"
+            log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --head"
+            exit 1
+        fi
+        log_info "Deploying ${ref}"
+        git checkout -f "$ref"
+        git clean -fd luna-connect/web/ >/dev/null 2>&1 || true
+    elif [ "$ref" = "HEAD" ]; then
         log_info "Deploying HEAD ($(git rev-parse --short HEAD))"
     else
-        if [ "${1:-}" = "--tag" ] && [ -n "${2:-}" ]; then
-            ref="$2"
-        else
-            ref=$(git tag --list 'luna-connect-v*' --sort=-v:refname | head -1)
-            if [ -z "$ref" ]; then
-                log_error "No luna-connect-v* tags. Create one: git tag luna-connect-v0.1.0 && git push --tags"
-                log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --head"
-                exit 1
-            fi
-        fi
         log_info "Deploying ${ref}"
         git checkout -f "$ref"
         git clean -fd luna-connect/web/ >/dev/null 2>&1 || true
