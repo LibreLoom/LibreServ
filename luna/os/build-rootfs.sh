@@ -269,6 +269,7 @@ done
 # Keep syslog off the eMMC OS slots: /var/log is tmpfs. Luna state lives on
 # the separate LUNA_DATA partition mounted at /var/lib/luna.
 cat > "$ROOTFS/etc/fstab" <<'FSTAB'
+tmpfs /tmp tmpfs rw,nosuid,nodev,noatime,size=32M,mode=1777 0 0
 tmpfs /var/log tmpfs rw,nosuid,nodev,noatime,size=32M,mode=0755 0 0
 LABEL=LUNA_DATA /var/lib/luna ext4 defaults,noatime 0 2
 FSTAB
@@ -353,11 +354,10 @@ _esc() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 _body=$(printf '{"username":"%s","password":"%s"}' "$(_esc "$_user")" "$(_esc "$_pass")")
-_tmp=$(mktemp) || exit 1
-_code=$(curl -sS -o "$_tmp" -w '%{http_code}' -X POST "$_url" \
+_resp=$(curl -sS -w '\n%{http_code}' -X POST "$_url" \
 	-H 'Content-Type: application/json' \
-	--data-binary "$_body" 2>/dev/null || echo 000)
-rm -f "$_tmp"
+	--data-binary "$_body" 2>/dev/null || printf '\n000')
+_code=$(printf '%s' "$_resp" | tail -n 1)
 case "$_code" in
 200)
 	echo "Password updated. Sign in on your phone or computer."
@@ -382,9 +382,12 @@ cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
 ISSUE
 
 # Console accounts (HDMI/USB keyboard only; no SSH).
-# Only `pwreset` keeps an empty password so recovery can log in without a
-# secret. `root` and `luna` are locked (!). Rootfs is remounted read-only later.
+# `root` and `pwreset` keep an empty password for local tty1 login.
+# `luna` stays locked (!). Rootfs is remounted read-only later.
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
+    if grep -q "^root:" /rootfs/etc/passwd; then
+        sed -i -E "s|^root:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|root:\1:\2:\3:\4:\5:/bin/ash|" /rootfs/etc/passwd
+    fi
     if ! grep -q "^luna:" /rootfs/etc/passwd; then
         echo "luna:x:1000:1000:Luna:/home/luna:/sbin/nologin" >> /rootfs/etc/passwd
         echo "luna:x:1000:" >> /rootfs/etc/group
@@ -399,11 +402,11 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         mkdir -p /rootfs/home/pwreset
         chown 1001:1001 /rootfs/home/pwreset
     fi
-    # Lock root and luna; empty hash only for pwreset (blank password login).
+    # Empty hash for root and pwreset (blank password login); lock luna.
     if grep -q "^root:" /rootfs/etc/shadow; then
-        sed -i -E "s|^root:[^:]*:|root:!:|" /rootfs/etc/shadow
+        sed -i -E "s|^root:[^:]*:|root::|" /rootfs/etc/shadow
     else
-        echo "root:!:19000:0:99999:7:::" >> /rootfs/etc/shadow
+        echo "root::19000:0:99999:7:::" >> /rootfs/etc/shadow
     fi
     if grep -q "^luna:" /rootfs/etc/shadow; then
         sed -i -E "s|^luna:[^:]*:|luna:!:|" /rootfs/etc/shadow
