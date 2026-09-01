@@ -200,6 +200,36 @@ describe("FileBrowser", () => {
     expect(await screen.findByText(/Nothing here yet/i)).toBeInTheDocument();
   });
 
+  it("shows trash as a folder row at drive root when trashHref is set", async () => {
+    stubListing({
+      "": [{ name: "photo.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      multiSelect: false,
+      linkNavigation: true,
+      trashHref: "/drives/d1?view=trash",
+    });
+    expect(await screen.findByRole("link", { name: "Trash" })).toHaveAttribute(
+      "href",
+      "/drives/d1?view=trash",
+    );
+    expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
+  });
+
+  it("hides trash folder row in subfolders", async () => {
+    stubListing({
+      album: [{ name: "beach.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      path: "album",
+      multiSelect: false,
+      linkNavigation: true,
+      trashHref: "/drives/d1?view=trash",
+    });
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Trash" })).not.toBeInTheDocument();
+  });
+
   it("renders folderActions next to Upload", async () => {
     stubListing({
       "": [{ name: "photo.jpg", kind: "file", size: 10, hidden: false }],

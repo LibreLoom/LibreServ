@@ -72,6 +72,7 @@ import {
  *   showUpButton?: boolean,
  *   breadcrumbExtra?: import("react").ReactNode,
  *   headerExtra?: import("react").ReactNode,
+ *   trashHref?: string | null,
  *   toolbarExtra?: import("react").ReactNode,
  *   folderActions?: import("react").ReactNode,
  *   hideHidden?: boolean,
@@ -112,6 +113,7 @@ export default function FileBrowser({
   showUpButton = true,
   breadcrumbExtra = null,
   headerExtra = null,
+  trashHref = null,
   toolbarExtra = null,
   folderActions = null,
   hideHidden = true,
@@ -424,6 +426,7 @@ export default function FileBrowser({
   const allSelected = entryPaths.length > 0 && entryPaths.every((p) => selectedPaths.includes(p));
   const selectedCount = selectedPaths.length;
   const listDropHighlight = Boolean(enableUploadDrop && !isPicker && dragOver && !dropTarget);
+  const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
 
   return (
     <div
@@ -700,6 +703,42 @@ export default function FileBrowser({
             aria-label="Files and folders"
             {...(showingStaleListing ? { inert: true } : {})}
           >
+            {showTrashEntry ? (
+              <li
+                className={[
+                  "flex items-center gap-2 px-3",
+                  padY,
+                  "bg-secondary text-primary",
+                  "border-b border-primary/15",
+                  "motion-safe:transition-colors",
+                ].join(" ")}
+              >
+                {!isPicker && multiSelect ? (
+                  <span className="w-5 shrink-0" aria-hidden="true" />
+                ) : null}
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {linkNavigation ? (
+                    <Link
+                      to={trashHref}
+                      className="flex items-center gap-2 min-w-0 text-primary hover:underline"
+                    >
+                      <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
+                      <span className="font-mono text-sm truncate">Trash</span>
+                    </Link>
+                  ) : (
+                    <a
+                      href={trashHref}
+                      className="flex items-center gap-2 min-w-0 text-primary hover:underline"
+                    >
+                      <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
+                      <span className="font-mono text-sm truncate">Trash</span>
+                    </a>
+                  )}
+                </div>
+                <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary" aria-hidden="true" />
+                <div className="shrink-0 w-28" aria-hidden="true" />
+              </li>
+            ) : null}
             {entries.map((entry) => {
               const ctx = rowContext(entry);
               const isSelected = selectedPaths.includes(ctx.fullPath);
@@ -810,7 +849,7 @@ export default function FileBrowser({
         )}
       </Card>
 
-      {!listBusy && !listing.isError && entries.length === 0 && (
+      {!listBusy && !listing.isError && entries.length === 0 && !showTrashEntry && (
         <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} action={emptyAction} />
       )}
     </div>
@@ -852,6 +891,7 @@ FileBrowser.propTypes = {
   showUpButton: PropTypes.bool,
   breadcrumbExtra: PropTypes.node,
   headerExtra: PropTypes.node,
+  trashHref: PropTypes.string,
   toolbarExtra: PropTypes.node,
   folderActions: PropTypes.node,
   hideHidden: PropTypes.bool,

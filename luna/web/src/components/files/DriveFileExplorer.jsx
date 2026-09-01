@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, FolderInput, Pencil, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
@@ -534,6 +533,7 @@ export default function DriveFileExplorer({
           setRenameValue(ctx.entry.name);
         } : undefined}
         onDelete={folderWritable ? setDeletePaths : undefined}
+        trashHref={showTrashLink ? `/drives/${driveId}?view=trash` : null}
         folderActions={folderWritable ? <NewItemMenu onPick={openCreate} /> : null}
         emptyAction={folderWritable ? (
           <div className="flex justify-center">
@@ -557,16 +557,7 @@ export default function DriveFileExplorer({
             )}
           </>
         )}
-        headerExtra={(
-          <>
-            {showTrashLink && (
-              <Button variant="outline" surface="secondary" size="sm" asChild>
-                <Link to={`/drives/${driveId}?view=trash`}>Open trash</Link>
-              </Button>
-            )}
-            {headerExtra}
-          </>
-        )}
+        headerExtra={headerExtra}
         renderRowActions={(ctx) => (
           <ActionTooltipGroup>
             <div className="flex items-center gap-0.5 flex-wrap justify-end">
@@ -678,7 +669,7 @@ export default function DriveFileExplorer({
           <>
             <p className="text-primary text-sm">
               <span className="font-mono">{deleteLabel}</span> will move to
-              Luna&apos;s trash on this drive. You can get it back later from Open trash.
+              Luna&apos;s trash on this drive. You can get it back later from Trash.
             </p>
             <div className="mt-4 flex gap-3">
               <Button

@@ -114,6 +114,8 @@ describe("FilesPage", () => {
     renderFiles();
     expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/drives/d1?view=trash");
+    expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
     expect(screen.getByText("Current folder")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Protect photo.jpg" })).not.toBeInTheDocument();

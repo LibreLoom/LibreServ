@@ -306,7 +306,7 @@ export default function FileSearch() {
             <ShakeTarget shake={actionError}>
               <p className="text-primary text-sm">
                 <span className="font-mono">{deleteTarget?.name}</span> will move to
-                Luna&apos;s trash on its drive. You can get it back later from Open trash.
+                Luna&apos;s trash on its drive. You can get it back later from Trash.
               </p>
             </ShakeTarget>
             {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
