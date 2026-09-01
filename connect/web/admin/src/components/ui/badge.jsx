@@ -33,6 +33,7 @@ export function StatusBadge({ status }) {
     paid: "success", draft: "default", pending: "warning",
     granted: "success", denied: "destructive", expired: "default",
     healthy: "success", unhealthy: "destructive", inactive: "destructive",
+    unused: "warning", revoked: "default",
   };
   return <Badge variant={map[status] || "default"}>{status}</Badge>;
 }

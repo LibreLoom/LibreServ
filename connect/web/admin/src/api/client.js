@@ -53,6 +53,24 @@ export const api = {
   }),
   deleteAdmin: (id) => request(`/admin/admins/${id}`, { method: "DELETE" }),
 
+  // Customer accounts
+  listCustomerAccounts: () => request("/admin/accounts"),
+  getCustomerAccount: (id) => request(`/admin/accounts/${id}`),
+
+  // Connect keys (staff)
+  listConnectKeys: ({ all = false, status = "" } = {}) => {
+    const params = new URLSearchParams();
+    if (all) params.set("all", "1");
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    return request(`/admin/connect-keys${qs ? `?${qs}` : ""}`);
+  },
+  generateConnectKey: (accountId) => request("/admin/connect-keys", {
+    method: "POST",
+    body: JSON.stringify({ account_id: accountId }),
+  }),
+  revokeConnectKey: (keyId) => request(`/admin/connect-keys/${keyId}`, { method: "DELETE" }),
+
   // Devices
   listDevices: () => request("/admin/devices"),
   getDevice: (id) => request(`/admin/devices/${id}`),

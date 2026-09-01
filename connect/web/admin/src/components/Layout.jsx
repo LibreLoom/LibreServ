@@ -3,10 +3,12 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "./ui/button.jsx";
 import { Separator } from "./ui/separator.jsx";
-import { LayoutDashboard, Server, LifeBuoy, Package, Cpu, Shield, Cloud, LogOut, Sun, Moon, Network } from "lucide-react";
+import { LayoutDashboard, Server, LifeBuoy, Package, Cpu, Shield, Cloud, LogOut, Sun, Moon, Network, Users, KeyRound } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/accounts", label: "Accounts", icon: Users },
+  { to: "/connect-keys", label: "Connect keys", icon: KeyRound },
   { to: "/devices", label: "Devices", icon: Server },
   { to: "/cases", label: "Cases", icon: LifeBuoy },
   { to: "/plans", label: "Plans", icon: Package },

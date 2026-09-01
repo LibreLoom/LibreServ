@@ -4,6 +4,8 @@ import { useAuth } from "./context/AuthContext.jsx";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
+const Accounts = lazy(() => import("./pages/Accounts.jsx"));
+const ConnectKeys = lazy(() => import("./pages/ConnectKeys.jsx"));
 const Devices = lazy(() => import("./pages/Devices.jsx"));
 const Cases = lazy(() => import("./pages/Cases.jsx"));
 const Plans = lazy(() => import("./pages/Plans.jsx"));
@@ -31,6 +33,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+        <Route path="/connect-keys" element={<ProtectedRoute><ConnectKeys /></ProtectedRoute>} />
         <Route path="/devices" element={<ProtectedRoute><Devices /></ProtectedRoute>} />
         <Route path="/cases" element={<ProtectedRoute><Cases /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
