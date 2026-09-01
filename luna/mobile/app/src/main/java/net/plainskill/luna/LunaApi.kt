@@ -9,7 +9,7 @@ import java.net.URL
 
 /**
  * Minimal Luna HTTP client for photo backup. Sign-in is a pasted (or scanned)
- * access token, same as Luna Desktop. Uploads use the chunked protocol:
+ * access token, same as Luna for Linux. Uploads use the chunked protocol:
  * create → PUT ranges → complete.
  */
 object LunaApi {

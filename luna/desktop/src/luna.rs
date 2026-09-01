@@ -42,7 +42,7 @@ pub fn plain_connect_error(err: &ureq::Error) -> String {
 
 pub fn login(base_url: &str, username: &str, password: &str) -> Result<String, String> {
     let cookies = session_login_cookies(base_url, username, password)?;
-    let token = create_device_token(base_url, &cookies, "Luna Desktop")?;
+    let token = create_device_token(base_url, &cookies, crate::product_name())?;
     let _ = drop_session_cookie(base_url, &cookies);
     Ok(token)
 }
@@ -546,7 +546,7 @@ mod tests {
                     );
                     (
                         200,
-                        r#"{"id":"dt-1","name":"Luna Desktop","token":"device-tok-456","revoked":false}"#.to_string(),
+                        r#"{"id":"dt-1","name":"Luna for Linux","token":"device-tok-456","revoked":false}"#.to_string(),
                     )
                 } else if req.contains("/api/v1/drives") && !req.contains("/files") {
                     (200, r#"[{"id":"a","label":"Photos Drive","state":"as_is","fs_type":"ext4","device":"sda","mount_point":"/x"}]"#.to_string())

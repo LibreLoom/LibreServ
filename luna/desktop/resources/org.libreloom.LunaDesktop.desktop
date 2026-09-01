@@ -1,9 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Luna Desktop
+Name=Luna for Linux
 Comment=Back up and sync folders with Luna
 Exec=luna-desktop
 Icon=org.libreloom.LunaDesktop
 Terminal=false
-Categories=Utility;FileTools;
+Categories=Utility;FileTools;GTK;
+Keywords=backup;sync;luna;files;
 StartupNotify=true

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rapid-dev loop for Luna Desktop (GTK):
+# Rapid-dev loop for Luna for Linux (GTK):
 #   - ensures Luna is up and an access token is ready
 #   - prefills login (and auto-signs in by default)
 #   - cargo-watch rebuild+restart on save
@@ -26,7 +26,7 @@ export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 # Fresh sign-in each run so the minted token is what we exercise.
 rm -f "${LUNA_DESKTOP_DATA:-$HOME/.local/share/luna-desktop}/session.json"
 
-echo "==> Luna Desktop rapid-dev"
+echo "==> Luna for Linux rapid-dev"
 echo "    LUNA_DESKTOP_URL=$LUNA_DESKTOP_URL"
 echo "    LUNA_DESKTOP_AUTO_LOGIN=$LUNA_DESKTOP_AUTO_LOGIN"
 echo "    GTK_DEBUG=$GTK_DEBUG"

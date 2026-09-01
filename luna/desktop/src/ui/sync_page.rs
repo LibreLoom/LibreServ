@@ -9,6 +9,7 @@ use gtk::glib;
 use luna_desktop::AppState;
 use luna_desktop::sync::SyncPair;
 
+use super::adaptive::{configure_form_dialog, make_page_toolbar, touch_icon_button};
 use super::folder_browser::FolderBrowser;
 use super::spawn_blocking;
 use super::toast_error;
@@ -21,25 +22,18 @@ impl SyncPage {
     pub fn new(state: Arc<AppState>, toast: Rc<adw::ToastOverlay>) -> Self {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
-        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        toolbar.set_margin_top(12);
-        toolbar.set_margin_bottom(8);
-        toolbar.set_margin_start(16);
-        toolbar.set_margin_end(16);
-
         let blurb = gtk::Label::new(Some(
             "Keep a Luna folder and a folder on this computer up to date with each other. Changes go both ways.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
-        blurb.set_hexpand(true);
         blurb.add_css_class("body");
 
         let new_btn = gtk::Button::with_label("New sync");
         new_btn.add_css_class("pill");
         new_btn.add_css_class("suggested-action");
-        toolbar.append(&blurb);
-        toolbar.append(&new_btn);
+
+        let toolbar = make_page_toolbar(&outer, &blurb, &new_btn);
 
         let list = gtk::ListBox::new();
         list.set_selection_mode(gtk::SelectionMode::None);
@@ -207,9 +201,7 @@ fn build_row(
     icon.set_tooltip_text(Some(tip.as_str()));
     row.add_prefix(&icon);
 
-    let edit = gtk::Button::from_icon_name("document-edit-symbolic");
-    edit.add_css_class("flat");
-    edit.set_tooltip_text(Some("Edit"));
+    let edit = touch_icon_button("document-edit-symbolic", "Edit");
     edit.connect_clicked({
         let state = state.clone();
         let toast = toast.clone();
@@ -228,9 +220,7 @@ fn build_row(
     });
     row.add_suffix(&edit);
 
-    let delete = gtk::Button::from_icon_name("user-trash-symbolic");
-    delete.add_css_class("flat");
-    delete.set_tooltip_text(Some("Delete"));
+    let delete = touch_icon_button("user-trash-symbolic", "Delete");
     let id = pair.id.clone();
     delete.connect_clicked({
         let state = state.clone();
@@ -262,7 +252,7 @@ fn sync_status_icon(
     if !progress.error.is_empty() {
         return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
-    if progress.running && !progress.current.is_empty() {
+    if progress.running && progress.phase == "Syncing" && !progress.current.is_empty() {
         return (
             "emblem-synchronizing-symbolic",
             "Updating files…".to_string(),
@@ -304,8 +294,7 @@ fn open_editor(
     } else {
         "Edit sync"
     });
-    dialog.set_content_width(520);
-    dialog.set_content_height(560);
+    configure_form_dialog(&dialog, parent, false);
 
     // ToastOverlay must live inside the dialog so errors appear above it, not behind.
     let toast = Rc::new(adw::ToastOverlay::new());

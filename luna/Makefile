@@ -83,7 +83,8 @@ desktop-appimage: desktop
 	cd desktop && bash packaging/appimage/build.sh
 
 # Build + export a single-file Flatpak bundle for Forgejo releases.
-FLATPAK_BUNDLE ?= $(CURDIR)/desktop/release/luna-desktop-x86_64.flatpak
+ARCH ?= $(shell uname -m)
+FLATPAK_BUNDLE ?= $(CURDIR)/desktop/release/luna-desktop-$(ARCH).flatpak
 desktop-flatpak:
 	mkdir -p desktop/release desktop/packaging/flatpak/repo
 	cd desktop/packaging/flatpak && flatpak-builder \
@@ -92,7 +93,7 @@ desktop-flatpak:
 	flatpak build-bundle desktop/packaging/flatpak/repo "$(FLATPAK_BUNDLE)" \
 		org.libreloom.LunaDesktop \
 		--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
-	@echo "Flatpak bundle: $(FLATPAK_BUNDLE)"
+	@echo "Flatpak bundle: $(FLATPAK_BUNDLE) ($(ARCH))"
 
 desktop-bundle: desktop-flatpak
 	@echo "Preferred Linux ship: $(FLATPAK_BUNDLE)"

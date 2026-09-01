@@ -6,6 +6,7 @@ use adw::prelude::*;
 
 use luna_desktop::{AppState, SessionInfo};
 
+use super::adaptive;
 use super::backup_page::BackupPage;
 use super::settings_page::SettingsPage;
 use super::spawn_blocking;
@@ -58,9 +59,11 @@ impl ShellView {
             );
         }
 
-        let split = adw::NavigationSplitView::new();
-        split.set_min_sidebar_width(200.0);
-        split.set_max_sidebar_width(280.0);
+        let split = adw::OverlaySplitView::new();
+        split.set_min_sidebar_width(240.0);
+        split.set_max_sidebar_width(300.0);
+        split.set_enable_show_gesture(true);
+        split.set_enable_hide_gesture(true);
 
         // --- Sidebar ---
         let sidebar_header = adw::HeaderBar::new();
@@ -123,11 +126,6 @@ impl ShellView {
         sidebar_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         sidebar_toolbar.set_content(Some(&sidebar_inner));
 
-        let sidebar_page = adw::NavigationPage::builder()
-            .title("Luna")
-            .child(&sidebar_toolbar)
-            .build();
-
         // --- Content stack ---
         let content_stack = gtk::Stack::new();
         content_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
@@ -148,29 +146,56 @@ impl ShellView {
         let window_title = adw::WindowTitle::new("Backup", "");
         content_header.set_title_widget(Some(&window_title));
 
+        // On narrow screens the sidebar collapses; this button brings it back.
+        let menu_btn = gtk::Button::from_icon_name("open-menu-symbolic");
+        menu_btn.add_css_class("flat");
+        menu_btn.add_css_class("touch-target");
+        menu_btn.set_tooltip_text(Some("Open navigation"));
+        menu_btn.set_visible(split.is_collapsed());
+        content_header.pack_start(&menu_btn);
+
+        split.connect_collapsed_notify({
+            let menu_btn = menu_btn.clone();
+            move |view| {
+                menu_btn.set_visible(view.is_collapsed());
+            }
+        });
+
+        menu_btn.connect_clicked({
+            let split = split.clone();
+            move |_| {
+                split.set_show_sidebar(true);
+            }
+        });
+
         let content_toolbar = adw::ToolbarView::new();
         content_toolbar.add_top_bar(&content_header);
         content_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         content_toolbar.set_content(Some(&content_stack));
 
-        let content_page = adw::NavigationPage::builder()
-            .title("Backup")
-            .child(&content_toolbar)
-            .build();
+        split.set_sidebar(Some(&sidebar_toolbar));
+        split.set_content(Some(&content_toolbar));
 
-        split.set_sidebar(Some(&sidebar_page));
-        split.set_content(Some(&content_page));
+        adaptive::bind_narrow(&split, {
+            let split = split.clone();
+            Rc::new(move |narrow| {
+                split.set_collapsed(narrow);
+                if narrow {
+                    split.set_show_sidebar(false);
+                }
+            })
+        });
 
         let page_state = Rc::new(RefCell::new(Page::Backup));
         list.connect_row_activated({
             let content_stack = content_stack.clone();
-            let content_page = content_page.clone();
             let window_title = window_title.clone();
             let page_state = page_state.clone();
             let row_backup = row_backup.clone();
             let row_sync = row_sync.clone();
             let row_status = row_status.clone();
             let row_settings = row_settings.clone();
+            let split = split.clone();
             move |_, row| {
                 let (name, label, page) = if row == row_backup.upcast_ref::<gtk::ListBoxRow>() {
                     ("backup", "Backup", Page::Backup)
@@ -186,7 +211,9 @@ impl ShellView {
                 *page_state.borrow_mut() = page;
                 content_stack.set_visible_child_name(name);
                 window_title.set_title(label);
-                content_page.set_title(label);
+                if split.is_collapsed() {
+                    split.set_show_sidebar(false);
+                }
             }
         });
 

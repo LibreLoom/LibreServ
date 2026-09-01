@@ -59,7 +59,7 @@ TOK_JSON="$(curl -fsS -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
   -X POST "$URL/api/v1/device-tokens" \
   -H 'Content-Type: application/json' \
   -H "X-CSRF-Token: $CSRF" \
-  -d '{"name":"Luna Desktop (dev)"}')"
+  -d '{"name":"Luna for Linux (dev)"}')"
 
 TOKEN="$(printf '%s' "$TOK_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
 printf '%s\n' "$URL" >"$DEV_DIR/url"

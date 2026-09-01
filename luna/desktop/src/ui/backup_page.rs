@@ -9,6 +9,7 @@ use gtk::glib;
 use luna_desktop::AppState;
 use luna_desktop::backup::BackupJob;
 
+use super::adaptive::{configure_form_dialog, make_page_toolbar, touch_icon_button};
 use super::folder_browser::FolderBrowser;
 use super::spawn_blocking;
 use super::toast_error;
@@ -21,25 +22,18 @@ impl BackupPage {
     pub fn new(state: Arc<AppState>, toast: Rc<adw::ToastOverlay>) -> Self {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
-        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        toolbar.set_margin_top(12);
-        toolbar.set_margin_bottom(8);
-        toolbar.set_margin_start(16);
-        toolbar.set_margin_end(16);
-
         let blurb = gtk::Label::new(Some(
             "Copy folders from this computer onto Luna. One-way — changes on Luna do not come back.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
-        blurb.set_hexpand(true);
         blurb.add_css_class("body");
 
         let new_btn = gtk::Button::with_label("New backup");
         new_btn.add_css_class("pill");
         new_btn.add_css_class("suggested-action");
-        toolbar.append(&blurb);
-        toolbar.append(&new_btn);
+
+        let toolbar = make_page_toolbar(&outer, &blurb, &new_btn);
 
         let list = gtk::ListBox::new();
         list.set_selection_mode(gtk::SelectionMode::None);
@@ -203,9 +197,7 @@ fn build_job_row(
     icon.set_tooltip_text(Some(tip.as_str()));
     row.add_prefix(&icon);
 
-    let edit = gtk::Button::from_icon_name("document-edit-symbolic");
-    edit.add_css_class("flat");
-    edit.set_tooltip_text(Some("Edit"));
+    let edit = touch_icon_button("document-edit-symbolic", "Edit");
     edit.connect_clicked({
         let state = state.clone();
         let toast = toast.clone();
@@ -224,9 +216,7 @@ fn build_job_row(
     });
     row.add_suffix(&edit);
 
-    let delete = gtk::Button::from_icon_name("user-trash-symbolic");
-    delete.add_css_class("flat");
-    delete.set_tooltip_text(Some("Delete"));
+    let delete = touch_icon_button("user-trash-symbolic", "Delete");
     let id = job.id.clone();
     delete.connect_clicked({
         let state = state.clone();
@@ -258,7 +248,7 @@ fn backup_status_icon(
     if !progress.error.is_empty() {
         return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
-    if progress.running && (!progress.current.is_empty() || progress.bytes > 0) {
+    if progress.running && !progress.current.is_empty() {
         return (
             "emblem-synchronizing-symbolic",
             "Copying files to Luna…".to_string(),
@@ -301,8 +291,7 @@ fn open_editor(
     } else {
         "Edit backup"
     });
-    dialog.set_content_width(520);
-    dialog.set_content_height(580);
+    configure_form_dialog(&dialog, parent, true);
 
     // ToastOverlay must live inside the dialog so errors appear above it, not behind.
     let toast = Rc::new(adw::ToastOverlay::new());
@@ -339,8 +328,7 @@ fn open_editor(
             for (i, s) in snapshot.iter().enumerate() {
                 let row = adw::ActionRow::builder().title(s).build();
                 row.set_title_lines(1);
-                let rm = gtk::Button::from_icon_name("list-remove-symbolic");
-                rm.add_css_class("flat");
+                let rm = touch_icon_button("list-remove-symbolic", "Remove");
                 rm.connect_clicked({
                     let sources = sources.clone();
                     let redraw_list = sources_list.clone();
@@ -356,8 +344,7 @@ fn open_editor(
                         for (j, path) in snap.iter().enumerate() {
                             let r = adw::ActionRow::builder().title(path).build();
                             r.set_title_lines(1);
-                            let btn = gtk::Button::from_icon_name("list-remove-symbolic");
-                            btn.add_css_class("flat");
+                            let btn = touch_icon_button("list-remove-symbolic", "Remove");
                             btn.connect_clicked({
                                 let sources = sources.clone();
                                 let redraw_list = redraw_list.clone();

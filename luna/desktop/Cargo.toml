@@ -2,7 +2,7 @@
 name = "luna-desktop"
 version = "0.1.0"
 edition = "2024"
-description = "Luna Desktop — backup and sync with GTK 4 + libadwaita"
+description = "Luna for Linux — backup and sync with GTK 4 + libadwaita"
 license = "AGPL-3.0-or-later"
 
 # Standalone crate (not part of the luna workspace — needs GTK/libadwaita).

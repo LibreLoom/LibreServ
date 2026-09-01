@@ -154,7 +154,7 @@ describe("SettingsPage", () => {
     expect(screen.queryByText(/copies new photos from the phone/i)).toBeNull();
     expect(screen.queryByText(/no iPhone app yet/i)).toBeNull();
     expect(screen.getByRole("link", { name: /Download the Luna app for Android/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Download Luna Desktop/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Download Luna for Linux/i })).toBeTruthy();
     const tokenLinks = screen.getAllByRole("link", { name: /Create an access token in Security/i });
     expect(tokenLinks).toHaveLength(2);
     expect(tokenLinks[0]).toHaveAttribute("href", "/settings#security");

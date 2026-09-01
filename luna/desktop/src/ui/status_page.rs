@@ -90,8 +90,8 @@ impl StatusPage {
                             let Some(p) = backups.get(&job.id) else {
                                 continue;
                             };
-                            // In progress: running and (current file or bytes moving).
-                            if !p.running || (p.current.is_empty() && p.bytes == 0) {
+                            // In progress: actively copying a file right now.
+                            if !p.running || p.current.is_empty() {
                                 continue;
                             }
                             any = true;
@@ -127,7 +127,7 @@ impl StatusPage {
                             let Some(p) = syncs.get(&pair.id) else {
                                 continue;
                             };
-                            if !p.running || p.current.is_empty() {
+                            if !p.running || p.phase != "Syncing" || p.current.is_empty() {
                                 continue;
                             }
                             any = true;
