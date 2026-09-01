@@ -7,11 +7,17 @@ import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import SettingsPage from "./SettingsPage";
 
-function stubFetch(role = "admin") {
+function stubFetch(role = "admin", connectDisabled = false) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me")) {
       return new Response(JSON.stringify({ id: "1", username: "max", role }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.includes("/auth/status")) {
+      return new Response(JSON.stringify({ has_admin: role === "admin", connect_disabled: connectDisabled }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -186,5 +192,13 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Local Network/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
+  });
+
+  it("hides External Services when Luna Connect is disabled on the device", async () => {
+    stubFetch("admin", true);
+    renderPage();
+    await screen.findByText("max");
+    expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 });

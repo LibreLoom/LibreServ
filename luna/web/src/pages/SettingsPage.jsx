@@ -7,6 +7,7 @@ import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
+import useConnectDisabled from "../hooks/useConnectDisabled";
 
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
 function categoryFromHash(hash, allowedCategoryIds) {
@@ -38,9 +39,10 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const isDesktop = useIsDesktop();
   const isAdmin = user?.role === "admin";
+  const connectDisabled = useConnectDisabled();
   const allowedCategoryIds = useMemo(
-    () => visibleCategories(isAdmin).map((c) => c.id),
-    [isAdmin],
+    () => visibleCategories(isAdmin, connectDisabled).map((c) => c.id),
+    [isAdmin, connectDisabled],
   );
   const defaultCategory = "appearance";
   const hashCategory = categoryFromHash(location.hash, allowedCategoryIds);

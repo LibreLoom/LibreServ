@@ -17,6 +17,7 @@ import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
 import { folderHref as driveFolderHref, pathBasename } from "../lib/paths.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
+import useConnectDisabled from "../hooks/useConnectDisabled.js";
 
 const STATE_PILLS = {
   as_is: "success",
@@ -321,7 +322,7 @@ function connectionDotClass(net) {
  *   remoteDomain?: string,
  * }} props
  */
-function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain }) {
+function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain, connectDisabled }) {
   return (
     <Card data-slot="connection-card">
       <div className="flex items-center gap-2 mb-1">
@@ -337,7 +338,7 @@ function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain }) {
         {connectionHeadline(net)}
       </div>
       <p className="text-primary text-sm mt-2">{connectionDetail(net)}</p>
-      {isAdmin && (
+      {isAdmin && !connectDisabled && (
         <Button
           size="md"
           variant="primary"
@@ -541,6 +542,7 @@ export default function DashboardPage() {
   const greeting = useMemo(() => getGreeting(), []);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const connectDisabled = useConnectDisabled();
 
   const health = useQuery({
     queryKey: ["health"],
@@ -649,6 +651,7 @@ export default function DashboardPage() {
             isAdmin={isAdmin}
             remoteOn={remoteOn}
             remoteDomain={remoteDomain}
+            connectDisabled={connectDisabled}
           />
           {recentJobs.length > 0 && (
             <RecentJobsCard jobs={recentJobs} drives={adopted} />

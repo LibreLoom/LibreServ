@@ -35,6 +35,7 @@ function stubFetch({
   network = { ethernet_connected: true, wifi_connected: false, has_default_route: true },
   /** @type {any} */
   connect = { enabled: true, tunnel_active: true, domain: "luna.example" },
+  connectDisabled = false,
   jobs = [],
   access = [],
   summaries = {
@@ -56,6 +57,9 @@ function stubFetch({
       const u = String(url);
       if (u.endsWith("/api/v1/auth/me")) {
         return jsonResponse({ id: "1", username, role });
+      }
+      if (u.endsWith("/api/v1/auth/status")) {
+        return jsonResponse({ has_admin: role === "admin", connect_disabled: connectDisabled });
       }
       if (u.endsWith("/api/v1/setup")) {
         return jsonResponse({ name: "Luna", setup_completed: true });
@@ -169,6 +173,13 @@ describe("DashboardPage", () => {
       "/settings#external_services",
     );
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
+  });
+
+  it("hides remote access when Luna Connect is disabled on the device", async () => {
+    stubFetch({ connectDisabled: true });
+    renderPage();
+    expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
   });
 
   it("shows storage, root counts, and folder shortcuts on drive cards", async () => {

@@ -4,6 +4,7 @@ import Card from "../cards/Card";
 import SettingsUserCard from "./SettingsUserCard";
 import CardButton from "../ui/CardButton";
 import { visibleCategories } from "./settingsCategories";
+import useConnectDisabled from "../../hooks/useConnectDisabled";
 
 export default function SettingsSidebar({
   user,
@@ -12,7 +13,8 @@ export default function SettingsSidebar({
   className = "",
 }) {
   const isAdmin = user?.role === "admin";
-  const categories = visibleCategories(isAdmin);
+  const connectDisabled = useConnectDisabled();
+  const categories = visibleCategories(isAdmin, connectDisabled);
   return (
     <Card
       as="nav"
