@@ -42,7 +42,7 @@ llm-pi-ai:
 
 agent-default-model:
   provider: ai-proxy
-  model: plainskill-coder
+  model: plainskill-flash
   reasoningEffort: high
 
 agent-presets:
