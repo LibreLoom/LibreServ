@@ -21,6 +21,12 @@ pub struct FileEntry {
     pub modified: i64,
 }
 
+/// Whether an API error means stored credentials are no longer valid.
+pub fn is_auth_failure(err: &str) -> bool {
+    let t = err.trim();
+    t == "unauthorized" || t.contains("didn't work") || t.contains("access token didn't work")
+}
+
 pub fn plain_connect_error(err: &ureq::Error) -> String {
     let text = err.to_string();
     if text.contains("Connection refused")
@@ -570,6 +576,20 @@ mod tests {
             }
         });
         (format!("http://127.0.0.1:{port}"), handle, stop)
+    }
+
+    #[test]
+    fn is_auth_failure_recognizes_credential_errors() {
+        assert!(is_auth_failure("unauthorized"));
+        assert!(is_auth_failure(
+            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+        ));
+        assert!(is_auth_failure(
+            "That username or password didn't work. Check them and try again."
+        ));
+        assert!(!is_auth_failure(
+            "Luna couldn't be reached. Check the address and that Luna is on, then try again."
+        ));
     }
 
     #[test]

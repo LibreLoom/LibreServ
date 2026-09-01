@@ -79,32 +79,47 @@ fn existing_jobs(skip_backup_id: Option<&str>, skip_sync_id: Option<&str>) -> Ex
     ex
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SessionInfo {
     pub base_url: String,
     pub username: String,
 }
 
-pub fn restore_session(state: &AppState) -> Result<Option<SessionInfo>, String> {
+/// Result of trying to restore a saved sign-in at startup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RestoreOutcome {
+    Restored(SessionInfo),
+    NoSession,
+    /// Saved token no longer works; session cleared, Luna address kept for reconfigure.
+    AuthFailed {
+        base_url: String,
+    },
+    Failed(String),
+}
+
+pub fn restore_session(state: &AppState) -> RestoreOutcome {
     let Some(saved) = session::load() else {
-        return Ok(None);
+        return RestoreOutcome::NoSession;
     };
     match luna::list_drives(&saved.base_url, &saved.token) {
         Ok(_) => {
-            *state
-                .session
-                .lock()
-                .map_err(|_| "Internal error.".to_string())? = Some(saved.clone());
-            Ok(Some(SessionInfo {
+            if let Ok(mut slot) = state.session.lock() {
+                *slot = Some(saved.clone());
+            }
+            RestoreOutcome::Restored(SessionInfo {
                 base_url: saved.base_url,
                 username: saved.username,
-            }))
+            })
         }
-        Err(e) if e == "unauthorized" => {
+        Err(e) if luna::is_auth_failure(&e) => {
+            let base_url = saved.base_url;
             session::clear();
-            Ok(None)
+            if let Ok(mut slot) = state.session.lock() {
+                *slot = None;
+            }
+            RestoreOutcome::AuthFailed { base_url }
         }
-        Err(e) => Err(e),
+        Err(e) => RestoreOutcome::Failed(e),
     }
 }
 
@@ -380,4 +395,106 @@ pub fn unique_id() -> String {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     format!("{t:x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+
+    use session::test_env;
+
+    fn spawn_drives_server(status: u16) -> (String, thread::JoinHandle<()>, Arc<AtomicBool>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let handle = thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                if stop2.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut buf = [0u8; 4096];
+                let mut s = stream;
+                let n = s.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let (code, body) = if req.contains("/api/v1/drives") {
+                    (status, "[]".to_string())
+                } else {
+                    (404, "{}".to_string())
+                };
+                let resp = format!(
+                    "HTTP/1.1 {code} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        (format!("http://127.0.0.1:{port}"), handle, stop)
+    }
+
+    #[test]
+    fn restore_session_auth_failed_clears_token_keeps_url() {
+        let _g = test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
+
+        let (base, handle, stop) = spawn_drives_server(401);
+        session::save(&session::SessionData {
+            base_url: base.clone(),
+            username: "max".into(),
+            token: "bad-token".into(),
+        })
+        .unwrap();
+
+        let state = AppState::default();
+        let outcome = restore_session(&state);
+        assert_eq!(
+            outcome,
+            RestoreOutcome::AuthFailed {
+                base_url: base.clone()
+            }
+        );
+        assert!(session::load().is_none());
+        assert!(state.session.lock().unwrap().is_none());
+
+        stop.store(true, Ordering::Relaxed);
+        drop(handle);
+        unsafe { std::env::remove_var("LUNA_DESKTOP_DATA") };
+    }
+
+    #[test]
+    fn restore_session_success_when_token_valid() {
+        let _g = test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
+
+        let (base, handle, stop) = spawn_drives_server(200);
+        session::save(&session::SessionData {
+            base_url: base.clone(),
+            username: "max".into(),
+            token: "good-token".into(),
+        })
+        .unwrap();
+
+        let state = AppState::default();
+        let outcome = restore_session(&state);
+        assert_eq!(
+            outcome,
+            RestoreOutcome::Restored(SessionInfo {
+                base_url: base.clone(),
+                username: "max".into(),
+            })
+        );
+        assert!(session::load().is_some());
+
+        stop.store(true, Ordering::Relaxed);
+        drop(handle);
+        unsafe { std::env::remove_var("LUNA_DESKTOP_DATA") };
+    }
 }
