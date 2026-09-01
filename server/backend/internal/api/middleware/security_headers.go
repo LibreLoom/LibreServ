@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
 	"strings"
 )
@@ -15,13 +16,29 @@ func SecurityHeaders() func(next http.Handler) http.Handler {
 			w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'sha256-IEhI62YIJjWGgJ2eGBaEs/pLhpzi3D0Om6s+T2cMIKI='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
-			host := r.Host
-			if host != "" && !strings.Contains(host, "localhost") && !strings.Contains(host, "127.0.0.1") {
+			if !skipHSTS(r.Host) {
 				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 			}
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+func skipHSTS(host string) bool {
+	if host == "" {
+		return true
+	}
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	hostname = strings.Trim(hostname, "[]")
+	switch strings.ToLower(hostname) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
 	}
 }
 
