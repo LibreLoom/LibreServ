@@ -6,6 +6,7 @@ use adw::prelude::*;
 
 use luna_desktop::{AppState, SessionInfo};
 
+use super::adaptive;
 use super::backup_page::BackupPage;
 use super::settings_page::SettingsPage;
 use super::spawn_blocking;
@@ -58,9 +59,11 @@ impl ShellView {
             );
         }
 
-        let split = adw::NavigationSplitView::new();
-        split.set_min_sidebar_width(200.0);
-        split.set_max_sidebar_width(280.0);
+        let split = adw::OverlaySplitView::new();
+        split.set_min_sidebar_width(240.0);
+        split.set_max_sidebar_width(300.0);
+        split.set_enable_show_gesture(true);
+        split.set_enable_hide_gesture(true);
 
         // --- Sidebar ---
         let sidebar_header = adw::HeaderBar::new();
@@ -123,11 +126,6 @@ impl ShellView {
         sidebar_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         sidebar_toolbar.set_content(Some(&sidebar_inner));
 
-        let sidebar_page = adw::NavigationPage::builder()
-            .title("Luna")
-            .child(&sidebar_toolbar)
-            .build();
-
         // --- Content stack ---
         let content_stack = gtk::Stack::new();
         content_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
@@ -166,7 +164,7 @@ impl ShellView {
         menu_btn.connect_clicked({
             let split = split.clone();
             move |_| {
-                split.set_show_content(false);
+                split.set_show_sidebar(true);
             }
         });
 
@@ -175,18 +173,22 @@ impl ShellView {
         content_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
         content_toolbar.set_content(Some(&content_stack));
 
-        let content_page = adw::NavigationPage::builder()
-            .title("Backup")
-            .child(&content_toolbar)
-            .build();
+        split.set_sidebar(Some(&sidebar_toolbar));
+        split.set_content(Some(&content_toolbar));
 
-        split.set_sidebar(Some(&sidebar_page));
-        split.set_content(Some(&content_page));
+        adaptive::bind_narrow(&split, {
+            let split = split.clone();
+            Rc::new(move |narrow| {
+                split.set_collapsed(narrow);
+                if narrow {
+                    split.set_show_sidebar(false);
+                }
+            })
+        });
 
         let page_state = Rc::new(RefCell::new(Page::Backup));
         list.connect_row_activated({
             let content_stack = content_stack.clone();
-            let content_page = content_page.clone();
             let window_title = window_title.clone();
             let page_state = page_state.clone();
             let row_backup = row_backup.clone();
@@ -209,9 +211,8 @@ impl ShellView {
                 *page_state.borrow_mut() = page;
                 content_stack.set_visible_child_name(name);
                 window_title.set_title(label);
-                content_page.set_title(label);
                 if split.is_collapsed() {
-                    split.set_show_content(true);
+                    split.set_show_sidebar(false);
                 }
             }
         });

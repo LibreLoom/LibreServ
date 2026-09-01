@@ -39,8 +39,6 @@ struct KeepAlive {
 }
 
 pub fn run() -> glib::ExitCode {
-    load_app_css();
-
     let mut args: Vec<String> = std::env::args().collect();
     let background = args.iter().any(|a| a == "--background" || a == "-b");
     args.retain(|a| a != "--background" && a != "-b");
@@ -58,6 +56,7 @@ pub fn run() -> glib::ExitCode {
         let window_slot = window_slot.clone();
         let keep_alive = keep_alive.clone();
         move |app| {
+            load_app_css();
             if let Some(win) = window_slot.borrow().as_ref() {
                 win.set_visible(true);
                 win.present();
