@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Cable, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson, setSetupToken, clearSetupToken, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
@@ -390,9 +390,11 @@ function AccountStep({ hasAdmin, onContinue }) {
     confirm_password: "",
     setup_secret:     "",
   });
-  const [showPw, setShowPw]       = useState(false);
+  const [showPw, setShowPw]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState(null);
+  const [authSubStep, setAuthSubStep] = useState(0);
+  const [authSubDir, setAuthSubDir]   = useState("right");
 
   const pw       = form.password;
   const confirm  = form.confirm_password;
@@ -400,16 +402,83 @@ function AccountStep({ hasAdmin, onContinue }) {
   const meetsPolicy = !!(strength?.ok);
   const usernameOk  = form.username.trim().length >= 3;
   const confirmOk   = confirm === pw && pw !== "";
-  const isValid = !!(usernameOk && pw && meetsPolicy && confirmOk && (!needsSetupCode || form.setup_secret.trim()));
+  const setupSecretOk = !needsSetupCode || form.setup_secret.trim().length > 0;
 
-  const handleChange = (e) => {
-    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const setField = (name, value) => {
+    setForm((f) => ({ ...f, [name]: value }));
     if (fieldError) setFieldError(null);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!isValid || submitting) return;
+  const authFields = [
+    {
+      id: "display_name",
+      question: "What's your name?",
+      hint: "Shown on this Luna when you sign in. You can skip this and use your username instead.",
+      name: "display_name",
+      type: "text",
+      placeholder: "e.g. Alex",
+      autoComplete: "name",
+      valid: true,
+    },
+    {
+      id: "username",
+      question: "Pick a username",
+      hint: "How you sign in — letters, numbers, dots, or dashes.",
+      name: "username",
+      type: "text",
+      placeholder: "alex",
+      autoComplete: "username",
+      valid: usernameOk,
+    },
+    {
+      id: "password",
+      question: "Choose a password",
+      hint: PASSWORD_POLICY_HINT,
+      name: "password",
+      type: "password",
+      placeholder: PASSWORD_POLICY_HINT,
+      autoComplete: "new-password",
+      valid: meetsPolicy,
+      showStrength: true,
+    },
+    {
+      id: "confirm_password",
+      question: "Confirm your password",
+      hint: confirmOk && pw ? "Passwords match." : "Re-enter the password you just chose.",
+      name: "confirm_password",
+      type: "password",
+      placeholder: "Re-enter your password",
+      autoComplete: "new-password",
+      valid: confirmOk,
+    },
+  ];
+  if (needsSetupCode) {
+    authFields.push({
+      id: "setup_secret",
+      question: "Your device code",
+      hint: "Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login.",
+      name: "setup_secret",
+      type: "text",
+      placeholder: "Paste the code from Luna Connect",
+      autoComplete: "off",
+      valid: setupSecretOk,
+    });
+  }
+
+  const currentAuthField = authFields[authSubStep] || authFields[0];
+  const isLastAuthSubStep = authSubStep === authFields.length - 1;
+
+  const goSubNext = () => {
+    setAuthSubDir("right");
+    setAuthSubStep((s) => Math.min(s + 1, authFields.length - 1));
+  };
+  const goSubPrev = () => {
+    setAuthSubDir("left");
+    setAuthSubStep((s) => Math.max(s - 1, 0));
+  };
+
+  const handleCreateAccount = async () => {
+    if (submitting) return;
     setSubmitting(true);
     setFieldError(null);
     try {
@@ -420,6 +489,16 @@ function AccountStep({ hasAdmin, onContinue }) {
     } catch (err) {
       setFieldError(err.message);
       setSubmitting(false);
+    }
+  };
+
+  const handleSubSubmit = async (e) => {
+    e.preventDefault();
+    if (!currentAuthField.valid || submitting) return;
+    if (isLastAuthSubStep) {
+      await handleCreateAccount();
+    } else {
+      goSubNext();
     }
   };
 
@@ -479,192 +558,160 @@ function AccountStep({ hasAdmin, onContinue }) {
     <>
       {/* Header */}
       <div className="mb-8">
-          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-            Create your account
-          </h2>
-          <p className="text-primary text-sm mt-2">
-            This account protects every file on Luna. You can add users later.
-          </p>
+        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+          Create your account
+        </h2>
+        <p className="text-primary text-sm mt-2">
+          This account protects every file on Luna. You can add users later.
+        </p>
+      </div>
+
+      {/* Substep progress */}
+      <div className="w-full mb-8">
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-xs font-mono text-primary">
+            {authSubStep + 1} of {authFields.length}
+          </span>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Your name */}
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-            <FormField id="display_name" label="Your name" hint="Shown on this Luna when you sign in">
-              <input
-                id="display_name"
-                name="display_name"
-                type="text"
-                autoComplete="name"
-                placeholder="e.g. Alex"
-                value={form.display_name}
-                onChange={handleChange}
-                disabled={submitting}
-                className={WIZARD_INPUT_CLASS}
+        <div className="flex gap-1.5">
+          {authFields.map((f, i) => (
+            <div key={f.id} className="flex-1 h-1 rounded-full bg-primary/15 overflow-hidden">
+              <div
+                className="h-full bg-primary motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+                style={{ width: i <= authSubStep ? "100%" : "0%" }}
               />
-            </FormField>
-          </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-          {/* Username */}
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
-            <FormField id="username" label="Username" hint="How you sign in — letters, numbers, dots, or dashes">
-              <input
-                id="username"
-                name="username"
-                type="text"
-                autoComplete="username"
-                placeholder="alex"
-                value={form.username}
-                onChange={handleChange}
-                disabled={submitting}
-                required
-                className={WIZARD_INPUT_CLASS}
-              />
-            </FormField>
-          </div>
+      <form onSubmit={handleSubSubmit} className="text-left">
+        <ShakeTarget shake={fieldError}>
+          <div
+            key={`register-${authSubStep}`}
+            className={cn(
+              "animate-in duration-300",
+              authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop",
+            )}
+          >
+            <label
+              htmlFor={currentAuthField.id}
+              className="block font-mono text-xl text-primary mb-5 leading-snug"
+            >
+              {currentAuthField.question}
+            </label>
 
-          {/* Password */}
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            <ShakeTarget shake={fieldError}>
-              <FormField id="password" label="Password" shake={fieldError} loading={submitting}>
-                <div className="relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPw ? "text" : "password"}
-                  autoComplete="new-password"
-                  placeholder={PASSWORD_POLICY_HINT}
-                  value={pw}
-                  onChange={handleChange}
-                  disabled={submitting}
-                  required
-                  className={cn(WIZARD_INPUT_CLASS, "pr-12")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/30 hover:text-primary/60 motion-safe:transition-colors motion-safe:duration-150"
-                  aria-label={showPw ? "Hide password" : "Show password"}
-                >
-                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-
-              {/* Strength bar + label */}
-              {strength && (
-                <div className="mt-1">
-                  <PasswordStrengthBar score={strength.score} />
-                  <div className="flex items-center justify-between mt-1.5">
-                    <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
-                      {STRENGTH_LABEL[strength.score]}
-                    </p>
-                    <p className={cn("text-xs font-mono", meetsPolicy ? "text-success" : "text-primary/50")}>
-                      {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-                    <ReqChip ok={strength.hasLength}  label="12+ chars" />
-                    <ReqChip ok={strength.hasLetter}  label="letters" />
-                    <ReqChip ok={strength.hasDigit}   label="numbers" />
-                    <ReqChip ok={strength.hasSpecial} label="symbols" />
-                  </div>
-                </div>
-              )}
-              </FormField>
-            </ShakeTarget>
-          </div>
-
-          {/* Confirm password */}
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-250">
-            <FormField id="confirm_password" label="Confirm password" hint={confirmOk && pw ? "Passwords match" : undefined}>
+            {(currentAuthField.type === "password") ? (
               <div className="relative">
                 <input
-                  id="confirm_password"
-                  name="confirm_password"
+                  id={currentAuthField.id}
+                  name={currentAuthField.name}
                   type={showPw ? "text" : "password"}
-                  autoComplete="new-password"
-                  placeholder="Re-enter your password"
-                  value={confirm}
-                  onChange={handleChange}
+                  autoComplete={currentAuthField.autoComplete}
+                  placeholder={currentAuthField.placeholder}
+                  value={form[currentAuthField.name]}
+                  onChange={(e) => setField(currentAuthField.name, e.target.value)}
                   disabled={submitting}
-                  required
+                  autoFocus
                   className={cn(WIZARD_INPUT_CLASS, "pr-12")}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/30 hover:text-primary/60 motion-safe:transition-colors motion-safe:duration-150"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary hover:text-primary motion-safe:transition-colors motion-safe:duration-150"
                   aria-label={showPw ? "Hide password" : "Show password"}
                 >
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {confirm && !confirmOk && (
-                <p className="text-xs text-error mt-1.5 translate-x-5">
-                  Passwords don&rsquo;t match
-                </p>
-              )}
-            </FormField>
+            ) : (
+              <input
+                id={currentAuthField.id}
+                name={currentAuthField.name}
+                type={currentAuthField.type}
+                autoComplete={currentAuthField.autoComplete}
+                placeholder={currentAuthField.placeholder}
+                value={form[currentAuthField.name]}
+                onChange={(e) => setField(currentAuthField.name, e.target.value)}
+                disabled={submitting}
+                autoFocus
+                spellCheck={currentAuthField.name === "setup_secret" ? false : undefined}
+                className={WIZARD_INPUT_CLASS}
+                aria-invalid={currentAuthField.name === "setup_secret" && Boolean(fieldError)}
+              />
+            )}
+
+            {currentAuthField.hint && (
+              <p className="mt-2.5 text-xs text-primary leading-relaxed">{currentAuthField.hint}</p>
+            )}
+
+            {currentAuthField.showStrength && strength && (
+              <div className="mt-3">
+                <PasswordStrengthBar score={strength.score} />
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
+                    {STRENGTH_LABEL[strength.score]}
+                  </p>
+                  <p className={cn("text-xs font-mono", meetsPolicy ? "text-success" : "text-primary")}>
+                    {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                  <ReqChip ok={strength.hasLength}  label="12+ chars" />
+                  <ReqChip ok={strength.hasLetter}  label="letters" />
+                  <ReqChip ok={strength.hasDigit}   label="numbers" />
+                  <ReqChip ok={strength.hasSpecial} label="symbols" />
+                </div>
+              </div>
+            )}
+
+            {currentAuthField.name === "confirm_password" && confirm && !confirmOk && (
+              <p className="text-xs text-error mt-2.5">
+                Passwords don&rsquo;t match
+              </p>
+            )}
           </div>
+        </ShakeTarget>
 
-          {needsSetupCode && (
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
-              <ShakeTarget shake={fieldError}>
-                <FormField
-                  id="setup_secret"
-                  label="Your device code"
-                  hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
-                  shake={fieldError}
-                  loading={submitting}
-                >
-                  <input
-                    id="setup_secret"
-                    name="setup_secret"
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder="Paste the code from Luna Connect"
-                    value={form.setup_secret}
-                    onChange={handleChange}
-                    disabled={submitting}
-                    required
-                    className={WIZARD_INPUT_CLASS}
-                    aria-invalid={Boolean(fieldError)}
-                  />
-                </FormField>
-              </ShakeTarget>
-            </div>
-          )}
+        {fieldError && (
+          <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 mt-6 animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-primary">{fieldError}</p>
+          </div>
+        )}
 
-          {/* Inline error */}
-          {fieldError && (
-            <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
-              <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-primary/80">{fieldError}</p>
-            </div>
-          )}
-
-          {/* Submit */}
-          <div className="pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
+        <div className="flex items-center gap-3 mt-8">
+          {authSubStep > 0 && (
             <Button
-              type="submit"
-              variant="primary"
-              fullWidth
-              loading={submitting}
-              disabled={!isValid || submitting}
-              className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
+              type="button"
+              variant="outline"
+              onClick={goSubPrev}
+              disabled={submitting}
+              className="shrink-0 px-4 py-4"
+              aria-label="Back"
             >
-              {submitting ? (
-                "Creating account…"
-              ) : (
-                <>
-                  Create account
-                  <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-                </>
-              )}
+              <ChevronLeft className="w-4 h-4" />
             </Button>
-          </div>
-        </form>
+          )}
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            loading={submitting && isLastAuthSubStep}
+            disabled={!currentAuthField.valid || submitting}
+            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
+          >
+            {isLastAuthSubStep ? (
+              submitting ? "Creating account…" : "Create account"
+            ) : (
+              <>
+                Continue
+                <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
     </>
   );
 }
