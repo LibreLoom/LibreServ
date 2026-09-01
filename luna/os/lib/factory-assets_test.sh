@@ -90,6 +90,18 @@ assert_eq "$_mnt" "/sentinel-luna-data" "factory_apply must not clobber caller _
 printf 'CRLF-TOKEN-1111-2222-3333\r\nNEXT-TOKEN-4444-5555-6666\r\n' >"$WORK/crlf"
 assert_eq "$(factory_tokens_first_line "$WORK/crlf")" "CRLF-TOKEN-1111-2222-3333" "strip CR"
 
+# Device token validation (Crockford booklet, 16–32 chars normalized).
+assert_true factory_is_valid_device_token "AAAA-BBBB-CCCC-DDDD-EEEE"
+assert_true factory_is_valid_device_token "aaaa-bbbb-cccc-dddd-eeee"
+assert_false factory_is_valid_device_token "too-short"
+assert_false factory_is_valid_device_token "XXXX@YYYY-ZZZZ-OOOO-WWWW-QQQQ"
+
+# Invalid MAG top line is not peeled — magazine unchanged.
+mkdir -p "$WORK/assets2"
+printf '%s\n' 'not-a-valid-token' 'AAAA-BBBB-CCCC-DDDD-EEEE' >"$WORK/assets2/TOKENS"
+assert_false factory_peel_token_from_dir "$WORK/assets2"
+assert_eq "$(factory_tokens_first_line "$WORK/assets2/TOKENS")" "not-a-valid-token" "invalid mag line kept"
+
 if [ "$fail" -ne 0 ]; then
 	echo "$fail failed" >&2
 	exit 1

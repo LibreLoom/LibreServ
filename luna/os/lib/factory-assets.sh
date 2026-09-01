@@ -80,13 +80,16 @@ factory_assets_umount() {
 
 # Peel one token from a mounted LUNAASSETS directory ($1).
 # On success prints the token and removes it from TOKENS.
-# Returns: 0 = peeled, 1 = no magazine / empty, 2 = rewrite failed after peel intent.
+# Returns: 0 = peeled, 1 = no magazine / empty / invalid top line, 2 = rewrite failed after peel intent.
 factory_peel_token_from_dir() {
 	_assets="$1"
 	_tokens="$_assets/TOKENS"
 	[ -f "$_tokens" ] || return 1
 	_tok="$(factory_tokens_first_line "$_tokens")" || return 1
 	[ -n "$_tok" ] || return 1
+	if ! factory_is_valid_device_token "$_tok"; then
+		return 1
+	fi
 	if ! factory_tokens_drop_first "$_tokens"; then
 		return 2
 	fi
@@ -94,9 +97,26 @@ factory_peel_token_from_dir() {
 	return 0
 }
 
-# Write official setup code onto the mounted LUNA_DATA volume ($1).
-# At runtime that volume is mounted at /var/lib/luna, so the token path is
-# $1/setup-token → /var/lib/luna/setup-token.
+# Normalize a device token like lunad (Crockford base32, drop separators).
+factory_normalize_device_token() {
+	_norm=$(printf '%s' "$1" | tr -d '\r' | sed 's/[- _]//g' | tr 'a-z' 'A-Z')
+	_norm=$(printf '%s' "$_norm" | sed 's/I/1/g; s/L/1/g; s/O/0/g')
+	printf '%s' "$_norm"
+}
+
+# True when $1 is a plausible Luna Connect device token (16–32 Crockford chars).
+factory_is_valid_device_token() {
+	_norm=$(factory_normalize_device_token "$1")
+	_len=${#_norm}
+	[ "$_len" -ge 16 ] && [ "$_len" -le 32 ] || return 1
+	case "$_norm" in
+	*[!0123456789ABCDEFGHJKMNPQRSTVWXYZ]*) return 1 ;;
+	esac
+	return 0
+}
+
+# Write device token onto the mounted LUNA_DATA volume ($1).
+# At runtime that volume is mounted at /var/lib/luna → /var/lib/luna/setup-token.
 factory_write_setup_token() {
 	_root="$1"
 	_tok="$2"
@@ -104,6 +124,38 @@ factory_write_setup_token() {
 	printf '%s\n' "$_tok" >"$_root/setup-token" || return 1
 	chmod 600 "$_root/setup-token" || return 1
 	return 0
+}
+
+# TTY prompt: valid token saved, empty Enter skips, invalid re-prompts.
+factory_prompt_device_token() {
+	_root="$1"
+	printf '%s\n' \
+		"" \
+		"Type your device token from Luna Connect and press enter now for the best experience." \
+		"Go to https://connect.luna.libreloom.org to get started." \
+		"LibreServ Luna is offline-first, though, so all functionality is available without our service, which is open-source and exists to make remote access & cloud backup configuration easy." \
+		"If you would like to opt-out for now, you can just press enter, leaving the field empty."
+	while :; do
+		printf '%s' ">>> "
+		# shellcheck disable=SC2162
+		read _tok || _tok=""
+		_tok=$(printf '%s' "$_tok" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+		if [ -z "$_tok" ]; then
+			echo "Skipped. Luna Connect is off until you add a device token in Luna."
+			return 0
+		fi
+		if ! factory_is_valid_device_token "$_tok"; then
+			printf '%s\n' \
+				"Check your token. If you meant to skip this step, press enter without typing anything."
+			continue
+		fi
+		if ! factory_write_setup_token "$_root" "$_tok"; then
+			echo "Could not save the device token onto Luna." >&2
+			return 1
+		fi
+		echo "Device token saved."
+		return 0
+	done
 }
 
 # Full post-flash path: peel from LUNAASSETS, else legacy setup-token paths, else TTY paste.
@@ -115,20 +167,25 @@ factory_apply_setup_token() {
 	_assets_mnt="$(mktemp -d)" || return 1
 	if factory_assets_mount "$_assets_mnt"; then
 		_peel_rc=0
-		_tok=$(factory_peel_token_from_dir "$_assets_mnt") || _peel_rc=$?
-		factory_assets_umount "$_assets_mnt"
-		if [ "$_peel_rc" -eq 2 ]; then
-			echo "Could not update the TOKENS magazine on LUNAASSETS. Stopped so the same code is not used twice." >&2
-			return 1
-		fi
-		if [ "$_peel_rc" -eq 0 ] && [ -n "$_tok" ]; then
-			if ! factory_write_setup_token "$_root" "$_tok"; then
-				echo "Could not save the official setup code onto Luna." >&2
+		_first=$(factory_tokens_first_line "$_assets_mnt/TOKENS") || _first=""
+		if [ -n "$_first" ] && factory_is_valid_device_token "$_first"; then
+			_tok=$(factory_peel_token_from_dir "$_assets_mnt") || _peel_rc=$?
+			if [ "$_peel_rc" -eq 2 ]; then
+				factory_assets_umount "$_assets_mnt"
+				echo "Could not update the TOKENS magazine on LUNAASSETS. Stopped so the same code is not used twice." >&2
 				return 1
 			fi
-			echo "Official setup code taken from LUNAASSETS magazine."
-			return 0
+			if [ "$_peel_rc" -eq 0 ] && [ -n "$_tok" ]; then
+				factory_assets_umount "$_assets_mnt"
+				if ! factory_write_setup_token "$_root" "$_tok"; then
+					echo "Could not save the device token onto Luna." >&2
+					return 1
+				fi
+				echo "Device token taken from LUNAASSETS magazine."
+				return 0
+			fi
 		fi
+		factory_assets_umount "$_assets_mnt"
 	else
 		rmdir "$_assets_mnt" 2>/dev/null || true
 	fi
@@ -141,27 +198,18 @@ factory_apply_setup_token() {
 		fi
 	done
 	if [ -n "$_token_src" ]; then
-		mkdir -p "$_root" || return 1
-		cp "$_token_src" "$_root/setup-token" || return 1
-		chmod 600 "$_root/setup-token" || return 1
-		echo "Official setup code saved from the installer USB."
-		return 0
+		_legacy=$(cat "$_token_src")
+		if factory_is_valid_device_token "$_legacy"; then
+			mkdir -p "$_root" || return 1
+			cp "$_token_src" "$_root/setup-token" || return 1
+			chmod 600 "$_root/setup-token" || return 1
+			echo "Device token saved from the installer USB."
+			return 0
+		fi
 	fi
 
 	if [ -t 0 ]; then
-		echo
-		echo "Official setup code from Luna Connect (****-****-****-****-****). Paste it and press Enter, or press Enter to skip."
-		# shellcheck disable=SC2162
-		read _tok || _tok=""
-		if [ -n "$_tok" ]; then
-			if ! factory_write_setup_token "$_root" "$_tok"; then
-				echo "Could not save the setup code onto Luna." >&2
-				return 1
-			fi
-			echo "Setup code saved."
-		else
-			echo "Skipped. This install is local-only until you enter a code in Luna."
-		fi
+		factory_prompt_device_token "$_root" || return 1
 	fi
 	return 0
 }
