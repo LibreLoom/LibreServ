@@ -27,6 +27,8 @@ fn auto_login_enabled() -> bool {
 
 pub struct LoginView {
     root: gtk::Widget,
+    url_row: adw::EntryRow,
+    token_row: adw::PasswordEntryRow,
 }
 
 impl LoginView {
@@ -161,7 +163,15 @@ impl LoginView {
 
         Self {
             root: clamp.upcast(),
+            url_row,
+            token_row,
         }
+    }
+
+    /// Prefill Luna address and clear the access token (after auth failure).
+    pub fn prepare_reconfigure(&self, base_url: &str) {
+        self.url_row.set_text(base_url.trim());
+        self.token_row.set_text("");
     }
 
     pub fn root(&self) -> &gtk::Widget {

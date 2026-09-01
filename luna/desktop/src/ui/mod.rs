@@ -1,4 +1,5 @@
 mod adaptive;
+mod auth_failed;
 mod backup_page;
 mod folder_browser;
 mod login;
@@ -17,6 +18,7 @@ use gtk::glib;
 use luna_desktop::AppState;
 use luna_desktop::tray::{TrayCmd, TrayHandle, spawn_tray};
 
+use auth_failed::AuthFailedView;
 use login::LoginView;
 use window::ShellView;
 
@@ -144,8 +146,29 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
         })
     };
 
-    let login = LoginView::new(state.clone(), toast_rc.clone(), show_shell.clone());
+    let login = Rc::new(LoginView::new(
+        state.clone(),
+        toast_rc.clone(),
+        show_shell.clone(),
+    ));
     stack_rc.add_named(login.root(), Some("login"));
+
+    let reconfigure_url: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    let show_login_for_reconfigure = {
+        let stack = stack_rc.clone();
+        let login = login.clone();
+        let reconfigure_url = reconfigure_url.clone();
+        Rc::new(move || {
+            if let Some(url) = reconfigure_url.borrow_mut().take() {
+                login.prepare_reconfigure(&url);
+            }
+            stack.set_visible_child_name("login");
+        })
+    };
+
+    let auth_failed = AuthFailedView::new(show_login_for_reconfigure.clone());
+    stack_rc.add_named(auth_failed.root(), Some("auth_failed"));
 
     let boot_label = gtk::Label::new(Some("Checking your sign-in…"));
     boot_label.add_css_class("title-2");
@@ -160,12 +183,19 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
     let stack_boot = stack_rc.clone();
     let show_shell_boot = show_shell.clone();
     let toast_boot = toast_rc.clone();
+    let reconfigure_url_boot = reconfigure_url.clone();
     spawn_blocking(
         move || luna_desktop::restore_session(&state_boot),
-        move |result| match result {
-            Ok(Some(info)) => show_shell_boot(info),
-            Ok(None) => stack_boot.set_visible_child_name("login"),
-            Err(e) => {
+        move |outcome| match outcome {
+            luna_desktop::RestoreOutcome::Restored(info) => show_shell_boot(info),
+            luna_desktop::RestoreOutcome::NoSession => {
+                stack_boot.set_visible_child_name("login");
+            }
+            luna_desktop::RestoreOutcome::AuthFailed { base_url } => {
+                *reconfigure_url_boot.borrow_mut() = Some(base_url);
+                stack_boot.set_visible_child_name("auth_failed");
+            }
+            luna_desktop::RestoreOutcome::Failed(e) => {
                 toast_boot.add_toast(adw::Toast::new(&e));
                 stack_boot.set_visible_child_name("login");
             }
