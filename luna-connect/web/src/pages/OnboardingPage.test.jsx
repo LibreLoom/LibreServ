@@ -599,7 +599,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
     });
-    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
+    expect(screen.getByText(/quick-start card/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/^Device code$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });

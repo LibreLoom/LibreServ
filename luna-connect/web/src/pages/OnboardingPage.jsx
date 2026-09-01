@@ -997,9 +997,7 @@ export default function OnboardingPage() {
   const renderCode = () => (
     <StepShell icon={Key} title="Enter the device code">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        The code on your quick-start card (****-****-****-****-****). Luna&apos;s screen shows the same code while it is waiting to be linked.
-        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Setup code, paste the full code, and tap
-        Save setup code.
+        The code on your quick-start card (****-****-****-****-****).
       </p>
       <form
         className="space-y-5 text-left"
@@ -1033,9 +1031,6 @@ export default function OnboardingPage() {
             aria-invalid={Boolean(error)}
           />
         </ShakeTarget>
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Luna picks up this link when it is online. You do not need to wait here.
-        </p>
         <Button type="submit" size="lg" className="w-full" loading={loading} disabled={code.trim().length < 6}>
           Continue <ArrowRight className="w-4 h-4" />
         </Button>
