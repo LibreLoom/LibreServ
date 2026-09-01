@@ -19,7 +19,7 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
 | Platform | Ship as |
 |----------|---------|
-| Linux | **Flatpak** (`packaging/flatpak/`) — preferred |
+| Linux | **Flatpak** (`packaging/flatpak/`) — preferred; builds for the host CPU (`x86_64`, `aarch64`, …) |
 | Windows | **`.exe` installer** (`packaging/windows/`) — preferred |
 | Linux (demo / CI) | AppImage (`packaging/appimage/build.sh`) |
 

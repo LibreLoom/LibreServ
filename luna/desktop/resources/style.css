@@ -1,0 +1,16 @@
+/* Luna Desktop — touch-friendly targets and narrow-screen polish (Linux Mobile). */
+
+button.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Folder browser: drive chips stay tappable when scrolled horizontally */
+.drive-strip button {
+  min-height: 44px;
+}
+
+/* Breadcrumb buttons in the folder browser */
+.path-bar button {
+  min-height: 36px;
+}

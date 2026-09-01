@@ -1,3 +1,4 @@
+mod adaptive;
 mod backup_page;
 mod folder_browser;
 mod login;
@@ -19,6 +20,18 @@ use luna_desktop::tray::{TrayCmd, TrayHandle, spawn_tray};
 use login::LoginView;
 use window::ShellView;
 
+fn load_app_css() {
+    let provider = gtk::CssProvider::new();
+    provider.load_from_string(include_str!("../../resources/style.css"));
+    if let Some(display) = gtk::gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
 /// Keeps the process alive while the window is hidden (backup/sync continue).
 struct KeepAlive {
     _hold: gtk::gio::ApplicationHoldGuard,
@@ -26,6 +39,8 @@ struct KeepAlive {
 }
 
 pub fn run() -> glib::ExitCode {
+    load_app_css();
+
     let mut args: Vec<String> = std::env::args().collect();
     let background = args.iter().any(|a| a == "--background" || a == "-b");
     args.retain(|a| a != "--background" && a != "-b");
@@ -74,7 +89,7 @@ pub fn run() -> glib::ExitCode {
                 });
                 if tray.is_none() {
                     eprintln!(
-                        "luna-desktop: no system tray host; window close still hides — relaunch Luna or use Settings to quit later"
+                        "luna-desktop: no system tray host; window close still hides — reopen Luna from your app launcher or use Settings → Quit Luna Desktop"
                     );
                 }
                 *keep_alive.borrow_mut() = Some(KeepAlive {
@@ -96,9 +111,8 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("Luna")
-        .default_width(960)
-        .default_height(640)
         .build();
+    adaptive::apply_window_defaults(&window);
 
     let toast = adw::ToastOverlay::new();
     let stack = gtk::Stack::new();

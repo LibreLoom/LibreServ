@@ -56,7 +56,7 @@ impl SettingsPage {
         let quit_group = adw::PreferencesGroup::new();
         quit_group.set_title("Quit");
         quit_group.set_description(Some(
-            "Closing the window keeps Luna running in the background. Use Quit only when you want backup and sync to stop.",
+            "Closing the window keeps Luna running in the background so backup and sync can continue. Reopen Luna from your app launcher. Use Quit only when you want backup and sync to stop.",
         ));
         let quit_row = adw::ActionRow::builder()
             .title("Quit Luna Desktop")

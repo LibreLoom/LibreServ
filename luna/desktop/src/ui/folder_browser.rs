@@ -6,6 +6,7 @@ use adw::prelude::*;
 
 use luna_desktop::AppState;
 
+use super::adaptive::{configure_prompt_dialog, horizontal_scroll, make_action_row};
 use super::spawn_blocking;
 use super::toast_error;
 
@@ -24,26 +25,26 @@ impl FolderBrowser {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
 
         let drive_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        drive_box.add_css_class("drive-strip");
         let path_bar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        path_bar.add_css_class("path-bar");
         let folder_list = gtk::ListBox::new();
         folder_list.set_selection_mode(gtk::SelectionMode::None);
         folder_list.add_css_class("boxed-list");
 
-        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         let create_btn = gtk::Button::with_label("Create folder");
         create_btn.add_css_class("pill");
         let use_btn = gtk::Button::with_label("Use this folder");
         use_btn.add_css_class("pill");
         use_btn.add_css_class("suggested-action");
-        actions.append(&create_btn);
-        actions.append(&use_btn);
+        let actions = make_action_row(&root, &create_btn, &use_btn);
 
         let selected_lbl = gtk::Label::new(None);
         selected_lbl.add_css_class("caption");
         selected_lbl.set_halign(gtk::Align::Start);
 
-        root.append(&drive_box);
-        root.append(&path_bar);
+        root.append(&horizontal_scroll(&drive_box));
+        root.append(&horizontal_scroll(&path_bar));
         root.append(&folder_list);
         root.append(&actions);
         root.append(&selected_lbl);
@@ -302,7 +303,7 @@ impl FolderBrowser {
 
                 let dialog = adw::Dialog::new();
                 dialog.set_title("Create folder");
-                dialog.set_content_width(360);
+                configure_prompt_dialog(&dialog, &root);
 
                 let dialog_toast = Rc::new(adw::ToastOverlay::new());
 

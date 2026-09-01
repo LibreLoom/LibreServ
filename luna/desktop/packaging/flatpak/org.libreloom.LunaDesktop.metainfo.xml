@@ -11,7 +11,16 @@
       Luna Desktop signs in to your Luna, copies folders onto it (Backup),
       and keeps a Luna folder in sync with a folder on this computer (Sync).
     </p>
+    <p>
+      Works on desktop Linux and Linux Mobile (Phosh, Plasma Mobile) from the
+      same Flatpak package.
+    </p>
   </description>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
   <launchable type="desktop-id">org.libreloom.LunaDesktop.desktop</launchable>
   <url type="homepage">https://github.com/LibreLoom/LibreServ</url>
   <releases>

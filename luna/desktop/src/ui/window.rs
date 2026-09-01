@@ -148,6 +148,28 @@ impl ShellView {
         let window_title = adw::WindowTitle::new("Backup", "");
         content_header.set_title_widget(Some(&window_title));
 
+        // On narrow screens the sidebar collapses; this button brings it back.
+        let menu_btn = gtk::Button::from_icon_name("open-menu-symbolic");
+        menu_btn.add_css_class("flat");
+        menu_btn.add_css_class("touch-target");
+        menu_btn.set_tooltip_text(Some("Open navigation"));
+        menu_btn.set_visible(split.is_collapsed());
+        content_header.pack_start(&menu_btn);
+
+        split.connect_collapsed_notify({
+            let menu_btn = menu_btn.clone();
+            move |view| {
+                menu_btn.set_visible(view.is_collapsed());
+            }
+        });
+
+        menu_btn.connect_clicked({
+            let split = split.clone();
+            move |_| {
+                split.set_show_content(false);
+            }
+        });
+
         let content_toolbar = adw::ToolbarView::new();
         content_toolbar.add_top_bar(&content_header);
         content_toolbar.set_top_bar_style(adw::ToolbarStyle::Flat);
@@ -171,6 +193,7 @@ impl ShellView {
             let row_sync = row_sync.clone();
             let row_status = row_status.clone();
             let row_settings = row_settings.clone();
+            let split = split.clone();
             move |_, row| {
                 let (name, label, page) = if row == row_backup.upcast_ref::<gtk::ListBoxRow>() {
                     ("backup", "Backup", Page::Backup)
@@ -187,6 +210,9 @@ impl ShellView {
                 content_stack.set_visible_child_name(name);
                 window_title.set_title(label);
                 content_page.set_title(label);
+                if split.is_collapsed() {
+                    split.set_show_content(true);
+                }
             }
         });
 
