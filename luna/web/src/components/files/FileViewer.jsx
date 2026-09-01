@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Download, Maximize2, Minimize2, Save } from "lucide-react";
+import { Check, Download, Maximize2, Minimize2, Save } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
@@ -26,9 +26,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const name = pathBasename(path) || path;
   const kind = openableKind(name);
   const [text, setText] = useState("");
+  const [savedText, setSavedText] = useState("");
   const [loading, setLoading] = useState(kind === "text");
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const previewKey = `${driveId}:${path}:${open}`;
@@ -52,7 +52,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
         const body = await res.text();
         if (!cancelled) {
           setText(body);
-          setDirty(false);
+          setSavedText(body);
         }
       } catch (err) {
         if (!cancelled) {
@@ -79,7 +79,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
         `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1`,
         form,
       );
-      setDirty(false);
+      setSavedText(text);
       onSaved?.();
     } catch (err) {
       setError(apiErrorMessage(err, "Couldn't save your changes. Try again."));
@@ -93,6 +93,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
       : kind === "video" ? name
         : kind === "text" ? (canWrite ? `Edit ${name}` : name)
           : name;
+
+  const isDirty = text !== savedText;
 
   const modalSize = kind === "image" && expanded ? "fullscreen" : "lg";
 
@@ -129,9 +131,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
             ) : (
               <ShakeTarget shake={error}>
                 <textarea
-                  className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm outline-none focus:border-accent"
                   value={text}
-                  onChange={(e) => { setText(e.target.value); setDirty(true); }}
+                  onChange={(e) => setText(e.target.value)}
                   spellCheck={false}
                   readOnly={!canWrite}
                   aria-label={`Contents of ${name}`}
@@ -167,11 +169,20 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
                 variant="accent"
                 surface="secondary"
                 loading={saving}
-                disabled={!dirty || loading}
+                disabled={!isDirty || loading}
                 onClick={() => void save()}
               >
-                <Save size={14} aria-hidden="true" />
-                Save
+                {isDirty ? (
+                  <>
+                    <Save size={14} aria-hidden="true" />
+                    Save
+                  </>
+                ) : (
+                  <>
+                    <Check size={14} aria-hidden="true" />
+                    Saved
+                  </>
+                )}
               </Button>
             )}
             <Button variant="outline" surface="secondary" asChild>

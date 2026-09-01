@@ -147,5 +147,34 @@ describe("FileViewer text save", () => {
       expect(upload).toBeTruthy();
       expect(String(upload[0])).toContain("overwrite=1");
     });
+
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+
+    fireEvent.change(editor, { target: { value: "hello world again" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  it("shows Saved when text matches saved content on load", async () => {
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.includes("/files/content") && method === "GET") {
+        return new Response("hello", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      return new Response("{}", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={() => {}}
+      />,
+    );
+
+    await screen.findByLabelText("Contents of note.txt");
+    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
   });
 });
