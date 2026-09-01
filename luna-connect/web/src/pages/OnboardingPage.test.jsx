@@ -615,6 +615,56 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
   });
+
+  it("unbinds the linked Luna when returning to the device code step", async () => {
+    stripeLooksConfigured.mockReturnValue(true);
+    let devices = [];
+    api.mockImplementation(async (path, opts = {}) => {
+      if (path === "/api/v1/account/devices") return { devices };
+      if (path === "/api/v1/devices/bind") {
+        devices = [{ id: "dev_1" }];
+        return { device_id: "dev_1", already_bound: false };
+      }
+      if (path === "/api/v1/devices/dev_1" && opts.method === "DELETE") {
+        devices = [];
+        return { ok: true };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    refresh.mockImplementation(async () => ({
+      email: "owner@example.com",
+      email_verified: true,
+      has_bound_device: devices.length > 0,
+    }));
+
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
+    await fillAccount("owner@example.com", "password1234");
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com", email_verified: true };
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
+      target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/i }));
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
+    });
+    expect(await screen.findByLabelText(/^Device code$/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    await waitFor(() => {
+      expect(api.mock.calls.filter((c) => c[0] === "/api/v1/devices/bind").length).toBe(2);
+    });
+  });
 });
 
 describe("OnboardingPage done card", () => {
@@ -623,6 +673,7 @@ describe("OnboardingPage done card", () => {
     localStorage.clear();
     authState.isAuthenticated = true;
     authState.me = { email: "owner@example.com", email_verified: true };
+    refresh.mockImplementation(async () => authState.me);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
       if (path === "/api/v1/devices/dev_1/domain") {
@@ -659,9 +710,9 @@ describe("OnboardingPage done card", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Skip for now/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Nah\.$/i })).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
 
     expect(await screen.findByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByText("once-only-code")).toBeTruthy();

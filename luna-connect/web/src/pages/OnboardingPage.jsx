@@ -223,17 +223,11 @@ function ProgressBar({ stepId, path }) {
   );
 }
 
-function ErrorBanner({ error, onDismiss }) {
+function ErrorBanner({ error }) {
   if (!error) return null;
   return (
-    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-4 flex items-start gap-3 mb-8 animate-fade-in-up">
-      <X className="w-4 h-4 text-error mt-0.5 shrink-0" />
-      <p className="text-sm text-error flex-1 leading-relaxed">{error}</p>
-      {onDismiss && (
-        <button type="button" onClick={onDismiss} className="text-error/60 hover:text-error motion-safe:transition-colors" aria-label="Dismiss error">
-          <X className="w-4 h-4" />
-        </button>
-      )}
+    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-4 mb-8 animate-fade-in-up">
+      <p className="text-sm text-error leading-relaxed">{error}</p>
     </div>
   );
 }
@@ -420,6 +414,30 @@ export default function OnboardingPage() {
     const timer = setTimeout(() => setCooldown((value) => value - 1), 1000);
     return () => clearTimeout(timer);
   }, [cooldown]);
+
+  useEffect(() => {
+    if (step !== "code" || !isAuthenticated) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api("/api/v1/account/devices");
+        const bound = res?.devices?.[0];
+        if (!bound?.id || cancelled) return;
+        await api(`/api/v1/devices/${bound.id}`, { method: "DELETE" });
+        if (cancelled) return;
+        setDeviceId("");
+        setHostname("");
+        setName("");
+        setSetupSecret("");
+        await refresh();
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, isAuthenticated, refresh]);
 
   async function bindDevice(value) {
     const res = await api("/api/v1/devices/bind", {
@@ -1226,7 +1244,7 @@ export default function OnboardingPage() {
           goTo("done");
         }}
       >
-        Skip for now
+        Nah.
       </Button>
     </StepShell>
   );
@@ -1346,7 +1364,7 @@ export default function OnboardingPage() {
           style={{ transitionDuration: "300ms" }}
         >
           <div ref={innerRef} className="px-6 sm:px-12 py-12">
-            <ErrorBanner error={error} onDismiss={() => setError("")} />
+            <ErrorBanner error={error} />
             <div
               key={step}
               className={cn(direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
