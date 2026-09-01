@@ -169,7 +169,10 @@ mod tests {
     fn weaker_parent_keeps_a_stronger_child() {
         let existing = vec![grant("write-on-a", "album/dcim", "write")];
         let drop = superseded_ids(&existing, "sam", "photos", "album", "read");
-        assert!(drop.is_empty(), "read on the parent must keep write on the child");
+        assert!(
+            drop.is_empty(),
+            "read on the parent must keep write on the child"
+        );
     }
 
     #[test]
@@ -201,7 +204,10 @@ mod tests {
         create_user_grant(&conn, "g6", "max", "photos", "", "read").unwrap();
         let rows = crate::db::list_grants_for_user(&conn, "max").unwrap();
         assert_eq!(rows.len(), 2);
-        assert!(rows.iter().any(|g| g.path.is_empty() && g.permission == "read"));
+        assert!(
+            rows.iter()
+                .any(|g| g.path.is_empty() && g.permission == "read")
+        );
         assert!(
             rows.iter()
                 .any(|g| g.path == "album/dcim" && g.permission == "write")

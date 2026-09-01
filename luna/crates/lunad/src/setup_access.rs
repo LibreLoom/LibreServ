@@ -4,8 +4,8 @@
 //! requests need `X-Setup-Token` matching `prefix(device_code)`. Missing or
 //! malformed device-code files refuse remote setup (never fail-open).
 
-use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use axum::http::{HeaderMap, StatusCode};
 use serde_json::Value;
 
 use crate::AppState;
@@ -153,11 +153,7 @@ mod tests {
     #[tokio::test]
     async fn remote_setup_accepts_matching_prefix() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("setup-token"),
-            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let app = app(dir.path());
         let denied = call(
             &app,
@@ -185,11 +181,7 @@ mod tests {
     #[tokio::test]
     async fn validate_code_works_without_prior_token() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("setup-token"),
-            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let app = app(dir.path());
         let bad = call(
             &app,

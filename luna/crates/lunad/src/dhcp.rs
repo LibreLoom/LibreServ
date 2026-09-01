@@ -207,9 +207,7 @@ mod tests {
     #[test]
     fn stops_at_first_success() {
         let clients: Vec<(&str, Vec<String>)> = vec![("true", vec![]), ("false", vec![])];
-        let winner = first_successful_dhcp_client(&clients, || {
-            true
-        });
+        let winner = first_successful_dhcp_client(&clients, || true);
         assert_eq!(winner, Some(0));
     }
 

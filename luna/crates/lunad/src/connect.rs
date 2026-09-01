@@ -1,10 +1,10 @@
 //! Luna Connect client — permanent device code, status pull, then cloudflared.
 
+use serde::Serialize;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use serde::Serialize;
-use serde_json::{Value, json};
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
@@ -663,10 +663,7 @@ mod tests {
             service.set_oss_code("a1b2c3").is_err(),
             "short hex must be rejected"
         );
-        assert_eq!(
-            service.setup_prefix().as_deref(),
-            Some("3097-V4YK")
-        );
+        assert_eq!(service.setup_prefix().as_deref(), Some("3097-V4YK"));
         assert!(service.matches_setup_prefix("3097-V4YK"));
         assert!(service.matches_setup_prefix("3097v4yk"));
         assert!(!service.matches_setup_prefix("3097-XXXX"));
@@ -695,10 +692,7 @@ mod tests {
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         let err = service.redeem_booklet().unwrap_err();
         let msg = err.to_string();
-        assert!(
-            msg.contains("This Luna has no code preconfigured"),
-            "{msg}"
-        );
+        assert!(msg.contains("This Luna has no code preconfigured"), "{msg}");
         assert!(
             msg.contains("https://connect.luna.libreloom.org/onboarding"),
             "{msg}"
