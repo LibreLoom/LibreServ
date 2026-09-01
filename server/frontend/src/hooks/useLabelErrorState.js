@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { serializeShakeTrigger } from "../utils/shake";
 
 /**
@@ -8,64 +8,45 @@ import { serializeShakeTrigger } from "../utils/shake";
  * @param {unknown} error
  * @param {unknown} [shake]
  * @param {{ loading?: boolean, enabled?: boolean }} [options]
- * @returns {{ labelError: boolean, containerRef: import("react").RefObject<HTMLElement|null> }}
+ * @returns {{ labelError: boolean, containerRef: (node: HTMLElement | null) => void }}
  */
 export default function useLabelErrorState(error, shake, options = {}) {
   const { loading = false, enabled = true } = options;
-  const [labelError, setLabelError] = useState(false);
-  const containerRef = useRef(/** @type {HTMLElement | null} */ (null));
-  const prevTrigger = useRef("");
-  const prevLoading = useRef(false);
-  const awaitingResult = useRef(false);
+  const [rootEl, setRootEl] = useState(/** @type {HTMLElement | null} */ (null));
+  const [retrying, setRetrying] = useState(false);
+  const sawLoadingDuringRetry = useRef(false);
+  const containerRef = useCallback((node) => {
+    setRootEl(node);
+  }, []);
 
   const trigger = serializeShakeTrigger(error) || serializeShakeTrigger(shake);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !rootEl) return;
 
-    const el = containerRef.current;
-    const form = el?.closest("form");
+    const form = rootEl.closest("form");
     if (!form) return;
 
     const onSubmit = () => {
-      awaitingResult.current = true;
-      setLabelError(false);
+      sawLoadingDuringRetry.current = false;
+      setRetrying(true);
     };
 
     form.addEventListener("submit", onSubmit);
     return () => form.removeEventListener("submit", onSubmit);
-  }, [enabled]);
+  }, [enabled, rootEl]);
 
   useEffect(() => {
-    if (!enabled) {
-      setLabelError(false);
-      return;
+    if (retrying && loading) {
+      sawLoadingDuringRetry.current = true;
     }
-
-    if (!trigger) {
-      if (!awaitingResult.current) {
-        setLabelError(false);
-      }
-      prevTrigger.current = "";
-      return;
+    if (!retrying) {
+      sawLoadingDuringRetry.current = false;
     }
+  }, [retrying, loading]);
 
-    if (trigger !== prevTrigger.current) {
-      setLabelError(true);
-      awaitingResult.current = false;
-    }
-    prevTrigger.current = trigger;
-  }, [trigger, enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    if (prevLoading.current && !loading && awaitingResult.current && trigger) {
-      setLabelError(true);
-      awaitingResult.current = false;
-    }
-    prevLoading.current = loading;
-  }, [loading, trigger, enabled]);
+  const labelError =
+    enabled && !!trigger && (!retrying || (sawLoadingDuringRetry.current && !loading));
 
   return { labelError, containerRef };
 }

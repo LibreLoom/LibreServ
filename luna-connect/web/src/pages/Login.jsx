@@ -57,7 +57,9 @@ export default function Login() {
             </div>
             <ShakeTarget shake={error}>
               <div>
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" error={error} shake={error} loading={loading}>
+                  Password
+                </Label>
                 <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
               </div>
             </ShakeTarget>

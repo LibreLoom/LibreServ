@@ -144,6 +144,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   surface="primary"
                   shake={errorStatus}
+                  loading={loading}
                   aria-invalid={Boolean(errorStatus)}
                   aria-describedby={errorStatus ? "login-error" : undefined}
                 />

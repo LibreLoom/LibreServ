@@ -18,6 +18,7 @@ import { StepTransitionContext } from "../components/setup/StepTransitionContext
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
+import useLabelErrorState from "../hooks/useLabelErrorState";
 import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -350,10 +351,17 @@ function ReqChip({ ok, label }) {
 ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isRequired };
 
 /** @param {{ id: any, label: any, hint?: any, children: any }} _ */
-function FormField({ id, label, hint, children }) {
+function FormField({ id, label, hint, children, error, shake, loading = false }) {
+  const { labelError, containerRef } = useLabelErrorState(error, shake, { loading });
   return (
-    <div>
-      <label htmlFor={id} className="block text-primary font-sans text-sm text-left translate-x-5 mb-1">
+    <div ref={containerRef}>
+      <label
+        htmlFor={id}
+        className={cn(
+          "block text-primary font-sans text-sm text-left translate-x-5 mb-1 motion-safe:transition-colors duration-300",
+          labelError && "text-error",
+        )}
+      >
         {label}
       </label>
       {children}
@@ -366,6 +374,9 @@ FormField.propTypes = {
   label:    PropTypes.string.isRequired,
   hint:     PropTypes.string,
   children: PropTypes.node.isRequired,
+  error:    PropTypes.any,
+  shake:    PropTypes.any,
+  loading:  PropTypes.bool,
 };
 
 // ─── STEP: Account ────────────────────────────────────────────────────────────
@@ -515,7 +526,7 @@ function AccountStep({ hasAdmin, onContinue }) {
           {/* Password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
             <ShakeTarget shake={fieldError}>
-              <FormField id="password" label="Password">
+              <FormField id="password" label="Password" shake={fieldError} loading={submitting}>
                 <div className="relative">
                 <input
                   id="password"
@@ -603,6 +614,8 @@ function AccountStep({ hasAdmin, onContinue }) {
                   id="setup_secret"
                   label="Your device code"
                   hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
+                  shake={fieldError}
+                  loading={submitting}
                 >
                   <input
                     id="setup_secret"

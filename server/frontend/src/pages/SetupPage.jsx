@@ -16,6 +16,7 @@ import { StepTransitionProvider } from "../components/setup/StepTransition";
 import { MfaSetupWizard } from "../components/profile/MfaCard";
 import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
+import useLabelErrorState from "../hooks/useLabelErrorState";
 import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -605,10 +606,17 @@ function ReqChip({ ok, label }) {
 ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isRequired };
 
 /** @param {{ id: any, label: any, hint?: any, children: any }} _ */
-function FormField({ id, label, hint, children }) {
+function FormField({ id, label, hint, children, error, shake, loading = false }) {
+  const { labelError, containerRef } = useLabelErrorState(error, shake, { loading });
   return (
-    <div>
-      <label htmlFor={id} className="block text-primary/80 font-sans text-sm text-left translate-x-5 mb-1">
+    <div ref={containerRef}>
+      <label
+        htmlFor={id}
+        className={cn(
+          "block font-sans text-sm text-left translate-x-5 mb-1 motion-safe:transition-colors duration-300",
+          labelError ? "text-error" : "text-primary/80",
+        )}
+      >
         {label}
       </label>
       {children}
@@ -621,6 +629,9 @@ FormField.propTypes = {
   label:    PropTypes.string.isRequired,
   hint:     PropTypes.string,
   children: PropTypes.node.isRequired,
+  error:    PropTypes.any,
+  shake:    PropTypes.any,
+  loading:  PropTypes.bool,
 };
 
 function AccountStep({ onSuccess, onError }) {
@@ -702,7 +713,7 @@ function AccountStep({ onSuccess, onError }) {
           {/* Username */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
             <ShakeTarget shake={usernameShake}>
-              <FormField id="admin_username" label="Username" hint="Used to sign in">
+              <FormField id="admin_username" label="Username" hint="Used to sign in" shake={usernameShake} loading={submitting}>
                 <input
                   id="admin_username"
                   name="admin_username"
@@ -722,7 +733,7 @@ function AccountStep({ onSuccess, onError }) {
           {/* Email */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
             <ShakeTarget shake={emailShake}>
-              <FormField id="admin_email" label="Email" hint="For notifications and account recovery">
+              <FormField id="admin_email" label="Email" hint="For notifications and account recovery" shake={emailShake} loading={submitting}>
                 <input
                   id="admin_email"
                   name="admin_email"
@@ -742,7 +753,7 @@ function AccountStep({ onSuccess, onError }) {
           {/* Password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
             <ShakeTarget shake={passwordShake}>
-              <FormField id="admin_password" label="Password">
+              <FormField id="admin_password" label="Password" shake={passwordShake} loading={submitting}>
                 <div className="relative">
                 <input
                   id="admin_password"
@@ -793,7 +804,7 @@ function AccountStep({ onSuccess, onError }) {
           {/* Confirm password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-250">
             <ShakeTarget shake={passwordShake}>
-              <FormField id="confirm_password" label="Confirm password" hint={confirmOk && pw ? "Passwords match" : undefined}>
+              <FormField id="confirm_password" label="Confirm password" hint={confirmOk && pw ? "Passwords match" : undefined} shake={passwordShake} loading={submitting}>
               <div className="relative">
                 <input
                   id="confirm_password"

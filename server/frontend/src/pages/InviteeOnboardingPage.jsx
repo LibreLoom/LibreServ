@@ -5,6 +5,7 @@ import { Loader2, AlertCircle, ShieldCheck } from "lucide-react";
 import api from "../lib/api";
 import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
+import FieldLabel from "../components/common/forms/FieldLabel";
 import Alert from "../components/common/Alert";
 
 // Password rules mirror the backend + the rest of the app.
@@ -100,6 +101,8 @@ export default function InviteeOnboardingPage() {
   }
 
   const isAdmin = invite.role === "admin";
+  const usernameShake = error && /username/i.test(error) ? error : null;
+  const passwordShake = error && !usernameShake ? error : null;
 
   return (
     <main className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
@@ -122,10 +125,16 @@ export default function InviteeOnboardingPage() {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
-          <label htmlFor="username" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
+          <FieldLabel
+            htmlFor="username"
+            surface="primary"
+            shake={usernameShake}
+            loading={submitting}
+            className="font-sans mb-1"
+          >
             Username
-          </label>
-          <ShakeTarget shake={error && /username/i.test(error) ? error : null}>
+          </FieldLabel>
+          <ShakeTarget shake={usernameShake}>
             <input
               id="username"
               value={username}
@@ -136,11 +145,17 @@ export default function InviteeOnboardingPage() {
               required
             />
           </ShakeTarget>
-          <ShakeTarget shake={error && !/username/i.test(error) ? error : null}>
+          <ShakeTarget shake={passwordShake}>
             <div>
-              <label htmlFor="password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
+              <FieldLabel
+                htmlFor="password"
+                surface="primary"
+                shake={passwordShake}
+                loading={submitting}
+                className="font-sans mb-1"
+              >
                 Password
-              </label>
+              </FieldLabel>
               <input
                 id="password"
                 type="password"
