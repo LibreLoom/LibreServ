@@ -33,6 +33,29 @@ CREATE TABLE devices (
 );
 `
 
+func TestOpenAndMigrate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	// Idempotent on existing schema (ALTER TABLE duplicates ignored).
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate second: %v", err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='accounts'`).Scan(&n); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("accounts table count = %d", n)
+	}
+}
+
 func TestMigrateUpgradedDevicesAllowsUnboundInsert(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "legacy.db")
