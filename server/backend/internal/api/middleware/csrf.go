@@ -89,8 +89,15 @@ func validateCSRF(secret, userID, token string) bool {
 	if err != nil {
 		return false
 	}
-	// 24h validity
-	if time.Since(time.Unix(ts, 0)) > constants.CSRFTokenValidityPeriod {
+	// Reject tokens issued too far in the future (clock skew) or older than CSRFTokenValidityPeriod.
+	// time.Since(future) is negative, so an age-only check would accept future timestamps.
+	issuedAt := time.Unix(ts, 0)
+	age := time.Since(issuedAt)
+	const csrfClockSkew = 2 * time.Minute
+	if age < -csrfClockSkew {
+		return false
+	}
+	if age > constants.CSRFTokenValidityPeriod {
 		return false
 	}
 

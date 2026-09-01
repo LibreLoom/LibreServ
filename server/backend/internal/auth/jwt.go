@@ -100,8 +100,9 @@ func (j *JWTManager) generateToken(userID, username, role, tokenType string, exp
 // ValidateToken validates a JWT token and returns the claims
 func (j *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		// Validate signing method
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		// Tokens are minted with HS256 only; reject other HMAC algs (HS384/HS512)
+		// and any non-HMAC method to prevent algorithm confusion.
+		if token.Method != jwt.SigningMethodHS256 {
 			return nil, ErrInvalidToken
 		}
 		return j.secretKey, nil
