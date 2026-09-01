@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
-/// Marker file in the Luna data dir (`/var/lib/luna/disable-connect` on device).
-/// Created by an admin on the filesystem — not settable from the web UI.
-/// When present, Luna Connect is fully disabled and setup skips device-code gates.
-///
+/// Permanent Luna Connect device token (`{data_dir}/device-token`).
+/// Connect is inactive until this file holds a valid token.
+pub const DEVICE_TOKEN_FILE: &str = "device-token";
+const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
+
 /// TODO: We need to add remote access options for non-connect users.
-pub const DISABLE_CONNECT_FILE: &str = "disable-connect";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
@@ -27,8 +27,8 @@ pub enum ConnectError {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectStatus {
-    /// True when `{data_dir}/disable-connect` exists on disk.
-    pub connect_disabled: bool,
+    /// True when `{data_dir}/device-token` exists and holds a valid device token.
+    pub connect_active: bool,
     pub enabled: bool,
     pub base_url: String,
     pub hostname: Option<String>,
@@ -43,29 +43,31 @@ pub struct ConnectStatus {
 }
 
 pub struct ConnectService {
+    data_dir: PathBuf,
     state_path: PathBuf,
     token_path: PathBuf,
-    disable_connect_path: PathBuf,
+    legacy_token_path: PathBuf,
     base_url: String,
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
-    redeem: Mutex<bool>,
     local_port: u16,
 }
 
 impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
         let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
+        // Legacy opt-out marker — Connect is off by default now; drop the file if present.
+        let _ = std::fs::remove_file(data_dir.join("disable-connect"));
         Self {
+            data_dir: data_dir.to_path_buf(),
             state_path: data_dir.join("connect.json"),
-            token_path: data_dir.join("setup-token"),
-            disable_connect_path: data_dir.join(DISABLE_CONNECT_FILE),
+            token_path: data_dir.join(DEVICE_TOKEN_FILE),
+            legacy_token_path: data_dir.join(LEGACY_DEVICE_TOKEN_FILE),
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
             device_key,
             child: Arc::new(Mutex::new(None)),
-            redeem: Mutex::new(false),
             local_port: 8090,
         }
     }
@@ -91,49 +93,27 @@ impl ConnectService {
         status
     }
 
-    /// True when an admin placed `{data_dir}/disable-connect` on the device.
-    pub fn is_connect_disabled(&self) -> bool {
-        self.disable_connect_path.is_file()
-    }
-
-    /// True when `{data_dir}/setup-token` exists and holds a valid device token.
+    /// True when `{data_dir}/device-token` exists and holds a valid device token.
     pub fn has_valid_device_code(&self) -> bool {
         self.setup_prefix().is_some()
     }
 
-    /// During setup: peel from LUNAASSETS when the on-disk code is missing or invalid.
+    /// Alias for API clarity.
+    pub fn is_connect_active(&self) -> bool {
+        self.has_valid_device_code()
+    }
+
+    /// During setup: peel from LUNAASSETS when the on-disk token is missing or invalid.
     pub fn ensure_device_code_from_mag(&self) -> crate::factory_mag::MagFetchOutcome {
-        crate::factory_mag::fetch_setup_token_from_mag(
+        crate::factory_mag::fetch_device_token_from_mag(
             &self.token_path,
-            &self.disable_connect_path,
             &crate::factory_mag::MagFetchOptions::default(),
         )
     }
 
-    /// Create `{data_dir}/disable-connect` to opt out of Luna Connect (setup only).
-    pub fn create_disable_connect_file(&self) -> Result<(), ConnectError> {
-        if self.disable_connect_path.is_file() {
-            return Ok(());
-        }
-        std::fs::write(&self.disable_connect_path, b"").map_err(|_| {
-            ConnectError::Other(
-                "Luna couldn't save your choice to skip Luna Connect. Try again.".into(),
-            )
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &self.disable_connect_path,
-                std::fs::Permissions::from_mode(0o600),
-            );
-        }
-        Ok(())
-    }
-
-    fn disabled_status(&self) -> ConnectStatus {
+    fn inactive_status(&self) -> ConnectStatus {
         ConnectStatus {
-            connect_disabled: true,
+            connect_active: false,
             enabled: false,
             base_url: self.base_url.clone(),
             domain: None,
@@ -142,15 +122,15 @@ impl ConnectService {
             tunnel_active: false,
             backup_unlocked: false,
             paired: false,
-            unclaimed: false,
+            unclaimed: true,
             setup_code: None,
             backup_sources: Vec::new(),
         }
     }
 
     fn status_inner(&self) -> ConnectStatus {
-        if self.is_connect_disabled() {
-            return self.disabled_status();
+        if !self.has_valid_device_code() {
+            return self.inactive_status();
         }
         let state = self.load();
         let enabled = state
@@ -171,7 +151,7 @@ impl ConnectService {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
         ConnectStatus {
-            connect_disabled: false,
+            connect_active: true,
             enabled,
             base_url: self.base_url.clone(),
             domain: hostname.clone(),
@@ -200,17 +180,16 @@ impl ConnectService {
         if claimed {
             return None;
         }
-        self.read_factory_token()
+        self.read_device_token()
     }
 
-    fn connect_disabled_err() -> ConnectError {
-        ConnectError::Other("Luna Connect is turned off on this Luna.".into())
+    fn connect_inactive_err() -> ConnectError {
+        ConnectError::Other(
+            "Luna Connect is not set up on this Luna. Add a device token in Settings → About → Advanced.".into(),
+        )
     }
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
-        if self.is_connect_disabled() {
-            return Err(Self::connect_disabled_err());
-        }
         let norm = normalize_setup_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
@@ -219,7 +198,7 @@ impl ConnectService {
         }
         let grouped = group_device_token(&norm);
         std::fs::write(&self.token_path, format!("{grouped}\n")).map_err(|_| {
-            ConnectError::Other("Could not save the device code on this Luna. Try again.".into())
+            ConnectError::Other("Could not save the device token on this Luna. Try again.".into())
         })?;
         #[cfg(unix)]
         {
@@ -227,25 +206,13 @@ impl ConnectService {
             let _ =
                 std::fs::set_permissions(&self.token_path, std::fs::Permissions::from_mode(0o600));
         }
-        Ok(())
-    }
-
-    pub fn redeem_device_token(&self) -> Result<(), ConnectError> {
-        if self.is_connect_disabled() {
-            return Err(Self::connect_disabled_err());
-        }
-        if self.read_factory_token().is_none() {
-            return Err(ConnectError::Other(
-                "This Luna has no code preconfigured. If you bought it from LibreLoom, contact support. Otherwise, follow the process at https://connect.luna.libreloom.org/onboarding to get a code, then add it in Settings → About → Advanced.".into(),
-            ));
-        }
-        *self.redeem.lock().unwrap() = true;
+        let _ = std::fs::remove_file(&self.legacy_token_path);
         Ok(())
     }
 
     pub fn apply_claimed(&self, claimed: &Value) -> Result<(), ConnectError> {
-        if self.is_connect_disabled() {
-            return Err(Self::connect_disabled_err());
+        if !self.has_valid_device_code() {
+            return Err(Self::connect_inactive_err());
         }
         let mut state = self.load();
         if let Some(t) = claimed.get("device_token") {
@@ -264,7 +231,6 @@ impl ConnectService {
             state["first_user_secret"] = s.clone();
         }
         self.save(&state)?;
-        *self.redeem.lock().unwrap() = false;
         let _ = self.ensure_tunnel();
         Ok(())
     }
@@ -301,17 +267,29 @@ impl ConnectService {
             .map(str::to_string)
     }
 
-    fn read_factory_token(&self) -> Option<String> {
-        std::fs::read_to_string(&self.token_path)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+    fn read_device_token(&self) -> Option<String> {
+        if let Some(raw) = read_trimmed_token_file(&self.token_path) {
+            let norm = normalize_setup_code(&raw);
+            if is_device_token_format(&norm) {
+                return Some(raw);
+            }
+        }
+        if let Some(raw) = read_trimmed_token_file(&self.legacy_token_path) {
+            let norm = normalize_setup_code(&raw);
+            if is_device_token_format(&norm) {
+                let grouped = group_device_token(&norm);
+                let _ = std::fs::write(&self.token_path, format!("{grouped}\n"));
+                let _ = std::fs::remove_file(&self.legacy_token_path);
+                return Some(grouped);
+            }
+        }
+        None
     }
 
-    /// Pull Connect status with the permanent device code. Call on boot and every 5 minutes.
-    /// Returns true when bound (200). On 403 unbound, clears local claim state but keeps the code file.
+    /// Pull Connect status with the permanent device token. Call on boot and every 5 minutes.
+    /// Returns true when bound (200). On 403 unbound, clears local claim state but keeps the token file.
     pub fn poll_status(&self) -> bool {
-        if self.is_connect_disabled() {
+        if !self.has_valid_device_code() {
             return false;
         }
         let Ok(code) = self.device_code() else {
@@ -358,8 +336,8 @@ impl ConnectService {
     }
 
     pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {
-        if self.is_connect_disabled() {
-            return Err(Self::connect_disabled_err());
+        if !self.has_valid_device_code() {
+            return Err(Self::connect_inactive_err());
         }
         let token = self.token()?;
         let changed = self.call_json(
@@ -382,22 +360,31 @@ impl ConnectService {
         Ok(changed)
     }
 
+    /// Remove the device token and clear cloud bind state. Stops polling immediately.
+    pub fn remove_device_token(&self) -> Result<(), ConnectError> {
+        self.stop_tunnel();
+        let _ = std::fs::remove_file(&self.state_path);
+        let _ = std::fs::remove_file(&self.token_path);
+        let _ = std::fs::remove_file(&self.legacy_token_path);
+        Ok(())
+    }
+
     pub fn deactivate(&self) -> Result<(), ConnectError> {
-        if self.is_connect_disabled() {
-            return Err(Self::connect_disabled_err());
+        if !self.has_valid_device_code() {
+            return Err(Self::connect_inactive_err());
         }
         if let Ok(token) = self.token() {
             let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
         }
         self.stop_tunnel();
         let _ = std::fs::remove_file(&self.state_path);
-        // Keep setup-token (permanent device code) so factory reset / re-join works.
+        // Keep device-token so factory reset / re-join works.
         Ok(())
     }
 
     pub fn set_backup_sources(&self, sources: Vec<Value>) -> Result<(), ConnectError> {
-        if self.is_connect_disabled() {
-            return Err(Self::connect_disabled_err());
+        if !self.has_valid_device_code() {
+            return Err(Self::connect_inactive_err());
         }
         let mut state = self.load();
         state["backup_sources"] = json!(sources);
@@ -432,22 +419,22 @@ impl ConnectService {
     }
 
     pub fn sync_status_from_cloud(&self) {
-        if self.is_connect_disabled() {
+        if !self.has_valid_device_code() {
             return;
         }
         let _ = self.poll_status();
     }
 
-    /// Permanent device code from disk (Bearer for Connect).
+    /// Permanent device token from disk (Bearer for Connect).
     pub fn device_code(&self) -> Result<String, ConnectError> {
-        self.read_factory_token()
-            .ok_or_else(|| ConnectError::Other("This Luna has no device code yet.".into()))
+        self.read_device_token()
+            .ok_or_else(|| ConnectError::Other("This Luna has no device token yet.".into()))
     }
 
     /// Setup unlock prefix: first eight Crockford characters (XXXX-XXXX).
-    /// None when the device-code file is missing or malformed (fail closed for remote setup).
+    /// None when the device-token file is missing or malformed (fail closed for remote setup).
     pub fn setup_prefix(&self) -> Option<String> {
-        let code = self.read_factory_token()?;
+        let code = self.read_device_token()?;
         let norm = normalize_setup_code(&code);
         if !is_device_token_format(&norm) || norm.len() < 8 {
             return None;
@@ -670,6 +657,13 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
 /// Crockford base32 without I, L, O, U (same alphabet as Luna Connect).
 const CROCKFORD: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
+fn read_trimmed_token_file(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub(crate) fn normalize_setup_code(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for c in raw.chars() {
@@ -719,6 +713,7 @@ mod tests {
     fn apply_claimed_persists_secret_and_starts_mock_tunnel() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         service
             .apply_claimed(&json!({
                 "device_token": "tok-1",
@@ -729,6 +724,7 @@ mod tests {
             }))
             .unwrap();
         let st = service.status();
+        assert!(st.connect_active);
         assert_eq!(
             st.hostname.as_deref(),
             Some("photos.luna.servers.libreloom.org")
@@ -741,26 +737,28 @@ mod tests {
     }
 
     #[test]
-    fn create_disable_connect_file_is_idempotent() {
+    fn connect_inactive_without_device_token() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.create_disable_connect_file().unwrap();
-        service.create_disable_connect_file().unwrap();
-        assert!(dir.path().join(DISABLE_CONNECT_FILE).is_file());
-        assert!(service.is_connect_disabled());
-    }
-
-    #[test]
-    fn disable_connect_file_turns_off_connect() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(DISABLE_CONNECT_FILE), b"").unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap_err();
         let st = service.status();
-        assert!(st.connect_disabled);
+        assert!(!st.connect_active);
         assert!(!st.enabled);
         assert!(service.setup_prefix().is_none());
         assert!(!service.poll_status());
+    }
+
+    #[test]
+    fn legacy_setup_token_migrates_to_device_token() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(LEGACY_DEVICE_TOKEN_FILE),
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        assert!(service.has_valid_device_code());
+        assert!(dir.path().join(DEVICE_TOKEN_FILE).is_file());
+        assert!(!dir.path().join(LEGACY_DEVICE_TOKEN_FILE).exists());
     }
 
     #[test]
@@ -769,11 +767,12 @@ mod tests {
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         service.set_oss_code("3097-v4yk-3hyx-2e3p-v4b3").unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("setup-token"))
+            std::fs::read_to_string(dir.path().join(DEVICE_TOKEN_FILE))
                 .unwrap()
                 .trim(),
             "3097-V4YK-3HYX-2E3P-V4B3"
         );
+        assert!(service.status().connect_active);
         assert_eq!(
             service.status().setup_code.as_deref(),
             Some("3097-V4YK-3HYX-2E3P-V4B3")
@@ -803,25 +802,17 @@ mod tests {
     #[test]
     fn malformed_device_code_refuses_prefix() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("setup-token"), "not-a-code").unwrap();
+        std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         assert!(service.setup_prefix().is_none());
         assert!(!service.matches_setup_prefix("ABCD-EFGH"));
     }
 
     #[test]
-    fn redeem_without_factory_token_explains_next_step() {
+    fn poll_skips_without_device_token() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        let err = service.redeem_device_token().unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("This Luna has no code preconfigured"), "{msg}");
-        assert!(
-            msg.contains("https://connect.luna.libreloom.org/onboarding"),
-            "{msg}"
-        );
-        assert!(msg.contains("Settings → About → Advanced"), "{msg}");
-        assert!(!msg.to_lowercase().contains("booklet"), "{msg}");
+        assert!(!service.poll_status());
     }
 
     #[test]
@@ -841,7 +832,7 @@ mod tests {
             "claim state must clear"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("setup-token"))
+            std::fs::read_to_string(dir.path().join(DEVICE_TOKEN_FILE))
                 .unwrap()
                 .trim(),
             "ABCD-EFGH-JKMN-PQRS-TVWX"

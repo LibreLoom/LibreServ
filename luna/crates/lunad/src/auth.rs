@@ -1573,6 +1573,7 @@ mod guard_tests {
         let (dir, _) = test_app();
         let connect =
             crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         connect
             .apply_claimed(&serde_json::json!({
                 "device_token": "tok",

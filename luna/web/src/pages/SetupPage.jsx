@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowRight, Cable, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
@@ -14,7 +14,7 @@ import NetworkStep from "../components/setup/NetworkStep";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
 import useSetupProgress from "../hooks/useSetupProgress";
-import useConnectDisabled from "../hooks/useConnectDisabled";
+import useConnectActive from "../hooks/useConnectActive";
 import { StepTransitionContext } from "../components/setup/StepTransitionContext";
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import Button from "../components/ui/Button";
@@ -221,7 +221,7 @@ WelcomeStep.propTypes = {
 };
 
 // ─── STEP: Setup code (remote unlock) ─────────────────────────────────────────
-function SetupCodeStep({ onCodeVerified, onConnectDisabled }) {
+function SetupCodeStep({ onCodeVerified }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -233,23 +233,6 @@ function SetupCodeStep({ onCodeVerified, onConnectDisabled }) {
 
   const handleSubmit = async () => {
     const trimmed = normalize(code);
-    if (trimmed === "DISABLE") {
-      setLoading(true);
-      setError("");
-      try {
-        await postJson("/api/v1/setup/disable-connect", {});
-        onConnectDisabled();
-        onCodeVerified();
-      } catch (err) {
-        setError(
-          err?.message ||
-            "To skip Luna Connect, open setup on Luna itself and type disable there.",
-        );
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
     if (trimmed.length !== 8) {
       setError("Enter the first eight characters (****-****) from your device code.");
       return;
@@ -294,11 +277,7 @@ function SetupCodeStep({ onCodeVerified, onConnectDisabled }) {
             onChange={(e) => {
               const raw = String(e.target.value || "");
               const n = normalize(raw);
-              if (n.startsWith("DISABLE") || raw.toLowerCase().startsWith("disable")) {
-                setCode(raw.toLowerCase().startsWith("disable") ? "disable" : n);
-              } else {
-                setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4, 8)}` : n);
-              }
+              setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4, 8)}` : n);
               setError("");
             }}
             onKeyDown={(e) => {
@@ -322,7 +301,7 @@ function SetupCodeStep({ onCodeVerified, onConnectDisabled }) {
         variant="primary"
         onClick={handleSubmit}
         loading={loading}
-        disabled={loading || (normalize(code) !== "DISABLE" && normalize(code).length !== 8)}
+        disabled={loading || normalize(code).length !== 8}
         className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
       >
         Continue
@@ -333,7 +312,6 @@ function SetupCodeStep({ onCodeVerified, onConnectDisabled }) {
 }
 SetupCodeStep.propTypes = {
   onCodeVerified: PropTypes.func.isRequired,
-  onConnectDisabled: PropTypes.func.isRequired,
 };
 
 // ─── Password strength (same policy as LibreServ + lunad) ─────────────────────
@@ -403,9 +381,9 @@ FormField.propTypes = {
 };
 
 // ─── STEP: Account ────────────────────────────────────────────────────────────
-function AccountStep({ hasAdmin, onContinue, connectDisabled }) {
+function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
-  const needsSetupCode = isPublicLunaHost() && !connectDisabled;
+  const needsSetupCode = isPublicLunaHost() && connectActive;
   const [form, setForm] = useState({
     display_name:     "",
     username:         "",
@@ -748,7 +726,7 @@ function AccountStep({ hasAdmin, onContinue, connectDisabled }) {
 AccountStep.propTypes = {
   hasAdmin: PropTypes.bool.isRequired,
   onContinue: PropTypes.func.isRequired,
-  connectDisabled: PropTypes.bool.isRequired,
+  connectActive: PropTypes.bool.isRequired,
 };
 
 // ─── STEP: Name ───────────────────────────────────────────────────────────────
@@ -891,7 +869,6 @@ const STEP_ORDER = [
 
 export default function SetupPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { user, refresh } = useAuth();
   // null until saved progress is loaded — avoids flashing Welcome over a resume.
   const [step, setStep] = useState(null);
@@ -904,13 +881,13 @@ export default function SetupPage() {
   const savingRef = useRef(false);
   const [saveError, setSaveError] = useState(null);
   const [hydrated, setHydrated] = useState(false);
-  const connectDisabled = useConnectDisabled();
+  const connectActive = useConnectActive();
 
   // During setup, ask lunad to peel a code from the installer USB magazine when needed.
   useEffect(() => {
-    if (connectDisabled || !hydrated) return;
+    if (!hydrated) return;
     postJson("/api/v1/setup/fetch-mag", {}).catch(() => {});
-  }, [connectDisabled, hydrated]);
+  }, [hydrated]);
 
   // Whether an account already exists (decides if the account step creates or
   // signs in). Re-checked whenever the signed-in user changes.
@@ -1047,12 +1024,6 @@ export default function SetupPage() {
   const handleCodeVerified = useCallback(() => {
     setStep(STEP.WELCOME);
   }, []);
-  const handleConnectDisabled = useCallback(() => {
-    queryClient.setQueryData(["auth-status"], (prev) => ({
-      ...(prev && typeof prev === "object" ? prev : {}),
-      connect_disabled: true,
-    }));
-  }, [queryClient]);
   const handleBegin = useCallback(() => advanceStep(STEP.NETWORK), [advanceStep]);
   const handleConnectionDone = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };
@@ -1092,10 +1063,7 @@ export default function SetupPage() {
   let renderedStep;
   if (step === STEP.SETUP_CODE) {
     renderedStep = (
-      <SetupCodeStep
-        onCodeVerified={handleCodeVerified}
-        onConnectDisabled={handleConnectDisabled}
-      />
+      <SetupCodeStep onCodeVerified={handleCodeVerified} />
     );
   } else if (step === STEP.WELCOME) {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
@@ -1106,7 +1074,7 @@ export default function SetupPage() {
       <AccountStep
         hasAdmin={hasAdmin}
         onContinue={handleAccountContinue}
-        connectDisabled={connectDisabled}
+        connectActive={connectActive}
       />
     );
   } else if (step === STEP.NAME) {

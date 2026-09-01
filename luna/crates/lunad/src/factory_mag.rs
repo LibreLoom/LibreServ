@@ -1,6 +1,6 @@
-//! Peel an official setup code from the LUNAASSETS `TOKENS` magazine.
+//! Peel an official device token from the LUNAASSETS `TOKENS` magazine.
 //!
-//! Used during first-run setup when `{data_dir}/setup-token` is missing or
+//! Used during first-run setup when `{data_dir}/device-token` is missing or
 //! malformed. Retries when a peeled line is not a valid device token.
 
 use std::path::{Path, PathBuf};
@@ -15,7 +15,6 @@ pub const MAG_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MagFetchOutcome {
-    SkippedConnectDisabled,
     AlreadyValid,
     NoMagazine,
     Fetched { attempts: u32 },
@@ -41,19 +40,15 @@ impl Default for MagFetchOptions {
 }
 
 /// Try to populate `token_path` from the factory magazine when it is missing or invalid.
-pub fn fetch_setup_token_from_mag(
+pub fn fetch_device_token_from_mag(
     token_path: &Path,
-    disable_connect_path: &Path,
     opts: &MagFetchOptions,
 ) -> MagFetchOutcome {
-    if disable_connect_path.is_file() {
-        return MagFetchOutcome::SkippedConnectDisabled;
-    }
     if token_path
         .is_file()
         .then(|| std::fs::read_to_string(token_path).ok())
         .flatten()
-        .is_some_and(|raw| is_valid_setup_token(&raw))
+        .is_some_and(|raw| is_valid_device_token(&raw))
     {
         return MagFetchOutcome::AlreadyValid;
     }
@@ -71,13 +66,13 @@ pub fn fetch_setup_token_from_mag(
                 MagFetchOutcome::ExhaustedRetries { attempts }
             };
         };
-        if !is_valid_setup_token(&peeled) {
+        if !is_valid_device_token(&peeled) {
             if attempts < opts.max_attempts {
                 thread::sleep(opts.retry_delay);
             }
             continue;
         }
-        if write_setup_token(token_path, &peeled).is_ok() {
+        if write_device_token(token_path, &peeled).is_ok() {
             return MagFetchOutcome::Fetched { attempts };
         }
         if attempts < opts.max_attempts {
@@ -87,12 +82,12 @@ pub fn fetch_setup_token_from_mag(
     MagFetchOutcome::ExhaustedRetries { attempts }
 }
 
-fn is_valid_setup_token(raw: &str) -> bool {
+fn is_valid_device_token(raw: &str) -> bool {
     let norm = normalize_setup_code(raw.trim());
     is_device_token_format(&norm)
 }
 
-fn write_setup_token(path: &Path, raw: &str) -> std::io::Result<()> {
+fn write_device_token(path: &Path, raw: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -241,13 +236,13 @@ mod tests {
             &assets,
             "not-a-code\nABCD-EFGH-JKMN-PQRS-TVWX\n",
         );
-        let token = dir.path().join("setup-token");
+        let token = dir.path().join("device-token");
         let opts = MagFetchOptions {
             assets_root: Some(assets),
             max_attempts: 3,
             retry_delay: Duration::from_millis(1),
         };
-        let out = fetch_setup_token_from_mag(&token, &dir.path().join("disable-connect"), &opts);
+        let out = fetch_device_token_from_mag(&token, &opts);
         assert_eq!(out, MagFetchOutcome::Fetched { attempts: 2 });
         assert_eq!(
             std::fs::read_to_string(&token).unwrap().trim(),
@@ -260,14 +255,13 @@ mod tests {
     #[test]
     fn skips_when_token_already_valid() {
         let dir = tempfile::tempdir().unwrap();
-        let token = dir.path().join("setup-token");
+        let token = dir.path().join("device-token");
         std::fs::write(&token, "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
         write_tokens(&assets, "ZZZZ-YYYY-XXXX-WWWW-VVVV\n");
-        let out = fetch_setup_token_from_mag(
+        let out = fetch_device_token_from_mag(
             &token,
-            &dir.path().join("disable-connect"),
             &MagFetchOptions {
                 assets_root: Some(assets.clone()),
                 ..Default::default()
@@ -286,9 +280,8 @@ mod tests {
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
         write_tokens(&assets, "# comments only\n\n");
-        let out = fetch_setup_token_from_mag(
-            &dir.path().join("setup-token"),
-            &dir.path().join("disable-connect"),
+        let out = fetch_device_token_from_mag(
+            &dir.path().join("device-token"),
             &MagFetchOptions {
                 assets_root: Some(assets),
                 max_attempts: 2,

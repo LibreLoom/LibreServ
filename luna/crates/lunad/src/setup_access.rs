@@ -1,8 +1,8 @@
-//! Remote setup unlock: first two groups of the permanent device code.
+//! Remote setup unlock: first two groups of the permanent device token.
 //!
-//! Loopback (on-box display / local browser) is always allowed. Non-loopback
-//! requests need `X-Setup-Token` matching `prefix(device_code)`. Missing or
-//! malformed device-code files refuse remote setup (never fail-open).
+//! LAN origins are always allowed. Remote requests need `X-Setup-Token` matching
+//! `prefix(device_token)` when a valid device token is present. Without a token,
+//! remote setup is blocked (never fail-open).
 
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
@@ -12,7 +12,8 @@ use crate::AppState;
 use crate::api::response::json_error;
 use crate::auth::setup_wizard_open;
 
-const SETUP_FORBIDDEN: &str = "This setup step needs a setup code. Open the setup screen on Luna itself, or enter the first eight characters (****-****) from your device code.";
+const REMOTE_NO_TOKEN: &str = "Finish setup from a device on the same home network as Luna (same Wi‑Fi or ethernet). Luna works fully without Luna Connect.";
+const REMOTE_WRONG_PREFIX: &str = "Enter the first eight characters of your device token (****-****).";
 
 /// Enforce the remote setup unlock for an incomplete wizard.
 /// Returns `Ok(())` when the request may proceed.
@@ -24,19 +25,12 @@ pub fn check(
     if !setup_wizard_open(state) {
         return Ok(());
     }
-    if is_loopback_request(addr, headers) {
-        return Ok(());
-    }
-
-    if state.connect.is_connect_disabled() {
+    if is_lan_request(addr, headers) {
         return Ok(());
     }
 
     if state.connect.setup_prefix().is_none() {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Remote setup is not available on this Luna. Finish setup on Luna itself (the screen plugged into it), or add a device code in Settings and try again.",
-        ));
+        return Err(json_error(StatusCode::FORBIDDEN, REMOTE_NO_TOKEN));
     }
 
     let token = headers
@@ -44,27 +38,78 @@ pub fn check(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if !state.connect.matches_setup_prefix(token) {
-        return Err(json_error(StatusCode::FORBIDDEN, SETUP_FORBIDDEN));
+        return Err(json_error(StatusCode::FORBIDDEN, REMOTE_WRONG_PREFIX));
     }
     Ok(())
 }
 
-pub fn is_loopback_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
-    // Tunnel / reverse-proxy clients must not count as local even if the
-    // immediate TCP peer is loopback (Caddy → lunad).
-    if has_proxy_client_headers(headers) {
-        return false;
-    }
-    match addr.ip() {
-        std::net::IpAddr::V4(v4) => v4.is_loopback(),
-        std::net::IpAddr::V6(v6) => v6.is_loopback(),
+/// `"lan"` or `"remote"` for setup UI hints.
+pub fn setup_origin(addr: &std::net::SocketAddr, headers: &HeaderMap) -> &'static str {
+    if is_lan_request(addr, headers) {
+        "lan"
+    } else {
+        "remote"
     }
 }
 
-fn has_proxy_client_headers(headers: &HeaderMap) -> bool {
-    headers.get("cf-connecting-ip").is_some()
-        || headers.get("x-forwarded-for").is_some()
-        || headers.get("x-real-ip").is_some()
+pub fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    if is_local_hostname(headers) {
+        return true;
+    }
+    let ip = client_ip(addr, headers);
+    is_private_or_loopback_ip(ip)
+}
+
+pub fn is_loopback_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    is_lan_request(addr, headers) && matches!(client_ip(addr, headers), std::net::IpAddr::V4(v4) if v4.is_loopback())
+}
+
+fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std::net::IpAddr {
+    if let Some(ip) = header_ip(headers, "cf-connecting-ip")
+        .or_else(|| header_ip(headers, "x-real-ip"))
+        .or_else(|| forwarded_for_first(headers))
+    {
+        return ip;
+    }
+    addr.ip()
+}
+
+fn header_ip(headers: &HeaderMap, name: &str) -> Option<std::net::IpAddr> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse().ok())
+}
+
+fn forwarded_for_first(headers: &HeaderMap) -> Option<std::net::IpAddr> {
+    let raw = headers.get("x-forwarded-for")?.to_str().ok()?;
+    raw.split(',')
+        .next()
+        .and_then(|s| s.trim().parse().ok())
+}
+
+fn is_local_hostname(headers: &HeaderMap) -> bool {
+    let host = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    host.ends_with(".local") || host == "luna.local"
+}
+
+fn is_private_or_loopback_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.octets()[0] == 169 && v4.octets()[1] == 254
+        }
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
+    }
 }
 
 #[cfg(test)]
@@ -77,6 +122,10 @@ mod tests {
 
     const REMOTE: std::net::SocketAddr = std::net::SocketAddr::new(
         std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 9)),
+        54321,
+    );
+    const LAN: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 50)),
         54321,
     );
     const LOOPBACK: std::net::SocketAddr = std::net::SocketAddr::new(
@@ -123,16 +172,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_setup_allowed_when_connect_disabled() {
+    async fn lan_setup_without_token_is_allowed() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("disable-connect"), b"").unwrap();
         let app = app(dir.path());
         let res = call(
             &app,
             Method::POST,
             "/api/v1/setup",
             r#"{"current_step":"network"}"#,
-            REMOTE,
+            LAN,
             None,
         )
         .await;
@@ -140,7 +188,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_setup_without_code_file_is_forbidden() {
+    async fn remote_setup_without_token_is_forbidden() {
         let dir = tempfile::tempdir().unwrap();
         let app = app(dir.path());
         let res = call(
@@ -156,7 +204,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn loopback_setup_without_code_file_is_allowed() {
+    async fn loopback_setup_without_token_is_allowed() {
         let dir = tempfile::tempdir().unwrap();
         let app = app(dir.path());
         let res = call(
@@ -174,7 +222,7 @@ mod tests {
     #[tokio::test]
     async fn remote_setup_accepts_matching_prefix() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::fs::write(dir.path().join("device-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let app = app(dir.path());
         let denied = call(
             &app,
@@ -200,27 +248,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validate_code_works_without_prior_token() {
+    async fn validate_code_works_without_prior_token_on_lan() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::fs::write(dir.path().join("device-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let app = app(dir.path());
-        let bad = call(
-            &app,
-            Method::POST,
-            "/api/v1/setup/validate-code",
-            r#"{"code":"XXXX-YYYY"}"#,
-            REMOTE,
-            None,
-        )
-        .await;
-        assert_eq!(bad.status(), StatusCode::FORBIDDEN);
-
         let good = call(
             &app,
             Method::POST,
             "/api/v1/setup/validate-code",
             r#"{"code":"ABCD-EFGH"}"#,
-            REMOTE,
+            LAN,
             None,
         )
         .await;
@@ -228,37 +265,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disable_connect_requires_loopback() {
-        let dir = tempfile::tempdir().unwrap();
-        let app = app(dir.path());
-        let denied = call(
-            &app,
-            Method::POST,
-            "/api/v1/setup/disable-connect",
-            "{}",
-            REMOTE,
-            None,
-        )
-        .await;
-        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
-
-        let ok = call(
-            &app,
-            Method::POST,
-            "/api/v1/setup/disable-connect",
-            "{}",
-            LOOPBACK,
-            None,
-        )
-        .await;
-        assert_eq!(ok.status(), StatusCode::OK);
-        assert!(dir.path().join("disable-connect").is_file());
-    }
-
-    #[tokio::test]
     async fn fetch_mag_reports_existing_token() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::fs::write(dir.path().join("device-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
         let app = app(dir.path());
         let res = call(
             &app,
@@ -275,5 +284,22 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("existing"));
+    }
+
+    #[test]
+    fn private_ranges_are_lan() {
+        let addr = std::net::SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 5)),
+            80,
+        );
+        assert!(is_lan_request(&addr, &HeaderMap::new()));
+    }
+
+    #[test]
+    fn forwarded_for_public_is_remote() {
+        let addr = LOOPBACK;
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        assert!(!is_lan_request(&addr, &headers));
     }
 }

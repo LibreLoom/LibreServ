@@ -122,7 +122,7 @@ export default function AdminTokensPage() {
               setSingleBusy(true);
               try {
                 const data = await adminApi("/admin/setup-tokens", { method: "POST", body: "{}" });
-                setToken(data.token);
+                setToken(data.code);
                 await loadTokens(listAll);
               } catch (err) {
                 setError(err.message);

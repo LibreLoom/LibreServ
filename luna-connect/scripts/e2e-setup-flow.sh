@@ -61,16 +61,16 @@ wait_for_lunad_claim() {
 log "Checking luna-connect at $CONNECT_URL"
 wait_for_connect
 
-# --- Step 1: mint official setup token ---
-log "Minting official setup token"
+# --- Step 1: mint official device token ---
+log "Minting official device token"
 MINT=$(curl -s -X POST "$CONNECT_URL/admin/setup-tokens" -H "Authorization: Bearer $ADMIN_TOKEN")
-TOKEN=$(echo "$MINT" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) \
+TOKEN=$(echo "$MINT" | python3 -c "import sys,json; print(json.load(sys.stdin)['code'])" 2>/dev/null) \
   || fail "mint failed: $MINT"
-log "Official setup token minted"
+log "Official device token minted"
 
-# --- Step 2: prepare lunad (setup-token, clear prior claim) ---
-log "Writing setup-token → $LUNA_DATA/setup-token"
-echo "$TOKEN" > "$LUNA_DATA/setup-token"
+# --- Step 2: prepare lunad (device-token, clear prior claim) ---
+log "Writing device-token → $LUNA_DATA/device-token"
+echo "$TOKEN" > "$LUNA_DATA/device-token"
 rm -f "$LUNA_DATA/connect.json"
 
 # --- Step 3: website — register + bind (device not online yet) ---

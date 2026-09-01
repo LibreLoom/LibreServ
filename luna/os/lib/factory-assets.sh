@@ -116,13 +116,13 @@ factory_is_valid_device_token() {
 }
 
 # Write device token onto the mounted LUNA_DATA volume ($1).
-# At runtime that volume is mounted at /var/lib/luna → /var/lib/luna/setup-token.
-factory_write_setup_token() {
+# At runtime that volume is mounted at /var/lib/luna → /var/lib/luna/device-token.
+factory_write_device_token() {
 	_root="$1"
 	_tok="$2"
 	mkdir -p "$_root" || return 1
-	printf '%s\n' "$_tok" >"$_root/setup-token" || return 1
-	chmod 600 "$_root/setup-token" || return 1
+	printf '%s\n' "$_tok" >"$_root/device-token" || return 1
+	chmod 600 "$_root/device-token" || return 1
 	return 0
 }
 
@@ -149,7 +149,7 @@ factory_prompt_device_token() {
 				"Check your token. If you meant to skip this step, press enter without typing anything."
 			continue
 		fi
-		if ! factory_write_setup_token "$_root" "$_tok"; then
+		if ! factory_write_device_token "$_root" "$_tok"; then
 			echo "Could not save the device token onto Luna." >&2
 			return 1
 		fi
@@ -158,10 +158,10 @@ factory_prompt_device_token() {
 	done
 }
 
-# Full post-flash path: peel from LUNAASSETS, else legacy setup-token paths, else TTY paste.
+# Full post-flash path: peel from LUNAASSETS, else legacy device-token paths, else TTY paste.
 # $1 = mounted LUNA_DATA volume. $2 = HERE (installer payload dir).
 # Returns 0 on success/skip; 1 on hard failure (e.g. mag rewrite failed).
-factory_apply_setup_token() {
+factory_apply_device_token() {
 	_root="$1"
 	_here="${2:-}"
 	_assets_mnt="$(mktemp -d)" || return 1
@@ -177,7 +177,7 @@ factory_apply_setup_token() {
 			fi
 			if [ "$_peel_rc" -eq 0 ] && [ -n "$_tok" ]; then
 				factory_assets_umount "$_assets_mnt"
-				if ! factory_write_setup_token "$_root" "$_tok"; then
+				if ! factory_write_device_token "$_root" "$_tok"; then
 					echo "Could not save the device token onto Luna." >&2
 					return 1
 				fi
@@ -191,7 +191,7 @@ factory_apply_setup_token() {
 	fi
 
 	_token_src=""
-	for _c in "$_here/setup-token" /src/setup-token /iso/setup-token; do
+	for _c in "$_here/device-token" "$_here/setup-token" /src/device-token /src/setup-token /iso/device-token /iso/setup-token; do
 		if [ -f "$_c" ]; then
 			_token_src="$_c"
 			break
@@ -201,8 +201,8 @@ factory_apply_setup_token() {
 		_legacy=$(cat "$_token_src")
 		if factory_is_valid_device_token "$_legacy"; then
 			mkdir -p "$_root" || return 1
-			cp "$_token_src" "$_root/setup-token" || return 1
-			chmod 600 "$_root/setup-token" || return 1
+			cp "$_token_src" "$_root/device-token" || return 1
+			chmod 600 "$_root/device-token" || return 1
 			echo "Device token saved from the installer USB."
 			return 0
 		fi

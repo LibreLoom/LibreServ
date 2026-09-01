@@ -26,23 +26,40 @@ struct CodeBody {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/v1/connect/config", get(config))
         .route("/api/v1/connect/status", get(status))
         .route("/api/v1/connect/domain", post(set_domain))
         .route("/api/v1/connect/deactivate", post(deactivate))
         .route("/api/v1/connect/setup-code", post(setup_code))
-        .route("/api/v1/connect/redeem", post(redeem))
+        .route("/api/v1/connect/sync", post(sync))
+        .route("/api/v1/connect/device-token", axum::routing::delete(remove_device_token))
         .route("/api/v1/connect/backup-sources", post(set_sources))
+}
+
+async fn config(State(state): State<AppState>) -> Json<Value> {
+    let active = state.connect.is_connect_active();
+    let prefix = state.connect.setup_prefix().is_some();
+    let st = state.connect.status();
+    Json(json!({
+        "connect_active": active,
+        "device_token": {
+            "present": active,
+            "prefix_available": prefix,
+        },
+        "cloud_bind": {
+            "state": if !active { "n/a" } else if st.enabled { "claimed" } else { "unclaimed" },
+        },
+    }))
 }
 
 async fn status(
     State(state): State<AppState>,
     current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Json<crate::connect::ConnectStatus> {
-    if state.connect.is_connect_disabled() {
-        return Json(state.connect.status());
+    if state.connect.is_connect_active() {
+        let connect = state.connect.clone();
+        let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
     }
-    let connect = state.connect.clone();
-    let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
     let setup = state.auth.count_users().unwrap_or(1) == 0;
     let admin = current.as_ref().is_some_and(|u| u.role == "admin");
     Json(state.connect.status_for(setup || admin))
@@ -60,13 +77,10 @@ async fn setup_code(
     current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<CodeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if state.connect.is_connect_disabled() {
-        return Err(connect_disabled_error());
-    }
     if !setup_or_admin(&state, current.as_ref()) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can enter a Connect code.",
+            "Only an admin can enter a device token.",
         ));
     }
     let service = state.connect.clone();
@@ -75,31 +89,48 @@ async fn setup_code(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that code.",
+                "Luna couldn't save that device token.",
             )
         })?
         .map_err(map_connect_err)?;
     Ok(Json(json!({
         "ok": true,
-        "message": "Luna will use this code to meet Luna Connect. Keep this page open."
+        "message": "Luna will use this device token to meet Luna Connect. Keep this page open."
     })))
 }
 
-async fn redeem(
+async fn sync(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if state.connect.is_connect_disabled() {
-        return Err(connect_disabled_error());
+    if !state.connect.is_connect_active() {
+        return Err(connect_inactive_error());
     }
     require_admin(user)?;
     let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.redeem_device_token())
+    let bound = tokio::task::spawn_blocking(move || service.poll_status())
         .await
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't start setup with the code that came with this Luna.",
+                "Luna couldn't sync with Luna Connect.",
+            )
+        })?;
+    Ok(Json(json!({ "ok": true, "bound": bound })))
+}
+
+async fn remove_device_token(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
+    let service = state.connect.clone();
+    tokio::task::spawn_blocking(move || service.remove_device_token())
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't remove the device token.",
             )
         })?
         .map_err(map_connect_err)?;
@@ -111,8 +142,8 @@ async fn set_domain(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<DomainBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if state.connect.is_connect_disabled() {
-        return Err(connect_disabled_error());
+    if !state.connect.is_connect_active() {
+        return Err(connect_inactive_error());
     }
     require_admin(user)?;
     let service = state.connect.clone();
@@ -132,8 +163,8 @@ async fn deactivate(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if state.connect.is_connect_disabled() {
-        return Err(connect_disabled_error());
+    if !state.connect.is_connect_active() {
+        return Err(connect_inactive_error());
     }
     require_admin(user)?;
     let service = state.connect.clone();
@@ -154,8 +185,8 @@ async fn set_sources(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<SourcesBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if state.connect.is_connect_disabled() {
-        return Err(connect_disabled_error());
+    if !state.connect.is_connect_active() {
+        return Err(connect_inactive_error());
     }
     require_admin(user)?;
     let sources = {
@@ -197,10 +228,10 @@ fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json
     Ok(())
 }
 
-fn connect_disabled_error() -> (StatusCode, Json<Value>) {
+fn connect_inactive_error() -> (StatusCode, Json<Value>) {
     json_error(
         StatusCode::NOT_FOUND,
-        "Luna Connect is turned off on this Luna.",
+        "Luna Connect is not set up on this Luna. Add a device token in Settings → About → Advanced.",
     )
 }
 

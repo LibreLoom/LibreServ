@@ -22,8 +22,8 @@ export default function RemoteCategory() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); setNewName(""); },
     onError: (err) => setError(apiErrorMessage(err)),
   });
-  const redeem = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/redeem", {}),
+  const sync = useMutation({
+    mutationFn: () => postJson("/api/v1/connect/sync", {}),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -83,8 +83,8 @@ export default function RemoteCategory() {
                 <Button variant="primary" fullWidth asChild>
                   <Link to="/settings#about">Open About → Advanced</Link>
                 </Button>
-                <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
-                  Use the code that came with this Luna
+                <Button variant="outline" fullWidth loading={sync.isPending} onClick={() => sync.mutate()}>
+                  Sync with Luna Connect
                 </Button>
               </div>
             </div>

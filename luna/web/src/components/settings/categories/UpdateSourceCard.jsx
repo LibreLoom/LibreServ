@@ -9,7 +9,6 @@ import ShakeTarget from "../../ui/ShakeTarget";
 import Pill from "../../common/Pill";
 import SettingsCard from "../SettingsCard";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
-import useConnectDisabled from "../../../hooks/useConnectDisabled";
 import { InfoHint } from "../../ui/Tooltip";
 import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
 
@@ -40,7 +39,6 @@ function signingKeysForSave(keyLines, source) {
 
 export default function UpdateSourceCard({ index = 3 }) {
   const queryClient = useQueryClient();
-  const connectDisabled = useConnectDisabled();
   const [modalOpen, setModalOpen] = useState(false);
   const source = useQuery({
     queryKey: ["updates-source"],
@@ -59,17 +57,15 @@ export default function UpdateSourceCard({ index = 3 }) {
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
       <div className="px-5 py-4 space-y-4">
-        {!connectDisabled && (
-        <CollapsibleSection title="Setup code" mono pill defaultOpen>
+        <CollapsibleSection title="Device token" mono pill defaultOpen>
           <div className="space-y-3 mb-1">
             <p className="text-sm text-primary leading-relaxed">
-              Enter the setup code from Luna Connect here, or during the installer. Purchased Lunas
-              can also use the code that came with the device.
+              Add a device token from Luna Connect to turn on remote access and cloud backup.
+              Purchased Lunas can also use the token that came with the device.
             </p>
             <ConnectSetupCodeForm compact />
           </div>
         </CollapsibleSection>
-        )}
 
         <CollapsibleSection title="Update source" mono pill>
           <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">

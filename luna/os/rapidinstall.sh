@@ -246,11 +246,11 @@ if ! mount -o rw "$_datap" "$_data_mnt"; then
 	echo "The OS image checksum is missing. This install did not finish."
 	exit 1
 fi
-if ! factory_apply_setup_token "$_data_mnt" "$HERE"; then
+if ! factory_apply_device_token "$_data_mnt" "$HERE"; then
 	umount "$_data_mnt" 2>/dev/null || true
 	echo
 	echo "Install wrote the disk, but the official setup code step failed."
-	echo "Fix the TOKENS magazine on LUNAASSETS (or use setup-token), then re-run."
+	echo "Fix the TOKENS magazine on LUNAASSETS (or use device-token), then re-run."
 	exit 1
 fi
 if [ ! -f "$_data_mnt/os-image.sha256" ]; then

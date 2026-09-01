@@ -35,7 +35,7 @@ function stubFetch({
   network = { ethernet_connected: true, wifi_connected: false, has_default_route: true },
   /** @type {any} */
   connect = { enabled: true, tunnel_active: true, domain: "luna.example" },
-  connectDisabled = false,
+  connectActive = false,
   jobs = [],
   access = [],
   summaries = {
@@ -59,7 +59,7 @@ function stubFetch({
         return jsonResponse({ id: "1", username, role });
       }
       if (u.endsWith("/api/v1/auth/status")) {
-        return jsonResponse({ has_admin: role === "admin", connect_disabled: connectDisabled });
+        return jsonResponse({ has_admin: role === "admin", connect_active: connectActive });
       }
       if (u.endsWith("/api/v1/setup")) {
         return jsonResponse({ name: "Luna", setup_completed: true });
@@ -116,7 +116,7 @@ function renderPage() {
 
 describe("DashboardPage", () => {
   it("greets the signed-in user and shows uptime and drives", async () => {
-    stubFetch();
+    stubFetch({ connectActive: true });
     renderPage();
     expect(await screen.findByText("max")).toBeInTheDocument();
     const heading = screen.getByRole("heading", { name: /max/i });
@@ -166,7 +166,7 @@ describe("DashboardPage", () => {
   });
 
   it("shows remote access as a single link when it is off", async () => {
-    stubFetch({ connect: { enabled: false, tunnel_active: false } });
+    stubFetch({ connectActive: true, connect: { enabled: false, tunnel_active: false } });
     renderPage();
     expect(await screen.findByRole("link", { name: /Remote access off/i })).toHaveAttribute(
       "href",
@@ -175,8 +175,8 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
   });
 
-  it("hides remote access when Luna Connect is disabled on the device", async () => {
-    stubFetch({ connectDisabled: true });
+  it("hides remote access when Luna Connect is inactive on the device", async () => {
+    stubFetch({ connectActive: false });
     renderPage();
     expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();

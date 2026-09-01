@@ -13,14 +13,14 @@ function stubFetch({
   network = {},
   setup = { name: "Luna", setup_completed: false, current_step: "welcome", step_data: {} },
   hasAdmin = false,
-  connectDisabled = false,
+  connectActive = false,
 } = {}) {
   return vi.fn(async (url, init) => {
     const u = String(url);
     const method = (init?.method || "GET").toUpperCase();
     if (u.includes("/auth/me")) return jsonResponse({}, 401);
     if (u.includes("/auth/status")) {
-      return jsonResponse({ has_admin: hasAdmin, connect_disabled: connectDisabled });
+      return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive });
     }
     if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
       return jsonResponse({ ok: false, source: "none", attempts: 0 });
@@ -143,7 +143,7 @@ describe("SetupPage", () => {
       }
       if (u.includes("/api/v1/setup")) {
         return jsonResponse(
-          { error: "This setup step needs a setup code. Open the setup screen on Luna itself, or enter the first eight characters (****-****) from your device code." },
+          { error: "This setup step needs a setup code. Enter the first eight characters (****-****) from your device code, or open setup from a device on your home network." },
           403,
         );
       }
@@ -157,40 +157,11 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
   });
 
-  it("typing disable skips Luna Connect during setup", async () => {
-    const fetchMock = vi.fn(async (url, init) => {
-      const u = String(url);
-      const method = (init?.method || "GET").toUpperCase();
-      if (u.includes("/auth/me")) return jsonResponse({}, 401);
-      if (u.includes("/auth/status")) return jsonResponse({ has_admin: false, connect_disabled: false });
-      if (u.includes("/api/v1/setup/disable-connect") && method === "POST") {
-        return jsonResponse({ ok: true, connect_disabled: true });
-      }
-      if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
-        return jsonResponse({ ok: false, source: "none", attempts: 0 });
-      }
-      if (u.includes("/api/v1/setup/validate-code")) {
-        return jsonResponse({ ok: true });
-      }
-      if (u.includes("/api/v1/setup")) {
-        return jsonResponse(
-          { error: "This setup step needs a setup code. Open the setup screen on Luna itself, or enter the first eight characters (****-****) from your device code." },
-          403,
-        );
-      }
-      return jsonResponse({ error: "not found" }, 404);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderSetup();
-    expect(await screen.findByRole("heading", { name: /Your device code/i })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/Device code/i), { target: { value: "disable" } });
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-    expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/setup/disable-connect"))).toBe(true);
-  });
-
-  it("asks for the Luna Connect setup code on a public hostname", async () => {
-    vi.stubGlobal("fetch", stubFetch({ network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] } }));
+  it("asks for the Luna Connect setup code on a public hostname when Connect is active", async () => {
+    vi.stubGlobal("fetch", stubFetch({
+      network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
+      connectActive: true,
+    }));
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
@@ -209,10 +180,10 @@ describe("SetupPage", () => {
     expect(screen.getByText(/nobody else on the internet/i)).toBeTruthy();
   });
 
-  it("skips Luna Connect setup code on a public hostname when Connect is disabled", async () => {
+  it("skips Luna Connect setup code on a public hostname when Connect is inactive", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
-      connectDisabled: true,
+      connectActive: false,
     }));
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();

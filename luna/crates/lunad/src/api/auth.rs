@@ -201,7 +201,7 @@ async fn status(State(state): State<AppState>) -> Json<Value> {
     let has_admin = state.auth.count_users().map(|n| n > 0).unwrap_or(false);
     Json(json!({
         "has_admin": has_admin,
-        "connect_disabled": state.connect.is_connect_disabled(),
+        "connect_active": state.connect.is_connect_active(),
     }))
 }
 
@@ -210,7 +210,7 @@ fn first_user_on_public_host(
     headers: &HeaderMap,
     body: &RegisterBody,
 ) -> Result<(), String> {
-    if state.connect.is_connect_disabled() {
+    if !state.connect.is_connect_active() {
         return Ok(());
     }
     let Some(hostname) = state.connect.public_hostname() else {

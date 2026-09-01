@@ -28,7 +28,9 @@ struct SetupState {
     step_data: Map<String, Value>,
     /// Computed on read/write — not persisted in meta.
     #[serde(default, skip_deserializing, skip_serializing)]
-    connect_disabled: bool,
+    connect_active: bool,
+    #[serde(default, skip_deserializing, skip_serializing)]
+    setup_origin: String,
 }
 
 impl Default for SetupState {
@@ -38,7 +40,8 @@ impl Default for SetupState {
             setup_completed: false,
             current_step: default_step(),
             step_data: Map::new(),
-            connect_disabled: false,
+            connect_active: false,
+            setup_origin: "lan".into(),
         }
     }
 }
@@ -60,24 +63,17 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/setup/validate-code", post(validate_code))
         .route("/api/v1/setup/fetch-mag", post(fetch_mag))
-        .route("/api/v1/setup/disable-connect", post(disable_connect))
         .route("/api/v1/setup", get(get_setup).post(save_setup))
 }
 
 async fn validate_code(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<ValidateCodeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if state.connect.is_connect_disabled() {
+    if crate::setup_access::is_lan_request(&addr, &headers) {
         return Ok(Json(json!({ "ok": true })));
-    }
-    let submitted = body.code.trim();
-    if submitted.eq_ignore_ascii_case("disable") {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "To skip Luna Connect, open setup on Luna itself and type disable there.",
-        ));
     }
     let ip = addr.ip().to_string();
     if !state.login_limiter.allow(&format!("setup-code:{ip}")) {
@@ -89,7 +85,7 @@ async fn validate_code(
     if state.connect.setup_prefix().is_none() {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Remote setup is not available on this Luna. Finish setup on Luna itself (the screen plugged into it), or add a device code in Settings and try again.",
+            "Finish setup from a device on the same home network as Luna (same Wi‑Fi or ethernet). Luna works fully without Luna Connect.",
         ));
     }
     if !state.connect.matches_setup_prefix(&body.code) {
@@ -119,47 +115,14 @@ async fn fetch_mag(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read the setup code from the installer USB.",
+                "Luna couldn't read the device token from the installer USB.",
             )
         })?;
     Ok(Json(mag_outcome_json(&outcome)))
 }
 
-async fn disable_connect(
-    State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !crate::auth::setup_wizard_open(&state) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Setup is already finished.",
-        ));
-    }
-    if !crate::setup_access::is_loopback_request(&addr, &headers) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "To skip Luna Connect, open setup on Luna itself and type disable there.",
-        ));
-    }
-    let connect = state.connect.clone();
-    tokio::task::spawn_blocking(move || connect.create_disable_connect_file())
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save your choice to skip Luna Connect. Try again.",
-            )
-        })?
-        .map_err(|e| json_error(StatusCode::BAD_REQUEST, e.to_string()))?;
-    Ok(Json(json!({ "ok": true, "connect_disabled": true })))
-}
-
 fn mag_outcome_json(outcome: &crate::factory_mag::MagFetchOutcome) -> Value {
     match outcome {
-        crate::factory_mag::MagFetchOutcome::SkippedConnectDisabled => {
-            json!({ "ok": true, "source": "disabled", "connect_disabled": true })
-        }
         crate::factory_mag::MagFetchOutcome::AlreadyValid => {
             json!({ "ok": true, "source": "existing" })
         }
@@ -176,10 +139,20 @@ fn mag_outcome_json(outcome: &crate::factory_mag::MagFetchOutcome) -> Value {
 }
 
 fn maybe_fetch_mag(state: &AppState) {
-    if state.connect.is_connect_disabled() || state.connect.has_valid_device_code() {
+    if state.connect.has_valid_device_code() {
         return;
     }
     let _ = state.connect.ensure_device_code_from_mag();
+}
+
+fn enrich_setup(
+    setup: &mut SetupState,
+    state: &AppState,
+    addr: &std::net::SocketAddr,
+    headers: &HeaderMap,
+) {
+    setup.connect_active = state.connect.is_connect_active();
+    setup.setup_origin = crate::setup_access::setup_origin(addr, headers).into();
 }
 
 async fn get_setup(
@@ -207,7 +180,7 @@ async fn get_setup(
         .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
         .and_then(|raw| serde_json::from_str::<SetupState>(&raw).ok())
         .unwrap_or_default();
-    setup.connect_disabled = state.connect.is_connect_disabled();
+    enrich_setup(&mut setup, &state, &addr, &headers);
     Ok(Json(setup))
 }
 
@@ -272,7 +245,6 @@ async fn save_setup(
         setup.setup_completed = done;
         if done {
             setup.current_step = "done".into();
-            // Keep name; drop mid-wizard drafts once setup is finished.
             setup.step_data.clear();
         }
     }
@@ -285,7 +257,7 @@ async fn save_setup(
     })?;
     crate::db::set_meta(&conn, SETUP_KEY, &raw)
         .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
-    setup.connect_disabled = state.connect.is_connect_disabled();
+    enrich_setup(&mut setup, &state, &addr, &headers);
     Ok(Json(setup))
 }
 

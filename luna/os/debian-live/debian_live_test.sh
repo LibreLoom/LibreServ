@@ -63,7 +63,7 @@ assert_file_has "$OSROOT/lib/console.sh" 'Press any key to pick another disk' "c
 assert_file_has "$OSROOT/lib/console.sh" 'timeout --foreground' "disk override must use GNU timeout --foreground"
 assert_file_has "$OSROOT/rapidinstall.sh" 'lib/console.sh' "rapidinstall must source console helpers"
 assert_file_has "$OSROOT/rapidinstall.sh" 'lib/factory-assets.sh' "rapidinstall must source factory assets helpers"
-assert_file_has "$OSROOT/rapidinstall.sh" 'factory_apply_setup_token' "rapidinstall must peel TOKENS / apply setup token"
+assert_file_has "$OSROOT/rapidinstall.sh" 'factory_apply_device_token' "rapidinstall must peel TOKENS / apply device token"
 assert_file_has "$OSROOT/rapidinstall.sh" '_record_os_image_hash' "rapidinstall must stamp os-image.sha256 without cp"
 assert_file_has "$OSROOT/rapidinstall.sh" '_data_mnt' "data mount var must not be _mnt (factory-assets clobber)"
 assert_file_has "$OSROOT/lib/factory-assets.sh" '_fa_mnt' "factory-assets must use _fa_mnt not _mnt"

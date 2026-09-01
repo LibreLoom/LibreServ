@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
-import { getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 /**
  * Enter or replace the Luna Connect device token.
@@ -23,6 +23,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
     mutationFn: () => postJson("/api/v1/connect/setup-code", { code: code.trim() }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
+      queryClient.invalidateQueries({ queryKey: ["auth-status"] });
       setError(null);
       setSaved(true);
       setCode("");
@@ -32,8 +33,8 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
       setError(apiErrorMessage(err));
     },
   });
-  const redeem = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/redeem", {}),
+  const sync = useMutation({
+    mutationFn: () => postJson("/api/v1/connect/sync", {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       setError(null);
@@ -44,8 +45,22 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
       setError(apiErrorMessage(err));
     },
   });
+  const removeToken = useMutation({
+    mutationFn: () => deleteJson("/api/v1/connect/device-token"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["connect-status"] });
+      queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+      setError(null);
+      setSaved(false);
+      setCode("");
+    },
+    onError: (err) => {
+      setError(apiErrorMessage(err));
+    },
+  });
 
   const s = status.data || {};
+  const connectActive = Boolean(s.connect_active);
   const enabled = Boolean(s.enabled);
   const inputClass =
     surface === "primary"
@@ -69,16 +84,50 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
     );
   }
 
+  if (connectActive && !enabled) {
+    return (
+      <div className="space-y-3" data-slot="connect-setup-code-form">
+        <p className="text-sm text-primary leading-relaxed">
+          Luna has a device token but is not linked to Luna Connect yet. Sync to finish setup, or remove the token to turn Connect off.
+        </p>
+        {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
+        {saved && !error && (
+          <p className="text-sm text-success leading-relaxed">Synced with Luna Connect.</p>
+        )}
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="primary"
+            surface={surface === "primary" ? "primary" : "secondary"}
+            fullWidth
+            loading={sync.isPending}
+            onClick={() => sync.mutate()}
+          >
+            Sync with Luna Connect
+          </Button>
+          <Button
+            variant="danger"
+            surface={surface === "primary" ? "primary" : "secondary"}
+            fullWidth
+            loading={removeToken.isPending}
+            onClick={() => removeToken.mutate()}
+          >
+            Remove device token
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3" data-slot="connect-setup-code-form">
       {!compact && (
         <p className="text-sm text-primary leading-relaxed">
-          Paste the setup code from Luna Connect (****-****-****-****-****).
+          Paste your device token from Luna Connect (****-****-****-****-****).
         </p>
       )}
       <div>
         <label htmlFor="luna-connect-setup-code" className="block text-sm text-primary mb-1.5">
-          Setup code
+          Device token
         </label>
         <ShakeTarget shake={error}>
           <input
@@ -93,14 +142,14 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
             placeholder="****-****-****-****-****"
             autoComplete="off"
             spellCheck={false}
-            aria-label="Setup code from Luna Connect"
+            aria-label="Device token from Luna Connect"
             aria-invalid={Boolean(error)}
           />
         </ShakeTarget>
       </div>
       {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
       {saved && !error && (
-        <p className="text-sm text-success leading-relaxed">Setup code saved.</p>
+        <p className="text-sm text-success leading-relaxed">Device token saved.</p>
       )}
       <div className="flex flex-col gap-2">
         <Button
@@ -111,16 +160,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
           disabled={code.replace(/[-_\s]/g, "").length < 16}
           onClick={() => saveCode.mutate()}
         >
-          Save setup code
-        </Button>
-        <Button
-          variant="outline"
-          surface={surface === "primary" ? "primary" : "secondary"}
-          fullWidth
-          loading={redeem.isPending}
-          onClick={() => redeem.mutate()}
-        >
-          Use the code that came with this Luna
+          Save device token
         </Button>
       </div>
     </div>

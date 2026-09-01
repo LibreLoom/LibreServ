@@ -7,7 +7,7 @@ import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import SettingsPage from "./SettingsPage";
 
-function stubFetch(role = "admin", connectDisabled = false) {
+function stubFetch(role = "admin", connectActive = false) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me")) {
@@ -17,7 +17,7 @@ function stubFetch(role = "admin", connectDisabled = false) {
       });
     }
     if (u.includes("/auth/status")) {
-      return new Response(JSON.stringify({ has_admin: role === "admin", connect_disabled: connectDisabled }), {
+      return new Response(JSON.stringify({ has_admin: role === "admin", connect_active: connectActive }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -194,8 +194,8 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
   });
 
-  it("hides External Services when Luna Connect is disabled on the device", async () => {
-    stubFetch("admin", true);
+  it("hides External Services when Luna Connect is inactive on the device", async () => {
+    stubFetch("admin", false);
     renderPage();
     await screen.findByText("max");
     expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
