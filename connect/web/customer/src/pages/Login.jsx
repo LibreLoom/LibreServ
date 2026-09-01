@@ -70,7 +70,9 @@ export default function Login() {
                 </div>
                 <ShakeTarget shake={error}>
                   <div>
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password" error={error} shake={error} loading={loading}>
+                      Password
+                    </Label>
                     <Input
                       id="password"
                       type="password"
@@ -85,7 +87,9 @@ export default function Login() {
             {needs2FA && (
               <ShakeTarget shake={error}>
                 <div>
-                  <Label htmlFor="totp">Authenticator Code</Label>
+                  <Label htmlFor="totp" error={error} shake={error} loading={loading}>
+                    Authenticator Code
+                  </Label>
                   <Input
                     id="totp"
                     type="text"

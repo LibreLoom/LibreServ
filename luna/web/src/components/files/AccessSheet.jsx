@@ -7,6 +7,7 @@ import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
+import ShakeTarget from "../ui/ShakeTarget";
 import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
 import { TermHint, Tooltip } from "../ui/Tooltip";
@@ -94,6 +95,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
+  const [grantError, setGrantError] = useState(null);
   const [creatingLink, setCreatingLink] = useState(false);
   const [personId, setPersonId] = useState("");
   const [permission, setPermission] = useState("read");
@@ -139,14 +141,19 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { user_id: string, drive_id: string, path: string, permission: string }, unknown>} */
   const grantMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/grants", body),
-    onMutate: () => setError(null),
+    onMutate: () => { setError(null); setGrantError(null); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
+      setGrantError(null);
       setPersonId("");
     },
-    onError: (err) => setError(apiErrorMessage(err, "Couldn't grant access. Try again.")),
+    onError: (err) => {
+      const msg = apiErrorMessage(err, "Couldn't grant access. Try again.");
+      setError(msg);
+      setGrantError(msg);
+    },
   });
   /** @type {import('@tanstack/react-query').UseMutationResult<any, Error, { id: string, permission: string }, unknown>} */
   const updateGrant = useMutation({
@@ -231,14 +238,16 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
             </div>
           ) : (
             <>
-              <Dropdown
-                options={addablePeople.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
-                value={personId}
-                onChange={setPersonId}
-                placeholder="Add a person"
-                fullWidth
-                bg="primary"
-              />
+              <ShakeTarget shake={grantError}>
+                <Dropdown
+                  options={addablePeople.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+                  value={personId}
+                  onChange={setPersonId}
+                  placeholder="Add a person"
+                  fullWidth
+                  bg="primary"
+                />
+              </ShakeTarget>
               <Dropdown
                 options={PERMISSION_OPTIONS}
                 value={permission}

@@ -4,6 +4,7 @@ import { Badge } from "../components/ui/badge.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
 
@@ -75,6 +76,7 @@ export default function AdminProvidersPage() {
   const [providers, setProviders] = useState([]);
   const [configStatus, setConfigStatus] = useState({});
   const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [busy, setBusy] = useState("");
@@ -145,6 +147,7 @@ export default function AdminProvidersPage() {
   async function saveCreate(service) {
     setBusy(`create-${service}`);
     setError("");
+    setFormError("");
     try {
       await adminApi("/admin/providers", {
         method: "POST",
@@ -153,7 +156,7 @@ export default function AdminProvidersPage() {
       resetForm(service);
       await load();
     } catch (err) {
-      setError(err.message);
+      setFormError(err.message);
     } finally {
       setBusy("");
     }
@@ -162,6 +165,7 @@ export default function AdminProvidersPage() {
   async function saveUpdate(service) {
     setBusy(`update-${service}`);
     setError("");
+    setFormError("");
     try {
       await adminApi(`/admin/providers/${encodeURIComponent(editingId)}`, {
         method: "PUT",
@@ -170,7 +174,7 @@ export default function AdminProvidersPage() {
       resetForm(service);
       await load();
     } catch (err) {
-      setError(err.message);
+      setFormError(err.message);
     } finally {
       setBusy("");
     }
@@ -293,33 +297,38 @@ export default function AdminProvidersPage() {
                       {spec.credentials.map((f) => (
                         <div key={f.key}>
                           <Label htmlFor={`${service}-${f.key}`}>{f.label}</Label>
-                          <Input
-                            id={`${service}-${f.key}`}
-                            type={f.type || "text"}
-                            placeholder={
-                              isEditing && f.type === "password"
-                                ? "Leave blank to keep current"
-                                : f.placeholder
-                            }
-                            autoComplete="off"
-                            value={form.credentials[f.key] || ""}
-                            onChange={(e) => updateField(service, "credentials", f.key, e.target.value)}
-                          />
+                          <ShakeTarget shake={formError}>
+                            <Input
+                              id={`${service}-${f.key}`}
+                              type={f.type || "text"}
+                              placeholder={
+                                isEditing && f.type === "password"
+                                  ? "Leave blank to keep current"
+                                  : f.placeholder
+                              }
+                              autoComplete="off"
+                              value={form.credentials[f.key] || ""}
+                              onChange={(e) => updateField(service, "credentials", f.key, e.target.value)}
+                            />
+                          </ShakeTarget>
                         </div>
                       ))}
                       {spec.settings.map((f) => (
                         <div key={f.key}>
                           <Label htmlFor={`${service}-${f.key}`}>{f.label}</Label>
-                          <Input
-                            id={`${service}-${f.key}`}
-                            placeholder={f.placeholder}
-                            autoComplete="off"
-                            value={form.settings[f.key] || ""}
-                            onChange={(e) => updateField(service, "settings", f.key, e.target.value)}
-                          />
+                          <ShakeTarget shake={formError}>
+                            <Input
+                              id={`${service}-${f.key}`}
+                              placeholder={f.placeholder}
+                              autoComplete="off"
+                              value={form.settings[f.key] || ""}
+                              onChange={(e) => updateField(service, "settings", f.key, e.target.value)}
+                            />
+                          </ShakeTarget>
                         </div>
                       ))}
                     </div>
+                    {formError && <p className="text-sm text-error">{formError}</p>}
                     <label className="mt-4 flex items-center gap-2 font-mono text-sm">
                       <input
                         type="checkbox"

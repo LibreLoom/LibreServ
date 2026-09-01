@@ -125,16 +125,18 @@ export default function InviteeOnboardingPage() {
           <label htmlFor="username" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
             Username
           </label>
-          <input
-            id="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Choose a username"
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-            autoComplete="username"
-            required
-          />
-          <ShakeTarget shake={error}>
+          <ShakeTarget shake={error && /username/i.test(error) ? error : null}>
+            <input
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Choose a username"
+              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+              autoComplete="username"
+              required
+            />
+          </ShakeTarget>
+          <ShakeTarget shake={error && !/username/i.test(error) ? error : null}>
             <div>
               <label htmlFor="password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
                 Password

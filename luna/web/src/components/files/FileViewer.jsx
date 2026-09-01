@@ -4,6 +4,7 @@ import { Download, Maximize2, Minimize2, Save } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
@@ -126,14 +127,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
             loading ? (
               <p className="text-primary text-sm">Opening…</p>
             ) : (
-              <textarea
-                className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                value={text}
-                onChange={(e) => { setText(e.target.value); setDirty(true); }}
-                spellCheck={false}
-                readOnly={!canWrite}
-                aria-label={`Contents of ${name}`}
-              />
+              <ShakeTarget shake={error}>
+                <textarea
+                  className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  value={text}
+                  onChange={(e) => { setText(e.target.value); setDirty(true); }}
+                  spellCheck={false}
+                  readOnly={!canWrite}
+                  aria-label={`Contents of ${name}`}
+                />
+              </ShakeTarget>
             )
           )}
 

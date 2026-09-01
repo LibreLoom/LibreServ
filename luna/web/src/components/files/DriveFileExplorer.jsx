@@ -16,6 +16,7 @@ import Button from "../ui/Button.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import PageNotice from "../common/PageNotice.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import {
   apiErrorMessage,
   deleteJson,
@@ -725,12 +726,14 @@ export default function DriveFileExplorer({
       >
         {({ close }) => (
           <>
-            <input
-              className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              value={renameValue}
-              maxLength={255}
-              onChange={(e) => setRenameValue(e.target.value)}
-            />
+            <ShakeTarget shake={actionError}>
+              <input
+                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                value={renameValue}
+                maxLength={255}
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+            </ShakeTarget>
             {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
             <div className="mt-4 flex gap-3">
               <Button

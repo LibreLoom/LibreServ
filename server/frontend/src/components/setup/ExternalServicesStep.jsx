@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import Button from "../ui/Button";
 import ModalCard from "../cards/ModalCard";
+import ShakeTarget from "../ui/ShakeTarget";
 
 const CONNECT_URL = "https://connect.serv.libreloom.org/onboarding";
 
@@ -188,26 +189,28 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
       )}
 
       <div className="w-full max-w-sm space-y-3">
-        <input
-          type="text"
-          value={connectKey}
-          onChange={(e) => setConnectKey(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleActivate();
-            }
-          }}
-          placeholder="Paste your Connect key here..."
-          autoFocus
-          disabled={activating}
-          className={cn(
-            "w-full px-4 py-3 rounded-pill font-mono text-sm",
-            "bg-primary text-secondary border-2 border-accent/30",
-            "focus:border-accent focus:outline-none",
-            "motion-safe:transition-colors placeholder:text-secondary/40",
-          )}
-        />
+        <ShakeTarget shake={error}>
+          <input
+            type="text"
+            value={connectKey}
+            onChange={(e) => setConnectKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleActivate();
+              }
+            }}
+            placeholder="Paste your Connect key here..."
+            autoFocus
+            disabled={activating}
+            className={cn(
+              "w-full px-4 py-3 rounded-pill font-mono text-sm",
+              "bg-primary text-secondary border-2 border-accent/30",
+              "focus:border-accent focus:outline-none",
+              "motion-safe:transition-colors placeholder:text-secondary/40",
+            )}
+          />
+        </ShakeTarget>
         {error && (
           <p className="text-xs text-error">{error}</p>
         )}

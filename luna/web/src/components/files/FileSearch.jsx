@@ -15,6 +15,7 @@ import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import EmptyState from "../common/EmptyState";
 import PageNotice from "../common/PageNotice";
+import ShakeTarget from "../ui/ShakeTarget";
 import Button from "../ui/Button";
 import Spinner from "../ui/Spinner.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
@@ -139,19 +140,21 @@ export default function FileSearch() {
 
   return (
     <div className="mb-6" data-slot="file-search">
-      <label className="block">
-        <span className="sr-only">Search for a file</span>
-        <span className="flex items-center gap-3 rounded-pill bg-secondary text-primary border-2 border-transparent px-4 py-2 focus-within:border-accent motion-safe:transition-colors">
-          <Search size={16} className="text-accent shrink-0" aria-hidden="true" />
-          <input
-            className="file-search-input flex-1 min-w-0 appearance-none bg-transparent text-primary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:text-accent"
-            placeholder="Search for a file"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            aria-label="Search for a file"
-          />
-        </span>
-      </label>
+      <ShakeTarget shake={actionError && deleteTarget == null ? actionError : null}>
+        <label className="block">
+          <span className="sr-only">Search for a file</span>
+          <span className="flex items-center gap-3 rounded-pill bg-secondary text-primary border-2 border-transparent px-4 py-2 focus-within:border-accent motion-safe:transition-colors">
+            <Search size={16} className="text-accent shrink-0" aria-hidden="true" />
+            <input
+              className="file-search-input flex-1 min-w-0 appearance-none bg-transparent text-primary text-sm border-0 shadow-none outline-none no-focus-outline placeholder:text-accent"
+              placeholder="Search for a file"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              aria-label="Search for a file"
+            />
+          </span>
+        </label>
+      </ShakeTarget>
 
       {actionError && deleteTarget == null && (
         <PageNotice variant="error" className="mt-3">
@@ -300,10 +303,12 @@ export default function FileSearch() {
       >
         {({ close }) => (
           <>
-            <p className="text-primary text-sm">
-              <span className="font-mono">{deleteTarget?.name}</span> will move to
-              Luna&apos;s trash on its drive. You can get it back later from Open trash.
-            </p>
+            <ShakeTarget shake={actionError}>
+              <p className="text-primary text-sm">
+                <span className="font-mono">{deleteTarget?.name}</span> will move to
+                Luna&apos;s trash on its drive. You can get it back later from Open trash.
+              </p>
+            </ShakeTarget>
             {actionError && <PageNotice variant="error" className="mt-2">{actionError}</PageNotice>}
             <div className="mt-4 flex gap-3">
               <Button

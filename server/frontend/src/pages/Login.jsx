@@ -78,6 +78,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
               surface="secondary"
               error={error}
               shake={error}
+              loading={loading}
               required
             />
             {error && (
@@ -308,6 +309,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             autoComplete="current-password"
             surface="primary"
             shake={errorStatus}
+            loading={loading}
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
           />

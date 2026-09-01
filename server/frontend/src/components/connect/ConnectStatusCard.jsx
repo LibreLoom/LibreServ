@@ -5,6 +5,7 @@ import { Plug, PlugZap, ExternalLink, LogOut, CircleHelp } from "lucide-react";
 import Card from "../cards/Card.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import Callout from "../common/Callout";
 
 const PLAN_BADGES = {
@@ -73,13 +74,15 @@ export default function ConnectStatusCard({
               </button>{" "}
               to create an account and get your Connect key. Paste it here.
             </p>
-            <input
-              type="text"
-              value={connectKey}
-              onChange={(e) => setConnectKey(e.target.value)}
-              placeholder="Paste your Connect key here"
-              className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
-            />
+            <ShakeTarget shake={error}>
+              <input
+                type="text"
+                value={connectKey}
+                onChange={(e) => setConnectKey(e.target.value)}
+                placeholder="Paste your Connect key here"
+                className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
+              />
+            </ShakeTarget>
             {error && (
               <Callout tone="error" rounded="large-element">
                 <span className="block">{error}</span>

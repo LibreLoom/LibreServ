@@ -9,6 +9,7 @@ import SettingsRow from "../SettingsRow";
 import PairingQrModal from "../PairingQrModal.jsx";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
 import PageNotice from "../../common/PageNotice";
+import ShakeTarget from "../../ui/ShakeTarget";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 
 function formatWhen(unix) {
@@ -89,6 +90,7 @@ AccessTokenItem.propTypes = {
 export default function AccessCategory() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
+  const [tokenError, setTokenError] = useState(null);
   const [tokenName, setTokenName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState("");
   const [newToken, setNewToken] = useState(null);
@@ -123,8 +125,13 @@ export default function AccessCategory() {
       setTokenName("");
       setExpiresInDays("");
       setError(null);
+      setTokenError(null);
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => {
+      const msg = apiErrorMessage(err);
+      setError(msg);
+      setTokenError(msg);
+    },
   });
 
   const revokeOne = useMutation({
@@ -175,25 +182,29 @@ export default function AccessCategory() {
           <label className="text-primary text-sm" htmlFor="token-name">
             Name this app so you can recognize it later
           </label>
-          <input
-            id="token-name"
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            placeholder="Kitchen Mac, photo backup, script"
-            value={tokenName}
-            onChange={(e) => setTokenName(e.target.value)}
-          />
+          <ShakeTarget shake={tokenError}>
+            <input
+              id="token-name"
+              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              placeholder="Kitchen Mac, photo backup, script"
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value)}
+            />
+          </ShakeTarget>
           <label className="text-primary text-sm" htmlFor="token-expiry">
             Optional: stop working after this many days (leave blank for no expiry)
           </label>
-          <input
-            id="token-expiry"
-            type="number"
-            min="1"
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            placeholder="e.g. 90"
-            value={expiresInDays}
-            onChange={(e) => setExpiresInDays(e.target.value)}
-          />
+          <ShakeTarget shake={tokenError}>
+            <input
+              id="token-expiry"
+              type="number"
+              min="1"
+              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              placeholder="e.g. 90"
+              value={expiresInDays}
+              onChange={(e) => setExpiresInDays(e.target.value)}
+            />
+          </ShakeTarget>
           <Button
             variant="primary"
             loading={createToken.isPending}

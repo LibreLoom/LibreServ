@@ -6,6 +6,7 @@ import Button from "../../ui/Button";
 import CopyableValue from "../../ui/CopyableValue";
 import Pill from "../../common/Pill";
 import PageNotice from "../../common/PageNotice";
+import ShakeTarget from "../../ui/ShakeTarget";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
@@ -54,12 +55,14 @@ export default function RemoteCategory() {
                 <p className="text-primary text-sm font-mono">your Luna address</p>
               )}
               <SettingsRow label="Change address" stack>
-                <input
-                  className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
-                  placeholder="kitchen"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
+                <ShakeTarget shake={error}>
+                  <input
+                    className="w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
+                    placeholder="kitchen"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                  />
+                </ShakeTarget>
               </SettingsRow>
               <p className="text-primary text-sm font-mono px-4">{newName ? `${newName.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
               <div className="px-4 pb-4 flex flex-col gap-2">

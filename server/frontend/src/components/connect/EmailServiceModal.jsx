@@ -3,6 +3,7 @@ import { Mail, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import { InfoHint, TermHint } from "../ui/Tooltip.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
@@ -13,7 +14,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
     service?.state === "connected"
   );
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [errors, setErrors] = useState({ host: "", port: "", form: "" });
   const [form, setForm] = useState({
     host: "",
     port: "587",
@@ -26,7 +27,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
   useEffect(() => {
     if (!open) return;
     setUseConnect(service?.state === "connected");
-    setError(null);
+    setErrors({ host: "", port: "", form: "" });
      
   }, [open, service]);
 
@@ -113,23 +114,27 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                   </TermHint>{" "}
                   host
                 </label>
-                <input
-                  type="text"
-                  value={form.host}
-                  onChange={(e) => setForm({ ...form, host: e.target.value })}
-                  placeholder="smtp.example.com"
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-                />
+                <ShakeTarget shake={errors.host}>
+                  <input
+                    type="text"
+                    value={form.host}
+                    onChange={(e) => setForm({ ...form, host: e.target.value })}
+                    placeholder="smtp.example.com"
+                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  />
+                </ShakeTarget>
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Port</label>
-                <input
-                  type="text"
-                  value={form.port}
-                  onChange={(e) => setForm({ ...form, port: e.target.value })}
-                  placeholder="587"
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-                />
+                <ShakeTarget shake={errors.port}>
+                  <input
+                    type="text"
+                    value={form.port}
+                    onChange={(e) => setForm({ ...form, port: e.target.value })}
+                    placeholder="587"
+                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  />
+                </ShakeTarget>
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Username</label>
@@ -171,9 +176,9 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
           </div>
         )}
 
-        {error && (
+        {errors.form && (
           <div className="bg-error/10 text-error rounded-large-element p-3 text-sm font-mono">
-            {error}
+            {errors.form}
           </div>
         )}
 
@@ -183,19 +188,27 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
           </Button>
           <Button variant="primary" onClick={async () => {
             setSaving(true);
-            setError(null);
+            setErrors({ host: "", port: "", form: "" });
             try {
               if (useConnect) {
                 await updateConnectService("smtp", "connected", csrfToken);
               } else {
                 if (!form.host.trim()) {
-                  setError("Enter the mail server address (SMTP host), or turn on LibreServ Connect instead.");
+                  setErrors({
+                    host: "Enter the mail server address (SMTP host), or turn on LibreServ Connect instead.",
+                    port: "",
+                    form: "",
+                  });
                   setSaving(false);
                   return;
                 }
                 const port = parseInt(form.port, 10);
                 if (Number.isNaN(port) || port < 1 || port > 65535) {
-                  setError("Enter a valid port number between 1 and 65535.");
+                  setErrors({
+                    host: "",
+                    port: "Enter a valid port number between 1 and 65535.",
+                    form: "",
+                  });
                   setSaving(false);
                   return;
                 }
@@ -215,7 +228,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
               close();
             } catch (e) {
               const msg = e?.message || "Something went wrong while saving. Please try again.";
-              setError(msg);
+              setErrors({ host: "", port: "", form: msg });
               console.error("Failed to save email service config:", e);
             } finally {
               setSaving(false);

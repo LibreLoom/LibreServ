@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Input } from "../components/ui/input.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Dialog } from "../components/ui/dialog.jsx";
 import { Layout } from "../components/Layout.jsx";
 import {
@@ -521,14 +522,16 @@ function CustomDomainSection({ device, hasCustom }) {
             </p>
 
             <div className="flex gap-2">
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && search()}
-                placeholder="Search a name…"
-                autoComplete="off"
-                spellCheck={false}
-              />
+              <ShakeTarget shake={error} className="flex-1 min-w-0">
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && search()}
+                  placeholder="Search a name…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </ShakeTarget>
               <Button variant="outline" size="md" onClick={search} disabled={!query.trim()}>
                 <Search className="w-4 h-4" />
               </Button>
@@ -697,14 +700,16 @@ function CustomDomainRegistration() {
       </p>
 
       <div className="flex gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder="Search a name…"
-          autoComplete="off"
-          spellCheck={false}
-        />
+        <ShakeTarget shake={error} className="flex-1 min-w-0">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && search()}
+            placeholder="Search a name…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </ShakeTarget>
         <Button variant="outline" size="md" onClick={search} disabled={!query.trim()}>
           <Search className="w-4 h-4" />
         </Button>

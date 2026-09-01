@@ -11,7 +11,7 @@ const ICONS = {
 };
 
 /**
- * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, shake?: unknown, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any, minLength?: number, surface?: "primary"|"secondary" }} _
+ * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, shake?: unknown, loading?: boolean, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any, minLength?: number, surface?: "primary"|"secondary" }} _
  */
 export default function FormInput({
   label,
@@ -22,6 +22,7 @@ export default function FormInput({
   placeholder,
   error,
   shake,
+  loading = false,
   icon,
   required = false,
   disabled = false,
@@ -40,7 +41,15 @@ export default function FormInput({
   return (
     <div className="mb-4">
       {label && (
-        <FieldLabel htmlFor={name} surface={surface} required={required} className="mb-1">
+        <FieldLabel
+          htmlFor={name}
+          surface={surface}
+          required={required}
+          className="mb-1"
+          error={error}
+          shake={shake}
+          loading={loading}
+        >
           {label}
         </FieldLabel>
       )}

@@ -4,6 +4,7 @@ import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Dropdown from "../common/Dropdown.jsx";
 import Button from "../ui/Button.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 
@@ -107,13 +108,15 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
             </p>
             <div>
               <label className="block text-xs text-accent font-medium mb-1.5 px-4">Your Domain</label>
-              <input
-                type="text"
-                value={form.domain}
-                onChange={(e) => setForm({ ...form, domain: e.target.value })}
-                placeholder="yourdomain.com"
-                className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-              />
+              <ShakeTarget shake={error}>
+                <input
+                  type="text"
+                  value={form.domain}
+                  onChange={(e) => setForm({ ...form, domain: e.target.value })}
+                  placeholder="yourdomain.com"
+                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                />
+              </ShakeTarget>
             </div>
             <div>
               <label className="block text-xs text-accent font-medium mb-1.5 px-4">DNS Provider</label>
@@ -128,13 +131,15 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
             </div>
             <div>
               <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Token</label>
-              <input
-                type="password"
-                value={form.apiToken}
-                onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
-                placeholder="DNS provider API token"
-                className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-              />
+              <ShakeTarget shake={error}>
+                <input
+                  type="password"
+                  value={form.apiToken}
+                  onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
+                  placeholder="DNS provider API token"
+                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                />
+              </ShakeTarget>
               <p className="text-xs text-accent mt-1.5">
                 Your API token is on cloudflare.com → Profile → API Tokens → Create Token.
               </p>

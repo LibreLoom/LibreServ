@@ -4,6 +4,7 @@ import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Dropdown from "../common/Dropdown.jsx";
 import Button from "../ui/Button.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import { updateAISettings } from "../../lib/settings-api.js";
@@ -145,13 +146,15 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
               </p>
               <div>
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Key</label>
-                <input
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-                />
+                <ShakeTarget shake={error}>
+                  <input
+                    type="password"
+                    placeholder="sk-..."
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  />
+                </ShakeTarget>
                 {rawSettings.user_key_configured && (
                   <p className="text-xs text-accent mt-1 px-4">
                     A key is already saved. Enter a new one to replace it, or leave blank to keep it.
@@ -160,16 +163,19 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
               </div>
               <div>
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Base URL</label>
-                <input
-                  type="text"
-                  placeholder="https://api.openai.com/v1"
-                  value={baseURL}
-                  onChange={(e) => setBaseURL(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-                />
+                <ShakeTarget shake={error}>
+                  <input
+                    type="text"
+                    placeholder="https://api.openai.com/v1"
+                    value={baseURL}
+                    onChange={(e) => setBaseURL(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                  />
+                </ShakeTarget>
               </div>
               <div>
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Agent Model</label>
+                <ShakeTarget shake={error}>
                 {modelOptions.length > 0 ? (
                   <Dropdown
                     value={mainModel}
@@ -188,12 +194,14 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 )}
+                </ShakeTarget>
                 <p className="text-xs text-accent mt-1 px-4">
                   The model that handles your conversations.
                 </p>
               </div>
               <div>
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Review Model</label>
+                <ShakeTarget shake={error}>
                 {modelOptions.length > 0 ? (
                   <Dropdown
                     value={reviewModel}
@@ -212,6 +220,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                     className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 )}
+                </ShakeTarget>
                 <p className="text-xs text-accent mt-1 px-4">
                   The model that reviews tool calls for safety before they run.
                 </p>

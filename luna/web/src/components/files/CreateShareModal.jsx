@@ -5,6 +5,7 @@ import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
+import ShakeTarget from "../ui/ShakeTarget";
 import { postJson, apiErrorMessage } from "../../lib/api";
 
 const LINK_ERROR = "Couldn't create that link. Check that the file or folder is still on this drive, then try again.";
@@ -75,13 +76,15 @@ export default function CreateShareModal({
       {({ close }) => (
         <div className="space-y-3">
           {error && <PageNotice variant="error">{error}</PageNotice>}
-          <input
-            type="password"
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            placeholder="Optional password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <ShakeTarget shake={error}>
+            <input
+              type="password"
+              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              placeholder="Optional password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </ShakeTarget>
           <Dropdown
             options={[
               { value: "7", label: "Expires in 7 days" },
