@@ -243,7 +243,7 @@ export default function FilesPage() {
               Luna will move it out of trash on this same drive. Choose the name it should have.
             </p>
             <input
-              className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+              className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
               value={restoreName}
               onChange={(e) => setRestoreName(e.target.value)}
               aria-label="Restored file name"

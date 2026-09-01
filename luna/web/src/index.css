@@ -178,6 +178,19 @@ body {
     outline-offset: 2px;
 }
 
+/* Form fields: no focus ring on mouse click; keyboard uses :focus-visible outline above */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]),
+textarea,
+select {
+    outline: none;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):focus:not(:focus-visible),
+textarea:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+    box-shadow: none;
+}
+
 /* Search field lives inside a pill — never draw a rectangular outline on the input. */
 .file-search-input,
 .file-search-input:focus,

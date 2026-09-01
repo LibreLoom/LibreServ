@@ -107,8 +107,8 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             onChange={handleChange("newPassword")}
             placeholder="Minimum 12 characters (letters and numbers)"
             className={cn(
-              "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
-              errors.newPassword && "border-error",
+              "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
+              errors.newPassword && "border-error focus:border-error",
               !errors.newPassword && "border-primary/30 focus:border-accent",
             )}
             disabled={loading}
@@ -145,8 +145,8 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             onChange={handleChange("confirm")}
             placeholder="Re-enter the new password"
             className={cn(
-              "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
-              errors.confirm && "border-error",
+              "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
+              errors.confirm && "border-error focus:border-error",
               !errors.confirm && "border-primary/30 focus:border-accent",
             )}
             disabled={loading}

@@ -77,12 +77,11 @@ export default function FormInput({
             aria-invalid={!!error || !!shake}
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
-              "w-full py-2 border-2 rounded-pill no-focus-outline",
-              "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
+              "w-full py-2 border-2 rounded-pill outline-none",
               "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
               "pr-11",
-              error ? "border-error" : "border-primary/30 focus-visible:border-accent",
+              error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
             )}
           />
           <button
@@ -117,12 +116,11 @@ export default function FormInput({
             aria-invalid={!!error || !!shake}
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
-              "w-full py-2 border-2 rounded-pill no-focus-outline",
-              "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
+              "w-full py-2 border-2 rounded-pill outline-none",
               "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
               "pr-11",
-              error ? "border-error" : "border-primary/30 focus-visible:border-accent",
+              error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
             )}
           />
         </div>

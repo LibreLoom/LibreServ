@@ -81,8 +81,8 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
               }}
               placeholder="e.g. user@example.com"
               className={cn(
-                "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus:ring-2 focus:ring-accent focus:ring-offset-2",
-                error && "border-accent",
+                "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
+                error && "border-accent focus:border-accent",
                 !error && "border-primary/30 focus:border-accent",
               )}
               disabled={loading}

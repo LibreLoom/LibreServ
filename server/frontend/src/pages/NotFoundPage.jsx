@@ -218,7 +218,7 @@ export default function NotFoundPage({ includeMain = true }) {
                 aria-controls={investigationId}
                 className={cn(
                   "w-full flex items-center justify-between gap-3 rounded-large-element px-4 py-3 font-bold text-left " +
-                  "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
+                  "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
                 )}
               >
                 <span>Highly Scientific Investigation (Optional)</span>

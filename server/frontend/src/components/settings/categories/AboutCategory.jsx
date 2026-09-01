@@ -11,7 +11,7 @@ import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
 import { labelFor } from "../../../lib/healthChecks";
 
 const inputClass =
-  "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline";
+  "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary outline-none focus:border-accent";
 
 function SystemChecksCard({ index = 2 }) {
   const { data, isLoading, error } = useSystemHealthCheck();

@@ -140,7 +140,7 @@ export default function InviteeOnboardingPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Choose a username"
-              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 outline-none focus:border-accent"
               autoComplete="username"
               required
             />
@@ -162,7 +162,7 @@ export default function InviteeOnboardingPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Minimum 12 characters (letters and numbers)"
-                className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2 w-full"
+                className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 outline-none focus:border-accent w-full"
                 autoComplete="new-password"
                 required
               />

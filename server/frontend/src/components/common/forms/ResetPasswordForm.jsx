@@ -123,8 +123,8 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
               onChange={handleChange("oldPassword")}
               placeholder="Enter current password"
               className={cn(
-                "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
-                errors.oldPassword && "border-accent",
+                "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
+                errors.oldPassword && "border-accent focus:border-accent",
                 !errors.oldPassword && "border-primary/30 focus:border-accent",
               )}
               disabled={loading}
@@ -163,7 +163,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
               onChange={handleChange("newPassword")}
               placeholder="Minimum 12 characters (letters and numbers)"
               className={cn(
-                "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
+                "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
                 errors.newPassword && "border-accent",
                 !errors.newPassword && "border-primary/30 focus:border-accent",
               )}

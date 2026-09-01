@@ -40,8 +40,7 @@ function ConfigFieldRenderer({ field, value, onChange, disabled, surface = "seco
 
 const inputBaseClasses = `
       w-full px-5 py-2 border-2 rounded-large-element
-      bg-secondary text-primary
-      focus:ring-2 focus:ring-accent focus:ring-offset-2
+      bg-secondary text-primary outline-none
       motion-safe:transition-all
       disabled:opacity-50 disabled:cursor-not-allowed
   `;

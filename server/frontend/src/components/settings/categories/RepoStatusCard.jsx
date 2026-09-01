@@ -10,7 +10,7 @@ import ModalCard from "../../cards/ModalCard";
 import ConfirmModal from "../../cards/ConfirmModal";
 
 const inputClasses =
-  "w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent";
+  "w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 outline-none focus:border-accent border-primary/30";
 
 // "Git" links to a plain-language explainer so the term is glossed at point of
 // use (per the plain-language convention). Opens in a new tab — the form stays

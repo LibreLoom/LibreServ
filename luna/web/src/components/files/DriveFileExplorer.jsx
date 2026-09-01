@@ -730,7 +730,7 @@ export default function DriveFileExplorer({
           <>
             <ShakeTarget shake={actionError}>
               <input
-                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
                 value={renameValue}
                 maxLength={255}
                 onChange={(e) => setRenameValue(e.target.value)}

@@ -76,7 +76,7 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000"
-          className={cn("w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 text-primary focus-visible:ring-2 focus-visible:ring-accent", isValid && "border-primary/20", !isValid && "border-error", "no-focus-outline")}
+          className={cn("w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 text-primary outline-none focus:border-accent", isValid && "border-primary/20", !isValid && "border-error")}
           aria-label={`${label} hex value`}
         />
       </div>

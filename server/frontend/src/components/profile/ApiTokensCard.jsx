@@ -146,7 +146,7 @@ export default function ApiTokensCard() {
                 setCreateError(null);
               }}
               placeholder="Token name (e.g. Backup script)"
-              className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary focus:ring-2 focus:ring-accent focus:ring-offset-2"
+              className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary outline-none focus:border-accent"
               disabled={creating}
             />
           </ShakeTarget>
