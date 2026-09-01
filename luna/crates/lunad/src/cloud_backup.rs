@@ -15,6 +15,9 @@ pub fn tick(
     now_unix: i64,
     db: &std::sync::Mutex<rusqlite::Connection>,
 ) {
+    if connect.is_connect_disabled() {
+        return;
+    }
     if !connect::is_idle(last_io_unix, now_unix) {
         return;
     }

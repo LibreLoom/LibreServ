@@ -8,6 +8,13 @@ use std::sync::{Arc, Mutex};
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
+/// Marker file in the Luna data dir (`/var/lib/luna/disable-connect` on device).
+/// Created by an admin on the filesystem — not settable from the web UI.
+/// When present, Luna Connect is fully disabled and setup skips device-code gates.
+///
+/// TODO: We need to add remote access options for non-connect users.
+pub const DISABLE_CONNECT_FILE: &str = "disable-connect";
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
     #[error("Connect couldn't be reached. Check your internet connection and try again.")]
@@ -20,6 +27,8 @@ pub enum ConnectError {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectStatus {
+    /// True when `{data_dir}/disable-connect` exists on disk.
+    pub connect_disabled: bool,
     pub enabled: bool,
     pub base_url: String,
     pub hostname: Option<String>,
@@ -36,6 +45,7 @@ pub struct ConnectStatus {
 pub struct ConnectService {
     state_path: PathBuf,
     token_path: PathBuf,
+    disable_connect_path: PathBuf,
     base_url: String,
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
@@ -47,8 +57,10 @@ impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
         let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
         Self {
+            data_dir: data_dir.to_path_buf(),
             state_path: data_dir.join("connect.json"),
             token_path: data_dir.join("setup-token"),
+            disable_connect_path: data_dir.join(DISABLE_CONNECT_FILE),
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
@@ -80,7 +92,67 @@ impl ConnectService {
         status
     }
 
+    /// True when an admin placed `{data_dir}/disable-connect` on the device.
+    pub fn is_connect_disabled(&self) -> bool {
+        self.disable_connect_path.is_file()
+    }
+
+    /// True when `{data_dir}/setup-token` exists and holds a valid booklet code.
+    pub fn has_valid_device_code(&self) -> bool {
+        self.setup_prefix().is_some()
+    }
+
+    /// During setup: peel from LUNAASSETS when the on-disk code is missing or invalid.
+    pub fn ensure_device_code_from_mag(&self) -> crate::factory_mag::MagFetchOutcome {
+        crate::factory_mag::fetch_setup_token_from_mag(
+            &self.token_path,
+            &self.disable_connect_path,
+            &crate::factory_mag::MagFetchOptions::default(),
+        )
+    }
+
+    /// Create `{data_dir}/disable-connect` to opt out of Luna Connect (setup only).
+    pub fn create_disable_connect_file(&self) -> Result<(), ConnectError> {
+        if self.disable_connect_path.is_file() {
+            return Ok(());
+        }
+        std::fs::write(&self.disable_connect_path, b"").map_err(|_| {
+            ConnectError::Other(
+                "Luna couldn't save your choice to skip Luna Connect. Try again.".into(),
+            )
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                &self.disable_connect_path,
+                std::fs::Permissions::from_mode(0o600),
+            );
+        }
+        Ok(())
+    }
+
+    fn disabled_status(&self) -> ConnectStatus {
+        ConnectStatus {
+            connect_disabled: true,
+            enabled: false,
+            base_url: self.base_url.clone(),
+            domain: None,
+            hostname: None,
+            subdomain: None,
+            tunnel_active: false,
+            backup_unlocked: false,
+            paired: false,
+            unclaimed: false,
+            setup_code: None,
+            backup_sources: Vec::new(),
+        }
+    }
+
     fn status_inner(&self) -> ConnectStatus {
+        if self.is_connect_disabled() {
+            return self.disabled_status();
+        }
         let state = self.load();
         let enabled = state
             .get("tunnel_token")
@@ -100,6 +172,7 @@ impl ConnectService {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
         ConnectStatus {
+            connect_disabled: false,
             enabled,
             base_url: self.base_url.clone(),
             domain: hostname.clone(),
@@ -131,7 +204,14 @@ impl ConnectService {
         self.read_factory_token()
     }
 
+    fn connect_disabled_err() -> ConnectError {
+        ConnectError::Other("Luna Connect is turned off on this Luna.".into())
+    }
+
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
+        if self.is_connect_disabled() {
+            return Err(Self::connect_disabled_err());
+        }
         let norm = normalize_setup_code(code);
         if !is_booklet_code(&norm) {
             return Err(ConnectError::Other(
@@ -152,6 +232,9 @@ impl ConnectService {
     }
 
     pub fn redeem_booklet(&self) -> Result<(), ConnectError> {
+        if self.is_connect_disabled() {
+            return Err(Self::connect_disabled_err());
+        }
         if self.read_factory_token().is_none() {
             return Err(ConnectError::Other(
                 "This Luna has no code preconfigured. If you bought it from LibreLoom, contact support. Otherwise, follow the process at https://connect.luna.libreloom.org/onboarding to get a code, then add it in Settings → About → Advanced.".into(),
@@ -162,6 +245,9 @@ impl ConnectService {
     }
 
     pub fn apply_claimed(&self, claimed: &Value) -> Result<(), ConnectError> {
+        if self.is_connect_disabled() {
+            return Err(Self::connect_disabled_err());
+        }
         let mut state = self.load();
         if let Some(t) = claimed.get("device_token") {
             state["device_token"] = t.clone();
@@ -226,6 +312,9 @@ impl ConnectService {
     /// Pull Connect status with the permanent device code. Call on boot and every 5 minutes.
     /// Returns true when bound (200). On 403 unbound, clears local claim state but keeps the code file.
     pub fn poll_status(&self) -> bool {
+        if self.is_connect_disabled() {
+            return false;
+        }
         let Ok(code) = self.device_code() else {
             return false;
         };
@@ -270,6 +359,9 @@ impl ConnectService {
     }
 
     pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {
+        if self.is_connect_disabled() {
+            return Err(Self::connect_disabled_err());
+        }
         let token = self.token()?;
         let changed = self.call_json(
             "POST",
@@ -292,6 +384,9 @@ impl ConnectService {
     }
 
     pub fn deactivate(&self) -> Result<(), ConnectError> {
+        if self.is_connect_disabled() {
+            return Err(Self::connect_disabled_err());
+        }
         if let Ok(token) = self.token() {
             let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
         }
@@ -302,6 +397,9 @@ impl ConnectService {
     }
 
     pub fn set_backup_sources(&self, sources: Vec<Value>) -> Result<(), ConnectError> {
+        if self.is_connect_disabled() {
+            return Err(Self::connect_disabled_err());
+        }
         let mut state = self.load();
         state["backup_sources"] = json!(sources);
         self.save(&state)
@@ -335,6 +433,9 @@ impl ConnectService {
     }
 
     pub fn sync_status_from_cloud(&self) {
+        if self.is_connect_disabled() {
+            return;
+        }
         let _ = self.poll_status();
     }
 
@@ -570,7 +671,7 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
 /// Crockford base32 without I, L, O, U (same alphabet as Luna Connect).
 const CROCKFORD: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-fn normalize_setup_code(raw: &str) -> String {
+pub(crate) fn normalize_setup_code(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for c in raw.chars() {
         if matches!(c, '-' | ' ' | '_') {
@@ -587,7 +688,7 @@ fn normalize_setup_code(raw: &str) -> String {
     out
 }
 
-fn is_booklet_code(norm: &str) -> bool {
+pub(crate) fn is_booklet_code(norm: &str) -> bool {
     let len = norm.len();
     if !(16..=32).contains(&len) {
         return false;
@@ -595,7 +696,7 @@ fn is_booklet_code(norm: &str) -> bool {
     norm.bytes().all(|b| CROCKFORD.contains(&b))
 }
 
-fn group_booklet(norm: &str) -> String {
+pub(crate) fn group_booklet(norm: &str) -> String {
     let mut parts = Vec::new();
     let bytes = norm.as_bytes();
     let mut i = 0;
@@ -638,6 +739,29 @@ mod tests {
         assert!(!st.unclaimed);
         service.clear_first_user_secret().unwrap();
         assert!(service.first_user_secret().is_none());
+    }
+
+    #[test]
+    fn create_disable_connect_file_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.create_disable_connect_file().unwrap();
+        service.create_disable_connect_file().unwrap();
+        assert!(dir.path().join(DISABLE_CONNECT_FILE).is_file());
+        assert!(service.is_connect_disabled());
+    }
+
+    #[test]
+    fn disable_connect_file_turns_off_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(DISABLE_CONNECT_FILE), b"").unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap_err();
+        let st = service.status();
+        assert!(st.connect_disabled);
+        assert!(!st.enabled);
+        assert!(service.setup_prefix().is_none());
+        assert!(!service.poll_status());
     }
 
     #[test]

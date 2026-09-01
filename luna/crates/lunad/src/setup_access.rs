@@ -28,6 +28,10 @@ pub fn check(
         return Ok(());
     }
 
+    if state.connect.is_connect_disabled() {
+        return Ok(());
+    }
+
     if state.connect.setup_prefix().is_none() {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -45,7 +49,7 @@ pub fn check(
     Ok(())
 }
 
-fn is_loopback_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+pub fn is_loopback_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     // Tunnel / reverse-proxy clients must not count as local even if the
     // immediate TCP peer is loopback (Caddy → lunad).
     if has_proxy_client_headers(headers) {
@@ -116,6 +120,23 @@ mod tests {
         let mut req = builder.body(Body::from(body.to_string())).unwrap();
         req.extensions_mut().insert(ConnectInfo(addr));
         app.clone().oneshot(req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn remote_setup_allowed_when_connect_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("disable-connect"), b"").unwrap();
+        let app = app(dir.path());
+        let res = call(
+            &app,
+            Method::POST,
+            "/api/v1/setup",
+            r#"{"current_step":"network"}"#,
+            REMOTE,
+            None,
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
     }
 
     #[tokio::test]
@@ -204,5 +225,65 @@ mod tests {
         )
         .await;
         assert_eq!(good.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn disable_connect_requires_loopback() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = app(dir.path());
+        let denied = call(
+            &app,
+            Method::POST,
+            "/api/v1/setup/disable-connect",
+            "{}",
+            REMOTE,
+            None,
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+        let ok = call(
+            &app,
+            Method::POST,
+            "/api/v1/setup/disable-connect",
+            "{}",
+            LOOPBACK,
+            None,
+        )
+        .await;
+        assert_eq!(ok.status(), StatusCode::OK);
+        assert!(dir.path().join("disable-connect").is_file());
+    }
+
+    #[tokio::test]
+    async fn fetch_mag_peels_valid_code_from_assets() {
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        std::fs::write(
+            assets.join("TOKENS"),
+            "BAD\nABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
+        std::env::set_var("LUNA_TEST_MAG_ASSETS", assets.to_str().unwrap());
+        let app = app(dir.path());
+        let res = call(
+            &app,
+            Method::POST,
+            "/api/v1/setup/fetch-mag",
+            "{}",
+            LOOPBACK,
+            None,
+        )
+        .await;
+        std::env::remove_var("LUNA_TEST_MAG_ASSETS");
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("mag"));
+        assert_eq!(json.get("attempts").and_then(|v| v.as_u64()), Some(2));
+        assert!(dir.path().join("setup-token").is_file());
     }
 }

@@ -38,6 +38,9 @@ async fn status(
     State(state): State<AppState>,
     current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Json<crate::connect::ConnectStatus> {
+    if state.connect.is_connect_disabled() {
+        return Json(state.connect.status());
+    }
     let connect = state.connect.clone();
     let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
     let setup = state.auth.count_users().unwrap_or(1) == 0;
@@ -57,6 +60,9 @@ async fn setup_code(
     current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<CodeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if state.connect.is_connect_disabled() {
+        return Err(connect_disabled_error());
+    }
     if !setup_or_admin(&state, current.as_ref()) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -83,6 +89,9 @@ async fn redeem(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if state.connect.is_connect_disabled() {
+        return Err(connect_disabled_error());
+    }
     require_admin(user)?;
     let service = state.connect.clone();
     tokio::task::spawn_blocking(move || service.redeem_booklet())
@@ -102,6 +111,9 @@ async fn set_domain(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<DomainBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if state.connect.is_connect_disabled() {
+        return Err(connect_disabled_error());
+    }
     require_admin(user)?;
     let service = state.connect.clone();
     let result = tokio::task::spawn_blocking(move || service.set_domain(&body.subdomain))
@@ -120,6 +132,9 @@ async fn deactivate(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if state.connect.is_connect_disabled() {
+        return Err(connect_disabled_error());
+    }
     require_admin(user)?;
     let service = state.connect.clone();
     tokio::task::spawn_blocking(move || service.deactivate())
@@ -139,6 +154,9 @@ async fn set_sources(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<SourcesBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if state.connect.is_connect_disabled() {
+        return Err(connect_disabled_error());
+    }
     require_admin(user)?;
     let sources = {
         let conn = state.db.lock().map_err(|_| {
@@ -177,6 +195,13 @@ fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json
         ));
     }
     Ok(())
+}
+
+fn connect_disabled_error() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::NOT_FOUND,
+        "Luna Connect is turned off on this Luna.",
+    )
 }
 
 fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
