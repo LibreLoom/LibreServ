@@ -47,7 +47,7 @@ describe("DevicesCategory", () => {
     expect(mobileDownload).toHaveAttribute("href", MOBILE_APP_DOWNLOAD_URL);
     expect(mobileDownload).toHaveAttribute("target", "_blank");
 
-    const desktopDownload = screen.getByRole("link", { name: /Download Luna Desktop/i });
+    const desktopDownload = screen.getByRole("link", { name: /Download Luna for Linux/i });
     expect(desktopDownload).toHaveAttribute("href", DESKTOP_APP_DOWNLOAD_URL);
 
     const tokenLinks = screen.getAllByRole("link", { name: /Create an access token in Security/i });

@@ -24,7 +24,7 @@ impl ksni::Tray for LunaTray {
     }
 
     fn title(&self) -> String {
-        "Luna Desktop".into()
+        crate::product_name().into()
     }
 
     fn icon_name(&self) -> String {
@@ -37,7 +37,7 @@ impl ksni::Tray for LunaTray {
 
     fn tool_tip(&self) -> ksni::ToolTip {
         ksni::ToolTip {
-            title: "Luna Desktop".into(),
+            title: crate::product_name().into(),
             icon_name: self.icon_name.clone(),
             ..Default::default()
         }
@@ -125,7 +125,8 @@ pub fn spawn_tray(on_cmd: impl Fn(TrayCmd) + 'static) -> Option<TrayHandle> {
         Ok(h) => h,
         Err(e) => {
             eprintln!(
-                "luna-desktop: system tray unavailable ({e}); window close hides — use Settings → Quit Luna Desktop to stop"
+                "luna-desktop: system tray unavailable ({e}); window close hides — use Settings → Quit {} to stop",
+                crate::product_name()
             );
             return None;
         }

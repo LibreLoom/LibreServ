@@ -560,9 +560,9 @@ build_binaries() {
         fi
         cp "$OS_IMG" "$BUILD_DIR/luna-os-x86_64.img"
 
-        log_info "Building Luna Desktop Flatpak..."
+        log_info "Building Luna for Linux Flatpak..."
         if ! command -v flatpak-builder >/dev/null 2>&1; then
-            log_error "flatpak-builder is required for Luna Desktop Flatpak releases"
+            log_error "flatpak-builder is required for Luna for Linux Flatpak releases"
             rm -rf "$BUILD_DIR"
             exit 1
         fi
@@ -791,7 +791,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 - \`lunad-linux-amd64\` — musl daemon binary
 - \`luna-os-x86_64.img\` — A/B slot OS image for OTA
 - \`luna-rapidinstall-x86_64.iso\` — factory USB installer
-- \`luna-desktop-x86_64.flatpak\` — Luna Desktop (Linux)
+- \`luna-desktop-x86_64.flatpak\` — Luna for Linux
 - \`Luna-Desktop-Setup-*-x86_64.exe\` — Luna Desktop (Windows, unsigned test/prerelease installer; SmartScreen may warn)
 - \`luna-android.apk\` — Luna Android photo backup (debug-signed until a release keystore lands)
 - \`SHA256SUMS.txt\` + \`SHA256SUMS.txt.minisig\` — signed checksums
@@ -802,7 +802,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 **Factory install or recovery USB:** Write \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
 
-**Luna Desktop (Linux):** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
+**Luna for Linux:** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
 
 **Luna Desktop (Windows):** Run \`Luna-Desktop-Setup-*-x86_64.exe\` (per-user install under Local App Data). Windows may warn that the publisher is unknown — that is expected for this unsigned prerelease build.
 

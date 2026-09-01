@@ -88,7 +88,8 @@ pub fn run() -> glib::ExitCode {
                 });
                 if tray.is_none() {
                     eprintln!(
-                        "luna-desktop: no system tray host; window close still hides — reopen Luna from your app launcher or use Settings → Quit Luna Desktop"
+                        "luna-desktop: no system tray host; window close still hides — reopen Luna from your app launcher or use Settings → Quit {}",
+                        luna_desktop::product_name()
                     );
                 }
                 *keep_alive.borrow_mut() = Some(KeepAlive {

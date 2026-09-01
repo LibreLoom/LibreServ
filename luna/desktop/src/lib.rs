@@ -1,4 +1,16 @@
-//! Luna Desktop core: session, Luna HTTP client, backup, sync, destination rules.
+//! Luna for Linux core: session, Luna HTTP client, backup, sync, destination rules.
+
+/// User-visible product name (platform-specific).
+pub fn product_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        "Luna Desktop"
+    }
+    #[cfg(not(windows))]
+    {
+        "Luna for Linux"
+    }
+}
 
 pub mod autostart;
 pub mod backup;

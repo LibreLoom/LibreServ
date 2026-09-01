@@ -17,9 +17,10 @@ impl SettingsPage {
 
         let group = adw::PreferencesGroup::new();
         group.set_title("This computer");
-        group.set_description(Some(
-            "Choose whether Luna Desktop starts when you sign in to this computer. It runs in the background so backup and sync can keep going.",
-        ));
+        group.set_description(Some(&format!(
+            "Choose whether {} starts when you sign in to this computer. It runs in the background so backup and sync can keep going.",
+            luna_desktop::product_name()
+        )));
 
         let row = adw::SwitchRow::builder()
             .title("Start on boot")
@@ -59,7 +60,7 @@ impl SettingsPage {
             "Closing the window keeps Luna running in the background so backup and sync can continue. Reopen Luna from your app launcher. Use Quit only when you want backup and sync to stop.",
         ));
         let quit_row = adw::ActionRow::builder()
-            .title("Quit Luna Desktop")
+            .title(&format!("Quit {}", luna_desktop::product_name()))
             .activatable(true)
             .build();
         quit_row.connect_activated(|_| {

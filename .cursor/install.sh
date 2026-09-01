@@ -247,8 +247,8 @@ cd "${REPO_ROOT}/luna"
 make build-daemon
 make mock-pssd
 
-# ── 8. Luna Desktop (GTK 4 + libadwaita) ──────────────────────────────────────
-echo ">> Preparing Luna Desktop GTK deps"
+# ── 8. Luna for Linux (GTK 4 + libadwaita) ──────────────────────────────────────
+echo ">> Preparing Luna for Linux GTK deps"
 as_root apt-get update -qq
 as_root DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   libgtk-4-dev libadwaita-1-dev pkg-config

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a Linux AppImage for Luna Desktop (demo / CI convenience).
+# Build a Linux AppImage for Luna for Linux (demo / CI convenience).
 # Product distribution on Linux is Flatpak — see packaging/flatpak/.
 set -euo pipefail
 
