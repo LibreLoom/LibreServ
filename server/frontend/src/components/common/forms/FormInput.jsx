@@ -11,7 +11,7 @@ const ICONS = {
 };
 
 /**
- * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any, minLength?: number, surface?: "primary"|"secondary" }} _
+ * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, shake?: unknown, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any, minLength?: number, surface?: "primary"|"secondary" }} _
  */
 export default function FormInput({
   label,
@@ -21,6 +21,7 @@ export default function FormInput({
   onChange,
   placeholder,
   error,
+  shake,
   icon,
   required = false,
   disabled = false,
@@ -34,6 +35,7 @@ export default function FormInput({
   const isPassword = type === "password";
 
   useShakeOnError(error, fieldRef);
+  useShakeOnError(shake, fieldRef);
 
   return (
     <div className="mb-4">

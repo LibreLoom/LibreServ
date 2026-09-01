@@ -136,23 +136,25 @@ export default function ApiTokensCard() {
           </div>
         )}
 
-        <ShakeTarget as="form" shake={createError} onSubmit={handleCreate} className="flex items-center gap-2">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setCreateError(null);
-            }}
-            placeholder="Token name (e.g. Backup script)"
-            className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary focus:ring-2 focus:ring-accent focus:ring-offset-2"
-            disabled={creating}
-          />
+        <form onSubmit={handleCreate} className="flex items-center gap-2">
+          <ShakeTarget shake={createError}>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setCreateError(null);
+              }}
+              placeholder="Token name (e.g. Backup script)"
+              className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary focus:ring-2 focus:ring-accent focus:ring-offset-2"
+              disabled={creating}
+            />
+          </ShakeTarget>
           <Button type="submit" disabled={creating || !name.trim()}>
             {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
             Create
           </Button>
-        </ShakeTarget>
+        </form>
 
         {loading ? (
           <p className="text-sm text-accent">Loading…</p>

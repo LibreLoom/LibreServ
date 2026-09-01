@@ -64,7 +64,7 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {!needs2FA && (
               <>
                 {mode === "seed" && (
@@ -77,23 +77,27 @@ export default function Login() {
                   <Label htmlFor="email">Email</Label>
                   <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@example.com" autoFocus />
                 </div>
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"} />
-                </div>
+                <ShakeTarget shake={error}>
+                  <div>
+                    <Label htmlFor="password">Password</Label>
+                    <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"} />
+                  </div>
+                </ShakeTarget>
               </>
             )}
             {needs2FA && (
-              <div>
-                <Label htmlFor="totp">Authenticator Code</Label>
-                <Input id="totp" type="text" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="000000" maxLength={6} autoFocus />
-              </div>
+              <ShakeTarget shake={error}>
+                <div>
+                  <Label htmlFor="totp">Authenticator Code</Label>
+                  <Input id="totp" type="text" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="000000" maxLength={6} autoFocus />
+                </div>
+              </ShakeTarget>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               {needs2FA ? "Verify" : mode === "seed" ? "Create Admin" : "Sign In"}
             </Button>
-          </ShakeTarget>
+          </form>
           {mode === "login" && !needs2FA && (
             <button
               onClick={() => setMode("seed")}

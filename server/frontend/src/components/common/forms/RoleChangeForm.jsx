@@ -45,7 +45,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Shield size={24} aria-hidden="true" />
@@ -55,25 +55,27 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         </p>
       </div>
 
-      <div>
-        <label
-          htmlFor="role"
-          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          New Role
-        </label>
-        <Dropdown
-          value={role}
-          onChange={setRole}
-          fullWidth
-          disabled={loading}
-          bg="primary"
-          options={[
-            { value: "user", label: "User" },
-            { value: "admin", label: "Admin" },
-          ]}
-        />
-      </div>
+      <ShakeTarget shake={error}>
+        <div>
+          <label
+            htmlFor="role"
+            className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          >
+            New Role
+          </label>
+          <Dropdown
+            value={role}
+            onChange={setRole}
+            fullWidth
+            disabled={loading}
+            bg="primary"
+            options={[
+              { value: "user", label: "User" },
+              { value: "admin", label: "Admin" },
+            ]}
+          />
+        </div>
+      </ShakeTarget>
 
       {error && (
         <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-accent text-sm text-center">
@@ -100,6 +102,6 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
           Change Role
         </Button>
       </div>
-    </ShakeTarget>
+    </form>
   );
 }

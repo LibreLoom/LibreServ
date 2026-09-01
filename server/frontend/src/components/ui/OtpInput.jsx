@@ -12,7 +12,9 @@
 
 import { OTPInput } from "input-otp";
 import PropTypes from "prop-types";
+import { useRef } from "react";
 import { cn } from "../../lib/utils";
+import useShakeOnError from "../../hooks/useShakeOnError";
 
 /**
  * @param {{
@@ -24,6 +26,7 @@ import { cn } from "../../lib/utils";
  *   autoFocus?: boolean,
  *   id?: string,
  *   className?: string,
+ *   shake?: unknown,
  * } | undefined} [props]
  */
 export default function OtpInput({
@@ -35,8 +38,13 @@ export default function OtpInput({
   autoFocus = false,
   id,
   className,
+  shake,
 } = {}) {
+  const fieldRef = useRef(null);
+  useShakeOnError(shake, fieldRef);
+
   return (
+    <div ref={fieldRef}>
     <OTPInput
       // `id` lands on the real <input> (input-otp forwards unknown props to it),
       // so <label htmlFor={id}> works and screen readers announce the label.
@@ -79,6 +87,7 @@ export default function OtpInput({
         );
       }}
     />
+    </div>
   );
 }
 
@@ -153,6 +162,7 @@ OtpInput.propTypes = {
   autoFocus: PropTypes.bool,
   id: PropTypes.string,
   className: PropTypes.string,
+  shake: PropTypes.any,
 };
 
 Slot.propTypes = {

@@ -76,7 +76,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-4" data-slot="set-password-form">
+    <form onSubmit={handleSubmit} className="space-y-4" data-slot="set-password-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <KeyRound size={24} aria-hidden="true" />
@@ -86,14 +86,15 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
         </p>
       </div>
 
-      <div>
-        <label
-          htmlFor="newPassword"
-          className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          New Password
-        </label>
-        <div className="relative">
+      <ShakeTarget shake={errors.newPassword || errors.form}>
+        <div>
+          <label
+            htmlFor="newPassword"
+            className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          >
+            New Password
+          </label>
+          <div className="relative">
           <Lock
             size={16}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
@@ -120,16 +121,18 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             {errors.newPassword}
           </p>
         )}
-      </div>
+        </div>
+      </ShakeTarget>
 
-      <div>
-        <label
-          htmlFor="confirmPassword"
-          className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          Confirm Password
-        </label>
-        <div className="relative">
+      <ShakeTarget shake={errors.confirm}>
+        <div>
+          <label
+            htmlFor="confirmPassword"
+            className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          >
+            Confirm Password
+          </label>
+          <div className="relative">
           <Lock
             size={16}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
@@ -156,7 +159,8 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             {errors.confirm}
           </p>
         )}
-      </div>
+        </div>
+      </ShakeTarget>
 
       {errors.form && (
         <div className="bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
@@ -172,6 +176,6 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           {loading ? "Setting..." : "Set Password"}
         </Button>
       </div>
-    </ShakeTarget>
+    </form>
   );
 }

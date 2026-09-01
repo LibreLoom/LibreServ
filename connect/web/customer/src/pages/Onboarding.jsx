@@ -238,8 +238,9 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
   const valid = subdomainName.trim().length >= 3 && subAvailability !== false;
 
   return (
-    <ShakeTarget as="form" shake={error} onSubmit={(e) => { e.preventDefault(); if (valid) onContinue(); }} className="space-y-4 text-left">
-      <Field label="Subdomain name" htmlFor="onb-subdomain">
+    <form onSubmit={(e) => { e.preventDefault(); if (valid) onContinue(); }} className="space-y-4 text-left">
+      <ShakeTarget shake={error}>
+        <Field label="Subdomain name" htmlFor="onb-subdomain">
         <div className="relative">
           <Input
             id="onb-subdomain"
@@ -291,11 +292,12 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
           </p>
         )}
       </Field>
+      </ShakeTarget>
 
       <Button type="submit" className="w-full" size="lg" disabled={!valid}>
         Continue <ChevronRight className="w-4 h-4 ml-1" />
       </Button>
-    </ShakeTarget>
+    </form>
   );
 }
 
@@ -870,33 +872,36 @@ export default function Onboarding() {
       </div>
 
       {/* One question per screen — key remounts on substep change for slide animation */}
-      <ShakeTarget as="form" shake={error} onSubmit={handleAuthSubSubmit} className="w-full max-w-sm mx-auto text-left">
-        <div
-          key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
-          className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          style={{ animationDuration: "300ms", animationFillMode: "both" }}
-        >
-          <label
-            htmlFor={currentAuthField.id}
-            className="block font-mono text-xl text-card-foreground mb-5 leading-snug"
+      <form onSubmit={handleAuthSubSubmit} className="w-full max-w-sm mx-auto text-left">
+        <ShakeTarget shake={error}>
+          <div
+            key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
+            className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+            style={{ animationDuration: "300ms", animationFillMode: "both" }}
           >
-            {currentAuthField.question}
-          </label>
-          <Input
-            id={currentAuthField.id}
-            type={currentAuthField.type}
-            value={currentAuthField.value}
-            onChange={(e) => currentAuthField.setValue(e.target.value)}
-            placeholder={currentAuthField.placeholder}
-            autoComplete={currentAuthField.autoComplete}
-            autoFocus
-            className="h-14 text-lg px-5"
-          />
-          {currentAuthField.hint && (
-            <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
-              {currentAuthField.hint}
-            </p>
-          )}
+            <label
+              htmlFor={currentAuthField.id}
+              className="block font-mono text-xl text-card-foreground mb-5 leading-snug"
+            >
+              {currentAuthField.question}
+            </label>
+            <Input
+              id={currentAuthField.id}
+              type={currentAuthField.type}
+              value={currentAuthField.value}
+              onChange={(e) => currentAuthField.setValue(e.target.value)}
+              placeholder={currentAuthField.placeholder}
+              autoComplete={currentAuthField.autoComplete}
+              autoFocus
+              className="h-14 text-lg px-5"
+            />
+            {currentAuthField.hint && (
+              <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+                {currentAuthField.hint}
+              </p>
+            )}
+          </div>
+        </ShakeTarget>
 
           <div className="flex items-center gap-3 mt-8">
             {authSubStep > 0 && (
@@ -920,8 +925,7 @@ export default function Onboarding() {
           <p className="mt-4 text-xs text-muted-foreground text-center">
             press <kbd className="font-mono text-card-foreground bg-muted rounded-md px-1.5 py-0.5">Enter</kbd> to continue
           </p>
-        </div>
-      </ShakeTarget>
+      </form>
     </StepShell>
   );
 

@@ -24,15 +24,19 @@ function AdvancedContent({ show, advancedFields, config, handleFieldChange, erro
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 border-l-2 border-primary/10">
           {advancedFields.map((field) => (
             <div key={field.name} className={field.type === "boolean" ? "sm:col-span-2" : ""}>
-              <ConfigFieldRenderer
-                field={field}
-                value={config[field.name]}
-                onChange={(value) => handleFieldChange(field.name, value)}
-                surface="secondary"
-              />
-              {errors[field.name] && (
-                <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
-              )}
+              <ShakeTarget shake={errors[field.name]}>
+                <div>
+                  <ConfigFieldRenderer
+                    field={field}
+                    value={config[field.name]}
+                    onChange={(value) => handleFieldChange(field.name, value)}
+                    surface="secondary"
+                  />
+                  {errors[field.name] && (
+                    <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
+                  )}
+                </div>
+              </ShakeTarget>
             </div>
           ))}
         </div>
@@ -189,7 +193,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
         )
       }
     >
-      <ShakeTarget as="form" id="reconfigure-form" shake={submitError || errors} onSubmit={handleSubmit} className="space-y-4">
+      <form id="reconfigure-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Intro text — plain language per AGENTS.md conventions */}
         <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
           <Settings className="text-primary/80 shrink-0 mt-0.5" size={18} />
@@ -222,21 +226,25 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
                   Application Settings
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {basicFields.map((field) => (
+                  {basicFields.map((field, index) => (
                     <div
                       key={field.name}
                       className={field.type === "boolean" ? "sm:col-span-2" : ""}
                     >
-                      <ConfigFieldRenderer
-                        field={field}
-                        value={config[field.name]}
-                        onChange={(value) => handleFieldChange(field.name, value)}
-                        disabled={submitting}
-                        surface="secondary"
-                      />
-                      {errors[field.name] && (
-                        <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
-                      )}
+                      <ShakeTarget shake={errors[field.name] || (submitError && index === 0 ? submitError : null)}>
+                        <div>
+                          <ConfigFieldRenderer
+                            field={field}
+                            value={config[field.name]}
+                            onChange={(value) => handleFieldChange(field.name, value)}
+                            disabled={submitting}
+                            surface="secondary"
+                          />
+                          {errors[field.name] && (
+                            <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
+                          )}
+                        </div>
+                      </ShakeTarget>
                     </div>
                   ))}
                 </div>
@@ -274,7 +282,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
             </p>
           </div>
         )}
-      </ShakeTarget>
+      </form>
     </ModalCard>
   );
 }

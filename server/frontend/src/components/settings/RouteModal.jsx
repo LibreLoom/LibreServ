@@ -332,7 +332,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         </div>
       )}
 
-      <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit}>
         {mode === "create" ? (
           <>
             <p className="text-xs text-primary/50 mb-6 leading-relaxed">
@@ -341,47 +341,51 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
             </p>
 
             <div className="flex gap-2 mb-5">
-              <div className="flex-1">
-                <label
-                  htmlFor="subdomain"
-                  className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
-                >
-                  Subdomain<span className="text-error ml-0.5">*</span>
-                </label>
-                <input
-                  id="subdomain"
-                  type="text"
-                  value={formData.subdomain}
-                  onChange={handleChange("subdomain")}
-                  placeholder="e.g. nextcloud"
-                  disabled={loading}
-                  className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.subdomain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.subdomain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
-                />
-                {errors.subdomain && (
-                  <p className="text-error text-xs mt-1">{errors.subdomain}</p>
-                )}
-              </div>
+              <ShakeTarget shake={errors.subdomain} className="flex-1">
+                <div>
+                  <label
+                    htmlFor="subdomain"
+                    className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+                  >
+                    Subdomain<span className="text-error ml-0.5">*</span>
+                  </label>
+                  <input
+                    id="subdomain"
+                    type="text"
+                    value={formData.subdomain}
+                    onChange={handleChange("subdomain")}
+                    placeholder="e.g. nextcloud"
+                    disabled={loading}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.subdomain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.subdomain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
+                  />
+                  {errors.subdomain && (
+                    <p className="text-error text-xs mt-1">{errors.subdomain}</p>
+                  )}
+                </div>
+              </ShakeTarget>
               <div className="flex items-end pb-2 text-primary font-mono text-lg font-black">.</div>
-              <div className="flex-1">
-                <label
-                  htmlFor="domain"
-                  className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
-                >
-                  Domain<span className="text-error ml-0.5">*</span>
-                </label>
-                <input
-                  id="domain"
-                  type="text"
-                  value={formData.domain}
-                  onChange={handleChange("domain")}
-                  placeholder={defaultDomain || "e.g. example.com"}
-                  disabled={loading}
-                  className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.domain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.domain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
-                />
-                {errors.domain && (
-                  <p className="text-error text-xs mt-1">{errors.domain}</p>
-                )}
-              </div>
+              <ShakeTarget shake={errors.domain} className="flex-1">
+                <div>
+                  <label
+                    htmlFor="domain"
+                    className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+                  >
+                    Domain<span className="text-error ml-0.5">*</span>
+                  </label>
+                  <input
+                    id="domain"
+                    type="text"
+                    value={formData.domain}
+                    onChange={handleChange("domain")}
+                    placeholder={defaultDomain || "e.g. example.com"}
+                    disabled={loading}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.domain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.domain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
+                  />
+                  {errors.domain && (
+                    <p className="text-error text-xs mt-1">{errors.domain}</p>
+                  )}
+                </div>
+              </ShakeTarget>
             </div>
           </>
         ) : (
@@ -397,61 +401,63 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
 
         {/* Destination — the one thing a route actually needs. */}
         <div className="rounded-large-element bg-primary/5 border border-primary/10 p-4 space-y-3">
-          <div>
-            <label
-              htmlFor="destination"
-              className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
-            >
-              Forward to<span className="text-error ml-0.5">*</span>
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="destination"
-                type="text"
-                value={formData.destination}
-                onChange={handleChange("destination")}
-                placeholder="localhost:8080"
-                spellCheck={false}
-                autoComplete="off"
-                disabled={loading}
-                className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.destination && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.destination && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => doTestBackend(formData.destination.trim())}
-                disabled={loading || !looksValidDestination(formData.destination)}
-                loading={testingBackend}
-                className="whitespace-nowrap shrink-0"
+          <ShakeTarget shake={errors.destination || errors.form}>
+            <div>
+              <label
+                htmlFor="destination"
+                className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
               >
-                {testingBackend ? "Testing..." : "Test"}
-              </Button>
-            </div>
-            <p className="text-xs text-primary/50 mt-2 leading-relaxed">
-              The address on this device that should answer for this subdomain.
-              Use <span className="font-mono">localhost:8080</span> for a service
-              on this device, or an IP like <span className="font-mono">192.168.1.50:3000</span>.
-            </p>
-            {errors.destination && (
-              <p className="text-error text-xs mt-1">{errors.destination}</p>
-            )}
-            {backendTestResult && (
-              <div className={cn("flex items-center gap-1.5 text-xs mt-2", backendTestResult.reachable ? "text-success" : "text-error")}>
-                {backendTestResult.reachable ? (
-                  <>
-                    <CheckCircle2 size={12} />
-                    <span className="font-mono">Reachable</span>
-                  </>
-                ) : (
-                  <>
-                    <XCircle size={12} />
-                    <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
-                  </>
-                )}
+                Forward to<span className="text-error ml-0.5">*</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="destination"
+                  type="text"
+                  value={formData.destination}
+                  onChange={handleChange("destination")}
+                  placeholder="localhost:8080"
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={loading}
+                  className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.destination && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.destination && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => doTestBackend(formData.destination.trim())}
+                  disabled={loading || !looksValidDestination(formData.destination)}
+                  loading={testingBackend}
+                  className="whitespace-nowrap shrink-0"
+                >
+                  {testingBackend ? "Testing..." : "Test"}
+                </Button>
               </div>
-            )}
-          </div>
+              <p className="text-xs text-primary/50 mt-2 leading-relaxed">
+                The address on this device that should answer for this subdomain.
+                Use <span className="font-mono">localhost:8080</span> for a service
+                on this device, or an IP like <span className="font-mono">192.168.1.50:3000</span>.
+              </p>
+              {errors.destination && (
+                <p className="text-error text-xs mt-1">{errors.destination}</p>
+              )}
+              {backendTestResult && (
+                <div className={cn("flex items-center gap-1.5 text-xs mt-2", backendTestResult.reachable ? "text-success" : "text-error")}>
+                  {backendTestResult.reachable ? (
+                    <>
+                      <CheckCircle2 size={12} />
+                      <span className="font-mono">Reachable</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle size={12} />
+                      <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </ShakeTarget>
 
           {mode === "create" && runningApps.length > 0 && (
             <div className="border-t border-primary/10 pt-3">
@@ -536,7 +542,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
             {loading ? "Saving..." : submitLabel}
           </Button>
         </div>
-      </ShakeTarget>
+      </form>
     </ModalCard>
   );
 }

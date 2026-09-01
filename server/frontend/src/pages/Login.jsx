@@ -11,7 +11,6 @@ import ModalCard from "../components/cards/ModalCard";
 import StepTransition from "../components/common/StepTransition";
 import Button from "../components/ui/Button";
 import FormInput from "../components/common/forms/FormInput";
-import ShakeTarget from "../components/ui/ShakeTarget";
 import Alert from "../components/common/Alert";
 import MfaChallenge from "../components/auth/MfaChallenge";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
@@ -68,7 +67,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
           <p className="text-primary/70 text-sm mb-4">
             Enter your email address and we'll send you a link to reset your password.
           </p>
-          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit}>
             <FormInput
               label="Email"
               name="reset-email"
@@ -78,6 +77,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
               placeholder="your@email.com"
               surface="secondary"
               error={error}
+              shake={error}
               required
             />
             {error && (
@@ -86,7 +86,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
             <Button type="submit" disabled={loading} fullWidth>
               {loading ? "Sending..." : "Send Reset Link"}
             </Button>
-          </ShakeTarget>
+          </form>
         </>
       ) : (
         <Alert variant="success" message="Check your email for the reset link!" />
@@ -281,9 +281,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             }}
           />
         ) : (
-        <ShakeTarget
-          as="form"
-          shake={errorStatus}
+        <form
           onSubmit={handleSubmit}
           aria-busy={loading}
           className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
@@ -308,6 +306,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             placeholder="e.g. hunter2"
             autoComplete="current-password"
             surface="primary"
+            shake={errorStatus}
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
           />
@@ -337,7 +336,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           >
             {errorStatus && calculateErrorHTML()}
           </div>
-        </ShakeTarget>
+        </form>
               )}
             </StepTransition>
           </div>

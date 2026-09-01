@@ -6,7 +6,6 @@ import PropTypes from "prop-types";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
 
 function PasswordStrengthIndicator({ password }) {
   const strength = useMemo(() => {
@@ -138,7 +137,7 @@ export default function AddUserForm({ onSuccess }) {
   );
 
   return (
-    <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-4" data-slot="add-user-form">
+    <form onSubmit={handleSubmit} className="space-y-4" data-slot="add-user-form">
       <FormInput
         label="Username"
         name="username"
@@ -172,6 +171,7 @@ export default function AddUserForm({ onSuccess }) {
           onChange={handleChange("password")}
           placeholder="Minimum 12 characters (letters and numbers)"
           error={errors.password}
+          shake={errors.password || errors.form}
           icon="password"
           required
           disabled={loading}
@@ -214,7 +214,7 @@ export default function AddUserForm({ onSuccess }) {
           </>
         )}
       </Button>
-    </ShakeTarget>
+    </form>
   );
 }
 

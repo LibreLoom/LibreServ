@@ -6,7 +6,6 @@ import { useToast } from "../../../context/ToastContext";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
 
 /**
  * Send an invitation email so someone can create their own account. The
@@ -61,7 +60,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
   );
 
   return (
-    <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-primary/70 px-5">
         We'll email them a link to set their own username and password. If you make
         them an admin, they'll be asked to set up two-factor authentication before
@@ -75,6 +74,8 @@ export default function InviteUserForm({ onSuccess } = {}) {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="e.g. john@example.com"
+        error={error}
+        shake={error}
         icon="email"
         required
         disabled={loading}
@@ -121,7 +122,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
           </>
         )}
       </Button>
-    </ShakeTarget>
+    </form>
   );
 }
 

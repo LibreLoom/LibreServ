@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
 import FormInput from "../components/common/forms/FormInput";
 import Alert from "../components/common/Alert";
 import { useToast } from "../context/ToastContext";
@@ -173,9 +172,7 @@ export default function ResetPassword() {
             </div>
           </div>
         ) : (
-          <ShakeTarget
-            as="form"
-            shake={error}
+          <form
             onSubmit={handleSubmit}
             aria-busy={loading}
             className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
@@ -191,6 +188,8 @@ export default function ResetPassword() {
               minLength={8}
               autoComplete="new-password"
               surface="primary"
+              error={error}
+              shake={error}
             />
 
             <FormInput
@@ -219,7 +218,7 @@ export default function ResetPassword() {
             >
               {loading ? "Resetting..." : "Reset Password"}
             </Button>
-          </ShakeTarget>
+          </form>
         )}
       </div>
     </main>

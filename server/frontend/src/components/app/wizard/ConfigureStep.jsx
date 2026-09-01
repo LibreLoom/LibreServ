@@ -23,15 +23,19 @@ function AdvancedContent({ show, advancedFields, config, handleFieldChange, erro
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 border-l-2 border-secondary/10">
           {advancedFields.map((field) => (
             <div key={field.name} className={field.type === "boolean" ? "sm:col-span-2" : ""}>
-              <ConfigFieldRenderer
-                field={field}
-                value={config[field.name]}
-                onChange={(value) => handleFieldChange(field.name, value)}
-                surface="primary"
-              />
-              {errors[field.name] && (
-                <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
-              )}
+              <ShakeTarget shake={errors[field.name]}>
+                <div>
+                  <ConfigFieldRenderer
+                    field={field}
+                    value={config[field.name]}
+                    onChange={(value) => handleFieldChange(field.name, value)}
+                    surface="primary"
+                  />
+                  {errors[field.name] && (
+                    <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
+                  )}
+                </div>
+              </ShakeTarget>
             </div>
           ))}
         </div>
@@ -103,7 +107,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
 
 
   return (
-    <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-6" data-slot="configure-step">
+    <form onSubmit={handleSubmit} className="space-y-6" data-slot="configure-step">
       <div className="text-center space-y-2">
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Configure {app?.name || "App"}
@@ -125,15 +129,19 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
                 key={field.name}
                 className={field.type === "boolean" ? "sm:col-span-2" : ""}
               >
-                <ConfigFieldRenderer
-                  field={field}
-                  value={config[field.name]}
-                  onChange={(value) => handleFieldChange(field.name, value)}
-                  surface="primary"
-                />
-                {errors[field.name] && (
-                  <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
-                )}
+                <ShakeTarget shake={errors[field.name]}>
+                  <div>
+                    <ConfigFieldRenderer
+                      field={field}
+                      value={config[field.name]}
+                      onChange={(value) => handleFieldChange(field.name, value)}
+                      surface="primary"
+                    />
+                    {errors[field.name] && (
+                      <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
+                    )}
+                  </div>
+                </ShakeTarget>
               </div>
             ))}
           </div>
@@ -186,7 +194,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
           Install
         </Button>
       </div>
-    </ShakeTarget>
+    </form>
   );
 }
 

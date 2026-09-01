@@ -702,31 +702,33 @@ export default function OnboardingPage() {
           ))}
         </div>
       </div>
-      <ShakeTarget as="form" shake={error} onSubmit={handleAuth} className="w-full text-left">
-        <div
-          key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
-          className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          style={{ animationDuration: "300ms", animationFillMode: "both" }}
-        >
-          <label htmlFor={currentAuthField.id} className="block font-mono text-xl text-card-foreground mb-5 leading-snug">
-            {currentAuthField.question}
-          </label>
-          <Input
-            id={currentAuthField.id}
-            type={currentAuthField.type}
-            value={currentAuthField.value}
-            onChange={(e) => currentAuthField.setValue(e.target.value)}
-            placeholder={currentAuthField.placeholder}
-            autoComplete={currentAuthField.autoComplete}
-            autoFocus
-          />
-          {currentAuthField.hint && (
-            <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
-          )}
-          {currentAuthField.showPasswordRequirements && (
-            <PasswordRequirements password={currentAuthField.value} />
-          )}
-        </div>
+      <form onSubmit={handleAuth} className="w-full text-left">
+        <ShakeTarget shake={error}>
+          <div
+            key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
+            className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+            style={{ animationDuration: "300ms", animationFillMode: "both" }}
+          >
+            <label htmlFor={currentAuthField.id} className="block font-mono text-xl text-card-foreground mb-5 leading-snug">
+              {currentAuthField.question}
+            </label>
+            <Input
+              id={currentAuthField.id}
+              type={currentAuthField.type}
+              value={currentAuthField.value}
+              onChange={(e) => currentAuthField.setValue(e.target.value)}
+              placeholder={currentAuthField.placeholder}
+              autoComplete={currentAuthField.autoComplete}
+              autoFocus
+            />
+            {currentAuthField.hint && (
+              <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
+            )}
+            {currentAuthField.showPasswordRequirements && (
+              <PasswordRequirements password={currentAuthField.value} />
+            )}
+          </div>
+        </ShakeTarget>
         <Button
           type="submit"
           size="lg"
@@ -737,7 +739,7 @@ export default function OnboardingPage() {
           {isLastAuthSubStep ? (isLoginMode ? "Sign in" : "Create account") : "Continue"}
           <ArrowRight className="w-4 h-4" />
         </Button>
-      </ShakeTarget>
+      </form>
     </StepShell>
   );
 
@@ -748,9 +750,7 @@ export default function OnboardingPage() {
           <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
             We need to verify your email before setup continues. Fix the address here if there is a typo.
           </p>
-          <ShakeTarget
-            as="form"
-            shake={error}
+          <form
             className="space-y-4 text-left"
             onSubmit={async (event) => {
               event.preventDefault();
@@ -773,16 +773,20 @@ export default function OnboardingPage() {
               }
             }}
           >
-            <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-              Email address
-            </label>
-            <Input
-              id="signed-in-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
+            <ShakeTarget shake={error}>
+              <div>
+                <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+                  Email address
+                </label>
+                <Input
+                  id="signed-in-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                />
+              </div>
+            </ShakeTarget>
             <Button
               type="submit"
               size="lg"
@@ -794,7 +798,7 @@ export default function OnboardingPage() {
                 ? "Continue to verification"
                 : "Update email and send link"}
             </Button>
-          </ShakeTarget>
+          </form>
         </StepShell>
       );
     }
@@ -1068,9 +1072,7 @@ export default function OnboardingPage() {
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         This name is the address you type to open Luna when you are not at home. Use letters and numbers, at least 3 characters.
       </p>
-      <ShakeTarget
-        as="form"
-        shake={error}
+      <form
         className="space-y-5 text-left"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -1101,27 +1103,31 @@ export default function OnboardingPage() {
           }
         }}
       >
-        <label htmlFor="name" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-          Name
-        </label>
-        <Input
-          id="name"
-          className="font-mono"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="kitchen"
-          autoFocus
-        />
-        <p className="text-sm font-mono text-foreground">
-          {name.trim() ? `${name.trim().toLowerCase()}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
-        </p>
+        <ShakeTarget shake={error}>
+          <div>
+            <label htmlFor="name" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+              Name
+            </label>
+            <Input
+              id="name"
+              className="font-mono"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="kitchen"
+              autoFocus
+            />
+            <p className="text-sm font-mono text-foreground">
+              {name.trim() ? `${name.trim().toLowerCase()}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
+            </p>
+          </div>
+        </ShakeTarget>
         <p className="text-xs text-muted-foreground leading-relaxed">
           Luna applies this address when it is online. You can finish here either way.
         </p>
         <Button type="submit" size="lg" className="w-full" loading={loading} disabled={name.trim().length < 3}>
           Use this name <ArrowRight className="w-4 h-4" />
         </Button>
-      </ShakeTarget>
+      </form>
     </StepShell>
   );
 

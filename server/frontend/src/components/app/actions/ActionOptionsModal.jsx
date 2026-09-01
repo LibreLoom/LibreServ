@@ -205,7 +205,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
   return (
     <ModalCard title={action.label} onClose={handleClose} data-slot="action-options-modal">
       {({ close }) => (
-      <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
         {action.description && (
           <p className="text-sm text-primary/70 mb-4">{action.description}</p>
         )}
@@ -214,13 +214,16 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
           {action.options?.map((option) => {
             const field = scriptOptionToField(option);
             return (
-              <ConfigFieldRenderer
-                key={option.name}
-                field={field}
-                value={options[option.name]}
-                onChange={(val) => handleFieldChange(option.name, val)}
-                disabled={executing}
-              />
+              <ShakeTarget key={option.name} shake={errors[option.name]}>
+                <div>
+                  <ConfigFieldRenderer
+                    field={field}
+                    value={options[option.name]}
+                    onChange={(val) => handleFieldChange(option.name, val)}
+                    disabled={executing}
+                  />
+                </div>
+              </ShakeTarget>
             );
           })}
         </div>
@@ -256,7 +259,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
             )}
           </Button>
         </div>
-      </ShakeTarget>
+      </form>
       )}
     </ModalCard>
   );

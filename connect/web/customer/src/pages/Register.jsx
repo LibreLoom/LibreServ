@@ -122,7 +122,7 @@ export default function Register() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label htmlFor="name">Name (optional)</Label>
               <Input
@@ -160,24 +160,26 @@ export default function Register() {
                 autoFocus
               />
             </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-              />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Use at least 8 characters. We recommend a mix of letters, numbers, and symbols.
-              </p>
-            </div>
+            <ShakeTarget shake={error}>
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                />
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Use at least 8 characters. We recommend a mix of letters, numbers, and symbols.
+                </p>
+              </div>
+            </ShakeTarget>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               Create Account
             </Button>
-          </ShakeTarget>
+          </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
             <Link to="/login" className="text-foreground underline">Sign In</Link>

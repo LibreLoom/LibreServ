@@ -632,40 +632,40 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             </div>
           ) : (
             <>
-              <ShakeTarget
-                as="form"
-                shake={error}
+              <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   startWebAuthn();
                 }}
                 className="space-y-3"
               >
-                <div>
-                  <label
-                    htmlFor="mfa_webauthn_name"
-                    className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-                  >
-                    Name
-                  </label>
-                  <input
-                    id="mfa_webauthn_name"
-                    type="text"
-                    value={webauthnName}
-                    onChange={(e) => setWebauthnName(e.target.value)}
-                    placeholder={label}
-                    className={inputClass}
-                    autoFocus
-                  />
-                  <p className="text-xs text-primary/60 mt-1 px-5">
-                    For example "My phone" or "Office key".
-                  </p>
-                </div>
+                <ShakeTarget shake={error}>
+                  <div>
+                    <label
+                      htmlFor="mfa_webauthn_name"
+                      className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+                    >
+                      Name
+                    </label>
+                    <input
+                      id="mfa_webauthn_name"
+                      type="text"
+                      value={webauthnName}
+                      onChange={(e) => setWebauthnName(e.target.value)}
+                      placeholder={label}
+                      className={inputClass}
+                      autoFocus
+                    />
+                    <p className="text-xs text-primary/60 mt-1 px-5">
+                      For example "My phone" or "Office key".
+                    </p>
+                  </div>
+                </ShakeTarget>
                 <Button type="submit" variant="primary" fullWidth className="group py-3">
                   Register {label}
                   <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
                 </Button>
-              </ShakeTarget>
+              </form>
             </>
           )}
         </>
@@ -735,9 +735,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
 
       {/* Code entry for TOTP + email. */}
       {(type === "totp" || type === "email") && step === "verify" && (
-        <ShakeTarget
-          as="form"
-          shake={error}
+        <form
           onSubmit={(e) => {
             e.preventDefault();
             verifyCode();
@@ -758,7 +756,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             </LayeredPill>
               {changeEmailOpen && (
                 <ModalCard title="Change your email" onClose={() => setChangeEmailOpen(false)}>
-                  <ShakeTarget as="form" shake={emailError} onSubmit={handleChangeEmail} className="space-y-4">
+                  <form onSubmit={handleChangeEmail} className="space-y-4">
                     <p className="text-sm text-primary/70">
                       Your sign-in codes are sent to this address. Update it and we'll
                       send a new code to the new address.
@@ -771,6 +769,8 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       surface="secondary"
+                      error={emailError}
+                      shake={emailError}
                       required
                     />
                     {emailError && <Alert variant="error" message={emailError} />}
@@ -795,7 +795,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                         Save &amp; send new code
                       </Button>
                     </div>
-                  </ShakeTarget>
+                  </form>
                 </ModalCard>
               )}
             </>
@@ -810,6 +810,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             maxLength={6}
             disabled={busy}
             autoFocus
+            shake={error}
           />
           <Button
             type="submit"
@@ -840,7 +841,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
               </button>
             </div>
           )}
-        </ShakeTarget>
+        </form>
       )}
 
       {/* Persistent escape hatch: always available so the user can pick a

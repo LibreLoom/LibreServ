@@ -372,9 +372,7 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
   // button, not the pill, so the pill itself stays flexible/wrappable.)
   useSmoothResize(resendRef);
   return (
-    <ShakeTarget
-      as="form"
-      shake={shake}
+    <form
       data-slot="auth-mfa-entry"
       aria-busy={loading}
       onSubmit={(e) => {
@@ -417,25 +415,28 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
           maxLength={maxLength}
           disabled={loading}
           autoFocus={autoFocus}
+          shake={shake}
         />
       ) : (
-        <input
-          id={inputId}
-          type="text"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder={placeholder}
-          className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-          autoFocus={autoFocus}
-        />
+        <ShakeTarget shake={shake}>
+          <input
+            id={inputId}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder={placeholder}
+            className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+            autoFocus={autoFocus}
+          />
+        </ShakeTarget>
       )}
 
       <Button type="submit" disabled={loading || disabled} fullWidth>
         {loading ? "Verifying…" : "Verify"}
       </Button>
-    </ShakeTarget>
+    </form>
   );
 }
 

@@ -121,7 +121,7 @@ export default function InviteeOnboardingPage() {
           </p>
         )}
 
-        <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
+        <form onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
           <label htmlFor="username" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
             Username
           </label>
@@ -134,19 +134,23 @@ export default function InviteeOnboardingPage() {
             autoComplete="username"
             required
           />
-          <label htmlFor="password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Minimum 12 characters (letters and numbers)"
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-            autoComplete="new-password"
-            required
-          />
+          <ShakeTarget shake={error}>
+            <div>
+              <label htmlFor="password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Minimum 12 characters (letters and numbers)"
+                className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2 w-full"
+                autoComplete="new-password"
+                required
+              />
+            </div>
+          </ShakeTarget>
           {password && (
             <div className="mt-2 px-5">
               <div className="flex gap-1 mb-1">
@@ -172,7 +176,7 @@ export default function InviteeOnboardingPage() {
             {submitting ? "Setting up…" : "Finish setup"}
           </Button>
           {error && <Alert variant="error" message={error} className="mt-4" />}
-        </ShakeTarget>
+        </form>
       </div>
     </main>
   );
