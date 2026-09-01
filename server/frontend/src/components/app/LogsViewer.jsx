@@ -208,7 +208,7 @@ export default function LogsViewer({
           </Button>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary text-primary">
-            <ArrowDownToLine size={14} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-primary/40")} aria-hidden="true" />
+            <ArrowDownToLine size={14} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-accent")} aria-hidden="true" />
             <Toggle
               checked={autoScroll}
               onChange={setAutoScroll}
@@ -232,7 +232,7 @@ export default function LogsViewer({
         {showSearch && (
           <div className="sm:hidden shrink-0 animate-fade-in-up">
             <div className="relative bg-secondary text-primary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary/50" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-accent" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -244,7 +244,7 @@ export default function LogsViewer({
               <button
                 type="button"
                 onClick={handleToggleSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-primary/50 hover:text-primary transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-accent hover:text-primary transition-colors"
                 aria-label="Close search"
               >
                 <X size={14} />
@@ -256,7 +256,7 @@ export default function LogsViewer({
         {/* Desktop toolbar */}
         <div className="hidden sm:flex items-center justify-between shrink-0 gap-3">
           <div className="relative flex-1 min-w-0 w-full bg-secondary text-primary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/50" />
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" />
             <input
               type="text"
               value={filter}
@@ -282,7 +282,7 @@ export default function LogsViewer({
               variant="outline"
               surface="secondary"
               onClick={handleDownload}
-              title="Download logs"
+              tooltip="Download logs"
               className="border-accent hover:bg-accent/20 hover:text-primary"
             >
               <Download size={16} className="inline -mt-0.5" />
@@ -294,14 +294,14 @@ export default function LogsViewer({
         <Card noPopIn padding={false} className="flex flex-col min-h-0 overflow-hidden border border-primary/15">
           <div
             ref={outputRef}
-            className="overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 text-primary/80 max-h-[50vh] sm:max-h-[60vh]"
+            className="overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 text-accent max-h-[50vh] sm:max-h-[60vh]"
           >
             {filteredLines.length === 0 && streamError ? (
-              <div className="py-10 text-center text-primary/50">
+              <div className="py-10 text-center text-accent">
                 Failed to load logs.
               </div>
             ) : filteredLines.length === 0 ? (
-              <div className="py-10 text-center text-primary/50">
+              <div className="py-10 text-center text-accent">
                 No logs found for this app yet.
               </div>
             ) : (
@@ -316,7 +316,7 @@ export default function LogsViewer({
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shrink-0 border-t border-primary/15 bg-secondary/50 text-primary px-3 sm:px-4 py-2">
-            <div className="flex items-center gap-2 text-xs font-sans text-primary/60">
+            <div className="flex items-center gap-2 text-xs font-sans text-accent">
               <Terminal size={14} />
               <span>Showing last {lines.length} lines</span>
             </div>

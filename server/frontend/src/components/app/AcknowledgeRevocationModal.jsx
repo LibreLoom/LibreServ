@@ -62,14 +62,14 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
                   This version has been recalled
                 </p>
                 {notice?.reason && (
-                  <p className="text-sm text-primary/70 mt-1">
+                  <p className="text-sm text-primary mt-1">
                     {notice.reason}
                   </p>
                 )}
               </div>
             </div>
 
-            <p className="text-sm text-primary/70">
+            <p className="text-sm text-accent">
               Running this app could be unsafe.
             </p>
 
@@ -96,7 +96,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
         {step === 2 && (
           <>
             <div className="p-3 rounded-large-element bg-primary/5 border border-primary/20">
-              <p className="text-sm text-primary/80">
+              <p className="text-sm text-accent">
                 {isMalicious
                   ? "This version may allow attackers to access your data. We strongly recommend waiting for a fixed version."
                   : "This version has known problems. It may not work correctly."}
@@ -105,7 +105,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
 
             <ShakeTarget shake={error}>
               <div>
-                <label className="text-sm text-primary/70 block mb-2">
+                <label className="text-sm text-accent block mb-2">
                   Type <strong className="text-primary">I understand</strong> to enable the Continue button:
                 </label>
                 <input

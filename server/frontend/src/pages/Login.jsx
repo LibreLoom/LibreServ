@@ -64,7 +64,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
     <ModalCard title="Reset Password" onClose={onClose}>
       {!sent ? (
         <>
-          <p className="text-primary/70 text-sm mb-4">
+          <p className="text-accent text-sm mb-4">
             Enter your email address and we'll send you a link to reset your password.
           </p>
           <form onSubmit={handleSubmit}>
@@ -258,7 +258,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
                       {notice}
                     </span>
                     {noticeDetail && (
-                      <p className="text-primary/80 text-sm text-center mt-2">{noticeDetail}</p>
+                      <p className="text-accent text-sm text-center mt-2">{noticeDetail}</p>
                     )}
                   </>
                 ) : (
@@ -266,7 +266,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
                     <span className="text-primary font-mono text-xl font-normal block text-center">
                       Hey there! Log in to continue.
                     </span>
-                    <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
+                    <p className="text-accent text-sm text-center mt-2">{loginQuip}</p>
                   </>
                 )
               )}
@@ -316,7 +316,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           {smtpConfigured && (
             <a
               onClick={() => setShowResetModal(true)}
-              className="text-secondary/80 text-sm underline mt-2 text-right cursor-pointer"
+              className="text-secondary text-sm underline mt-2 text-right cursor-pointer"
             >
               Forgot password?
             </a>
@@ -332,7 +332,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             Login
           </Button>
           <div
-            className={cn(`text-secondary/80 overflow-hidden transition-all duration-300 ease-in-out`, errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0")}
+            className={cn(`text-secondary overflow-hidden transition-all duration-300 ease-in-out`, errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0")}
             role="alert"
             aria-live="assertive"
             id="login-error"

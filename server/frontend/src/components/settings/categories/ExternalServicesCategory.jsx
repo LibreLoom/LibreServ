@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import SettingsCard from "../SettingsCard.jsx";
 import LayeredPill from "../../ui/LayeredPill.jsx";
+import { Tooltip } from "../../ui/Tooltip.jsx";
 import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";
 import EmailServiceModal from "../../connect/EmailServiceModal.jsx";
 import DomainServiceModal from "../../connect/DomainServiceModal.jsx";
@@ -165,7 +166,7 @@ const SERVICE_META = [
 const STATE_BADGES = {
   connected: { label: "Connected", class: "bg-accent text-primary" },
   byo: { label: "Bring Your Own", class: "bg-primary text-secondary border-2 border-accent/30" },
-  disabled: { label: "Off", class: "bg-primary text-secondary/50 border-2 border-secondary/10" },
+  disabled: { label: "Off", class: "bg-primary text-accent border-2 border-secondary/10" },
   unavailable: { label: "Not in Plan", class: "bg-primary text-secondary/30 border-2 border-secondary/10" },
 };
 
@@ -283,17 +284,21 @@ export default function ExternalServicesCategory({
                           actionLabel={detailText || null}
                         >
                           <span className="font-normal text-accent">Included:</span>
-                          <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
+                          <span className={limitLabel === "Not in plan" ? "text-accent" : "text-secondary"}>
                             {limitLabel}
                           </span>
                         </LayeredPill>
                         <div className="sm:hidden flex flex-col items-start">
-                          <span
-                            className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
-                            title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                          <Tooltip
+                            content={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                            surface="secondary"
                           >
-                            Included: {limitLabel}
-                          </span>
+                            <span
+                              className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
+                            >
+                              Included: {limitLabel}
+                            </span>
+                          </Tooltip>
                           <span
                             aria-hidden={!detailText}
                             className={cn(

@@ -21,7 +21,6 @@ import Card from "./Card";
  *   type?: "button" | "submit" | "reset",
  *   external?: boolean,
  *   ariaLabel?: string,
- *   title?: string,
  *   className?: string,
  *   children?: import('react').ReactNode,
  * }} props
@@ -32,7 +31,6 @@ export default function ClickableCard({
   type = "button",
   external = false,
   ariaLabel,
-  title,
   className = "",
   children,
 }) {
@@ -49,7 +47,6 @@ export default function ClickableCard({
         target="_blank"
         rel="noopener noreferrer"
         aria-label={ariaLabel}
-        title={title}
         data-slot="clickable-card"
         className={cardClassName}
         noHeightAnim
@@ -65,7 +62,6 @@ export default function ClickableCard({
         as={Link}
         to={action}
         aria-label={ariaLabel}
-        title={title}
         data-slot="clickable-card"
         className={cardClassName}
         noHeightAnim
@@ -81,7 +77,6 @@ export default function ClickableCard({
       type={type}
       onClick={onClick}
       aria-label={ariaLabel}
-      title={title}
       data-slot="clickable-card"
       className={cardClassName}
       noHeightAnim

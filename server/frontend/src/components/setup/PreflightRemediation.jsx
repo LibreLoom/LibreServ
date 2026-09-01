@@ -21,7 +21,7 @@ export function PreflightRemediation({ failedChecks }) {
       <Callout tone={hasCritical ? 'error' : 'neutral'}>
         {remediations.map(({ id, tip, severity }) => (
           <div key={id} className="mb-2 last:mb-0">
-            <span className={cn("font-semibold", severity === 'critical' ? 'text-error' : 'text-primary/80')}>
+            <span className={cn("font-semibold", severity === 'critical' ? 'text-error' : 'text-primary')}>
               {severity === 'critical' ? 'Critical:' : 'Tip:'}
             </span>{' '}
             {tip}

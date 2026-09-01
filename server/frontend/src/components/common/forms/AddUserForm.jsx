@@ -184,7 +184,7 @@ export default function AddUserForm({ onSuccess }) {
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
         <label
           htmlFor="role"
-          className="text-primary/80 font-sans text-sm motion-safe:transition-all shrink-0"
+          className="text-accent font-sans text-sm motion-safe:transition-all shrink-0"
         >
           Role:
         </label>

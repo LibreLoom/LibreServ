@@ -247,7 +247,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
       {modalOpen && (
         <ModalCard title="Update Source" onClose={() => setModalOpen(false)}>
           <div className="space-y-4">
-            <p className="text-sm text-primary/70">
+            <p className="text-sm text-accent">
               Where LibreServ gets its own updates from. This is not for app
               updates — those come from App Sources in Settings.
             </p>

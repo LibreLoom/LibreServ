@@ -81,7 +81,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <KeyRound size={24} aria-hidden="true" />
         </div>
-        <p className="text-sm text-primary/80">
+        <p className="text-sm text-accent">
           Set a new password for <strong>{user.username}</strong>
         </p>
       </div>
@@ -97,7 +97,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           <div className="relative">
           <Lock
             size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
             aria-hidden="true"
           />
           <input
@@ -135,7 +135,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           <div className="relative">
           <Lock
             size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
             aria-hidden="true"
           />
           <input

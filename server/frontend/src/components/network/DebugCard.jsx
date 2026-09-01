@@ -24,7 +24,7 @@ export default function DebugCard({ content, onReload }) {
                 variant="outline"
                 size="sm"
                 onClick={onReload}
-                title="Reload configuration"
+                tooltip="Reload configuration"
                 className="shrink-0"
               >
                 <RefreshCw size={14} aria-hidden="true" />
@@ -32,11 +32,11 @@ export default function DebugCard({ content, onReload }) {
               </Button>
             </div>
             {isEmpty ? (
-              <p className="text-sm text-primary/50 italic">
+              <p className="text-sm text-accent italic">
                 No configuration generated yet
               </p>
             ) : (
-              <pre className="text-xs font-mono text-primary/80 overflow-x-auto whitespace-pre-wrap">
+              <pre className="text-xs font-mono text-accent overflow-x-auto whitespace-pre-wrap">
                 {content}
               </pre>
             )}

@@ -63,7 +63,7 @@ function BoardRow({ icon, label, ok, okText, offText }) {
       <span className="flex items-center gap-2.5 min-w-0">
         <Icon
           size={16}
-          className={cn("shrink-0 motion-safe:transition-colors motion-safe:duration-300", ok ? "text-success" : "text-primary/40")}
+          className={cn("shrink-0 motion-safe:transition-colors motion-safe:duration-300", ok ? "text-success" : "text-accent")}
         />
         <span className="font-mono text-sm text-primary">{label}</span>
       </span>
@@ -366,10 +366,10 @@ export default function NetworkStep({ name, onContinue }) {
                             : "border-primary/15 hover:border-primary/35"
                         )}
                       >
-                        <Wifi size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-primary/50")} />
+                        <Wifi size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-accent")} />
                         <span className="flex-1 min-w-0 truncate text-sm text-primary font-mono">{net.ssid}</span>
                         <span className="flex items-center gap-1.5 text-[11px] text-primary/45 shrink-0">
-                          {net.encrypted && <Lock size={11} className="text-primary/50" />}
+                          {net.encrypted && <Lock size={11} className="text-accent" />}
                           {signalLabel(net.signal)}
                         </span>
                       </button>
@@ -418,7 +418,7 @@ export default function NetworkStep({ name, onContinue }) {
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
                       aria-label={showPassword ? "Hide password" : "Show password"}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary/50 hover:text-secondary motion-safe:transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-accent hover:text-secondary motion-safe:transition-colors"
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>

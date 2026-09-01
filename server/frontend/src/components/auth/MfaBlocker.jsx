@@ -51,7 +51,7 @@ export default function MfaBlocker() {
           <h1 className="text-xl font-normal font-mono text-center text-balance">
             Turn on two-factor authentication
           </h1>
-          <p className="text-primary/70 text-sm text-center text-balance max-w-sm mx-auto mt-3 mb-8">
+          <p className="text-accent text-sm text-center text-balance max-w-sm mx-auto mt-3 mb-8">
             As an admin, your account is a target. Add a second sign-in check to
             start using LibreServ — it takes about a minute, and you can change
             it later in My Account.
@@ -60,7 +60,7 @@ export default function MfaBlocker() {
           <MfaSetupWizard onComplete={refreshAuth} onSessionExpired={refreshAuth} />
 
           {/* Escape hatch — a fullscreen gate must never trap the user. */}
-          <div className="mt-8 pt-5 border-t border-primary/10 flex items-center justify-center gap-2 text-xs text-primary/50">
+          <div className="mt-8 pt-5 border-t border-primary/10 flex items-center justify-center gap-2 text-xs text-accent">
             {me?.username && <span>Signed in as {me.username} ·</span>}
             <button
               type="button"

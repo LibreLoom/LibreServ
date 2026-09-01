@@ -105,7 +105,7 @@ export default function ApiTokensCard() {
   return (
     <Card title="API Tokens" icon={KeyRound} data-slot="api-tokens-card">
       <div className="space-y-4">
-        <p className="text-sm text-secondary/70">
+        <p className="text-sm text-accent">
           API tokens let other apps and scripts talk to your LibreServ on your
           behalf, without using your password. Keep them as secret as a password.
         </p>
@@ -159,7 +159,7 @@ export default function ApiTokensCard() {
         {loading ? (
           <p className="text-sm text-accent">Loading…</p>
         ) : tokens.length === 0 ? (
-          <p className="text-sm text-secondary/70">
+          <p className="text-sm text-accent">
             You haven&apos;t created any API tokens yet.
           </p>
         ) : (
@@ -169,7 +169,7 @@ export default function ApiTokensCard() {
                 <div className="min-w-0">
                   <div className="text-sm text-primary truncate">{t.name}</div>
                   <div className="text-xs text-accent font-mono">{t.token_prefix}</div>
-                  <div className="text-xs text-secondary/60">
+                  <div className="text-xs text-accent">
                     Created {formatDate(t.created_at)} · Last used {formatDate(t.last_used_at)}
                   </div>
                 </div>

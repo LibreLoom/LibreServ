@@ -50,7 +50,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Shield size={24} aria-hidden="true" />
         </div>
-        <p className="text-sm text-primary/80">
+        <p className="text-sm text-accent">
           Change role for user <strong>{user.username}</strong>
         </p>
       </div>
@@ -59,7 +59,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         <div>
           <label
             htmlFor="role"
-            className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+            className="text-secondary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
             New Role
           </label>

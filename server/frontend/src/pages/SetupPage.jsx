@@ -122,7 +122,6 @@ function StepDots({ current }) {
                 ? "w-2 h-2 bg-primary/40"
                 : "w-2 h-2 bg-primary/15"
           )}
-          title={s.label}
           aria-label={s.label}
         />
       ))}
@@ -344,9 +343,9 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
       {/* Status icon */}
       <div className={cn("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300", showEmpty ? "bg-primary/10" : (isOk && !showEmpty) ? "bg-primary/15" : (isFail && !showEmpty) ? "bg-error/20" : "bg-primary/10")}>
         {showEmpty ? (
-          <Loader2 className="w-3.5 h-3.5 text-primary/60 animate-spin" />
+          <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />
         ) : isOk ? (
-          <Check className="w-3.5 h-3.5 text-primary/70" />
+          <Check className="w-3.5 h-3.5 text-accent" />
         ) : (
           <X className="w-3.5 h-3.5 text-error" />
         )}
@@ -363,7 +362,7 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
           )}
         </div>
         {name === "disk_space" && isOk && check.disk_space_bytes_free && (
-          <p className="text-xs text-primary/70 mt-0.5">
+          <p className="text-xs text-accent mt-0.5">
             {Math.round((check.disk_space_bytes_free / (1024 * 1024 * 1024)) * 10) / 10} GB free
           </p>
         )}
@@ -449,7 +448,7 @@ function PreflightStep({ onPass }) {
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             System check
           </h2>
-          <p className="text-primary/50 text-sm mt-2">
+          <p className="text-accent text-sm mt-2">
             Verifying your environment before we continue.
           </p>
         </div>
@@ -480,7 +479,7 @@ function PreflightStep({ onPass }) {
             if (!catChecks || catChecks.length === 0) return null;
             return (
               <div key={category}>
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-primary/70 mt-5 mb-1 first:mt-0">
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent mt-5 mb-1 first:mt-0">
                   {CATEGORY_LABELS[category] || category}
                 </p>
                 {catChecks.map(([name, check], i) => (
@@ -501,7 +500,7 @@ function PreflightStep({ onPass }) {
           {error && (
             <div className="flex items-start gap-3 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in duration-300">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-primary/80">{error}</p>
+              <p className="text-sm text-primary">{error}</p>
             </div>
           )}
         </div>
@@ -514,7 +513,7 @@ function PreflightStep({ onPass }) {
             </p>
           )}
           {allPassed && (
-            <p className="text-xs text-primary/50 animate-in fade-in duration-300 h-6">
+            <p className="text-xs text-accent animate-in fade-in duration-300 h-6">
               All checks passed.
             </p>
           )}
@@ -597,7 +596,7 @@ PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
 /** A single password requirement chip: green check when met, muted X when missing. */
 function ReqChip({ ok, label }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 font-mono motion-safe:transition-colors motion-safe:duration-200", ok ? "text-success" : "text-primary/50")}>
+    <span className={cn("inline-flex items-center gap-1 font-mono motion-safe:transition-colors motion-safe:duration-200", ok ? "text-success" : "text-accent")}>
       {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
       {label}
     </span>
@@ -614,13 +613,13 @@ function FormField({ id, label, hint, children, error, shake, loading = false })
         htmlFor={id}
         className={cn(
           "block font-sans text-sm text-left translate-x-5 mb-1 motion-safe:transition-colors duration-300",
-          labelError ? "text-error" : "text-primary/80",
+          labelError ? "text-error" : "text-primary",
         )}
       >
         {label}
       </label>
       {children}
-      {hint && <p className="text-xs text-primary/70 mt-1.5 translate-x-5">{hint}</p>}
+      {hint && <p className="text-xs text-accent mt-1.5 translate-x-5">{hint}</p>}
     </div>
   );
 }
@@ -704,7 +703,7 @@ function AccountStep({ onSuccess, onError }) {
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             Create your account
           </h2>
-          <p className="text-primary/50 text-sm mt-2">
+          <p className="text-accent text-sm mt-2">
             This will be the administrator account.
           </p>
         </div>
@@ -767,14 +766,16 @@ function AccountStep({ onSuccess, onError }) {
                   required
                   className={cn(WIZARD_INPUT_CLASS, "pr-12")}
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="iconSm"
                   onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/30 hover:text-primary/60 motion-safe:transition-colors motion-safe:duration-150"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-accent hover:text-primary"
                   aria-label={showPw ? "Hide password" : "Show password"}
                 >
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                </Button>
               </div>
 
               {/* Strength bar + label */}
@@ -785,7 +786,7 @@ function AccountStep({ onSuccess, onError }) {
                     <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
                       {STRENGTH_LABEL[strength.score]}
                     </p>
-                    <p className={cn("text-xs font-mono", meetsPolicy ? "text-success" : "text-primary/50")}>
+                    <p className={cn("text-xs font-mono", meetsPolicy ? "text-success" : "text-accent")}>
                       {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
                     </p>
                   </div>
@@ -818,14 +819,16 @@ function AccountStep({ onSuccess, onError }) {
                   required
                   className={cn(WIZARD_INPUT_CLASS, "pr-12")}
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="iconSm"
                   onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/30 hover:text-primary/60 motion-safe:transition-colors motion-safe:duration-150"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-accent hover:text-primary"
                   aria-label={showPw ? "Hide password" : "Show password"}
                 >
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                </Button>
               </div>
               {confirm && !confirmOk && (
                 <p className="text-xs text-error mt-1.5 translate-x-5">
@@ -840,7 +843,7 @@ function AccountStep({ onSuccess, onError }) {
           {fieldError && (
             <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-primary/80">{fieldError}</p>
+              <p className="text-sm text-primary">{fieldError}</p>
             </div>
           )}
 
@@ -885,7 +888,7 @@ function CompleteStep() {
       <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
         All done.
       </h2>
-      <p className="text-primary/50 text-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+      <p className="text-accent text-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
         Taking you to your dashboard&hellip;
       </p>
 
@@ -904,7 +907,7 @@ function ErrorStep({ message }) {
         <div className="mb-6 w-14 h-14 rounded-full border border-error/25 bg-error/12 flex items-center justify-center">
           <AlertCircle className="w-6 h-6 text-error" strokeWidth={1.5} />
         </div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/70 mb-3">
+        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-accent mb-3">
           Setup interrupted
         </p>
         <h2 className="font-mono text-2xl font-normal text-primary mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
@@ -935,14 +938,14 @@ function MfaStep({ onComplete, onSessionExpired }) {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5 text-primary/60" />
+            <ShieldCheck className="w-5 h-5 text-accent" />
           </div>
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             Enable MFA
           </h2>
         </div>
         {mfaPhase === "choose" && (
-          <p className="text-primary/50 text-sm leading-relaxed">
+          <p className="text-accent text-sm leading-relaxed">
             Two-factor authentication asks for a second check at sign-in — not just your password. As an admin, your account is at higher risk, so you need at least one method before you can finish setup.
           </p>
         )}
@@ -1248,7 +1251,7 @@ export default function SetupPage() {
   if (step === null) {
     return (
       <SetupShell>
-        <Loader2 className="w-8 h-8 animate-spin text-secondary/60" />
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
       </SetupShell>
     );
   }

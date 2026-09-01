@@ -109,7 +109,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
-              <div className="text-sm text-primary/70 mb-1">Current Version</div>
+              <div className="text-sm text-accent mb-1">Current Version</div>
               <div className="text-lg font-mono font-semibold text-primary">
                 {getVersionDisplay()}
               </div>
@@ -133,7 +133,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           </div>
 
           <div className="flex items-center gap-3 mb-4">
-            <div className="text-sm text-primary/70">Status:</div>
+            <div className="text-sm text-accent">Status:</div>
             {notChecked && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary text-secondary">
                 <Info size={12} />
@@ -270,7 +270,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                       {...props}
                     />
                   ),
-                  p: (props) => <p className="mb-3 last:mb-0 text-secondary/90" {...props} />,
+                  p: (props) => <p className="mb-3 last:mb-0 text-secondary" {...props} />,
                   ul: (props) => (
                     <ul
                       className="list-disc list-inside mb-3 ml-4 last:mb-0"
@@ -283,7 +283,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                       {...props}
                     />
                   ),
-                  li: (props) => <li className="mb-1 text-secondary/90" {...props} />,
+                  li: (props) => <li className="mb-1 text-secondary" {...props} />,
                   code: (props) => {
                     const { inline } = /** @type {{ inline?: boolean }} */ (props);
                     return inline ? (

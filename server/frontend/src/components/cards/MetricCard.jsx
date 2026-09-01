@@ -5,7 +5,7 @@ import Card from "../cards/Card";
  * MetricCard — a small centered label + value card used in stat grids.
  *
  * Replaces the repeated
- * `<Card className="flex flex-col items-center justify-center py-6 text-center"><p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">{label}</p>…</Card>`
+ * `<Card className="flex flex-col items-center justify-center py-6 text-center"><p className="text-xs font-mono uppercase tracking-wider text-accent mb-1">{label}</p>…</Card>`
  * pattern. The label uses the card's inherited text token; `valueClassName`
  * lets callers apply status colors.
  *

@@ -530,7 +530,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                                     variant="ghost"
                                     size="iconSm"
                                     onClick={() => setRestoreTarget(backup)}
-                                    title="Put this copy back"
+                                    tooltip="Put this copy back"
                                     aria-label="Restore this backup"
                                   >
                                     <RotateCcw size={14} className="text-accent" aria-hidden="true" />
@@ -539,7 +539,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                                     variant="ghost"
                                     size="iconSm"
                                     onClick={() => setDeleteTarget(backup)}
-                                    title="Delete this copy"
+                                    tooltip="Delete this copy"
                                     aria-label="Delete this backup"
                                   >
                                     <Trash2 size={14} className="text-accent" aria-hidden="true" />
@@ -577,7 +577,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                           variant="ghost"
                           size="iconSm"
                           onClick={() => setDeleteTarget(backup)}
-                          title="Delete this copy"
+                          tooltip="Delete this copy"
                           aria-label="Delete this backup"
                         >
                           <Trash2 size={14} className="text-accent" aria-hidden="true" />

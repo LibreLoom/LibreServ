@@ -416,7 +416,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         <h2 className="font-mono text-2xl font-normal text-secondary">
           {isComplete ? "Almost Ready!" : ""}
         </h2>
-        <p className="text-secondary/70">
+        <p className="text-accent">
           {isComplete
             ? "Your app is starting up. This won't take long."
             : "Please wait while we set things up. You can leave this page; installation will continue in the background."}
@@ -454,7 +454,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               <span
                 className={cn(
                   "font-mono text-sm",
-                  isDone ? "text-secondary" : isCurrent ? "text-secondary" : "text-secondary/50"
+                  isDone ? "text-secondary" : isCurrent ? "text-secondary" : "text-accent"
                 )}
               >
                 {phase.label}
@@ -489,7 +489,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 <span className={cn("block text-sm motion-safe:transition-colors", detailsOpen ? "text-primary" : "text-secondary")}>
                   {detailsOpen ? "Installation output is open" : "View installation output"}
                 </span>
-                <span className={cn("block text-xs motion-safe:transition-colors", detailsOpen ? "text-primary/70" : "text-secondary/60")}>
+                <span className={cn("block text-xs motion-safe:transition-colors", detailsOpen ? "text-accent" : "text-accent")}>
                   Live logs from image pull, setup, and startup checks.
                 </span>
               </span>
@@ -517,7 +517,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 </div>
                 <button
                   onClick={handleCopyStream}
-                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/12 bg-secondary/6 px-3 py-1.5 text-xs text-secondary/60 motion-safe:transition-colors hover:text-secondary"
+                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/12 bg-secondary/6 px-3 py-1.5 text-xs text-accent motion-safe:transition-colors hover:text-secondary"
                 >
                   {streamCopied ? (
                     <>

@@ -19,25 +19,25 @@ function CompleteStep({ app, instance, onDone }) {
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Installation Complete!
         </h2>
-        <p className="text-secondary/70">
+        <p className="text-accent">
           {app?.name || "Your app"} is ready to use.
         </p>
       </div>
 
       {subdomain && domain && (
-        <div className="max-w-md mx-auto p-5 rounded-large-element bg-secondary/10 border border-secondary/30">
+        <div className="max-w-md mx-auto p-5 rounded-large-element bg-secondary/10 text-primary border border-secondary/30">
           <div className="flex items-center gap-2 mb-3">
             <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
             <div>
               <h3 className="font-mono text-sm font-medium text-secondary">Domain Ready</h3>
-              <p className="text-xs text-secondary/70">Your app is accessible on the web</p>
+              <p className="text-xs text-accent">Your app is accessible on the web</p>
             </div>
           </div>
 
           <div className="bg-primary/5 rounded-pill px-4 py-3">
-            <div className="text-xs font-mono text-secondary/50 uppercase tracking-wide mb-2">Access URL</div>
+            <div className="text-xs font-mono text-accent uppercase tracking-wide mb-2">Access URL</div>
             <div className="font-mono text-xl text-accent break-all">
               {subdomain}.{domain}
             </div>

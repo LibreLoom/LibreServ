@@ -67,7 +67,7 @@ export function ProgressFeedback({
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Done!
         </h2>
-        <p className="text-secondary/70">
+        <p className="text-accent">
           {title || "Action"} completed successfully.
         </p>
         <DetailsToggle
@@ -90,10 +90,10 @@ export function ProgressFeedback({
           <h2 className="font-mono text-2xl font-normal text-secondary">
             Something went wrong
           </h2>
-          <p className="text-secondary/70">
+          <p className="text-accent">
             {title || "Action"} couldn't be completed.
           </p>
-          <p className="text-sm text-secondary/50">
+          <p className="text-sm text-accent">
             Tap "View details" to see what happened.
           </p>
         </div>
@@ -117,7 +117,7 @@ export function ProgressFeedback({
           {title || "Working..."}
         </h2>
         {currentMessage && (
-          <p className="text-secondary/70">{currentMessage}</p>
+          <p className="text-accent">{currentMessage}</p>
         )}
       </div>
       <DetailsToggle
@@ -137,7 +137,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
     <div className="space-y-3">
       <button
         onClick={() => setDetailsOpen((open) => !open)}
-        className="inline-flex items-center gap-1 text-sm text-secondary/50 hover:text-secondary/80 transition-colors font-mono"
+        className="inline-flex items-center gap-1 text-sm text-accent hover:text-secondary/80 transition-colors font-mono"
         aria-expanded={detailsOpen}
       >
         <ChevronDown
@@ -155,7 +155,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
             <p className="font-mono text-sm text-secondary">Output</p>
             <button
               onClick={onCopy}
-              className="flex items-center gap-1 text-xs text-secondary/50 hover:text-secondary/80 transition-colors"
+              className="flex items-center gap-1 text-xs text-accent hover:text-secondary/80 transition-colors"
             >
               {copied ? (
                 <>
@@ -172,7 +172,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
           </div>
           <pre
             ref={outputRef}
-            className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-secondary/70"
+            className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-accent"
           >
             {getFullOutput(lines)}
           </pre>

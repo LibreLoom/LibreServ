@@ -115,13 +115,13 @@ describe("MfaCard", () => {
     // Only TOTP is available — email/passkey/security_key are hidden.
     mockAvailability.value = { totp: true, email: false, passkey: false, security_key: false };
     render(<MfaCard />);
-    // The add-method tiles carry title="Add <label>". Wait for the one
+    // Add-method tiles expose aria-label="Add <label>". Wait for the one
     // available method to render, then assert the others are absent.
     await waitFor(() =>
-      expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Add Authenticator app" })).toBeInTheDocument(),
     );
-    expect(screen.queryByTitle(/Add Email code/i)).toBeNull();
-    expect(screen.queryByTitle(/Add Passkey/i)).toBeNull();
-    expect(screen.queryByTitle(/Add Security key/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Email code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Passkey/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Security key/i })).toBeNull();
   });
 });

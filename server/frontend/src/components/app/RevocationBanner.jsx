@@ -17,7 +17,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
         <Card className={cn("border-2", isMalicious ? "border-error/50 bg-error/5" : "border-warning/50 bg-warning/5")} data-slot="revocation-banner">
           <div className="flex items-center gap-3">
             <AlertTriangle size={18} className={isMalicious ? "text-error" : "text-warning"} />
-            <p className="text-sm text-primary/70">
+            <p className="text-sm text-primary">
               Recalled version (you acknowledged this on {ackDate})
             </p>
           </div>
@@ -40,14 +40,14 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
               <h2 className={cn("text-lg font-mono font-normal", isMalicious ? "text-error" : "text-warning")}>
                 {isMalicious ? "Security Warning" : "Version Recalled"}
               </h2>
-              <p className="text-sm text-primary/80 mt-1">
+              <p className="text-sm text-primary mt-1">
                 {isMalicious
                   ? `This version of ${appName} has been recalled for security reasons.`
                   : "This version has known problems."}
               </p>
 
               {notice.reason && (
-                <p className="text-sm text-primary/70 mt-2 italic">
+                <p className="text-sm text-primary mt-2 italic">
                   {notice.reason}
                 </p>
               )}
@@ -61,7 +61,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
               </button>
 
               {expanded && (
-                <div className="mt-3 space-y-2 text-sm text-primary/70">
+                <div className="mt-3 space-y-2 text-sm text-primary">
                   {isMalicious ? (
                     <p>This version may allow attackers to access your data. We strongly recommend waiting for a fixed version.</p>
                   ) : (
@@ -77,7 +77,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
                 >
                   Acknowledge & Continue
                 </Button>
-                <span className="flex items-center text-sm text-primary/50">
+                <span className="flex items-center text-sm text-accent">
                   Or wait for a fixed version
                 </span>
               </div>
