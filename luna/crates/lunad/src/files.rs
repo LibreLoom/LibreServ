@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use luna_core::path::resolve_child;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::db::{self, DriveRow};
 
@@ -19,6 +19,25 @@ pub struct FileEntry {
     pub size: u64,
     pub modified: i64,
     pub hidden: bool,
+}
+
+/// One row in `.luna-trash`, with the path it came from when metadata exists.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct TrashEntry {
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    pub modified: i64,
+    /// Drive-relative path before the item was trashed (empty when unknown).
+    pub original_path: String,
+}
+
+const TRASH_DIR_NAME: &str = ".luna-trash";
+const TRASH_META_DIR_NAME: &str = ".meta";
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct TrashMeta {
+    original_path: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -220,6 +239,8 @@ pub fn is_internal_temp(name: &str) -> bool {
     base == crate::gallery::THUMBS_DIR_NAME
         || base == crate::gallery::GALLERY_DIR_NAME
         || base == crate::gallery::SHARED_ALBUMS_DIR_NAME
+        || base == TRASH_DIR_NAME
+        || base == TRASH_META_DIR_NAME
         || base.starts_with(".luna-upload.")
         || (base.starts_with('.') && base.ends_with(".part"))
 }
@@ -438,8 +459,9 @@ pub fn delete_to_trash(
         )));
     };
 
-    let trash = root.join(".luna-trash");
+    let trash = root.join(TRASH_DIR_NAME);
     std::fs::create_dir_all(&trash).map_err(FilesError::Io)?;
+    let trash_rel = rel.trim().trim_matches('/').to_string();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -467,6 +489,11 @@ pub fn delete_to_trash(
     {
         let _ = dir.sync_all();
     }
+    let trash_entry_name = dest
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    write_trash_meta(&trash, &trash_entry_name, &trash_rel)?;
     Ok(dest
         .strip_prefix(&root)
         .unwrap_or(&dest)
@@ -474,8 +501,61 @@ pub fn delete_to_trash(
         .into_owned())
 }
 
+fn trash_meta_dir(trash: &Path) -> PathBuf {
+    trash.join(TRASH_META_DIR_NAME)
+}
+
+fn trash_meta_path(trash: &Path, entry_name: &str) -> PathBuf {
+    trash_meta_dir(trash).join(format!("{entry_name}.json"))
+}
+
+fn write_trash_meta(trash: &Path, entry_name: &str, original_path: &str) -> Result<(), FilesError> {
+    let meta_dir = trash_meta_dir(trash);
+    std::fs::create_dir_all(&meta_dir).map_err(FilesError::Io)?;
+    let payload = TrashMeta {
+        original_path: original_path.to_string(),
+    };
+    let data = serde_json::to_vec(&payload).map_err(|e| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            e.to_string(),
+        ))
+    })?;
+    let path = trash_meta_path(trash, entry_name);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp = meta_dir.join(format!(".luna-upload.{}.{nonce}", std::process::id()));
+    std::fs::write(&temp, &data).map_err(FilesError::Io)?;
+    if let Ok(file) = std::fs::File::open(&temp) {
+        let _ = file.sync_all();
+    }
+    install_temp(&temp, &path, true)?;
+    Ok(())
+}
+
+fn read_trash_meta(trash: &Path, entry_name: &str) -> Option<String> {
+    let path = trash_meta_path(trash, entry_name);
+    let data = std::fs::read(&path).ok()?;
+    let meta: TrashMeta = serde_json::from_slice(&data).ok()?;
+    Some(meta.original_path)
+}
+
+fn remove_trash_meta(trash: &Path, entry_name: &str) {
+    let path = trash_meta_path(trash, entry_name);
+    let _ = std::fs::remove_file(path);
+}
+
+fn trash_entry_name(trash_rel: &str) -> Option<&str> {
+    trash_rel
+        .strip_prefix(TRASH_DIR_NAME)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .filter(|name| !name.is_empty())
+}
+
 fn is_in_trash(rel: &str) -> bool {
-    rel == ".luna-trash" || rel.starts_with(".luna-trash/")
+    rel == TRASH_DIR_NAME || rel.starts_with(&format!("{TRASH_DIR_NAME}/"))
 }
 
 /// Best-effort original name: trash files are `{unix}-{name}` or `{unix}-{n}-{name}`.
@@ -499,13 +579,40 @@ pub fn original_name_from_trash(trash_name: &str) -> String {
 pub fn list_trash(
     conn: &rusqlite::Connection,
     drive_id: &str,
-) -> Result<Vec<FileEntry>, FilesError> {
+) -> Result<Vec<TrashEntry>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
-    let trash = PathBuf::from(&drive.mount_point).join(".luna-trash");
+    let trash = PathBuf::from(&drive.mount_point).join(TRASH_DIR_NAME);
     if !trash.exists() {
         return Ok(Vec::new());
     }
-    read_dir_entries(&trash)
+    let entries = read_dir_entries(&trash)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| TrashEntry {
+            original_path: read_trash_meta(&trash, &entry.name).unwrap_or_default(),
+            name: entry.name,
+            kind: entry.kind,
+            size: entry.size,
+            modified: entry.modified,
+        })
+        .collect())
+}
+
+/// Drive-relative path the trashed item came from, if metadata exists.
+pub fn trash_original_path(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    trash_rel: &str,
+) -> Result<Option<String>, FilesError> {
+    if !is_in_trash(trash_rel) || trash_rel == TRASH_DIR_NAME {
+        return Ok(None);
+    }
+    let drive = drive_root(conn, drive_id)?;
+    let trash = PathBuf::from(&drive.mount_point).join(TRASH_DIR_NAME);
+    let Some(entry_name) = trash_entry_name(trash_rel) else {
+        return Ok(None);
+    };
+    Ok(read_trash_meta(&trash, entry_name))
 }
 
 /// Move an item out of `.luna-trash` onto the same drive (atomic rename).
@@ -562,6 +669,9 @@ pub fn restore_from_trash(
     {
         let _ = dir.sync_all();
     }
+    if let Some(entry_name) = trash_entry_name(trash_rel) {
+        remove_trash_meta(&root.join(TRASH_DIR_NAME), entry_name);
+    }
     Ok(())
 }
 
@@ -585,6 +695,9 @@ pub fn purge_trash(
         std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
     } else {
         std::fs::remove_file(&path).map_err(FilesError::Io)?;
+    }
+    if let Some(entry_name) = trash_entry_name(trash_rel) {
+        remove_trash_meta(&root.join(TRASH_DIR_NAME), entry_name);
     }
     Ok(())
 }
@@ -860,10 +973,44 @@ mod tests {
         assert!(!root.join("renamed.txt").exists());
         assert!(root.join(&trash_rel).exists());
 
+        let listed = list_trash(&conn, &id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].original_path, "renamed.txt");
+
         restore_from_trash(&conn, &id, &trash_rel, "back.txt").unwrap();
         assert!(root.join("back.txt").exists());
         assert!(!root.join(&trash_rel).exists());
         assert_eq!(std::fs::read(root.join("back.txt")).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn trash_meta_records_nested_original_path() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::create_dir_all(root.join("family/album")).unwrap();
+        std::fs::write(root.join("family/album/photo.jpg"), b"x").unwrap();
+        let trash_rel = delete_to_trash(&conn, &id, "family/album/photo.jpg").unwrap();
+        let listed = list_trash(&conn, &id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].original_path, "family/album/photo.jpg");
+        assert_eq!(
+            trash_original_path(&conn, &id, &trash_rel).unwrap(),
+            Some("family/album/photo.jpg".into())
+        );
+    }
+
+    #[test]
+    fn list_trash_hides_meta_directory() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::write(root.join("note.txt"), b"n").unwrap();
+        delete_to_trash(&conn, &id, "note.txt").unwrap();
+        assert!(root.join(".luna-trash/.meta").is_dir());
+        let listed = list_trash(&conn, &id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(!listed.iter().any(|e| e.name == ".meta"));
     }
 
     #[test]

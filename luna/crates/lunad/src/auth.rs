@@ -745,6 +745,17 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
     grants.iter().any(|g| g.drive_id == drive_id)
 }
 
+/// True if the user may change anything on this drive (whole drive or a folder).
+pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
+    if user.role == "admin" {
+        return true;
+    }
+    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+        return false;
+    };
+    grants.iter().any(|g| g.drive_id == drive_id && g.permission == "write")
+}
+
 /// True if WebDAV (or a file browser) may list/walk `path` on this drive.
 ///
 /// Broader than [`can_access`]: a grant on `family/photos` lets the user walk

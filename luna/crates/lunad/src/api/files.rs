@@ -380,10 +380,34 @@ async fn list_trash(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
-    check_access(&state, &user, &id, ".luna-trash", false)?;
-    let entries = with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
-    Ok(Json(
+    check_trash_list(&state, &user, &id)?;
+    let entries =
+        with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
+    let visible = if user.role == "admin" {
         entries
+    } else {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        entries
+            .into_iter()
+            .filter(|entry| {
+                !entry.original_path.is_empty()
+                    && crate::auth::can_access(
+                        &user,
+                        &conn,
+                        &id,
+                        &entry.original_path,
+                        true,
+                    )
+            })
+            .collect()
+    };
+    Ok(Json(
+        visible
             .into_iter()
             .map(|e| {
                 json!({
@@ -393,6 +417,7 @@ async fn list_trash(
                     "modified": e.modified,
                     "path": format!(".luna-trash/{}", e.name),
                     "original_name": files::original_name_from_trash(&e.name),
+                    "original_path": e.original_path,
                 })
             })
             .collect(),
@@ -405,7 +430,7 @@ async fn restore_entry(
     Path(id): Path<String>,
     Json(body): Json<RestoreBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_access(&state, &user, &id, &body.path, true)?;
+    check_trash_item(&state, &user, &id, &body.path)?;
     check_access(&state, &user, &id, &body.dest, true)?;
     with_db(&state, |conn| {
         files::restore_from_trash(conn, &id, &body.path, &body.dest)
@@ -432,7 +457,7 @@ async fn purge_entry(
     Path(id): Path<String>,
     Json(body): Json<PurgeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_access(&state, &user, &id, &body.path, true)?;
+    check_trash_item(&state, &user, &id, &body.path)?;
     with_db(&state, |conn| files::purge_trash(conn, &id, &body.path)).map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
             StatusCode::BAD_REQUEST,
@@ -563,6 +588,65 @@ async fn stream_to_temp(
     out.flush().await?;
     out.sync_all().await?;
     Ok(())
+}
+
+fn check_trash_list(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if crate::auth::has_write_on_drive(user, &conn, drive_id) {
+        Ok(())
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view trash on this drive.",
+        ))
+    }
+}
+
+fn check_trash_item(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    trash_rel: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    if !trash_rel.starts_with(".luna-trash/") || trash_rel == ".luna-trash" {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna only works with files that are already in the trash.",
+        ));
+    }
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if user.role == "admin" {
+        return Ok(());
+    }
+    let original = files::trash_original_path(&conn, drive_id, trash_rel).map_err(map_files_err)?;
+    let Some(original_path) = original.filter(|p| !p.is_empty()) else {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that file or folder.",
+        ));
+    };
+    if crate::auth::can_access(user, &conn, drive_id, &original_path, true) {
+        Ok(())
+    } else {
+        Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that file or folder.",
+        ))
+    }
 }
 
 fn check_browse(
@@ -1050,6 +1134,113 @@ mod http_tests {
         let mut http = HttpReq::builder()
             .method(Method::GET)
             .uri("/api/v1/drives/photos/files?path=family/escape")
+            .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    fn list_trash_names(mount: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(mount.join(".luna-trash"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != ".meta")
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn trash_list_filters_by_write_grant() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        std::fs::write(mount.path().join("family/a.txt"), b"a").unwrap();
+        std::fs::write(mount.path().join("secret/b.txt"), b"b").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+        }
+
+        let admin_login = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (admin_session, admin_csrf) = auth_cookies(&admin_login);
+        let admin_cookie = cookie_header(&admin_session, &admin_csrf);
+
+        for path in ["family/a.txt", "secret/b.txt"] {
+            let mut http = HttpReq::builder()
+                .method(Method::DELETE)
+                .uri(format!("/api/v1/drives/photos/files?path={path}"))
+                .header("cookie", &admin_cookie)
+                .header("x-csrf-token", &admin_csrf)
+                .body(Body::empty())
+                .unwrap();
+            http.extensions_mut().insert(ConnectInfo(CLIENT));
+            let res = call(&app, http).await;
+            assert_eq!(res.status(), 200, "delete {path}");
+        }
+
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri("/api/v1/drives/photos/trash")
+            .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let items = v.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["original_path"], "family/a.txt");
+
+        let secret_item = list_trash_names(mount.path())
+            .into_iter()
+            .find(|name| name.contains("b.txt"))
+            .unwrap();
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/purge",
+                &format!(r#"{{"path":".luna-trash/{secret_item}"}}"#),
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn trash_list_forbidden_without_write_grant() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "read").unwrap();
+        }
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri("/api/v1/drives/photos/trash")
             .header("cookie", &sam_cookie)
             .header("x-csrf-token", &sam_csrf)
             .body(Body::empty())

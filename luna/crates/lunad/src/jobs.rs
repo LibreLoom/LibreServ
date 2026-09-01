@@ -585,6 +585,8 @@ mod tests {
         assert!(!PathBuf::from(&root_a).join("ship.txt").exists());
         let trash_entries: Vec<_> = std::fs::read_dir(format!("{root_a}/.luna-trash"))
             .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name() != ".meta")
             .collect();
         assert_eq!(trash_entries.len(), 1);
     }
