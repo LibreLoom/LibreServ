@@ -233,6 +233,14 @@ export default function AdminProvidersPage() {
   function statusBadge(service) {
     const st = configStatus[service];
     if (!st) return null;
+    if (service === "stripe" && st.configured && st.enabled && !st.webhook_ready) {
+      return (
+        <>
+          <Badge variant="success">{st.source === "config" ? "from config file" : "connected"}</Badge>
+          <Badge variant="outline">webhook secret missing — Stripe retries will fail</Badge>
+        </>
+      );
+    }
     if (st.configured && st.enabled) {
       return <Badge variant="success">{st.source === "config" ? "from config file" : "connected"}</Badge>;
     }

@@ -115,6 +115,12 @@ func (c StripeConfig) Ready() bool {
 	return c.Enabled && c.SecretKey != ""
 }
 
+// WebhookReady is true when Stripe is on and the signing secret for
+// POST /api/v1/billing/webhook is configured (Admin → Connections or yaml).
+func (c StripeConfig) WebhookReady() bool {
+	return c.Enabled && strings.TrimSpace(c.WebhookSecret) != ""
+}
+
 // DevMode is explicit local/dev only (LUNACONNECT_DEV=1/true/yes).
 // stripe.enabled: false is not a production bypass by itself.
 func DevMode() bool {

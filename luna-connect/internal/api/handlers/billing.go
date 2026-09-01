@@ -17,8 +17,15 @@ import (
 
 func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 	providers.RefreshStripe()
-	if !config.C.Stripe.Enabled || strings.TrimSpace(config.C.Stripe.WebhookSecret) == "" {
+	if !config.C.Stripe.Enabled {
+		slog.Warn("stripe webhook rejected: billing disabled")
 		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site.")
+		return
+	}
+	if !config.C.Stripe.WebhookReady() {
+		// Permanent misconfig — 400 stops Stripe retry storms (503 would retry for days).
+		slog.Error("stripe webhook rejected: webhook_secret missing; set whsec_… in Admin → Connections or stripe.webhook_secret in the config file")
+		JSONError(w, http.StatusBadRequest, "Webhook signing secret is not set up on this Luna Connect site.")
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, webhookLimit))
