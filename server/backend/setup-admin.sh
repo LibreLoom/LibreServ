@@ -15,7 +15,7 @@ pkill -f "libreserv serve" 2>/dev/null || true
 sleep 2
 
 # Start server in background
-LIBRESERV_INSECURE_DEV=true ./bin/libreserv serve --config ./configs/libreserv.yaml &
+LIBRESERV_INSECURE_DEV=true ./bin/libreserv --config ./configs/libreserv.yaml serve &
 SERVER_PID=$!
 echo "Server started (PID: $SERVER_PID)"
 sleep 4

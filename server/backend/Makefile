@@ -33,7 +33,7 @@ run: build
 		exit 1; \
 	fi
 	@echo ">> Running $(APP_NAME)"
-	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
+	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) --config ./configs/libreserv.yaml serve
 
 frontend:
 	@echo ">> Installing frontend deps"
