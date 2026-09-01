@@ -172,6 +172,19 @@ Also bad: `ssh into the box and journalctl -u caddy until the ACME DNS-01 challe
 - Import order: React → Third-party → Local (include `.jsx` extension in imports)
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
 
+#### Form field focus (non-negotiable)
+
+Users find Tailwind **focus rings on text boxes intrusive** when clicking with a mouse. Form fields must not show a ring/outline on mouse focus.
+
+**Rules for `input`, `textarea`, and `select`:**
+
+- **Never** use `focus:ring-*` on form fields — mouse clicks must not draw a ring.
+- **Do not add** `focus:ring-*` to form fields unless the user explicitly asks for it.
+- Prefer a **border change** on focus (`focus:border-accent`) for subtle mouse feedback.
+- **Keyboard accessibility is mandatory:** rely on the global `:focus-visible` outline in `index.css`, or add `focus-visible:border-*` when a field uses `no-focus-outline` (e.g. inputs embedded in pills/search bars).
+- Buttons, links, toggles, and dropdown triggers **may** keep `focus-visible:ring-*` — the ban applies to **text boxes and other form fields only**.
+- Shared `Input`/`Textarea` components and global base styles in `index.css` enforce this; do not override with per-field rings.
+
 ### Design / Theme
 
 **This is a recurring failure mode. Agents repeatedly break contrast and abandon the design system, producing invisible text and flat boxes. Default HARD to these rules; question any deviation out loud before shipping.**
