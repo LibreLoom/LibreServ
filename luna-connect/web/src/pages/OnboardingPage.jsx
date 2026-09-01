@@ -629,9 +629,12 @@ export default function OnboardingPage() {
 
   const renderWelcome = () => (
     <StepShell icon={Sparkles} title="Set up your Luna">
-      <div className="space-y-4 mb-10 text-left">
+      <div className="space-y-2 mb-10 text-left">
         <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-          Using Luna Connect is the recommended way to set up Luna. If you wish to complete setup without Luna Connect, please follow those instructions in the quick-start guide instead.
+          Using Luna Connect is the recommended way to set up Luna.
+        </p>
+        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+          If you wish to complete setup without Luna Connect, please follow those instructions in the quick-start guide instead.
         </p>
       </div>
       <Button
