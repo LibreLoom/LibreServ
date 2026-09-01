@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canWriteOnPath,
   dedupeIdenticalGrants,
+  hasWriteOnDrive,
   memberAccessRoots,
   pathContains,
   pathKey,
@@ -38,5 +39,14 @@ describe("shareTree", () => {
     expect(grants).toHaveLength(1);
     expect(canWriteOnPath(grants, "d1", "photos/dcim/x.jpg")).toBe(true);
     expect(canWriteOnPath(grants, "d1", "other")).toBe(false);
+  });
+
+  it("detects write access anywhere on a drive", () => {
+    const grants = [
+      { id: "r", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
+      { id: "w", user_id: "2", drive_id: "d2", path: "notes", permission: "write" },
+    ];
+    expect(hasWriteOnDrive(grants, "d1")).toBe(false);
+    expect(hasWriteOnDrive(grants, "d2")).toBe(true);
   });
 });

@@ -65,3 +65,9 @@ export function canWriteOnPath(grants, driveId, path) {
     && pathContains(grant.path, path)
   ));
 }
+
+/** True when the member may change anything on this drive (any write grant). */
+export function hasWriteOnDrive(grants, driveId) {
+  const list = Array.isArray(grants) ? grants : [];
+  return list.some((grant) => driveIdOf(grant) === driveId && grant.permission === "write");
+}

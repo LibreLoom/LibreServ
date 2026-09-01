@@ -26,6 +26,7 @@ import {
 } from "../lib/api";
 import { folderHref, fmtSize } from "../lib/paths";
 import { useAuth } from "../context/AuthContext";
+import { hasWriteOnDrive } from "../lib/shareTree.js";
 
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
@@ -46,6 +47,12 @@ export default function FilesPage() {
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
+  const grants = useQuery({
+    queryKey: ["grants"],
+    queryFn: () => getJson("/api/v1/grants"),
+    enabled: !isAdmin,
+  });
+  const canOpenTrash = isAdmin || hasWriteOnDrive(grants.data, id);
 
   const trash = useQuery({
     queryKey: ["trash", id],
@@ -171,11 +178,11 @@ export default function FilesPage() {
           linkNavigation
           folderHref={folderHref}
           isAdmin={isAdmin}
-          showTrashLink
+          showTrashLink={canOpenTrash}
         />
       )}
 
-      {inTrash && (
+      {inTrash && canOpenTrash && (
         <div className="rounded-large-element bg-secondary text-primary overflow-hidden">
           {trashItems.map((item) => (
               <div
@@ -221,7 +228,16 @@ export default function FilesPage() {
         </div>
       )}
 
-      {inTrash && !trash.isLoading && trashItems.length === 0 && (
+      {inTrash && !canOpenTrash && !grants.isLoading && (
+        <EmptyState
+          className="mt-4"
+          icon={Trash2}
+          title="Trash isn't available here"
+          description="You need Write access somewhere on this drive to open trash."
+        />
+      )}
+
+      {inTrash && canOpenTrash && !trash.isLoading && trashItems.length === 0 && (
         <EmptyState
           className="mt-4"
           icon={Trash2}

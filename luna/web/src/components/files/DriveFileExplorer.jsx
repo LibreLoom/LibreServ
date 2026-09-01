@@ -27,7 +27,7 @@ import {
   postJson,
   putBinaryProgress,
 } from "../../lib/api.js";
-import { canWriteOnPath } from "../../lib/shareTree.js";
+import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { folderHref as defaultFolderHref, fmtSize, joinPath, pathBasename } from "../../lib/paths.js";
@@ -220,6 +220,7 @@ export default function DriveFileExplorer({
     enabled: !isAdmin,
   });
   const folderWritable = isAdmin || canWriteOnPath(grants.data, driveId, path);
+  const trashVisible = isAdmin || hasWriteOnDrive(grants.data, driveId);
 
   function setUploadRows(next) {
     uploadsRef.current = next;
@@ -536,7 +537,7 @@ export default function DriveFileExplorer({
           setRenameValue(ctx.entry.name);
         } : undefined}
         onDelete={folderWritable ? setDeletePaths : undefined}
-        trashHref={showTrashLink ? `/drives/${driveId}?view=trash` : null}
+        trashHref={showTrashLink && trashVisible ? `/drives/${driveId}?view=trash` : null}
         folderActions={folderWritable ? <NewItemMenu onPick={openCreate} /> : null}
         emptyAction={folderWritable ? (
           <div className="flex justify-center">
