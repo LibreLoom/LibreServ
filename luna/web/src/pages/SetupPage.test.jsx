@@ -86,32 +86,23 @@ describe("SetupPage", () => {
     expect(screen.getByRole("button", { name: /Begin Setup/i })).toBeTruthy();
   });
 
-  it("advances to the Get online step when Begin Setup is clicked", async () => {
+  it("advances to Create your account when Begin Setup is clicked", async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal("fetch", fetchMock);
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
-    expect(await screen.findByRole("heading", { name: /Connect Ethernet/i })).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("Ethernet")).toBeTruthy());
+    expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
+    expect(screen.getByText("1 of 4")).toBeTruthy();
     await waitFor(() => {
       const progressPosts = fetchMock.mock.calls.filter(([url, init]) => {
         return String(url).includes("/api/v1/setup") && (init?.method || "GET").toUpperCase() === "POST";
       });
       const savePost = progressPosts.find(([, init]) => {
         const body = init?.body ? JSON.parse(init.body) : {};
-        return body.current_step === "network";
+        return body.current_step === "account" && body.step_data?.network_connected === true;
       });
       expect(savePost).toBeTruthy();
     });
-  });
-
-  it("shows Continue without Luna Connect code on the cable step when online", async () => {
-    vi.stubGlobal("fetch", stubFetch({ network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] } }));
-    renderSetup();
-    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
-    expect(await screen.findByRole("button", { name: /Continue/i })).toBeTruthy();
-    expect(screen.queryByText(/Code from the Luna Connect site/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Save code/i })).toBeNull();
   });
 
   it("resumes at the saved setup step on load", async () => {
@@ -165,10 +156,9 @@ describe("SetupPage", () => {
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /Continue/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText("1 of 5")).toBeTruthy();
-    // Advance through name, username, password, confirm to reach the device code substep.
+    expect(screen.getByText(/2\s*\/\s*4/)).toBeTruthy();
+    expect(screen.queryByText(/\/\s*5/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
@@ -188,7 +178,6 @@ describe("SetupPage", () => {
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /Continue/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
     expect(screen.getByText("1 of 4")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
