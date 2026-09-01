@@ -4,7 +4,7 @@ import { Badge, DeviceTokenStatusBadge, StatusBadge } from "../components/ui/bad
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
-import { Copy, Check, KeyRound, Shield, Users } from "lucide-react";
+import { Copy, Check, KeyRound, Shield, Trash2, Users } from "lucide-react";
 
 function formatWhen(unix) {
   if (!unix) return "—";
@@ -32,6 +32,7 @@ export default function AdminAccountsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [mintedCode, setMintedCode] = useState("");
   const [mintBusy, setMintBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const loadAccounts = useCallback(() => {
@@ -87,6 +88,24 @@ export default function AdminAccountsPage() {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setDetailError("Could not copy to clipboard.");
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!selectedId || !detail) return;
+    const msg = `Delete ${detail.email}? This signs the customer out, purges linked Lunas, and removes the account. Cloud backups stay in storage.`;
+    if (!window.confirm(msg)) return;
+    setDeleteBusy(true);
+    setDetailError("");
+    try {
+      await adminApi(`/admin/accounts/${encodeURIComponent(selectedId)}`, { method: "DELETE" });
+      setSelectedId(null);
+      setDetail(null);
+      loadAccounts();
+    } catch (err) {
+      setDetailError(err.message);
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -215,6 +234,18 @@ export default function AdminAccountsPage() {
                         </div>
                       </div>
                     )}
+                  </section>
+
+                  <section className="rounded-large-element border border-error/30 bg-error/10 p-4">
+                    <h3 className="font-mono text-sm mb-2 flex items-center gap-2 text-error">
+                      <Trash2 className="h-4 w-4" /> Delete account
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Remove this customer account and purge linked Lunas. Cloud backups stay in storage for retention.
+                    </p>
+                    <Button variant="destructive" loading={deleteBusy} onClick={deleteAccount}>
+                      Delete account
+                    </Button>
                   </section>
                 </>
               ) : null}
