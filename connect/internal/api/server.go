@@ -223,6 +223,13 @@ func (s *Server) setupRoutes() {
 			r.Post("/admins", authHandler.CreateAdmin)
 			r.Delete("/admins/{adminID}", authHandler.DeleteAdmin)
 
+			// Customer accounts & Connect keys
+			r.Get("/accounts", admin.ListCustomerAccounts)
+			r.Get("/accounts/{accountID}", admin.GetCustomerAccount)
+			r.Get("/connect-keys", admin.ListConnectKeys)
+			r.Post("/connect-keys", admin.AdminGenerateConnectKey)
+			r.Delete("/connect-keys/{keyID}", admin.AdminRevokeConnectKey)
+
 			// Devices
 			r.Get("/devices", admin.ListDevices)
 			r.Get("/devices/{deviceID}", admin.GetDevice)
