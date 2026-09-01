@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "../context/AdminAuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -72,7 +73,7 @@ export default function AdminLogin() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
             {!needs2FA && (
               <>
                 {mode === "seed" && (
@@ -126,7 +127,7 @@ export default function AdminLogin() {
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               {needs2FA ? "Verify" : mode === "seed" ? "Create admin" : "Sign in"}
             </Button>
-          </form>
+          </ShakeTarget>
           {mode === "login" && !needs2FA && (
             <button
               type="button"

@@ -6,6 +6,7 @@ import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import FormInput from "../components/common/forms/FormInput";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import Pill from "../components/common/Pill";
 import ApiTokensCard from "../components/profile/ApiTokensCard";
 import MfaCard from "../components/profile/MfaCard";
@@ -112,7 +113,7 @@ export default function MyProfile() {
               </Pill>
             </div>
 
-            <form onSubmit={handleSaveEmail} className="space-y-3">
+            <ShakeTarget as="form" shake={emailError} onSubmit={handleSaveEmail} className="space-y-3">
               <FormInput
                 label="Email (optional)"
                 name="email"
@@ -137,12 +138,12 @@ export default function MyProfile() {
                 <Save size={16} aria-hidden="true" />
                 Save Email
               </Button>
-            </form>
+            </ShakeTarget>
           </div>
         </Card>
 
         <Card title="Change Password">
-          <form onSubmit={handleChangePassword} className="space-y-3">
+          <ShakeTarget as="form" shake={pwErrors} onSubmit={handleChangePassword} className="space-y-3">
             <FormInput
               label="Current Password"
               name="old_password"
@@ -187,7 +188,7 @@ export default function MyProfile() {
               Change Password
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
-          </form>
+          </ShakeTarget>
         </Card>
         <MfaCard />
         <ApiTokensCard />

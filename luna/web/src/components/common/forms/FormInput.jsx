@@ -1,6 +1,7 @@
 import { User, Lock, Mail, Eye, EyeOff } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import useShakeOnError from "../../../hooks/useShakeOnError";
 import FieldLabel from "./FieldLabel";
 
 const ICONS = {
@@ -28,8 +29,11 @@ export default function FormInput({
   surface = "secondary",
 }) {
   const [showPassword, setShowPassword] = useState(false);
+  const fieldRef = useRef(null);
   const Icon = icon ? ICONS[icon] : null;
   const isPassword = type === "password";
+
+  useShakeOnError(error, fieldRef);
 
   return (
     <div className="mb-4">
@@ -38,7 +42,7 @@ export default function FormInput({
           {label}
         </FieldLabel>
       )}
-      <div className="relative">
+      <div ref={fieldRef} className="relative">
         {Icon && (
           <Icon
             size={16}

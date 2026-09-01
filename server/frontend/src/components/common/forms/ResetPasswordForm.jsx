@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Lock } from "lucide-react";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 
 /**
  * @param {{ user: any, onSuccess?: any, onCancel?: any }} _
@@ -91,7 +92,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" data-slot="reset-password-form">
+    <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-4" data-slot="reset-password-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Lock size={24} aria-hidden="true" />
@@ -202,6 +203,6 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
           {loading ? "Resetting..." : "Reset Password"}
         </Button>
       </div>
-    </form>
+    </ShakeTarget>
   );
 }

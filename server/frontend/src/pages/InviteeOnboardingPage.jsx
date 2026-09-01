@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { Loader2, AlertCircle, ShieldCheck } from "lucide-react";
 import api from "../lib/api";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import Alert from "../components/common/Alert";
 
 // Password rules mirror the backend + the rest of the app.
@@ -120,7 +121,7 @@ export default function InviteeOnboardingPage() {
           </p>
         )}
 
-        <form onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
+        <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
           <label htmlFor="username" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
             Username
           </label>
@@ -171,7 +172,7 @@ export default function InviteeOnboardingPage() {
             {submitting ? "Setting up…" : "Finish setup"}
           </Button>
           {error && <Alert variant="error" message={error} className="mt-4" />}
-        </form>
+        </ShakeTarget>
       </div>
     </main>
   );

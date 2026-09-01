@@ -17,6 +17,7 @@ import useMfaAvailability from "../../hooks/useMfaAvailability";
 import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import LayeredPill from "../ui/LayeredPill";
 import Alert from "../common/Alert";
 import OtpInput from "../ui/OtpInput";
@@ -631,7 +632,9 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             </div>
           ) : (
             <>
-              <form
+              <ShakeTarget
+                as="form"
+                shake={error}
                 onSubmit={(e) => {
                   e.preventDefault();
                   startWebAuthn();
@@ -662,7 +665,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                   Register {label}
                   <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
                 </Button>
-              </form>
+              </ShakeTarget>
             </>
           )}
         </>
@@ -732,7 +735,9 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
 
       {/* Code entry for TOTP + email. */}
       {(type === "totp" || type === "email") && step === "verify" && (
-        <form
+        <ShakeTarget
+          as="form"
+          shake={error}
           onSubmit={(e) => {
             e.preventDefault();
             verifyCode();
@@ -753,7 +758,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             </LayeredPill>
               {changeEmailOpen && (
                 <ModalCard title="Change your email" onClose={() => setChangeEmailOpen(false)}>
-                  <form onSubmit={handleChangeEmail} className="space-y-4">
+                  <ShakeTarget as="form" shake={emailError} onSubmit={handleChangeEmail} className="space-y-4">
                     <p className="text-sm text-primary/70">
                       Your sign-in codes are sent to this address. Update it and we'll
                       send a new code to the new address.
@@ -790,7 +795,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                         Save &amp; send new code
                       </Button>
                     </div>
-                  </form>
+                  </ShakeTarget>
                 </ModalCard>
               )}
             </>
@@ -835,7 +840,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
               </button>
             </div>
           )}
-        </form>
+        </ShakeTarget>
       )}
 
       {/* Persistent escape hatch: always available so the user can pick a

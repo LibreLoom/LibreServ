@@ -11,6 +11,7 @@ import ModalCard from "../components/cards/ModalCard";
 import StepTransition from "../components/common/StepTransition";
 import Button from "../components/ui/Button";
 import FormInput from "../components/common/forms/FormInput";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import Alert from "../components/common/Alert";
 import MfaChallenge from "../components/auth/MfaChallenge";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
@@ -67,7 +68,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
           <p className="text-primary/70 text-sm mb-4">
             Enter your email address and we'll send you a link to reset your password.
           </p>
-          <form onSubmit={handleSubmit}>
+          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit}>
             <FormInput
               label="Email"
               name="reset-email"
@@ -76,6 +77,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
               surface="secondary"
+              error={error}
               required
             />
             {error && (
@@ -84,7 +86,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
             <Button type="submit" disabled={loading} fullWidth>
               {loading ? "Sending..." : "Send Reset Link"}
             </Button>
-          </form>
+          </ShakeTarget>
         </>
       ) : (
         <Alert variant="success" message="Check your email for the reset link!" />
@@ -279,7 +281,9 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             }}
           />
         ) : (
-        <form
+        <ShakeTarget
+          as="form"
+          shake={errorStatus}
           onSubmit={handleSubmit}
           aria-busy={loading}
           className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
@@ -333,7 +337,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           >
             {errorStatus && calculateErrorHTML()}
           </div>
-        </form>
+        </ShakeTarget>
               )}
             </StepTransition>
           </div>

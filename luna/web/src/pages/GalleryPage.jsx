@@ -6,6 +6,7 @@ import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import ModalCard from "../components/cards/ModalCard";
@@ -459,7 +460,9 @@ export default function GalleryPage() {
       {newAlbumOpen && (
         <ModalCard title="New album" onClose={() => setNewAlbumOpen(false)}>
           {({ close }) => (
-            <form
+            <ShakeTarget
+              as="form"
+              shake={error}
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -484,7 +487,7 @@ export default function GalleryPage() {
                   Cancel
                 </Button>
               </div>
-            </form>
+            </ShakeTarget>
           )}
         </ModalCard>
       )}

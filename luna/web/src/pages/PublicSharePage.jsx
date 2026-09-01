@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Download, File as FileIcon, Folder, Lock } from "lucide-react";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 
@@ -116,7 +117,9 @@ export default function PublicSharePage() {
             <p className="text-primary text-sm">
               The person who sent this chose a password. Type it to see the files.
             </p>
-            <form
+            <ShakeTarget
+              as="form"
+              shake={error}
               className="mt-4 space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -132,7 +135,7 @@ export default function PublicSharePage() {
                 autoComplete="off"
               />
               <Button type="submit" variant="primary" fullWidth>Open</Button>
-            </form>
+            </ShakeTarget>
           </Card>
         )}
 

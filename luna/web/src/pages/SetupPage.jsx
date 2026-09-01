@@ -17,6 +17,7 @@ import useSetupProgress from "../hooks/useSetupProgress";
 import { StepTransitionContext } from "../components/setup/StepTransitionContext";
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -472,7 +473,7 @@ function AccountStep({ hasAdmin, onContinue }) {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <ShakeTarget as="form" shake={fieldError} onSubmit={handleSubmit} className="space-y-5">
           {/* Your name */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
             <FormField id="display_name" label="Your name" hint="Shown on this Luna when you sign in">
@@ -642,7 +643,7 @@ function AccountStep({ hasAdmin, onContinue }) {
               )}
             </Button>
           </div>
-        </form>
+        </ShakeTarget>
     </>
   );
 }
@@ -683,7 +684,7 @@ function NameStep({ initialName, onFinish }) {
         </p>
       </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-5">
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
             <FormField id="luna_name" label="Name" hint="1-40 characters">
               <input
@@ -728,7 +729,7 @@ function NameStep({ initialName, onFinish }) {
               )}
             </Button>
           </div>
-        </form>
+        </ShakeTarget>
     </>
   );
 }

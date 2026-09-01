@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, Settings, ChevronDown, ChevronUp, Info, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import ConfigFieldRenderer from "./wizard/ConfigFieldRenderer";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
@@ -188,7 +189,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
         )
       }
     >
-      <form id="reconfigure-form" onSubmit={handleSubmit} className="space-y-4">
+      <ShakeTarget as="form" id="reconfigure-form" shake={submitError || errors} onSubmit={handleSubmit} className="space-y-4">
         {/* Intro text — plain language per AGENTS.md conventions */}
         <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
           <Settings className="text-primary/80 shrink-0 mt-0.5" size={18} />
@@ -273,7 +274,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
             </p>
           </div>
         )}
-      </form>
+      </ShakeTarget>
     </ModalCard>
   );
 }

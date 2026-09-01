@@ -15,6 +15,7 @@ import { StepTransitionContext } from "../components/setup/StepTransitionContext
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import { MfaSetupWizard } from "../components/profile/MfaCard";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -686,7 +687,7 @@ function AccountStep({ onSuccess, onError }) {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <ShakeTarget as="form" shake={fieldError} onSubmit={handleSubmit} className="space-y-5">
           {/* Username */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
             <FormField id="admin_username" label="Username" hint="Used to sign in">
@@ -833,7 +834,7 @@ function AccountStep({ onSuccess, onError }) {
               )}
             </Button>
           </div>
-        </form>
+        </ShakeTarget>
     </>
   );
 }

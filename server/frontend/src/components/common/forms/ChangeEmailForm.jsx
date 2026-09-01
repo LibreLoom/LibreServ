@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Mail } from "lucide-react";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 
 export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -46,7 +47,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" data-slot="change-email-form">
+    <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4" data-slot="change-email-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Mail size={24} aria-hidden="true" />
@@ -114,6 +115,6 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
           {loading ? "Saving..." : "Change Email"}
         </Button>
       </div>
-    </form>
+    </ShakeTarget>
   );
 }

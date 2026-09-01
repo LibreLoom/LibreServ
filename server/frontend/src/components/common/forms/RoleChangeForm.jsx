@@ -3,6 +3,7 @@ import { useAuth } from "../../../hooks/useAuth";
 import { Shield } from "lucide-react";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 
 export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -44,7 +45,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Shield size={24} aria-hidden="true" />
@@ -99,6 +100,6 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
           Change Role
         </Button>
       </div>
-    </form>
+    </ShakeTarget>
   );
 }

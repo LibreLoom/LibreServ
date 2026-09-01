@@ -4,6 +4,7 @@ import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -121,7 +122,7 @@ export default function Register() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label htmlFor="name">Name (optional)</Label>
               <Input
@@ -176,7 +177,7 @@ export default function Register() {
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               Create Account
             </Button>
-          </form>
+          </ShakeTarget>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
             <Link to="/login" className="text-foreground underline">Sign In</Link>

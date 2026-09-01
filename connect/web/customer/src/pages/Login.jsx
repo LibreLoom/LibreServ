@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -53,7 +54,7 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <ShakeTarget as="form" shake={error} onSubmit={handleSubmit} className="space-y-4">
             {!needs2FA && (
               <>
                 <div>
@@ -97,7 +98,7 @@ export default function Login() {
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               {needs2FA ? "Verify" : "Sign In"}
             </Button>
-          </form>
+          </ShakeTarget>
           {!needs2FA && (
             <p className="mt-4 text-center text-sm text-muted-foreground">
               Don't have an account?{" "}

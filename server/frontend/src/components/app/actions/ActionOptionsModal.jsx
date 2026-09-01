@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ModalCard from "../../cards/ModalCard";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 import ConfigFieldRenderer from "../wizard/ConfigFieldRenderer";
 import { ActionConfirmModal } from "./ActionConfirmModal";
 import { ActionResultModal } from "./ActionResultModal";
@@ -204,7 +205,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
   return (
     <ModalCard title={action.label} onClose={handleClose} data-slot="action-options-modal">
       {({ close }) => (
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-4">
         {action.description && (
           <p className="text-sm text-primary/70 mb-4">{action.description}</p>
         )}
@@ -255,7 +256,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
             )}
           </Button>
         </div>
-      </form>
+      </ShakeTarget>
       )}
     </ModalCard>
   );

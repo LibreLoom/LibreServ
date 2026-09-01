@@ -5,6 +5,7 @@ import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
 import Toggle from "../common/Toggle";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { testBackend } from "../../lib/network-api";
@@ -331,7 +332,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit}>
         {mode === "create" ? (
           <>
             <p className="text-xs text-primary/50 mb-6 leading-relaxed">
@@ -535,7 +536,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
             {loading ? "Saving..." : submitLabel}
           </Button>
         </div>
-      </form>
+      </ShakeTarget>
     </ModalCard>
   );
 }

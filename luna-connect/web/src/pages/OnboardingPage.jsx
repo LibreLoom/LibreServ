@@ -20,6 +20,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -701,7 +702,7 @@ export default function OnboardingPage() {
           ))}
         </div>
       </div>
-      <form onSubmit={handleAuth} className="w-full text-left">
+      <ShakeTarget as="form" shake={error} onSubmit={handleAuth} className="w-full text-left">
         <div
           key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
           className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
@@ -736,7 +737,7 @@ export default function OnboardingPage() {
           {isLastAuthSubStep ? (isLoginMode ? "Sign in" : "Create account") : "Continue"}
           <ArrowRight className="w-4 h-4" />
         </Button>
-      </form>
+      </ShakeTarget>
     </StepShell>
   );
 
@@ -747,7 +748,9 @@ export default function OnboardingPage() {
           <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
             We need to verify your email before setup continues. Fix the address here if there is a typo.
           </p>
-          <form
+          <ShakeTarget
+            as="form"
+            shake={error}
             className="space-y-4 text-left"
             onSubmit={async (event) => {
               event.preventDefault();
@@ -791,7 +794,7 @@ export default function OnboardingPage() {
                 ? "Continue to verification"
                 : "Update email and send link"}
             </Button>
-          </form>
+          </ShakeTarget>
         </StepShell>
       );
     }
@@ -940,7 +943,9 @@ export default function OnboardingPage() {
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         The code that came with your Luna (****-****-****-****-****). Luna&apos;s screen shows the same code if you need it.
       </p>
-      <form
+      <ShakeTarget
+        as="form"
+        shake={error}
         className="space-y-5 text-left"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -975,7 +980,7 @@ export default function OnboardingPage() {
         <Button type="submit" size="lg" className="w-full" loading={loading} disabled={code.trim().length < 6}>
           Continue <ArrowRight className="w-4 h-4" />
         </Button>
-      </form>
+      </ShakeTarget>
     </StepShell>
   );
 
@@ -1012,7 +1017,9 @@ export default function OnboardingPage() {
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         Confirm the full device code so we can attach this Luna to your account. Put the same code on Luna during install if you have not yet.
       </p>
-      <form
+      <ShakeTarget
+        as="form"
+        shake={error}
         className="space-y-5 text-left"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -1050,7 +1057,7 @@ export default function OnboardingPage() {
         >
           Link Luna <ArrowRight className="w-4 h-4" />
         </Button>
-      </form>
+      </ShakeTarget>
     </StepShell>
   );
 
@@ -1059,7 +1066,9 @@ export default function OnboardingPage() {
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
         This name is the address you type to open Luna when you are not at home. Use letters and numbers, at least 3 characters.
       </p>
-      <form
+      <ShakeTarget
+        as="form"
+        shake={error}
         className="space-y-5 text-left"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -1110,7 +1119,7 @@ export default function OnboardingPage() {
         <Button type="submit" size="lg" className="w-full" loading={loading} disabled={name.trim().length < 3}>
           Use this name <ArrowRight className="w-4 h-4" />
         </Button>
-      </form>
+      </ShakeTarget>
     </StepShell>
   );
 

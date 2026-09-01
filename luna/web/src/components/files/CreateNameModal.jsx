@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
+import ShakeTarget from "../components/ui/ShakeTarget.jsx";
 import PageNotice from "../common/PageNotice.jsx";
 
 /**
@@ -36,7 +37,9 @@ export default function CreateNameModal({
   return (
     <ModalCard open={open} title={title} onClose={onClose}>
       {({ close }) => (
-        <form
+        <ShakeTarget
+          as="form"
+          shake={error}
           onSubmit={(event) => {
             event.preventDefault();
             Promise.resolve(onSubmit())
@@ -68,7 +71,7 @@ export default function CreateNameModal({
               Cancel
             </Button>
           </div>
-        </form>
+        </ShakeTarget>
       )}
     </ModalCard>
   );

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 
@@ -214,7 +215,7 @@ PlanCard.propTypes = {
 };
 
 // ─── SubdomainPicker — free subdomain with live preview + availability ─────
-function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, checkingSub, suffix, onContinue }) {
+function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, checkingSub, suffix, onContinue, error = "" }) {
   const debounceRef = useRef(null);
   const fullAddress = subdomainName ? `${subdomainName}.${suffix}` : "";
 
@@ -237,7 +238,7 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
   const valid = subdomainName.trim().length >= 3 && subAvailability !== false;
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); if (valid) onContinue(); }} className="space-y-4 text-left">
+    <ShakeTarget as="form" shake={error} onSubmit={(e) => { e.preventDefault(); if (valid) onContinue(); }} className="space-y-4 text-left">
       <Field label="Subdomain name" htmlFor="onb-subdomain">
         <div className="relative">
           <Input
@@ -294,7 +295,7 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
       <Button type="submit" className="w-full" size="lg" disabled={!valid}>
         Continue <ChevronRight className="w-4 h-4 ml-1" />
       </Button>
-    </form>
+    </ShakeTarget>
   );
 }
 
@@ -306,10 +307,12 @@ SubdomainPicker.propTypes = {
   checkingSub: PropTypes.bool.isRequired,
   suffix: PropTypes.string.isRequired,
   onContinue: PropTypes.func.isRequired,
+  error: PropTypes.string,
 };
 
 SubdomainPicker.defaultProps = {
   subAvailability: null,
+  error: "",
 };
 
 // ─── CustomDomainSection — progressive disclosure for BYO domain ────────────
@@ -867,7 +870,7 @@ export default function Onboarding() {
       </div>
 
       {/* One question per screen — key remounts on substep change for slide animation */}
-      <form onSubmit={handleAuthSubSubmit} className="w-full max-w-sm mx-auto text-left">
+      <ShakeTarget as="form" shake={error} onSubmit={handleAuthSubSubmit} className="w-full max-w-sm mx-auto text-left">
         <div
           key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
           className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
@@ -918,7 +921,7 @@ export default function Onboarding() {
             press <kbd className="font-mono text-card-foreground bg-muted rounded-md px-1.5 py-0.5">Enter</kbd> to continue
           </p>
         </div>
-      </form>
+      </ShakeTarget>
     </StepShell>
   );
 
@@ -1094,6 +1097,7 @@ export default function Onboarding() {
           setSubAvailability={setSubAvailability}
           checkingSub={checkingSub}
           suffix={domainSuffix}
+          error={error}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
         />
       </div>
@@ -1152,6 +1156,7 @@ export default function Onboarding() {
           setSubAvailability={setSubAvailability}
           checkingSub={checkingSub}
           suffix={domainSuffix}
+          error={error}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
         />
       </div>

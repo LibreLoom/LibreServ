@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Lock, KeyRound } from "lucide-react";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 
 /**
  * Admin "set password" form — sets a user's password directly (no current
@@ -75,7 +76,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" data-slot="set-password-form">
+    <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-4" data-slot="set-password-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <KeyRound size={24} aria-hidden="true" />
@@ -171,6 +172,6 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           {loading ? "Setting..." : "Set Password"}
         </Button>
       </div>
-    </form>
+    </ShakeTarget>
   );
 }

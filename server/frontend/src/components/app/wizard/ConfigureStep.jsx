@@ -1,6 +1,7 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ConfigFieldRenderer from "./ConfigFieldRenderer";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 import { Info, ChevronDown, ChevronUp } from "lucide-react";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
@@ -102,7 +103,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
 
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6" data-slot="configure-step">
+    <ShakeTarget as="form" shake={errors} onSubmit={handleSubmit} className="space-y-6" data-slot="configure-step">
       <div className="text-center space-y-2">
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Configure {app?.name || "App"}
@@ -185,7 +186,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
           Install
         </Button>
       </div>
-    </form>
+    </ShakeTarget>
   );
 }
 
