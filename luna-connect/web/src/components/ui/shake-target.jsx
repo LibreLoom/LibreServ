@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useCallback, useRef } from "react";
 import { cn } from "../../lib/utils.js";
 import useShakeOnError from "../../hooks/useShakeOnError.js";
 
@@ -10,16 +10,19 @@ const ShakeTarget = forwardRef(function ShakeTarget(
   { shake, as: Component = "div", className, children, ...props },
   forwardedRef,
 ) {
-  const localRef = /** @type {import("react").RefObject<HTMLElement | null>} */ ({ current: null });
+  const localRef = useRef(/** @type {HTMLElement | null} */ (null));
 
-  const setRef = (node) => {
-    localRef.current = node;
-    if (typeof forwardedRef === "function") {
-      forwardedRef(node);
-    } else if (forwardedRef) {
-      forwardedRef.current = node;
-    }
-  };
+  const setRef = useCallback(
+    (node) => {
+      localRef.current = node;
+      if (typeof forwardedRef === "function") {
+        forwardedRef(node);
+      } else if (forwardedRef) {
+        forwardedRef.current = node;
+      }
+    },
+    [forwardedRef],
+  );
 
   useShakeOnError(shake, localRef);
 

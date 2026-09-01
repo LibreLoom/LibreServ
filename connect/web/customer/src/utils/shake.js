@@ -39,6 +39,15 @@ export function shakeElement(el, durationMs = SHAKE_DURATION_MS) {
  */
 export function serializeShakeTrigger(trigger) {
   if (trigger == null || trigger === false || trigger === "") return "";
-  if (typeof trigger === "object") return JSON.stringify(trigger);
+  if (typeof trigger === "string" || typeof trigger === "number" || typeof trigger === "boolean") {
+    return String(trigger);
+  }
+  if (typeof trigger === "object") {
+    try {
+      return JSON.stringify(trigger);
+    } catch {
+      return "[object]";
+    }
+  }
   return String(trigger);
 }
