@@ -120,8 +120,9 @@ export default function LoginPage() {
               <form
                 onSubmit={handleSubmit}
                 aria-busy={loading}
-                className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
+                className="flex flex-col mt-6"
               >
+                <div className="rounded-large-element p-4 bg-primary text-secondary flex flex-col">
                 <FormInput
                   label="Username"
                   name="username"
@@ -166,6 +167,7 @@ export default function LoginPage() {
                   id="login-error"
                 >
                   {errorStatus && calculateErrorHTML()}
+                </div>
                 </div>
               </form>
             </StepTransition>
