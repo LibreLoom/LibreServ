@@ -62,6 +62,9 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  Away from home:".into());
         lines.push(format!("    https://{host}"));
     }
+    lines.push(String::new());
+    lines.push("  Local shell (keyboard + screen): login root, press Enter at password.".into());
+    lines.push("  Forgot Luna web password? login pwreset, press Enter at password.".into());
     lines.push("============================================================".into());
     lines.push(String::new());
     lines

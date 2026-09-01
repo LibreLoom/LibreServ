@@ -1,9 +1,14 @@
 //! Local-console admin recovery.
 //!
-//! If an admin forgets their password, they plug a USB keyboard into Luna,
-//! sign in as Linux user `pwreset` (blank password), and follow the prompts.
-//! The `pwreset` login shell (`luna-pwreset`) talks to lunad on loopback only.
-//! It never runs over the network.
+//! Physical access at tty1 (HDMI + USB keyboard):
+//!
+//! - **`root`** — blank password, `/bin/ash` shell for a local root shell.
+//! - **`pwreset`** — blank password, runs `luna-pwreset` to reset a Luna
+//!   **web admin** password via lunad on loopback only (never over the network).
+//!
+//! If an admin forgets their Luna web password, they sign in as `pwreset`
+//! and follow the prompts. The `pwreset` login shell talks to lunad on
+//! loopback only.
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
 //! assert that). Keep this block as the source of truth for the printed
@@ -25,7 +30,10 @@
 //!  10. On your phone or computer, open the Luna web page and sign in
 //!      with that username and the new password.
 //!
-//! Only an admin account can be reset this way.
+//! For a local root shell (support / advanced), log in as root and press
+//! Enter at the password prompt.
+//!
+//! Only an admin account can be reset via pwreset.
 
 use std::io::{BufRead, Read, Write};
 use std::path::Path;

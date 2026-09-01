@@ -57,6 +57,8 @@ assert_file_has "$BUILD" 'after luna-network' \
 	"lunad must not wait on avahi before binding HTTP"
 assert_file_has "$BUILD" 'makestep 1.0 3' \
 	"chrony must step the clock quickly after DHCP for TLS"
+assert_file_has "$BUILD" 'tmpfs /tmp' \
+	"rootfs must mount /tmp on tmpfs (read-only root slot)"
 assert_file_has "$BUILD" 'tmpfs /var/log' \
 	"syslog must land on tmpfs so messages do not wear the eMMC"
 assert_file_has "$BUILD" 'LABEL=LUNA_DATA /var/lib/luna' \
@@ -81,12 +83,16 @@ assert_file_has "$BUILD" 'luna:x:1000' \
 	"rootfs must bake the luna Linux account"
 assert_file_has "$BUILD" '/sbin/nologin' \
 	"luna console account must use nologin"
-assert_file_has "$BUILD" 'root:!:' \
-	"root must be locked in the baked shadow (not empty password)"
+assert_file_has "$BUILD" 'root::' \
+	"root may keep an empty password hash for local console login"
+assert_file_has "$BUILD" '/bin/ash' \
+	"root console account must use /bin/ash"
 assert_file_has "$BUILD" 'luna:!:' \
 	"luna must be locked in the baked shadow (not empty password)"
 assert_file_has "$BUILD" 'pwreset::' \
 	"pwreset may keep an empty password hash for local recovery login"
+assert_file_has "$BUILD" "tail -n 1" \
+	"luna-pwreset must capture HTTP code without a temp file"
 assert_file_lacks "$BUILD" 'for u in root luna pwreset' \
 	"build must not empty passwords for root/luna/pwreset in one loop"
 assert_file_lacks "$BUILD" 'exec /bin/sh' \
