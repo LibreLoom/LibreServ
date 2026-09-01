@@ -78,7 +78,7 @@ export default function LunaPage() {
 
   return (
     <Layout>
-      <h1 className="font-mono text-3xl mb-2">Away from home</h1>
+      <h1 className="font-mono text-3xl mb-2">Devices</h1>
       <p className="text-muted-foreground mb-8">Signed in as {me?.email}.</p>
 
       {needsResume && (

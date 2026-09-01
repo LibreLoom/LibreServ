@@ -6,7 +6,7 @@ import { Separator } from "./ui/separator.jsx";
 import { HardDrive, Cloud, LogOut, Sun, Moon } from "lucide-react";
 
 const navItems = [
-  { to: "/", label: "Away from home", icon: HardDrive },
+  { to: "/", label: "Devices", icon: HardDrive },
   { to: "/backups", label: "Cloud backups", icon: Cloud },
 ];
 

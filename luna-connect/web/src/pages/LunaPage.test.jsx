@@ -40,6 +40,8 @@ describe("LunaPage one Luna", () => {
 
   it("sends owners without a Luna to official or bring-your-own setup", async () => {
     mount();
+    expect(await screen.findByRole("heading", { name: "Devices" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Devices" })).toBeTruthy();
     expect(await screen.findByText(/No Luna linked yet/i)).toBeTruthy();
     expect(screen.getByRole("heading", { name: /My Luna/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Start setup/i }).getAttribute("href")).toBe("/onboarding");
