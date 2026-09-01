@@ -13,6 +13,9 @@ use crate::dest::{self, LunaRef};
 use crate::luna;
 use crate::session;
 
+/// How often to re-check Luna for remote-side changes when nothing changed locally.
+const REMOTE_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncPair {
     pub id: String,
@@ -178,8 +181,9 @@ pub fn start_pair(
                 set_error(&thread_progress, &pair_id, "");
                 set_phase(&thread_progress, &pair_id, "Up to date");
             }
-            // Wait for notify or timeout.
-            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            set_phase(&thread_progress, &pair_id, "Waiting");
+            // Wait for local changes or the next remote poll.
+            let deadline = std::time::Instant::now() + REMOTE_POLL_INTERVAL;
             while std::time::Instant::now() < deadline {
                 if thread_stop.load(Ordering::Relaxed) {
                     set_running(&thread_progress, &pair_id, false);
@@ -232,6 +236,14 @@ fn set_error(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str, err
     }
 }
 
+fn clear_current(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str) {
+    if let Ok(mut map) = progress.lock()
+        && let Some(p) = map.get_mut(id)
+    {
+        p.current.clear();
+    }
+}
+
 fn bump(
     progress: &Arc<Mutex<HashMap<String, SyncProgress>>>,
     id: &str,
@@ -242,6 +254,7 @@ fn bump(
     if let Ok(mut map) = progress.lock()
         && let Some(p) = map.get_mut(id)
     {
+        p.phase = "Syncing".to_string();
         p.current = current.to_string();
         if conflict {
             p.conflicts += 1;
@@ -477,6 +490,7 @@ fn sync_once(
         }
     }
     ledger.save(ledger_file);
+    clear_current(progress, pair_id);
     Ok(())
 }
 

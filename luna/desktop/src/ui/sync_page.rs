@@ -252,7 +252,7 @@ fn sync_status_icon(
     if !progress.error.is_empty() {
         return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
-    if progress.running && !progress.current.is_empty() {
+    if progress.running && progress.phase == "Syncing" && !progress.current.is_empty() {
         return (
             "emblem-synchronizing-symbolic",
             "Updating files…".to_string(),

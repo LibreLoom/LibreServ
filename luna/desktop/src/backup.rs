@@ -28,6 +28,7 @@ pub struct BackupJob {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BackupProgress {
     pub job_id: String,
+    pub phase: String,
     pub uploaded: u64,
     pub bytes: u64,
     pub current: String,
@@ -177,6 +178,7 @@ pub fn start_job(
                 &ledger_path,
             );
         }
+        set_phase(&thread_progress, &job_id, "Watching");
         let mut queued: Vec<PathBuf> = Vec::new();
         let mut consecutive_failures: usize = 0;
         loop {
@@ -252,6 +254,9 @@ pub fn start_job(
                 }
             } else {
                 consecutive_failures = 0;
+                if queued.is_empty() {
+                    set_phase(&thread_progress, &job_id, "Watching");
+                }
             }
         }
     });
@@ -274,6 +279,14 @@ fn set_running(
     }
 }
 
+fn set_phase(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &str, phase: &str) {
+    if let Ok(mut map) = progress.lock()
+        && let Some(p) = map.get_mut(job_id)
+    {
+        p.phase = phase.to_string();
+    }
+}
+
 fn set_current(
     progress: &Arc<Mutex<HashMap<String, BackupProgress>>>,
     job_id: &str,
@@ -283,6 +296,7 @@ fn set_current(
     if let Ok(mut map) = progress.lock()
         && let Some(p) = map.get_mut(job_id)
     {
+        p.phase = "Copying".to_string();
         p.current = current.to_string();
         p.error = error.to_string();
     }
@@ -296,6 +310,7 @@ fn bump(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &str, si
         p.bytes += size;
         p.current.clear();
         p.error.clear();
+        p.phase = "Watching".to_string();
     }
 }
 

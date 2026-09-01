@@ -248,7 +248,7 @@ fn backup_status_icon(
     if !progress.error.is_empty() {
         return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
-    if progress.running && (!progress.current.is_empty() || progress.bytes > 0) {
+    if progress.running && !progress.current.is_empty() {
         return (
             "emblem-synchronizing-symbolic",
             "Copying files to Luna…".to_string(),
