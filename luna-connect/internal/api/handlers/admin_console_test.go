@@ -22,6 +22,12 @@ func TestAdminStatsAndDevices(t *testing.T) {
 VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 
 	rec := httptest.NewRecorder()
+	h.Accounts(rec, httptest.NewRequest(http.MethodGet, "/admin/accounts", nil))
+	if rec.Code != 200 {
+		t.Fatalf("accounts %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	h.Stats(rec, httptest.NewRequest(http.MethodGet, "/admin/stats", nil))
 	if rec.Code != 200 {
 		t.Fatalf("stats %d", rec.Code)

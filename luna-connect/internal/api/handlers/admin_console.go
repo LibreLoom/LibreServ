@@ -87,7 +87,7 @@ ORDER BY d.created_at DESC`)
 
 func (h AdminConsoleHandler) Accounts(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(`
-SELECT a.id, a.email, a.has_card, a.billing_status, a.created_at,
+SELECT a.id, a.email, a.has_card, a.billing_status, a.email_verified, a.created_at,
   (SELECT COUNT(*) FROM devices d WHERE d.account_id = a.id) AS device_count
 FROM accounts a
 ORDER BY a.created_at DESC`)
@@ -99,8 +99,8 @@ ORDER BY a.created_at DESC`)
 	list := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, email, billingStatus string
-		var hasCard, created, deviceCount int64
-		if err := rows.Scan(&id, &email, &hasCard, &billingStatus, &created, &deviceCount); err != nil {
+		var hasCard, emailVerified, created, deviceCount int64
+		if err := rows.Scan(&id, &email, &hasCard, &billingStatus, &emailVerified, &created, &deviceCount); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not list accounts.")
 			return
 		}
@@ -109,11 +109,99 @@ ORDER BY a.created_at DESC`)
 			"email":          email,
 			"has_card":       hasCard == 1,
 			"billing_status": billingStatus,
+			"email_verified": emailVerified == 1,
 			"device_count":   deviceCount,
 			"created_at":     created,
 		})
 	}
 	JSON(w, http.StatusOK, map[string]any{"accounts": list})
+}
+
+// GetAccount returns one customer account with linked Lunas (device tokens).
+func (h AdminConsoleHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
+	accountID := strings.TrimSpace(chi.URLParam(r, "accountID"))
+	if accountID == "" {
+		JSONError(w, http.StatusBadRequest, "Account id is required.")
+		return
+	}
+
+	var email, billingStatus string
+	var hasCard, emailVerified, created int64
+	err := h.DB.QueryRow(`
+SELECT email, has_card, billing_status, email_verified, created_at
+FROM accounts WHERE id = ?`, accountID).
+		Scan(&email, &hasCard, &billingStatus, &emailVerified, &created)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That customer account was not found.")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load that customer account.")
+		return
+	}
+
+	devices, err := h.listAccountDevices(accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load Lunas for this account.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"id":             accountID,
+		"email":          email,
+		"has_card":       hasCard == 1,
+		"billing_status": billingStatus,
+		"email_verified": emailVerified == 1,
+		"created_at":     created,
+		"devices":        devices,
+	})
+}
+
+func (h AdminConsoleHandler) listAccountDevices(accountID string) ([]map[string]any, error) {
+	rows, err := h.DB.Query(`
+SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.code_hint, ''), d.kind,
+  COALESCE(d.last_seen_at, 0), d.revoked, d.created_at, COALESCE(d.order_ref, '')
+FROM devices d
+WHERE d.account_id = ?
+ORDER BY d.created_at DESC`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	zone := config.C.Server.PublicZone
+	now := time.Now().Unix()
+	list := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, name, sub, hint, kind, orderRef string
+		var lastSeen, created int64
+		var revoked int
+		if err := rows.Scan(&id, &name, &sub, &hint, &kind, &lastSeen, &revoked, &created, &orderRef); err != nil {
+			return nil, err
+		}
+		status := "bound"
+		if revoked != 0 {
+			status = "revoked"
+		}
+		hostname := ""
+		if sub != "" {
+			hostname = sub + "." + zone
+		}
+		list = append(list, map[string]any{
+			"id":              id,
+			"name":            name,
+			"subdomain":       sub,
+			"device_hostname": hostname,
+			"hint":            hint,
+			"kind":            kind,
+			"status":          status,
+			"order_ref":       orderRef,
+			"last_seen_at":    lastSeen,
+			"online":          lastSeen > 0 && now-lastSeen <= OnlineWithinSec,
+			"created_at":      created,
+		})
+	}
+	return list, nil
 }
 
 // SetupTokens lists permanent device codes for support / print (replaces issued_tokens admin UI).
