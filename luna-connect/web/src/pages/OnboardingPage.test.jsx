@@ -617,7 +617,31 @@ describe("OnboardingPage DIY verify", () => {
   });
 });
 
-describe("OnboardingPage done card", () => {
+describe("OnboardingPage finish flow", () => {
+  async function advanceToBackupStep() {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
+      target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Name$/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/^Name$/i), { target: { value: "kitchen" } });
+    fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Skip for now/i })).toBeTruthy();
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -641,36 +665,74 @@ describe("OnboardingPage done card", () => {
     });
   });
 
-  it("shows the hostname on the complete setup card after name is taken", async () => {
-    mount();
-    fireEvent.click(screen.getByRole("button", { name: /Get Started/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
-
-    await waitFor(() => {
-      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
-    });
-    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
-      target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-
-    await waitFor(() => {
-      expect(screen.getByLabelText(/^Name$/i)).toBeTruthy();
-    });
-    fireEvent.change(screen.getByLabelText(/^Name$/i), { target: { value: "kitchen" } });
-    fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Skip for now/i })).toBeTruthy();
-    });
+  it("skips the plug-in step and shows the simplified done card when Luna is already online", async () => {
+    await advanceToBackupStep();
     fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
 
     expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
     expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByText(/initial connection is complete/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Plug in Luna/i })).toBeNull();
     expect(screen.queryByText(/one-time code/i)).toBeNull();
-    expect(screen.queryByText(/paste the code once/i)).toBeNull();
     expect(document.body.textContent).not.toMatch(/\?setup=/);
+  });
+
+  it("shows the plug-in step when Luna is offline after backup", async () => {
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
+      if (path === "/api/v1/devices/dev_1/domain") {
+        return {
+          device_id: "dev_1",
+          hostname: "kitchen.luna.servers.libreloom.org",
+          subdomain: "kitchen",
+        };
+      }
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: false }] };
+      }
+      if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    await advanceToBackupStep();
+    fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
+
+    expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
+    expect(screen.getByText(/Waiting for Luna to come online/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Complete setup on Luna/i })).toBeNull();
+  });
+
+  it("polls device status and advances to the done card when Luna comes online", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let online = false;
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
+      if (path === "/api/v1/devices/dev_1/domain") {
+        return {
+          device_id: "dev_1",
+          hostname: "kitchen.luna.servers.libreloom.org",
+          subdomain: "kitchen",
+        };
+      }
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online }] };
+      }
+      if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    await advanceToBackupStep();
+    fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
+    expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
+
+    online = true;
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
+    expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
+    vi.useRealTimers();
   });
 
   it("goes straight to name after bind without waiting for Luna", async () => {
@@ -687,6 +749,6 @@ describe("OnboardingPage done card", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
-    expect(screen.queryByText(/Waiting for Luna/i)).toBeNull();
+    expect(screen.queryByText(/Waiting for Luna to come online/i)).toBeNull();
   });
 });
