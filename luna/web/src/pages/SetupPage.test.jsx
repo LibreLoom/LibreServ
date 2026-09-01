@@ -141,8 +141,8 @@ describe("SetupPage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     renderSetup();
-    expect(await screen.findByRole("heading", { name: /Enter your setup code/i })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/Setup code/i), { target: { value: "ABCDEFGH" } });
+    expect(await screen.findByRole("heading", { name: /Your device code/i })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Device code/i), { target: { value: "ABCDEFGH" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
   });
@@ -153,7 +153,7 @@ describe("SetupPage", () => {
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Continue/i }));
-    expect(await screen.findByLabelText(/One-time setup code/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/Your device code/i)).toBeTruthy();
     expect(screen.getByText(/nobody else on the internet/i)).toBeTruthy();
   });
 });

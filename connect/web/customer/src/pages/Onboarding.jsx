@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 
@@ -214,7 +215,7 @@ PlanCard.propTypes = {
 };
 
 // ─── SubdomainPicker — free subdomain with live preview + availability ─────
-function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, checkingSub, suffix, onContinue }) {
+function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, checkingSub, suffix, onContinue, error = "" }) {
   const debounceRef = useRef(null);
   const fullAddress = subdomainName ? `${subdomainName}.${suffix}` : "";
 
@@ -238,7 +239,8 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (valid) onContinue(); }} className="space-y-4 text-left">
-      <Field label="Subdomain name" htmlFor="onb-subdomain">
+      <ShakeTarget shake={error}>
+        <Field label="Subdomain name" htmlFor="onb-subdomain">
         <div className="relative">
           <Input
             id="onb-subdomain"
@@ -290,6 +292,7 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
           </p>
         )}
       </Field>
+      </ShakeTarget>
 
       <Button type="submit" className="w-full" size="lg" disabled={!valid}>
         Continue <ChevronRight className="w-4 h-4 ml-1" />
@@ -306,10 +309,12 @@ SubdomainPicker.propTypes = {
   checkingSub: PropTypes.bool.isRequired,
   suffix: PropTypes.string.isRequired,
   onContinue: PropTypes.func.isRequired,
+  error: PropTypes.string,
 };
 
 SubdomainPicker.defaultProps = {
   subAvailability: null,
+  error: "",
 };
 
 // ─── CustomDomainSection — progressive disclosure for BYO domain ────────────
@@ -868,32 +873,35 @@ export default function Onboarding() {
 
       {/* One question per screen — key remounts on substep change for slide animation */}
       <form onSubmit={handleAuthSubSubmit} className="w-full max-w-sm mx-auto text-left">
-        <div
-          key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
-          className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          style={{ animationDuration: "300ms", animationFillMode: "both" }}
-        >
-          <label
-            htmlFor={currentAuthField.id}
-            className="block font-mono text-xl text-card-foreground mb-5 leading-snug"
+        <ShakeTarget shake={error}>
+          <div
+            key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
+            className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+            style={{ animationDuration: "300ms", animationFillMode: "both" }}
           >
-            {currentAuthField.question}
-          </label>
-          <Input
-            id={currentAuthField.id}
-            type={currentAuthField.type}
-            value={currentAuthField.value}
-            onChange={(e) => currentAuthField.setValue(e.target.value)}
-            placeholder={currentAuthField.placeholder}
-            autoComplete={currentAuthField.autoComplete}
-            autoFocus
-            className="h-14 text-lg px-5"
-          />
-          {currentAuthField.hint && (
-            <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
-              {currentAuthField.hint}
-            </p>
-          )}
+            <label
+              htmlFor={currentAuthField.id}
+              className="block font-mono text-xl text-card-foreground mb-5 leading-snug"
+            >
+              {currentAuthField.question}
+            </label>
+            <Input
+              id={currentAuthField.id}
+              type={currentAuthField.type}
+              value={currentAuthField.value}
+              onChange={(e) => currentAuthField.setValue(e.target.value)}
+              placeholder={currentAuthField.placeholder}
+              autoComplete={currentAuthField.autoComplete}
+              autoFocus
+              className="h-14 text-lg px-5"
+            />
+            {currentAuthField.hint && (
+              <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+                {currentAuthField.hint}
+              </p>
+            )}
+          </div>
+        </ShakeTarget>
 
           <div className="flex items-center gap-3 mt-8">
             {authSubStep > 0 && (
@@ -917,7 +925,6 @@ export default function Onboarding() {
           <p className="mt-4 text-xs text-muted-foreground text-center">
             press <kbd className="font-mono text-card-foreground bg-muted rounded-md px-1.5 py-0.5">Enter</kbd> to continue
           </p>
-        </div>
       </form>
     </StepShell>
   );
@@ -1094,6 +1101,7 @@ export default function Onboarding() {
           setSubAvailability={setSubAvailability}
           checkingSub={checkingSub}
           suffix={domainSuffix}
+          error={error}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
         />
       </div>
@@ -1152,6 +1160,7 @@ export default function Onboarding() {
           setSubAvailability={setSubAvailability}
           checkingSub={checkingSub}
           suffix={domainSuffix}
+          error={error}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
         />
       </div>

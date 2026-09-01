@@ -5,6 +5,7 @@ import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
+import ShakeTarget from "../ui/ShakeTarget";
 import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 
@@ -117,14 +118,16 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             ))}
             {matchingProtections.length === 0 && (
               <>
-                <Dropdown
-                  options={driveList.filter((d) => d.id !== driveId).map((d) => ({ value: d.id, label: d.label }))}
-                  value={targetDrive}
-                  onChange={setTargetDrive}
-                  placeholder="Copy onto"
-                  fullWidth
-                  bg="primary"
-                />
+                <ShakeTarget shake={error}>
+                  <Dropdown
+                    options={driveList.filter((d) => d.id !== driveId).map((d) => ({ value: d.id, label: d.label }))}
+                    value={targetDrive}
+                    onChange={setTargetDrive}
+                    placeholder="Copy onto"
+                    fullWidth
+                    bg="primary"
+                  />
+                </ShakeTarget>
                 <Button
                   size="sm"
                   variant="primary"

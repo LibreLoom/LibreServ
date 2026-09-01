@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import OtpInput from "../ui/OtpInput";
 import LayeredPill from "../ui/LayeredPill";
 import IconCircle from "../ui/IconCircle";
@@ -57,6 +58,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [entryError, setEntryError] = useState(null);
 
   // Tick down the email resend cooldown once a second.
   useEffect(() => {
@@ -86,16 +88,20 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   async function verifyCode(type) {
     if (!code) return;
     setLoading(true);
+    setEntryError(null);
     try {
       await mfaVerify(mfaToken, type, { code });
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
     } catch (err) {
       if (err?.cause?.status === 401) {
+        setEntryError("That code didn't work. Try again.");
         addToast({ type: "error", message: "That code didn't work. Try again." });
       } else if (!navigator.onLine) {
+        setEntryError("You're offline. Check your connection and try again.");
         addToast({ type: "error", message: "You're offline. Check your connection and try again." });
       } else {
+        setEntryError("Something went wrong. Try again.");
         addToast({ type: "error", message: "Something went wrong. Try again." });
       }
     } finally {
@@ -146,16 +152,20 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   async function recover() {
     if (!code) return;
     setLoading(true);
+    setEntryError(null);
     try {
       await mfaRecover(mfaToken, code.trim());
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
     } catch (err) {
       if (err?.cause?.status === 401) {
+        setEntryError("That recovery code didn't work.");
         addToast({ type: "error", message: "That recovery code didn't work." });
       } else if (!navigator.onLine) {
+        setEntryError("You're offline. Check your connection and try again.");
         addToast({ type: "error", message: "You're offline. Check your connection and try again." });
       } else {
+        setEntryError("Something went wrong. Try again.");
         addToast({ type: "error", message: "Something went wrong. Try again." });
       }
     } finally {
@@ -256,7 +266,11 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
           loading={loading}
           disabled={!code}
           code={code}
-          setCode={setCode}
+          setCode={(v) => {
+            setEntryError(null);
+            setCode(v);
+          }}
+          shake={entryError}
           placeholder="Enter a recovery code"
           autoFocus
         />
@@ -315,7 +329,11 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
         loading={loading}
         disabled={!code}
         code={code}
-        setCode={setCode}
+        setCode={(v) => {
+          setEntryError(null);
+          setCode(v);
+        }}
+        shake={entryError}
         maxLength={6}
         autoFocus
         email={selected === "email" ? email : undefined}
@@ -342,9 +360,10 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
  *   email?: string,
  *   resendCooldown?: number,
  *   onResend?: () => void,
+ *   shake?: unknown,
  * } | undefined} [props]
  */
-function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, setCode, placeholder, maxLength, autoFocus, email, resendCooldown = 0, onResend } = {}) {
+function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, setCode, placeholder, maxLength, autoFocus, email, resendCooldown = 0, onResend, shake } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
   const resendRef = useRef(null);
@@ -396,19 +415,22 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
           maxLength={maxLength}
           disabled={loading}
           autoFocus={autoFocus}
+          shake={shake}
         />
       ) : (
-        <input
-          id={inputId}
-          type="text"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder={placeholder}
-          className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-          autoFocus={autoFocus}
-        />
+        <ShakeTarget shake={shake}>
+          <input
+            id={inputId}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder={placeholder}
+            className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+            autoFocus={autoFocus}
+          />
+        </ShakeTarget>
       )}
 
       <Button type="submit" disabled={loading || disabled} fullWidth>
@@ -442,4 +464,5 @@ EntryShell.propTypes = {
   email: PropTypes.string,
   resendCooldown: PropTypes.number,
   onResend: PropTypes.func,
+  shake: PropTypes.any,
 };

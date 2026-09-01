@@ -5,6 +5,7 @@ import { Image as ImageIcon, Upload } from "lucide-react";
 import Page from "../components/ui/Page";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import PhotoLightbox from "../components/gallery/PhotoLightbox.jsx";
 import { apiErrorMessage, getJson, postForm } from "../lib/api";
@@ -61,24 +62,26 @@ export default function PublicAlbumPage() {
             </p>
             {album.data.can_upload && (
               <div className="mb-6">
-                <label className="inline-flex cursor-pointer">
-                  <span className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm">
-                    <Upload size={16} aria-hidden="true" />
-                    {upload.isPending ? "Uploading…" : "Add photos"}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    multiple
-                    className="sr-only"
-                    disabled={upload.isPending}
-                    onChange={(e) => {
-                      const files = [...(e.target.files || [])];
-                      if (files.length) upload.mutate(files);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
+                <ShakeTarget shake={error}>
+                  <label className="inline-flex cursor-pointer">
+                    <span className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm">
+                      <Upload size={16} aria-hidden="true" />
+                      {upload.isPending ? "Uploading…" : "Add photos"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="sr-only"
+                      disabled={upload.isPending}
+                      onChange={(e) => {
+                        const files = [...(e.target.files || [])];
+                        if (files.length) upload.mutate(files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </ShakeTarget>
               </div>
             )}
             {items.length === 0 ? (

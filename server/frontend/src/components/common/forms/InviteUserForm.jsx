@@ -74,6 +74,8 @@ export default function InviteUserForm({ onSuccess } = {}) {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="e.g. john@example.com"
+        error={error}
+        shake={error}
         icon="email"
         required
         disabled={loading}

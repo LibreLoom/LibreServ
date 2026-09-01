@@ -17,6 +17,8 @@ import useSetupProgress from "../hooks/useSetupProgress";
 import { StepTransitionContext } from "../components/setup/StepTransitionContext";
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
+import useLabelErrorState from "../hooks/useLabelErrorState";
 import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -261,29 +263,32 @@ function SetupCodeStep({ onCodeVerified }) {
         <LogoMark size={120} />
       </div>
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Enter your setup code
+        Your device code
       </h1>
       <p className="text-primary text-base leading-relaxed mb-10 max-w-[22rem]">
         From a phone or another computer, Luna asks for the first eight characters of your device code (****-****). Find them on the card that came with Luna, or on the Luna Connect page.
       </p>
       <div className="w-full mb-6">
-        <input
-          className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
-          placeholder="XXXX-XXXX"
-          value={code}
-          onChange={(e) => {
-            const n = normalize(e.target.value);
-            setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4)}` : n);
-            setError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !loading) handleSubmit();
-          }}
-          autoComplete="off"
-          autoFocus
-          disabled={loading}
-          aria-label="Setup code"
-        />
+        <ShakeTarget shake={error}>
+          <input
+            className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
+            placeholder="XXXX-XXXX"
+            value={code}
+            onChange={(e) => {
+              const n = normalize(e.target.value);
+              setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4)}` : n);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !loading) handleSubmit();
+            }}
+            autoComplete="off"
+            autoFocus
+            disabled={loading}
+            aria-label="Device code"
+            aria-invalid={Boolean(error)}
+          />
+        </ShakeTarget>
       </div>
       {error && (
         <div className="flex items-center gap-2 text-error text-sm mb-6">
@@ -346,10 +351,17 @@ function ReqChip({ ok, label }) {
 ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isRequired };
 
 /** @param {{ id: any, label: any, hint?: any, children: any }} _ */
-function FormField({ id, label, hint, children }) {
+function FormField({ id, label, hint, children, error, shake, loading = false }) {
+  const { labelError, containerRef } = useLabelErrorState(error, shake, { loading });
   return (
-    <div>
-      <label htmlFor={id} className="block text-primary font-sans text-sm text-left translate-x-5 mb-1">
+    <div ref={containerRef}>
+      <label
+        htmlFor={id}
+        className={cn(
+          "block text-primary font-sans text-sm text-left translate-x-5 mb-1 motion-safe:transition-colors duration-300",
+          labelError && "text-error",
+        )}
+      >
         {label}
       </label>
       {children}
@@ -362,6 +374,9 @@ FormField.propTypes = {
   label:    PropTypes.string.isRequired,
   hint:     PropTypes.string,
   children: PropTypes.node.isRequired,
+  error:    PropTypes.any,
+  shake:    PropTypes.any,
+  loading:  PropTypes.bool,
 };
 
 // ─── STEP: Account ────────────────────────────────────────────────────────────
@@ -510,8 +525,9 @@ function AccountStep({ hasAdmin, onContinue }) {
 
           {/* Password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            <FormField id="password" label="Password">
-              <div className="relative">
+            <ShakeTarget shake={fieldError}>
+              <FormField id="password" label="Password" shake={fieldError} loading={submitting}>
+                <div className="relative">
                 <input
                   id="password"
                   name="password"
@@ -554,7 +570,8 @@ function AccountStep({ hasAdmin, onContinue }) {
                   </div>
                 </div>
               )}
-            </FormField>
+              </FormField>
+            </ShakeTarget>
           </div>
 
           {/* Confirm password */}
@@ -592,25 +609,30 @@ function AccountStep({ hasAdmin, onContinue }) {
 
           {needsSetupCode && (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
-              <FormField
-                id="setup_secret"
-                label="One-time setup code"
-                hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
-              >
-                <input
+              <ShakeTarget shake={fieldError}>
+                <FormField
                   id="setup_secret"
-                  name="setup_secret"
-                  type="text"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Paste the code from Luna Connect"
-                  value={form.setup_secret}
-                  onChange={handleChange}
-                  disabled={submitting}
-                  required
-                  className={WIZARD_INPUT_CLASS}
-                />
-              </FormField>
+                  label="Your device code"
+                  hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
+                  shake={fieldError}
+                  loading={submitting}
+                >
+                  <input
+                    id="setup_secret"
+                    name="setup_secret"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Paste the code from Luna Connect"
+                    value={form.setup_secret}
+                    onChange={handleChange}
+                    disabled={submitting}
+                    required
+                    className={WIZARD_INPUT_CLASS}
+                    aria-invalid={Boolean(fieldError)}
+                  />
+                </FormField>
+              </ShakeTarget>
             </div>
           )}
 
@@ -684,21 +706,23 @@ function NameStep({ initialName, onFinish }) {
       </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-            <FormField id="luna_name" label="Name" hint="1-40 characters">
-              <input
-                id="luna_name"
-                type="text"
-                maxLength={40}
-                autoComplete="off"
-                value={name}
-                onChange={(e) => { setName(e.target.value); if (error) setError(null); }}
-                disabled={saving}
-                required
-                className={WIZARD_INPUT_CLASS}
-              />
-            </FormField>
-          </div>
+          <ShakeTarget shake={error}>
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
+              <FormField id="luna_name" label="Name" hint="1-40 characters">
+                <input
+                  id="luna_name"
+                  type="text"
+                  maxLength={40}
+                  autoComplete="off"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); if (error) setError(null); }}
+                  disabled={saving}
+                  required
+                  className={WIZARD_INPUT_CLASS}
+                />
+              </FormField>
+            </div>
+          </ShakeTarget>
 
           {/* Inline error */}
           {error && (

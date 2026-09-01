@@ -4,6 +4,7 @@ import { ShieldAlert, AlertTriangle } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 
 export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledged }) {
   const { request } = useAuth();
@@ -102,20 +103,22 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
               </p>
             </div>
 
-            <div>
-              <label className="text-sm text-primary/70 block mb-2">
-                Type <strong className="text-primary">I understand</strong> to enable the Continue button:
-              </label>
-              <input
-                type="text"
-                value={typedText}
-                onChange={(e) => setTypedText(e.target.value)}
-                placeholder='Type "I understand"'
-                className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/60 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
-                disabled={acknowledging}
-                autoFocus
-              />
-            </div>
+            <ShakeTarget shake={error}>
+              <div>
+                <label className="text-sm text-primary/70 block mb-2">
+                  Type <strong className="text-primary">I understand</strong> to enable the Continue button:
+                </label>
+                <input
+                  type="text"
+                  value={typedText}
+                  onChange={(e) => setTypedText(e.target.value)}
+                  placeholder='Type "I understand"'
+                  className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/60 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
+                  disabled={acknowledging}
+                  autoFocus
+                />
+              </div>
+            </ShakeTarget>
 
             {error && (
               <p className="text-sm text-error">{error}</p>

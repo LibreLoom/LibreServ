@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Mail } from "lucide-react";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 
 export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -56,19 +57,20 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
         </p>
       </div>
 
-      <div>
-        <label
-          htmlFor="email"
-          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          New Email
-        </label>
-        <div className="relative">
-          <Mail
-            size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
-            aria-hidden="true"
-          />
+      <ShakeTarget shake={error}>
+        <div>
+          <label
+            htmlFor="email"
+            className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          >
+            New Email
+          </label>
+          <div className="relative">
+            <Mail
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
+              aria-hidden="true"
+            />
             <input
               id="email"
               type="email"
@@ -87,13 +89,14 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "email-error" : undefined}
             />
+          </div>
+          {error && (
+            <p id="email-error" className="text-secondary/80 text-xs mt-1 px-5">
+              {error}
+            </p>
+          )}
         </div>
-        {error && (
-        <p id="email-error" className="text-secondary/80 text-xs mt-1 px-5">
-          {error}
-        </p>
-        )}
-      </div>
+      </ShakeTarget>
 
       <div className="flex gap-3">
         <Button

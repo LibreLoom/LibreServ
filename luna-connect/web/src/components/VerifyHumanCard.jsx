@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { getStripePromise } from "../billing/stripeConfig.js";
 import { Button } from "./ui/button.jsx";
+import ShakeTarget from "./ui/shake-target.jsx";
 
 function appearanceFromTheme() {
   if (typeof window === "undefined") return { theme: "stripe" };
@@ -61,9 +62,11 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
           {description || "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
         </p>
       )}
-      <div className="rounded-large-element border border-border bg-secondary text-secondary-foreground p-4">
-        <PaymentElement />
-      </div>
+      <ShakeTarget shake={localError}>
+        <div className="rounded-large-element border border-border bg-secondary text-secondary-foreground p-4">
+          <PaymentElement />
+        </div>
+      </ShakeTarget>
       {localError && <p className="text-sm text-error">{localError}</p>}
       <Button type="submit" className="w-full" loading={loading || busy} disabled={!stripe}>
         {buttonLabel || "Confirm with a dollar"}

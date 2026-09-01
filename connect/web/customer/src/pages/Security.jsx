@@ -4,6 +4,7 @@ import { api } from "../api/client.js";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Input } from "../components/ui/input.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
@@ -55,6 +56,11 @@ export default function Security() {
     onSuccess: () => setStatus({ tone: "success", text: "Verification email sent — check your inbox and spam folder." }),
     onError: (err) => setStatus({ tone: "error", text: err.message }),
   });
+
+  const verifyShake =
+    status?.tone === "error" && secret ? status : null;
+  const disableShake =
+    status?.tone === "error" && account?.has_2fa ? status : null;
 
   return (
     <Layout>
@@ -125,15 +131,17 @@ export default function Security() {
                       </div>
                       <div className="space-y-1.5 max-w-[200px]">
                         <Label htmlFor="verify-2fa">Code from your app</Label>
-                        <Input
-                          id="verify-2fa"
-                          value={verifyCode}
-                          onChange={(e) => setVerifyCode(e.target.value)}
-                          placeholder="000000"
-                          maxLength={6}
-                          inputMode="numeric"
-                          autoComplete="one-time-code"
-                        />
+                        <ShakeTarget shake={verifyShake}>
+                          <Input
+                            id="verify-2fa"
+                            value={verifyCode}
+                            onChange={(e) => setVerifyCode(e.target.value)}
+                            placeholder="000000"
+                            maxLength={6}
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                          />
+                        </ShakeTarget>
                       </div>
                       <Button
                         onClick={() => verifyMut.mutate(verifyCode)}
@@ -156,15 +164,17 @@ export default function Security() {
                   <div className="flex items-center gap-2">
                     <div className="space-y-1.5 w-[160px]">
                       <Label htmlFor="disable-2fa" className="sr-only">Current code</Label>
-                      <Input
-                        id="disable-2fa"
-                        value={disableCode}
-                        onChange={(e) => setDisableCode(e.target.value)}
-                        placeholder="000000"
-                        maxLength={6}
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                      />
+                      <ShakeTarget shake={disableShake}>
+                        <Input
+                          id="disable-2fa"
+                          value={disableCode}
+                          onChange={(e) => setDisableCode(e.target.value)}
+                          placeholder="000000"
+                          maxLength={6}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                        />
+                      </ShakeTarget>
                     </div>
                     <Button
                       variant="destructive"

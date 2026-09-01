@@ -145,6 +145,7 @@ export default function AddUserForm({ onSuccess }) {
         onChange={handleChange("username")}
         placeholder="e.g. johndoe"
         error={errors.username}
+        shake={errors.username}
         icon="username"
         required
         disabled={loading}
@@ -158,6 +159,7 @@ export default function AddUserForm({ onSuccess }) {
         onChange={handleChange("email")}
         placeholder="e.g. john@example.com"
         error={errors.email}
+        shake={errors.email}
         icon="email"
         disabled={loading}
       />
@@ -171,6 +173,7 @@ export default function AddUserForm({ onSuccess }) {
           onChange={handleChange("password")}
           placeholder="Minimum 12 characters (letters and numbers)"
           error={errors.password}
+          shake={errors.password || errors.form}
           icon="password"
           required
           disabled={loading}

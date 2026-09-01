@@ -124,6 +124,7 @@ export default function MyProfile() {
                 }}
                 placeholder="e.g. you@example.com"
                 error={emailError}
+                shake={emailError}
                 icon="email"
                 disabled={emailSaving}
               />
@@ -169,6 +170,7 @@ export default function MyProfile() {
               }}
               placeholder="Minimum 12 characters (letters and numbers)"
               error={pwErrors.new}
+              shake={pwErrors.new || pwErrors.form}
               icon="password"
               required
               disabled={pwSaving}

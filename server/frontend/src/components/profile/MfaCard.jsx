@@ -17,6 +17,7 @@ import useMfaAvailability from "../../hooks/useMfaAvailability";
 import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import LayeredPill from "../ui/LayeredPill";
 import Alert from "../common/Alert";
 import OtpInput from "../ui/OtpInput";
@@ -638,26 +639,28 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                 }}
                 className="space-y-3"
               >
-                <div>
-                  <label
-                    htmlFor="mfa_webauthn_name"
-                    className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-                  >
-                    Name
-                  </label>
-                  <input
-                    id="mfa_webauthn_name"
-                    type="text"
-                    value={webauthnName}
-                    onChange={(e) => setWebauthnName(e.target.value)}
-                    placeholder={label}
-                    className={inputClass}
-                    autoFocus
-                  />
-                  <p className="text-xs text-primary/60 mt-1 px-5">
-                    For example "My phone" or "Office key".
-                  </p>
-                </div>
+                <ShakeTarget shake={error}>
+                  <div>
+                    <label
+                      htmlFor="mfa_webauthn_name"
+                      className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+                    >
+                      Name
+                    </label>
+                    <input
+                      id="mfa_webauthn_name"
+                      type="text"
+                      value={webauthnName}
+                      onChange={(e) => setWebauthnName(e.target.value)}
+                      placeholder={label}
+                      className={inputClass}
+                      autoFocus
+                    />
+                    <p className="text-xs text-primary/60 mt-1 px-5">
+                      For example "My phone" or "Office key".
+                    </p>
+                  </div>
+                </ShakeTarget>
                 <Button type="submit" variant="primary" fullWidth className="group py-3">
                   Register {label}
                   <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
@@ -766,6 +769,8 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       surface="secondary"
+                      error={emailError}
+                      shake={emailError}
                       required
                     />
                     {emailError && <Alert variant="error" message={emailError} />}
@@ -805,6 +810,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             maxLength={6}
             disabled={busy}
             autoFocus
+            shake={error}
           />
           <Button
             type="submit"

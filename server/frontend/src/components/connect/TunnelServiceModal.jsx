@@ -3,6 +3,7 @@ import { Waypoints, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
+import ShakeTarget from "../ui/ShakeTarget.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 
@@ -92,13 +93,15 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
             </p>
             <div>
               <label className="block text-xs text-accent font-medium mb-1.5 px-4">Tunnel Token</label>
-              <input
-                type="password"
-                value={tunnelToken}
-                onChange={(e) => setTunnelToken(e.target.value)}
-                placeholder="Cloudflare Tunnel token"
-                className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-              />
+              <ShakeTarget shake={error}>
+                <input
+                  type="password"
+                  value={tunnelToken}
+                  onChange={(e) => setTunnelToken(e.target.value)}
+                  placeholder="Cloudflare Tunnel token"
+                  className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
+                />
+              </ShakeTarget>
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ModalCard from "../../cards/ModalCard";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 import ConfigFieldRenderer from "../wizard/ConfigFieldRenderer";
 import { ActionConfirmModal } from "./ActionConfirmModal";
 import { ActionResultModal } from "./ActionResultModal";
@@ -213,13 +214,16 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
           {action.options?.map((option) => {
             const field = scriptOptionToField(option);
             return (
-              <ConfigFieldRenderer
-                key={option.name}
-                field={field}
-                value={options[option.name]}
-                onChange={(val) => handleFieldChange(option.name, val)}
-                disabled={executing}
-              />
+              <ShakeTarget key={option.name} shake={errors[option.name]}>
+                <div>
+                  <ConfigFieldRenderer
+                    field={field}
+                    value={options[option.name]}
+                    onChange={(val) => handleFieldChange(option.name, val)}
+                    disabled={executing}
+                  />
+                </div>
+              </ShakeTarget>
             );
           })}
         </div>

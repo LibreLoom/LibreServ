@@ -1,6 +1,7 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ConfigFieldRenderer from "./ConfigFieldRenderer";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 import { Info, ChevronDown, ChevronUp } from "lucide-react";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
@@ -22,15 +23,19 @@ function AdvancedContent({ show, advancedFields, config, handleFieldChange, erro
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 border-l-2 border-secondary/10">
           {advancedFields.map((field) => (
             <div key={field.name} className={field.type === "boolean" ? "sm:col-span-2" : ""}>
-              <ConfigFieldRenderer
-                field={field}
-                value={config[field.name]}
-                onChange={(value) => handleFieldChange(field.name, value)}
-                surface="primary"
-              />
-              {errors[field.name] && (
-                <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
-              )}
+              <ShakeTarget shake={errors[field.name]}>
+                <div>
+                  <ConfigFieldRenderer
+                    field={field}
+                    value={config[field.name]}
+                    onChange={(value) => handleFieldChange(field.name, value)}
+                    surface="primary"
+                  />
+                  {errors[field.name] && (
+                    <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
+                  )}
+                </div>
+              </ShakeTarget>
             </div>
           ))}
         </div>
@@ -124,15 +129,19 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
                 key={field.name}
                 className={field.type === "boolean" ? "sm:col-span-2" : ""}
               >
-                <ConfigFieldRenderer
-                  field={field}
-                  value={config[field.name]}
-                  onChange={(value) => handleFieldChange(field.name, value)}
-                  surface="primary"
-                />
-                {errors[field.name] && (
-                  <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
-                )}
+                <ShakeTarget shake={errors[field.name]}>
+                  <div>
+                    <ConfigFieldRenderer
+                      field={field}
+                      value={config[field.name]}
+                      onChange={(value) => handleFieldChange(field.name, value)}
+                      surface="primary"
+                    />
+                    {errors[field.name] && (
+                      <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
+                    )}
+                  </div>
+                </ShakeTarget>
               </div>
             ))}
           </div>

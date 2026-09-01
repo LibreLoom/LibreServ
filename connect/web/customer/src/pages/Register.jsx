@@ -4,6 +4,7 @@ import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -159,19 +160,21 @@ export default function Register() {
                 autoFocus
               />
             </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-              />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Use at least 8 characters. We recommend a mix of letters, numbers, and symbols.
-              </p>
-            </div>
+            <ShakeTarget shake={error}>
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                />
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Use at least 8 characters. We recommend a mix of letters, numbers, and symbols.
+                </p>
+              </div>
+            </ShakeTarget>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
               Create Account

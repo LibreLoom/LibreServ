@@ -6,6 +6,7 @@ import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import ModalCard from "../components/cards/ModalCard";
@@ -466,16 +467,18 @@ export default function GalleryPage() {
                 createAlbum.mutate(newAlbumName.trim());
               }}
             >
-              <label className="block text-sm">
-                Album name
-                <input
-                  value={newAlbumName}
-                  onChange={(e) => setNewAlbumName(e.target.value)}
-                  className="mt-1 w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2"
-                  autoFocus
-                  required
-                />
-              </label>
+              <ShakeTarget shake={error}>
+                <label className="block text-sm">
+                  Album name
+                  <input
+                    value={newAlbumName}
+                    onChange={(e) => setNewAlbumName(e.target.value)}
+                    className="mt-1 w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2"
+                    autoFocus
+                    required
+                  />
+                </label>
+              </ShakeTarget>
               <div className="flex gap-2">
                 <Button type="submit" variant="accent" loading={createAlbum.isPending}>
                   Create

@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Download, File as FileIcon, Folder, Lock } from "lucide-react";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 
@@ -123,14 +124,16 @@ export default function PublicSharePage() {
                 setSubmittedPassword(password);
               }}
             >
-              <input
-                type="password"
-                className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-                placeholder="Password for this link"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="off"
-              />
+              <ShakeTarget shake={error}>
+                <input
+                  type="password"
+                  className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+                  placeholder="Password for this link"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="off"
+                />
+              </ShakeTarget>
               <Button type="submit" variant="primary" fullWidth>Open</Button>
             </form>
           </Card>

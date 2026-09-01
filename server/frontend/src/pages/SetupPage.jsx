@@ -15,6 +15,8 @@ import { StepTransitionContext } from "../components/setup/StepTransitionContext
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import { MfaSetupWizard } from "../components/profile/MfaCard";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
+import useLabelErrorState from "../hooks/useLabelErrorState";
 import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -217,19 +219,21 @@ function SetupCodeStep({ onCodeVerified }) {
         </p>
 
         <div className="w-full mb-6">
-          <input
-            className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
-            placeholder="______"
-            value={code}
-            onChange={(e) => {
-              setCode(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6));
-              setError("");
-            }}
-            onKeyDown={handleKeyDown}
-            autoComplete="off"
-            autoFocus
-            disabled={loading}
-          />
+          <ShakeTarget shake={error}>
+            <input
+              className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
+              placeholder="______"
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6));
+                setError("");
+              }}
+              onKeyDown={handleKeyDown}
+              autoComplete="off"
+              autoFocus
+              disabled={loading}
+            />
+          </ShakeTarget>
         </div>
 
         {error && (
@@ -602,10 +606,17 @@ function ReqChip({ ok, label }) {
 ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isRequired };
 
 /** @param {{ id: any, label: any, hint?: any, children: any }} _ */
-function FormField({ id, label, hint, children }) {
+function FormField({ id, label, hint, children, error, shake, loading = false }) {
+  const { labelError, containerRef } = useLabelErrorState(error, shake, { loading });
   return (
-    <div>
-      <label htmlFor={id} className="block text-primary/80 font-sans text-sm text-left translate-x-5 mb-1">
+    <div ref={containerRef}>
+      <label
+        htmlFor={id}
+        className={cn(
+          "block font-sans text-sm text-left translate-x-5 mb-1 motion-safe:transition-colors duration-300",
+          labelError ? "text-error" : "text-primary/80",
+        )}
+      >
         {label}
       </label>
       {children}
@@ -618,6 +629,9 @@ FormField.propTypes = {
   label:    PropTypes.string.isRequired,
   hint:     PropTypes.string,
   children: PropTypes.node.isRequired,
+  error:    PropTypes.any,
+  shake:    PropTypes.any,
+  loading:  PropTypes.bool,
 };
 
 function AccountStep({ onSuccess, onError }) {
@@ -674,6 +688,15 @@ function AccountStep({ onSuccess, onError }) {
     }
   };
 
+  const usernameShake =
+    fieldError && /username/i.test(fieldError) ? fieldError : null;
+  const emailShake =
+    fieldError && /email/i.test(fieldError) ? fieldError : null;
+  const passwordShake =
+    fieldError && (!usernameShake && !emailShake || /password/i.test(fieldError))
+      ? fieldError
+      : null;
+
   return (
     <>
       {/* Header */}
@@ -689,44 +712,49 @@ function AccountStep({ onSuccess, onError }) {
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Username */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-            <FormField id="admin_username" label="Username" hint="Used to sign in">
-              <input
-                id="admin_username"
-                name="admin_username"
-                type="text"
-                autoComplete="username"
-                placeholder="admin"
-                value={form.admin_username}
-                onChange={handleChange}
-                disabled={submitting}
-                required
-                className={WIZARD_INPUT_CLASS}
-              />
-            </FormField>
+            <ShakeTarget shake={usernameShake}>
+              <FormField id="admin_username" label="Username" hint="Used to sign in" shake={usernameShake} loading={submitting}>
+                <input
+                  id="admin_username"
+                  name="admin_username"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="admin"
+                  value={form.admin_username}
+                  onChange={handleChange}
+                  disabled={submitting}
+                  required
+                  className={WIZARD_INPUT_CLASS}
+                />
+              </FormField>
+            </ShakeTarget>
           </div>
 
           {/* Email */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
-            <FormField id="admin_email" label="Email" hint="For notifications and account recovery">
-              <input
-                id="admin_email"
-                name="admin_email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={form.admin_email}
-                onChange={handleChange}
-                disabled={submitting}
-                required
-                className={WIZARD_INPUT_CLASS}
-              />
-            </FormField>
+            <ShakeTarget shake={emailShake}>
+              <FormField id="admin_email" label="Email" hint="For notifications and account recovery" shake={emailShake} loading={submitting}>
+                <input
+                  id="admin_email"
+                  name="admin_email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={form.admin_email}
+                  onChange={handleChange}
+                  disabled={submitting}
+                  required
+                  className={WIZARD_INPUT_CLASS}
+                />
+              </FormField>
+            </ShakeTarget>
           </div>
 
           {/* Password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            <FormField id="admin_password" label="Password">
-              <div className="relative">
+            <ShakeTarget shake={passwordShake}>
+              <FormField id="admin_password" label="Password" shake={passwordShake} loading={submitting}>
+                <div className="relative">
                 <input
                   id="admin_password"
                   name="admin_password"
@@ -770,11 +798,13 @@ function AccountStep({ onSuccess, onError }) {
                 </div>
               )}
             </FormField>
+            </ShakeTarget>
           </div>
 
           {/* Confirm password */}
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-250">
-            <FormField id="confirm_password" label="Confirm password" hint={confirmOk && pw ? "Passwords match" : undefined}>
+            <ShakeTarget shake={passwordShake}>
+              <FormField id="confirm_password" label="Confirm password" hint={confirmOk && pw ? "Passwords match" : undefined} shake={passwordShake} loading={submitting}>
               <div className="relative">
                 <input
                   id="confirm_password"
@@ -803,6 +833,7 @@ function AccountStep({ onSuccess, onError }) {
                 </p>
               )}
             </FormField>
+            </ShakeTarget>
           </div>
 
           {/* Inline error */}

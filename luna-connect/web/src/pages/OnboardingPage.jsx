@@ -20,6 +20,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -750,30 +751,32 @@ export default function OnboardingPage() {
         </div>
       </div>
       <form onSubmit={handleAuth} className="w-full text-left">
-        <div
-          key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
-          className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          style={{ animationDuration: "300ms", animationFillMode: "both" }}
-        >
-          <label htmlFor={currentAuthField.id} className="block font-mono text-xl text-card-foreground mb-5 leading-snug">
-            {currentAuthField.question}
-          </label>
-          <Input
-            id={currentAuthField.id}
-            type={currentAuthField.type}
-            value={currentAuthField.value}
-            onChange={(e) => currentAuthField.setValue(e.target.value)}
-            placeholder={currentAuthField.placeholder}
-            autoComplete={currentAuthField.autoComplete}
-            autoFocus
-          />
-          {currentAuthField.hint && (
-            <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
-          )}
-          {currentAuthField.showPasswordRequirements && (
-            <PasswordRequirements password={currentAuthField.value} />
-          )}
-        </div>
+        <ShakeTarget shake={error}>
+          <div
+            key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
+            className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+            style={{ animationDuration: "300ms", animationFillMode: "both" }}
+          >
+            <label htmlFor={currentAuthField.id} className="block font-mono text-xl text-card-foreground mb-5 leading-snug">
+              {currentAuthField.question}
+            </label>
+            <Input
+              id={currentAuthField.id}
+              type={currentAuthField.type}
+              value={currentAuthField.value}
+              onChange={(e) => currentAuthField.setValue(e.target.value)}
+              placeholder={currentAuthField.placeholder}
+              autoComplete={currentAuthField.autoComplete}
+              autoFocus
+            />
+            {currentAuthField.hint && (
+              <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
+            )}
+            {currentAuthField.showPasswordRequirements && (
+              <PasswordRequirements password={currentAuthField.value} />
+            )}
+          </div>
+        </ShakeTarget>
         <Button
           type="submit"
           size="lg"
@@ -818,16 +821,20 @@ export default function OnboardingPage() {
               }
             }}
           >
-            <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-              Email address
-            </label>
-            <Input
-              id="signed-in-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
+            <ShakeTarget shake={error}>
+              <div>
+                <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+                  Email address
+                </label>
+                <Input
+                  id="signed-in-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                />
+              </div>
+            </ShakeTarget>
             <Button
               type="submit"
               size="lg"
@@ -1013,16 +1020,19 @@ export default function OnboardingPage() {
         <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
           Device code
         </label>
-        <Input
-          id="code"
-          className="font-mono uppercase tracking-widest"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="****-****-****-****-****"
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus
-        />
+        <ShakeTarget shake={error}>
+          <Input
+            id="code"
+            className="font-mono uppercase tracking-widest"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="****-****-****-****-****"
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+            aria-invalid={Boolean(error)}
+          />
+        </ShakeTarget>
         <p className="text-xs text-muted-foreground leading-relaxed">
           Luna picks up this link when it is online. You do not need to wait here.
         </p>
@@ -1034,7 +1044,7 @@ export default function OnboardingPage() {
   );
 
   const renderDiyCode = () => (
-    <StepShell icon={Key} title="Put this code on Luna">
+    <StepShell icon={Key} title="Your device code">
       <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
       <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
         During Luna OS install, after the disk is written, the installer asks for your device code on the screen connected to Luna. Paste this
@@ -1119,20 +1129,24 @@ export default function OnboardingPage() {
           }
         }}
       >
-        <label htmlFor="name" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-          Name
-        </label>
-        <Input
-          id="name"
-          className="font-mono"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="kitchen"
-          autoFocus
-        />
-        <p className="text-sm font-mono text-foreground">
-          {name.trim() ? `${name.trim().toLowerCase()}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
-        </p>
+        <ShakeTarget shake={error}>
+          <div>
+            <label htmlFor="name" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+              Name
+            </label>
+            <Input
+              id="name"
+              className="font-mono"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="kitchen"
+              autoFocus
+            />
+            <p className="text-sm font-mono text-foreground">
+              {name.trim() ? `${name.trim().toLowerCase()}.${PUBLIC_ZONE}` : `kitchen.${PUBLIC_ZONE}`}
+            </p>
+          </div>
+        </ShakeTarget>
         <p className="text-xs text-muted-foreground leading-relaxed">
           Luna applies this address when it is online. You can finish here either way.
         </p>

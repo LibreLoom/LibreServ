@@ -3,6 +3,7 @@ import { useAuth } from "../../../hooks/useAuth";
 import { Shield } from "lucide-react";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 
 export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -54,25 +55,27 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         </p>
       </div>
 
-      <div>
-        <label
-          htmlFor="role"
-          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          New Role
-        </label>
-        <Dropdown
-          value={role}
-          onChange={setRole}
-          fullWidth
-          disabled={loading}
-          bg="primary"
-          options={[
-            { value: "user", label: "User" },
-            { value: "admin", label: "Admin" },
-          ]}
-        />
-      </div>
+      <ShakeTarget shake={error}>
+        <div>
+          <label
+            htmlFor="role"
+            className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          >
+            New Role
+          </label>
+          <Dropdown
+            value={role}
+            onChange={setRole}
+            fullWidth
+            disabled={loading}
+            bg="primary"
+            options={[
+              { value: "user", label: "User" },
+              { value: "admin", label: "Admin" },
+            ]}
+          />
+        </div>
+      </ShakeTarget>
 
       {error && (
         <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-accent text-sm text-center">

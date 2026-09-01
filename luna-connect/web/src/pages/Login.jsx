@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -54,10 +55,14 @@ export default function Login() {
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoFocus />
             </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
-            </div>
+            <ShakeTarget shake={error} loading={loading}>
+              <div>
+                <Label htmlFor="password" error={error} shake={error} loading={loading}>
+                  Password
+                </Label>
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
+              </div>
+            </ShakeTarget>
             {error && <p className="text-sm text-error">{error}</p>}
             <Button type="submit" className="w-full" loading={loading}>Sign in</Button>
           </form>

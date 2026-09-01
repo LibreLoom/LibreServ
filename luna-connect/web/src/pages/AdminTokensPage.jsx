@@ -3,6 +3,7 @@ import { AdminLayout } from "../components/AdminLayout.jsx";
 import { Badge, StatusBadge } from "../components/ui/badge.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Input } from "../components/ui/input.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
@@ -146,14 +147,16 @@ export default function AdminTokensPage() {
         <CardContent className="space-y-4">
           <div className="max-w-xs">
             <Label htmlFor="bulk-count">How many</Label>
-            <Input
-              id="bulk-count"
-              type="number"
-              min={1}
-              max={10000}
-              value={bulkCount}
-              onChange={(e) => setBulkCount(e.target.value)}
-            />
+            <ShakeTarget shake={error}>
+              <Input
+                id="bulk-count"
+                type="number"
+                min={1}
+                max={10000}
+                value={bulkCount}
+                onChange={(e) => setBulkCount(e.target.value)}
+              />
+            </ShakeTarget>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button

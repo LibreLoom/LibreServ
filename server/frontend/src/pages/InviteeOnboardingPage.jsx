@@ -4,6 +4,8 @@ import { useParams } from "react-router-dom";
 import { Loader2, AlertCircle, ShieldCheck } from "lucide-react";
 import api from "../lib/api";
 import Button from "../components/ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
+import FieldLabel from "../components/common/forms/FieldLabel";
 import Alert from "../components/common/Alert";
 
 // Password rules mirror the backend + the rest of the app.
@@ -99,6 +101,8 @@ export default function InviteeOnboardingPage() {
   }
 
   const isAdmin = invite.role === "admin";
+  const usernameShake = error && /username/i.test(error) ? error : null;
+  const passwordShake = error && !usernameShake ? error : null;
 
   return (
     <main className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
@@ -121,31 +125,49 @@ export default function InviteeOnboardingPage() {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary">
-          <label htmlFor="username" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
+          <FieldLabel
+            htmlFor="username"
+            surface="primary"
+            shake={usernameShake}
+            loading={submitting}
+            className="font-sans mb-1"
+          >
             Username
-          </label>
-          <input
-            id="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Choose a username"
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-            autoComplete="username"
-            required
-          />
-          <label htmlFor="password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Minimum 12 characters (letters and numbers)"
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-            autoComplete="new-password"
-            required
-          />
+          </FieldLabel>
+          <ShakeTarget shake={usernameShake}>
+            <input
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Choose a username"
+              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+              autoComplete="username"
+              required
+            />
+          </ShakeTarget>
+          <ShakeTarget shake={passwordShake}>
+            <div>
+              <FieldLabel
+                htmlFor="password"
+                surface="primary"
+                shake={passwordShake}
+                loading={submitting}
+                className="font-sans mb-1"
+              >
+                Password
+              </FieldLabel>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Minimum 12 characters (letters and numbers)"
+                className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2 w-full"
+                autoComplete="new-password"
+                required
+              />
+            </div>
+          </ShakeTarget>
           {password && (
             <div className="mt-2 px-5">
               <div className="flex gap-1 mb-1">

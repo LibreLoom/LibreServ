@@ -4,6 +4,7 @@ import { Badge } from "../components/ui/badge.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { adminApi, useAdminAuth } from "../context/AdminAuthContext.jsx";
 import { KeyRound, Plus, Shield, Trash2, Users } from "lucide-react";
@@ -18,6 +19,7 @@ export default function AdminSecurityPage() {
   const [pwdSuccess, setPwdSuccess] = useState("");
   const [admins, setAdmins] = useState([]);
   const [adminsError, setAdminsError] = useState("");
+  const [adminFormError, setAdminFormError] = useState("");
   const [showAdminForm, setShowAdminForm] = useState(false);
   const [newAdmin, setNewAdmin] = useState({ email: "", password: "", name: "" });
   const [busy, setBusy] = useState("");
@@ -63,6 +65,9 @@ export default function AdminSecurityPage() {
     }
   };
 
+  const verifyShake =
+    message && secret && !account?.has_2fa ? message : null;
+
   const changePassword = async () => {
     setPwdError("");
     setPwdSuccess("");
@@ -88,6 +93,7 @@ export default function AdminSecurityPage() {
   const createAdmin = async () => {
     setBusy("create-admin");
     setAdminsError("");
+    setAdminFormError("");
     try {
       await adminApi("/admin/admins", {
         method: "POST",
@@ -97,7 +103,7 @@ export default function AdminSecurityPage() {
       setShowAdminForm(false);
       await loadAdmins();
     } catch (err) {
-      setAdminsError(err.message);
+      setAdminFormError(err.message);
     } finally {
       setBusy("");
     }
@@ -157,30 +163,36 @@ export default function AdminSecurityPage() {
         <CardContent className="space-y-3 max-w-md">
           <div>
             <Label htmlFor="current-password">Current password</Label>
-            <Input
-              id="current-password"
-              type="password"
-              value={pwd.current}
-              onChange={(e) => setPwd({ ...pwd, current: e.target.value })}
-            />
+            <ShakeTarget shake={pwdError}>
+              <Input
+                id="current-password"
+                type="password"
+                value={pwd.current}
+                onChange={(e) => setPwd({ ...pwd, current: e.target.value })}
+              />
+            </ShakeTarget>
           </div>
           <div>
             <Label htmlFor="new-password">New password</Label>
-            <Input
-              id="new-password"
-              type="password"
-              value={pwd.next}
-              onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
-            />
+            <ShakeTarget shake={pwdError}>
+              <Input
+                id="new-password"
+                type="password"
+                value={pwd.next}
+                onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
+              />
+            </ShakeTarget>
           </div>
           <div>
             <Label htmlFor="confirm-password">Confirm new password</Label>
-            <Input
-              id="confirm-password"
-              type="password"
-              value={pwd.confirm}
-              onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })}
-            />
+            <ShakeTarget shake={pwdError}>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={pwd.confirm}
+                onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })}
+              />
+            </ShakeTarget>
           </div>
           {pwdError && <p className="text-sm text-error">{pwdError}</p>}
           {pwdSuccess && <p className="text-sm text-success">{pwdSuccess}</p>}
@@ -213,13 +225,15 @@ export default function AdminSecurityPage() {
                 </p>
                 <div className="max-w-xs">
                   <Label htmlFor="totp-verify">Authenticator code</Label>
-                  <Input
-                    id="totp-verify"
-                    value={verifyCode}
-                    onChange={(e) => setVerifyCode(e.target.value)}
-                    maxLength={6}
-                    placeholder="000000"
-                  />
+                  <ShakeTarget shake={verifyShake}>
+                    <Input
+                      id="totp-verify"
+                      value={verifyCode}
+                      onChange={(e) => setVerifyCode(e.target.value)}
+                      maxLength={6}
+                      placeholder="000000"
+                    />
+                  </ShakeTarget>
                 </div>
                 <Button loading={busy === "2fa-verify"} onClick={verify2FA}>
                   Turn on 2FA
@@ -286,31 +300,38 @@ export default function AdminSecurityPage() {
             <div className="space-y-3 max-w-md rounded-large-element border border-border p-4">
               <div>
                 <Label htmlFor="admin-name">Name</Label>
-                <Input
-                  id="admin-name"
-                  value={newAdmin.name}
-                  onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
-                />
+                <ShakeTarget shake={adminFormError}>
+                  <Input
+                    id="admin-name"
+                    value={newAdmin.name}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
+                  />
+                </ShakeTarget>
               </div>
               <div>
                 <Label htmlFor="admin-email">Email</Label>
-                <Input
-                  id="admin-email"
-                  type="email"
-                  value={newAdmin.email}
-                  onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
-                />
+                <ShakeTarget shake={adminFormError}>
+                  <Input
+                    id="admin-email"
+                    type="email"
+                    value={newAdmin.email}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
+                  />
+                </ShakeTarget>
               </div>
               <div>
                 <Label htmlFor="admin-password">Password</Label>
-                <Input
-                  id="admin-password"
-                  type="password"
-                  value={newAdmin.password}
-                  onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
-                  placeholder="At least 12 characters"
-                />
+                <ShakeTarget shake={adminFormError}>
+                  <Input
+                    id="admin-password"
+                    type="password"
+                    value={newAdmin.password}
+                    onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
+                    placeholder="At least 12 characters"
+                  />
+                </ShakeTarget>
               </div>
+              {adminFormError && <p className="text-sm text-error">{adminFormError}</p>}
               <div className="flex gap-2">
                 <Button loading={busy === "create-admin"} onClick={createAdmin}>
                   Create

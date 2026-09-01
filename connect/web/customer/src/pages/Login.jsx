@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -67,31 +68,39 @@ export default function Login() {
                     autoFocus
                   />
                 </div>
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                  />
-                </div>
+                <ShakeTarget shake={error} loading={loading}>
+                  <div>
+                    <Label htmlFor="password" error={error} shake={error} loading={loading}>
+                      Password
+                    </Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                    />
+                  </div>
+                </ShakeTarget>
               </>
             )}
             {needs2FA && (
-              <div>
-                <Label htmlFor="totp">Authenticator Code</Label>
-                <Input
-                  id="totp"
-                  type="text"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value)}
-                  placeholder="000000"
-                  maxLength={6}
-                  autoFocus
-                />
-              </div>
+              <ShakeTarget shake={error} loading={loading}>
+                <div>
+                  <Label htmlFor="totp" error={error} shake={error} loading={loading}>
+                    Authenticator Code
+                  </Label>
+                  <Input
+                    id="totp"
+                    type="text"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    placeholder="000000"
+                    maxLength={6}
+                    autoFocus
+                  />
+                </div>
+              </ShakeTarget>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>

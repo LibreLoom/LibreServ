@@ -1,7 +1,10 @@
 import PropTypes from "prop-types";
+import { useRef } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle, Info, X } from "lucide-react";
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import useShakeOnError from "../../hooks/useShakeOnError";
+import { calloutShakeTrigger } from "../../utils/shake";
 
 const calloutTones = cva(
   "border p-3 motion-safe:transition-colors animate-alert-enter",
@@ -68,9 +71,14 @@ export default function Callout({
 }) {
   const Icon = icon !== undefined ? icon : TONE_ICONS[tone] || TONE_ICONS.info;
   const textClass = TONE_TEXT[tone] || TONE_TEXT.info;
+  const calloutRef = useRef(null);
+  const shakeTrigger = calloutShakeTrigger(tone, title, children);
+
+  useShakeOnError(shakeTrigger, calloutRef);
 
   return (
     <div
+      ref={calloutRef}
       data-slot="alert"
       data-tone={tone}
       className={cn(calloutTones({ tone, rounded }), className)}

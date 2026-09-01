@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAdminAuth } from "../context/AdminAuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
+import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -93,33 +94,37 @@ export default function AdminLogin() {
                     required
                   />
                 </div>
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"}
-                    required
-                  />
-                </div>
+                <ShakeTarget shake={error}>
+                  <div>
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"}
+                      required
+                    />
+                  </div>
+                </ShakeTarget>
               </>
             )}
             {needs2FA && (
-              <div>
-                <Label htmlFor="totp">Authenticator code</Label>
-                <Input
-                  id="totp"
-                  type="text"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value)}
-                  placeholder="000000"
-                  maxLength={6}
-                  autoFocus
-                  required
-                />
-              </div>
+              <ShakeTarget shake={error}>
+                <div>
+                  <Label htmlFor="totp">Authenticator code</Label>
+                  <Input
+                    id="totp"
+                    type="text"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    placeholder="000000"
+                    maxLength={6}
+                    autoFocus
+                    required
+                  />
+                </div>
+              </ShakeTarget>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             {info && <p className="text-sm text-muted-foreground">{info}</p>}

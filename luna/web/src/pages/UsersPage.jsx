@@ -11,6 +11,7 @@ import Pill from "../components/common/Pill";
 import Table from "../components/common/Table";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import { InfoHint } from "../components/ui/Tooltip";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
 import {
@@ -229,6 +230,7 @@ export default function UsersPage() {
         onClose={() => setCreating(false)}
         onSubmit={(body) => createMutation.mutate(body)}
         busy={createMutation.isPending}
+        submitError={creating ? error : null}
       />
 
       <ConfirmModal
@@ -246,7 +248,7 @@ export default function UsersPage() {
   );
 }
 
-function CreateUserModal({ open = true, onClose, onSubmit, busy }) {
+function CreateUserModal({ open = true, onClose, onSubmit, busy, submitError = null }) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -280,32 +282,36 @@ function CreateUserModal({ open = true, onClose, onSubmit, busy }) {
           <FieldLabel htmlFor="add-user-username" surface="secondary" required>
             Username
           </FieldLabel>
-          <input
-            id="add-user-username"
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            required
-          />
+          <ShakeTarget shake={submitError}>
+            <input
+              id="add-user-username"
+              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </ShakeTarget>
         </div>
         <div>
           <FieldLabel htmlFor="add-user-password" surface="secondary" required>
             Password
           </FieldLabel>
-          <input
-            id="add-user-password"
-            type="password"
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            placeholder={PASSWORD_POLICY_HINT}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onBlur={() => setTouchedPassword(true)}
-            autoComplete="new-password"
-            aria-invalid={passwordError ? true : undefined}
-            aria-describedby={passwordError ? "add-user-password-hint" : undefined}
-          />
+          <ShakeTarget shake={submitError || passwordError}>
+            <input
+              id="add-user-password"
+              type="password"
+              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              placeholder={PASSWORD_POLICY_HINT}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onBlur={() => setTouchedPassword(true)}
+              autoComplete="new-password"
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby={passwordError ? "add-user-password-hint" : undefined}
+            />
+          </ShakeTarget>
           {password.length > 0 && (
             <div className="mt-2 px-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-mono">
               <span className={checks.hasLength ? "text-success" : "text-primary"}>

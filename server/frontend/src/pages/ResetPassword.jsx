@@ -188,6 +188,8 @@ export default function ResetPassword() {
               minLength={8}
               autoComplete="new-password"
               surface="primary"
+              error={error}
+              shake={error}
             />
 
             <FormInput

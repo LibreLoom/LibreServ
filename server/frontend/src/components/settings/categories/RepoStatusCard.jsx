@@ -5,6 +5,7 @@ import { useToast } from "../../../context/ToastContext";
 import api from "../../../lib/api";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
+import ShakeTarget from "../../ui/ShakeTarget";
 import ModalCard from "../../cards/ModalCard";
 import ConfirmModal from "../../cards/ConfirmModal";
 
@@ -79,16 +80,18 @@ function AddRepoModal({ onClose, onAdded }) {
           <label htmlFor="repo-url" className="text-sm text-primary block mb-1">
             Repository URL
           </label>
-          <input
-            id="repo-url"
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://github.com/user/apps"
-            className={inputClasses}
-            disabled={adding}
-            autoFocus
-          />
+          <ShakeTarget shake={error}>
+            <input
+              id="repo-url"
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://github.com/user/apps"
+              className={inputClasses}
+              disabled={adding}
+              autoFocus
+            />
+          </ShakeTarget>
           <p className="text-xs text-primary mt-1.5">
             The <GitLink /> URL of the repository, starting with http:// or https://.
           </p>

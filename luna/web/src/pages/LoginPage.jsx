@@ -120,8 +120,9 @@ export default function LoginPage() {
               <form
                 onSubmit={handleSubmit}
                 aria-busy={loading}
-                className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
+                className="flex flex-col mt-6"
               >
+                <div className="rounded-large-element p-4 bg-primary text-secondary flex flex-col">
                 <FormInput
                   label="Username"
                   name="username"
@@ -142,6 +143,8 @@ export default function LoginPage() {
                   placeholder="e.g. hunter2"
                   autoComplete="current-password"
                   surface="primary"
+                  shake={errorStatus}
+                  loading={loading}
                   aria-invalid={Boolean(errorStatus)}
                   aria-describedby={errorStatus ? "login-error" : undefined}
                 />
@@ -165,6 +168,7 @@ export default function LoginPage() {
                   id="login-error"
                 >
                   {errorStatus && calculateErrorHTML()}
+                </div>
                 </div>
               </form>
             </StepTransition>

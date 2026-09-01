@@ -76,6 +76,9 @@ function ForgotPasswordModal({ isOpen, onClose }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
               surface="secondary"
+              error={error}
+              shake={error}
+              loading={loading}
               required
             />
             {error && (
@@ -282,8 +285,9 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
         <form
           onSubmit={handleSubmit}
           aria-busy={loading}
-          className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
+          className="flex flex-col mt-6"
         >
+          <div className="rounded-large-element p-4 bg-primary text-secondary flex flex-col">
           <FormInput
             label="Username"
             name="username"
@@ -304,6 +308,8 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             placeholder="e.g. hunter2"
             autoComplete="current-password"
             surface="primary"
+            shake={errorStatus}
+            loading={loading}
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
           />
@@ -332,6 +338,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             id="login-error"
           >
             {errorStatus && calculateErrorHTML()}
+          </div>
           </div>
         </form>
               )}

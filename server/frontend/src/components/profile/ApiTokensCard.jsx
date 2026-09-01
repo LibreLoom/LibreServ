@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { KeyRound, Trash2, Plus, Loader2 } from "lucide-react";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import CopyableValue from "../ui/CopyableValue";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
@@ -28,6 +29,7 @@ export default function ApiTokensCard() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
   const [newToken, setNewToken] = useState(null); // { token, id, name }
   const [revokingId, setRevokingId] = useState(null);
 
@@ -54,6 +56,7 @@ export default function ApiTokensCard() {
     const trimmed = name.trim();
     if (!trimmed) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const res = await request("/api-tokens", {
         method: "POST",
@@ -73,7 +76,9 @@ export default function ApiTokensCard() {
         message: "API token created. Copy it now — you won't be able to see it again.",
       });
     } catch {
-      addToast({ type: "error", message: "We couldn't create that API token. Please try again." });
+      const message = "We couldn't create that API token. Please try again.";
+      setCreateError(message);
+      addToast({ type: "error", message });
     } finally {
       setCreating(false);
     }
@@ -132,14 +137,19 @@ export default function ApiTokensCard() {
         )}
 
         <form onSubmit={handleCreate} className="flex items-center gap-2">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Token name (e.g. Backup script)"
-            className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary focus:ring-2 focus:ring-accent focus:ring-offset-2"
-            disabled={creating}
-          />
+          <ShakeTarget shake={createError}>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setCreateError(null);
+              }}
+              placeholder="Token name (e.g. Backup script)"
+              className="flex-1 px-4 py-2 border-2 border-secondary/30 rounded-large-element bg-secondary text-primary focus:ring-2 focus:ring-accent focus:ring-offset-2"
+              disabled={creating}
+            />
+          </ShakeTarget>
           <Button type="submit" disabled={creating || !name.trim()}>
             {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
             Create

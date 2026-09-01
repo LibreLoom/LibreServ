@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, Settings, ChevronDown, ChevronUp, Info, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
+import ShakeTarget from "../ui/ShakeTarget";
 import ConfigFieldRenderer from "./wizard/ConfigFieldRenderer";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
@@ -23,15 +24,19 @@ function AdvancedContent({ show, advancedFields, config, handleFieldChange, erro
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 border-l-2 border-primary/10">
           {advancedFields.map((field) => (
             <div key={field.name} className={field.type === "boolean" ? "sm:col-span-2" : ""}>
-              <ConfigFieldRenderer
-                field={field}
-                value={config[field.name]}
-                onChange={(value) => handleFieldChange(field.name, value)}
-                surface="secondary"
-              />
-              {errors[field.name] && (
-                <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
-              )}
+              <ShakeTarget shake={errors[field.name]}>
+                <div>
+                  <ConfigFieldRenderer
+                    field={field}
+                    value={config[field.name]}
+                    onChange={(value) => handleFieldChange(field.name, value)}
+                    surface="secondary"
+                  />
+                  {errors[field.name] && (
+                    <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
+                  )}
+                </div>
+              </ShakeTarget>
             </div>
           ))}
         </div>
@@ -221,21 +226,25 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
                   Application Settings
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {basicFields.map((field) => (
+                  {basicFields.map((field, index) => (
                     <div
                       key={field.name}
                       className={field.type === "boolean" ? "sm:col-span-2" : ""}
                     >
-                      <ConfigFieldRenderer
-                        field={field}
-                        value={config[field.name]}
-                        onChange={(value) => handleFieldChange(field.name, value)}
-                        disabled={submitting}
-                        surface="secondary"
-                      />
-                      {errors[field.name] && (
-                        <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
-                      )}
+                      <ShakeTarget shake={errors[field.name] || (submitError && index === 0 ? submitError : null)}>
+                        <div>
+                          <ConfigFieldRenderer
+                            field={field}
+                            value={config[field.name]}
+                            onChange={(value) => handleFieldChange(field.name, value)}
+                            disabled={submitting}
+                            surface="secondary"
+                          />
+                          {errors[field.name] && (
+                            <p className="text-xs text-primary mt-1">{errors[field.name]}</p>
+                          )}
+                        </div>
+                      </ShakeTarget>
                     </div>
                   ))}
                 </div>

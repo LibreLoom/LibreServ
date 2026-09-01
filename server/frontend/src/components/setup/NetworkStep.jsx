@@ -6,7 +6,10 @@ import api from "../../lib/api";
 import Button from "../ui/Button";
 import Pill from "../common/Pill";
 import ModalCard from "../cards/ModalCard";
+import ShakeTarget from "../ui/ShakeTarget";
 import { TermHint } from "../ui/Tooltip";
+
+const PICK_NETWORK_ERROR = "Pick your home network first.";
 
 // A visible network in the wizard's scan list.
 const shapeNetwork = (net) => ({
@@ -166,7 +169,7 @@ export default function NetworkStep({ name, onContinue }) {
 
   const handleConnect = useCallback(async () => {
     if (!selected) {
-      setError("Pick your home network first.");
+      setError(PICK_NETWORK_ERROR);
       return;
     }
     setConnecting(true);
@@ -345,31 +348,35 @@ export default function NetworkStep({ name, onContinue }) {
               </p>
             )}
 
-            {!scanError &&
-              networks.map((net) => {
-                const isSelected = selected === net.ssid;
-                return (
-                  <button
-                    key={net.ssid}
-                    type="button"
-                    onClick={() => { setSelected(net.ssid); setError(""); }}
-                    className={cn(
-                      "w-full flex items-center gap-3 p-3.5 rounded-large-element border text-left",
-                      "motion-safe:transition-all motion-safe:duration-200",
-                      isSelected
-                        ? "border-accent bg-primary/10"
-                        : "border-primary/15 hover:border-primary/35"
-                    )}
-                  >
-                    <Wifi size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-primary/50")} />
-                    <span className="flex-1 min-w-0 truncate text-sm text-primary font-mono">{net.ssid}</span>
-                    <span className="flex items-center gap-1.5 text-[11px] text-primary/45 shrink-0">
-                      {net.encrypted && <Lock size={11} className="text-primary/50" />}
-                      {signalLabel(net.signal)}
-                    </span>
-                  </button>
-                );
-              })}
+            <ShakeTarget shake={error === PICK_NETWORK_ERROR ? error : null}>
+              <div className="space-y-2">
+                {!scanError &&
+                  networks.map((net) => {
+                    const isSelected = selected === net.ssid;
+                    return (
+                      <button
+                        key={net.ssid}
+                        type="button"
+                        onClick={() => { setSelected(net.ssid); setError(""); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 p-3.5 rounded-large-element border text-left",
+                          "motion-safe:transition-all motion-safe:duration-200",
+                          isSelected
+                            ? "border-accent bg-primary/10"
+                            : "border-primary/15 hover:border-primary/35"
+                        )}
+                      >
+                        <Wifi size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-primary/50")} />
+                        <span className="flex-1 min-w-0 truncate text-sm text-primary font-mono">{net.ssid}</span>
+                        <span className="flex items-center gap-1.5 text-[11px] text-primary/45 shrink-0">
+                          {net.encrypted && <Lock size={11} className="text-primary/50" />}
+                          {signalLabel(net.signal)}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </ShakeTarget>
 
             {scanError && (
               <div className="flex items-start gap-2.5 p-3.5 rounded-large-element border border-accent/25 bg-accent/10">
@@ -391,30 +398,32 @@ export default function NetworkStep({ name, onContinue }) {
 
             {selected && !wifiConnected && (
               <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                    placeholder="Wi-Fi password"
-                    autoComplete="off"
-                    disabled={connecting}
-                    className={cn(
-                      "w-full pl-4 pr-11 py-3 rounded-pill font-mono text-sm",
-                      "bg-primary text-secondary border-2 border-accent/30",
-                      "focus:border-accent focus:outline-none",
-                      "motion-safe:transition-colors placeholder:text-secondary/40"
-                    )}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary/50 hover:text-secondary motion-safe:transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
+                <ShakeTarget shake={error && error !== PICK_NETWORK_ERROR ? error : null}>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                      placeholder="Wi-Fi password"
+                      autoComplete="off"
+                      disabled={connecting}
+                      className={cn(
+                        "w-full pl-4 pr-11 py-3 rounded-pill font-mono text-sm",
+                        "bg-primary text-secondary border-2 border-accent/30",
+                        "focus:border-accent focus:outline-none",
+                        "motion-safe:transition-colors placeholder:text-secondary/40"
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary/50 hover:text-secondary motion-safe:transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </ShakeTarget>
                 <p className="text-xs text-accent">
                   That password is the one on the sticker of your router or modem. We never show or store it in plain sight.
                 </p>

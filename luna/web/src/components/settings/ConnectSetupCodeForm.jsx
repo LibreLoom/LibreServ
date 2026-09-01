@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
+import ShakeTarget from "../components/ui/ShakeTarget";
 import { getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 /**
@@ -79,20 +80,23 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
         <label htmlFor="luna-connect-setup-code" className="block text-sm text-primary mb-1.5">
           Setup code
         </label>
-        <input
-          id="luna-connect-setup-code"
-          className={inputClass}
-          value={code}
-          onChange={(e) => {
-            setCode(e.target.value);
-            setSaved(false);
-            if (error) setError(null);
-          }}
-          placeholder="****-****-****-****-****"
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="Setup code from Luna Connect"
-        />
+        <ShakeTarget shake={error}>
+          <input
+            id="luna-connect-setup-code"
+            className={inputClass}
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setSaved(false);
+              if (error) setError(null);
+            }}
+            placeholder="****-****-****-****-****"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Setup code from Luna Connect"
+            aria-invalid={Boolean(error)}
+          />
+        </ShakeTarget>
       </div>
       {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
       {saved && !error && (

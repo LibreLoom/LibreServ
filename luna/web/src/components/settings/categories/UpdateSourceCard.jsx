@@ -5,6 +5,7 @@ import Button from "../../ui/Button";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import ModalCard from "../../cards/ModalCard";
 import PageNotice from "../../common/PageNotice";
+import ShakeTarget from "../../ui/ShakeTarget";
 import Pill from "../../common/Pill";
 import SettingsCard from "../SettingsCard";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
@@ -241,6 +242,17 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     setSaveError(null);
   };
 
+  const apiBaseShake =
+    saveError && (saveError.includes("API address") || saveError.includes("http://"))
+      ? saveError
+      : null;
+  const ownerRepoShake =
+    saveError && saveError.includes("owner and the repo") ? saveError : null;
+  const keysShake =
+    saveError && saveError.includes("signing keys") ? saveError : null;
+  const generalSaveShake =
+    saveError && !apiBaseShake && !ownerRepoShake && !keysShake ? saveError : null;
+
   return (
     <ModalCard open={open} title="Update source" onClose={onClose}>
       {({ close }) => (
@@ -258,14 +270,16 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
                 content="The web address of the code-hosting server (a Forgejo server) that publishes Luna updates — usually ending in /api/v1. If you host Luna's releases on your own server, put that server's address here. Example: https://gt.plainskill.net/api/v1"
               />
             </label>
-            <input
-              id="us-base-url"
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={defaults.api_base || "https://gt.plainskill.net/api/v1"}
-              className={INPUT_CLASS}
-            />
+            <ShakeTarget shake={apiBaseShake || generalSaveShake}>
+              <input
+                id="us-base-url"
+                type="text"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder={defaults.api_base || "https://gt.plainskill.net/api/v1"}
+                className={INPUT_CLASS}
+              />
+            </ShakeTarget>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -273,14 +287,16 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               <label className="block text-sm text-primary" htmlFor="us-owner">
                 Owner
               </label>
-              <input
-                id="us-owner"
-                type="text"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder={defaults.owner || "LibreLoom"}
-                className={INPUT_CLASS}
-              />
+              <ShakeTarget shake={ownerRepoShake || generalSaveShake}>
+                <input
+                  id="us-owner"
+                  type="text"
+                  value={owner}
+                  onChange={(e) => setOwner(e.target.value)}
+                  placeholder={defaults.owner || "LibreLoom"}
+                  className={INPUT_CLASS}
+                />
+              </ShakeTarget>
             </div>
             <div className="space-y-1">
               <label className="block text-sm text-primary" htmlFor="us-repo">
@@ -290,14 +306,16 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
                   content="The project page on that server where the releases live. Together with the owner it points at one page, like LibreLoom/LibreServ."
                 />
               </label>
-              <input
-                id="us-repo"
-                type="text"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder={defaults.repo || "LibreServ"}
-                className={INPUT_CLASS}
-              />
+              <ShakeTarget shake={ownerRepoShake || generalSaveShake}>
+                <input
+                  id="us-repo"
+                  type="text"
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                  placeholder={defaults.repo || "LibreServ"}
+                  className={INPUT_CLASS}
+                />
+              </ShakeTarget>
             </div>
           </div>
 
@@ -322,14 +340,16 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
                 Fetch from repo
               </Button>
             </div>
-            <textarea
-              id="us-keys"
-              value={keysText}
-              onChange={(e) => setKeysText(e.target.value)}
-              rows={3}
-              placeholder={(defaults.keys || []).join("\n") || "Luna's built-in release key"}
-              className="w-full min-w-0 rounded-large-element bg-primary text-secondary px-4 py-2 font-mono text-sm"
-            />
+            <ShakeTarget shake={keysShake || generalSaveShake}>
+              <textarea
+                id="us-keys"
+                value={keysText}
+                onChange={(e) => setKeysText(e.target.value)}
+                rows={3}
+                placeholder={(defaults.keys || []).join("\n") || "Luna's built-in release key"}
+                className="w-full min-w-0 rounded-large-element bg-primary text-secondary px-4 py-2 font-mono text-sm"
+              />
+            </ShakeTarget>
             <p className="text-primary text-sm">
               One minisign public key per line (the line that starts with RW).
               {s.default_keys
