@@ -144,6 +144,7 @@ export default function ModalCard({
   useEffect(() => {
     if (!present || scrollReady || isClosing) return undefined;
     if (prefersReducedMotion()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync when motion is off
       setScrollReady(true);
       return undefined;
     }
