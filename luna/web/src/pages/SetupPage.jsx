@@ -196,19 +196,17 @@ function WelcomeStep({ onBegin }) {
       </div>
 
       <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
-        Luna
+        Welcome.
       </h1>
 
-      <p className="text-primary/68 text-xl leading-[1.65] mb-8 max-w-[22rem]">
-        Your files, your drives, your house. No subscription — ever.
+      <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
+        Let&rsquo;s get Luna set up for you.
       </p>
-
-      <DiscoveryPaths />
 
       <Button
         variant="primary"
         onClick={onBegin}
-        className="group mt-8 px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
       >
         Begin Setup
         <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />

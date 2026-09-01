@@ -72,14 +72,14 @@ describe("SetupPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens on welcome with the logo, tagline, discovery paths, and begin button", async () => {
+  it("opens on welcome with the logo, tagline, and begin button", async () => {
     vi.stubGlobal("fetch", stubFetch({ network: { ipv4: ["192.168.1.20"] } }));
     renderSetup();
-    expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
-    expect(screen.getByText(/Your files, your drives, your house/i)).toBeTruthy();
-    expect(screen.getByText("luna.local")).toBeTruthy();
-    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
-    expect(screen.getByText(/current address on the screen/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Welcome." })).toBeTruthy();
+    expect(screen.getByText(/get Luna set up for you/i)).toBeTruthy();
+    expect(screen.queryByText("luna.local")).toBeNull();
+    expect(screen.queryByText("192.168.1.20")).toBeNull();
+    expect(screen.queryByText(/current address on the screen/i)).toBeNull();
     expect(screen.queryByText("http://luna")).toBeNull();
     expect(screen.queryByText("http://169.254.42.42")).toBeNull();
     expect(screen.queryByText(/Luna Setup/i)).toBeNull();
@@ -154,7 +154,7 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: /Your device code/i })).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Device code/i), { target: { value: "ABCDEFGH" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-    expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Welcome." })).toBeTruthy();
   });
 
   it("asks for the Luna Connect setup code on a public hostname when Connect is active", async () => {
