@@ -561,14 +561,12 @@ function AccountStep({ hasAdmin, onContinue }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
           Create your account
         </h2>
-        <div className="mt-2 space-y-2">
-          <p className="text-primary text-sm leading-relaxed">
-            You&apos;re creating the initial admin account. This account can access every file on Luna.
-          </p>
-          <p className="text-primary text-sm leading-relaxed">
-            Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders if you wish.
-          </p>
-        </div>
+        {authSubStep === 0 && (
+          <div className="mt-2 space-y-2 font-sans text-sm leading-relaxed text-primary">
+            <p>You&apos;re creating the initial admin account. This account can access every file on Luna.</p>
+            <p>Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders if you wish.</p>
+          </div>
+        )}
       </div>
 
       {/* Substep progress */}
