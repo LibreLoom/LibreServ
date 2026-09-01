@@ -35,8 +35,10 @@ export default function FormInput({
   const Icon = icon ? ICONS[icon] : null;
   const isPassword = type === "password";
 
-  useShakeOnError(error, fieldRef);
-  useShakeOnError(shake, fieldRef);
+  const shakeOptions = loading !== undefined ? { loading } : undefined;
+
+  useShakeOnError(error, fieldRef, shakeOptions);
+  useShakeOnError(shake, fieldRef, shakeOptions);
 
   return (
     <div className="mb-4">

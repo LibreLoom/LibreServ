@@ -68,7 +68,7 @@ export default function Login() {
                     autoFocus
                   />
                 </div>
-                <ShakeTarget shake={error}>
+                <ShakeTarget shake={error} loading={loading}>
                   <div>
                     <Label htmlFor="password" error={error} shake={error} loading={loading}>
                       Password
@@ -85,7 +85,7 @@ export default function Login() {
               </>
             )}
             {needs2FA && (
-              <ShakeTarget shake={error}>
+              <ShakeTarget shake={error} loading={loading}>
                 <div>
                   <Label htmlFor="totp" error={error} shake={error} loading={loading}>
                     Authenticator Code

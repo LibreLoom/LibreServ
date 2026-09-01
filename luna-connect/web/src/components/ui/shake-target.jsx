@@ -7,7 +7,7 @@ import useShakeOnError from "../../hooks/useShakeOnError.js";
  * @param {{ shake?: unknown, as?: import("react").ElementType, className?: string, children?: import("react").ReactNode } & Record<string, unknown>} props
  */
 const ShakeTarget = forwardRef(function ShakeTarget(
-  { shake, as: Component = "div", className, children, ...props },
+  { shake, loading, as: Component = "div", className, children, ...props },
   forwardedRef,
 ) {
   const localRef = useRef(/** @type {HTMLElement | null} */ (null));
@@ -24,7 +24,8 @@ const ShakeTarget = forwardRef(function ShakeTarget(
     [forwardedRef],
   );
 
-  useShakeOnError(shake, localRef);
+  const shakeOptions = loading !== undefined ? { loading } : undefined;
+  useShakeOnError(shake, localRef, shakeOptions);
 
   return (
     <Component ref={setRef} className={cn(className)} {...props}>

@@ -55,7 +55,7 @@ export default function Login() {
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoFocus />
             </div>
-            <ShakeTarget shake={error}>
+            <ShakeTarget shake={error} loading={loading}>
               <div>
                 <Label htmlFor="password" error={error} shake={error} loading={loading}>
                   Password

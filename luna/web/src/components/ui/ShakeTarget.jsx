@@ -6,6 +6,7 @@ import useShakeOnError from "../../hooks/useShakeOnError";
 /**
  * @typedef {import("react").ComponentPropsWithoutRef<"div"> & {
  *   shake?: unknown,
+ *   loading?: boolean,
  *   as?: import("react").ElementType,
  * }} ShakeTargetProps
  */
@@ -15,7 +16,7 @@ import useShakeOnError from "../../hooks/useShakeOnError";
  * Wrap forms or field groups to draw attention on validation / submit errors.
  */
 const ShakeTarget = forwardRef(/** @param {ShakeTargetProps} props */ function ShakeTarget(
-  { shake, as: Component = "div", className, children, ...props },
+  { shake, loading, as: Component = "div", className, children, ...props },
   forwardedRef,
 ) {
   const localRef = useRef(/** @type {HTMLElement | null} */ (null));
@@ -32,7 +33,8 @@ const ShakeTarget = forwardRef(/** @param {ShakeTargetProps} props */ function S
     [forwardedRef],
   );
 
-  useShakeOnError(shake, localRef);
+  const shakeOptions = loading !== undefined ? { loading } : undefined;
+  useShakeOnError(shake, localRef, shakeOptions);
 
   return (
     <Component ref={setRef} className={cn(className)} {...props}>
@@ -43,6 +45,7 @@ const ShakeTarget = forwardRef(/** @param {ShakeTargetProps} props */ function S
 
 ShakeTarget.propTypes = {
   shake: PropTypes.any,
+  loading: PropTypes.bool,
   as: PropTypes.elementType,
   className: PropTypes.string,
   children: PropTypes.node,
