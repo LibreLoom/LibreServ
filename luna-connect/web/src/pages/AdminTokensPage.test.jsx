@@ -23,21 +23,21 @@ vi.mock("../context/ThemeContext.jsx", () => ({
 }));
 
 describe("AdminTokensPage", () => {
-  it("shows issued codes table and mint controls", () => {
+  it("shows device tokens table and mint controls", () => {
     render(
       <MemoryRouter>
         <AdminTokensPage />
       </MemoryRouter>,
     );
     expect(screen.getByTestId("admin-layout")).toBeTruthy();
-    expect(screen.getByTestId("setup-codes-table")).toBeTruthy();
-    expect(screen.getByTestId("official-token-recovery")).toBeTruthy();
-    expect(screen.getByText(/contact support and refer to their order id/i)).toBeTruthy();
+    expect(screen.getByTestId("device-tokens-table")).toBeTruthy();
+    expect(screen.getByTestId("device-token-recovery")).toBeTruthy();
+    expect(screen.getByText(/contact support with their order id/i)).toBeTruthy();
     expect(screen.getByText(/TOKENS on the LUNAASSETS partition/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /New token/i })).toBeTruthy();
     expect(screen.getByTestId("bulk-tokens")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create list/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Download TOKENS/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Show all codes/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Show all/i })).toBeTruthy();
   });
 });

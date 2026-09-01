@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AdminLayout } from "../components/AdminLayout.jsx";
-import { Badge, StatusBadge } from "../components/ui/badge.jsx";
+import { Badge, DeviceTokenStatusBadge } from "../components/ui/badge.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Input } from "../components/ui/input.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
@@ -33,6 +33,7 @@ function formatWhen(unix) {
 function kindLabel(kind) {
   if (kind === "oss") return "Website";
   if (kind === "official") return "Official";
+  if (kind === "diy") return "DIY";
   return kind || "—";
 }
 
@@ -72,7 +73,7 @@ export default function AdminTokensPage() {
   }, [loadTokens]);
 
   const revoke = async (id) => {
-    if (!window.confirm("Revoke this unused setup code? It will no longer work for pairing.")) return;
+    if (!window.confirm("Revoke this unused device token? It will no longer work for setup or sign-in.")) return;
     setRevokeBusy(id);
     setError("");
     try {
@@ -87,32 +88,32 @@ export default function AdminTokensPage() {
 
   const visible = rows.filter((r) => {
     if (filter === "all") return true;
-    if (filter === "issued") return r.status === "issued";
-    if (filter === "claimed") return r.status === "claimed";
-    if (filter === "revoked") return r.status === "revoked" || r.status === "expired";
+    if (filter === "unbound") return r.status === "unbound";
+    if (filter === "bound") return r.status === "bound";
+    if (filter === "revoked") return r.status === "revoked";
     return true;
   });
 
   return (
     <AdminLayout>
-      <h2 className="font-mono text-2xl mb-2">Setup codes</h2>
+      <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
       <p className="text-muted-foreground mb-8">
-        Official setup codes are created here. The public OS image has no code. Factory lists go on the installer USB as a file named TOKENS. Full codes are shown only at mint time — after that the table keeps a short hint, status, and linked account.
+        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or support replacements. The public OS image ships without a token. Full codes are shown only at mint time — after that this table keeps a short hint, status, linked account, and address when set.
       </p>
 
-      <Card className="mb-6" data-testid="official-token-recovery">
+      <Card className="mb-6" data-testid="device-token-recovery">
         <CardHeader>
-          <CardTitle>Lost device code</CardTitle>
+          <CardTitle>Lost token before setup</CardTitle>
           <CardDescription>
-            Owners who already finished setup can mint a new device code on their Luna Connect page. Use this page when there is no account yet, or the code was lost before first setup. The owner should contact support and refer to their order ID. Paste the replacement on Luna, or put it on the installer USB: add a line to TOKENS on the LUNAASSETS partition.
+            Owners who already finished setup can mint a replacement on their Luna Connect page. Use this admin page when there is no account yet, or the token was lost before first setup. The owner should contact support with their order ID. Paste the replacement on Luna during setup, or add a line to TOKENS on the LUNAASSETS partition of the installer USB.
           </CardDescription>
         </CardHeader>
       </Card>
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Single device code</CardTitle>
-          <CardDescription>Create one device code to print in a box or give as a replacement (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
+          <CardTitle>Single device token</CardTitle>
+          <CardDescription>Create one token to print in a box or hand to support (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -141,7 +142,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Bulk factory tokens</CardTitle>
           <CardDescription>
-            Create many device codes for the installer USB. Download the list as TOKENS (one code per line) and put that file on the LUNAASSETS partition.
+            Create many device tokens for the installer USB. Download the list as TOKENS (one token per line) and put that file on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -192,7 +193,7 @@ export default function AdminTokensPage() {
           {bulkTokens.length > 0 && (
             <div className="rounded-large-element border border-border bg-background p-4">
               <p className="font-mono text-sm text-muted-foreground mb-2">
-                {bulkTokens.length} codes · file name TOKENS
+                {bulkTokens.length} tokens · file name TOKENS
               </p>
               <pre className="font-mono text-sm max-h-64 overflow-auto whitespace-pre-wrap break-all">
                 {bulkTokens.join("\n")}
@@ -202,22 +203,22 @@ export default function AdminTokensPage() {
         </CardContent>
       </Card>
 
-      <Card data-testid="setup-codes-table">
+      <Card data-testid="device-tokens-table">
         <CardHeader>
-          <CardTitle>Issued codes</CardTitle>
+          <CardTitle>All device tokens</CardTitle>
           <CardDescription>
             {listAll || !listLimited
-              ? "Every setup code on this Luna Connect. Revoke unused ones. Claimed rows show the customer account and Luna when known."
-              : "Newest 500 codes by default. Use Show all codes to load the full list. Revoke unused ones. Claimed rows show the customer account and Luna when known."}
+              ? "Every Luna on this Connect. Revoke unused tokens. Bound rows show the customer account and address when set."
+              : "Newest 500 tokens by default. Use Show all to load the full list. Revoke unused ones. Bound rows show the customer account and address when set."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {[
               { id: "all", label: "All" },
-              { id: "issued", label: "Unused" },
-              { id: "claimed", label: "Claimed" },
-              { id: "revoked", label: "Revoked / expired" },
+              { id: "unbound", label: "Unused" },
+              { id: "bound", label: "Bound" },
+              { id: "revoked", label: "Revoked" },
             ].map((f) => (
               <Button
                 key={f.id}
@@ -233,7 +234,7 @@ export default function AdminTokensPage() {
             </Button>
             {listLimited && !listAll ? (
               <Button size="sm" variant="secondary" onClick={() => loadTokens(true)}>
-                Show all codes
+                Show all
               </Button>
             ) : (
               <Button size="sm" variant="outline" onClick={() => loadTokens(false)}>
@@ -242,11 +243,11 @@ export default function AdminTokensPage() {
             )}
           </div>
           {listLoading ? (
-            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading codes…</p>
+            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading device tokens…</p>
           ) : listError ? (
             <p className="text-sm text-error">{listError}</p>
           ) : visible.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No setup codes in this filter.</p>
+            <p className="text-sm text-muted-foreground">No device tokens in this filter.</p>
           ) : (
             <div className="overflow-x-auto rounded-large-element border border-border">
               <table className="w-full text-sm">
@@ -256,9 +257,8 @@ export default function AdminTokensPage() {
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2">Device</th>
+                    <th className="px-3 py-2">Address</th>
                     <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Expires</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -270,16 +270,15 @@ export default function AdminTokensPage() {
                         <Badge variant="outline">{kindLabel(r.kind)}</Badge>
                       </td>
                       <td className="px-3 py-2">
-                        <StatusBadge status={r.status} />
+                        <DeviceTokenStatusBadge status={r.status} />
                       </td>
                       <td className="px-3 py-2 font-mono break-all max-w-[14rem]">
                         {r.account_email || "—"}
                       </td>
                       <td className="px-3 py-2 font-mono break-all max-w-[14rem]">
-                        {r.device_hostname || r.device_name || "—"}
+                        {r.device_hostname || "—"}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{formatWhen(r.created_at)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{formatWhen(r.expires_at)}</td>
                       <td className="px-3 py-2 text-right">
                         {r.can_revoke && (
                           <Button

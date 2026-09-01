@@ -254,7 +254,7 @@ export default function AdminSecurityPage() {
           <CardTitle className="flex items-center gap-2">
             <Users className="h-4 w-4" /> Admin accounts
           </CardTitle>
-          <CardDescription>People who can mint setup codes and manage this Connect.</CardDescription>
+          <CardDescription>People who can mint device tokens and manage this Connect.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {adminsError && <p className="text-sm text-error">{adminsError}</p>}

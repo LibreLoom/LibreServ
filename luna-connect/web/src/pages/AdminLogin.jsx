@@ -69,7 +69,7 @@ export default function AdminLogin() {
               ? "Enter your authenticator code to continue."
               : mode === "seed"
                 ? "Create the first admin account."
-                : "Sign in to mint official setup codes and factory token lists."}
+                : "Sign in to mint device tokens and manage this Connect."}
           </CardDescription>
         </CardHeader>
         <CardContent>

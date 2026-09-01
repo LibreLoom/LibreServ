@@ -27,6 +27,10 @@ export default function AdminDashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const boundCount = stats
+    ? Math.max(0, Number(stats.devices || 0) - Number(stats.tokens_unclaimed || 0) - Number(stats.tokens_revoked || 0))
+    : 0;
+
   return (
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-6">Dashboard</h2>
@@ -46,20 +50,13 @@ export default function AdminDashboardPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Devices</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Device tokens</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="font-mono text-2xl">{stats.devices}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Setup codes issued</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="font-mono text-2xl">{stats.tokens_issued}</p>
               <p className="font-mono text-xs text-muted-foreground mt-1">
-                {stats.tokens_unclaimed} still unused
+                {stats.tokens_unclaimed} unused · {boundCount} bound
+                {stats.tokens_revoked > 0 ? ` · ${stats.tokens_revoked} revoked` : ""}
               </p>
             </CardContent>
           </Card>
