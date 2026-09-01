@@ -141,6 +141,16 @@ func (h *ProvidersHandler) configStatus() map[string]any {
 		"enabled": backupDB != nil && backupDB.Enabled,
 	}
 
+	// Remote Luna addresses (Cloudflare Tunnel + DNS) are config-file only — not Admin → Connections.
+	cf := config.C.Cloudflare
+	status["cloudflare"] = map[string]any{
+		"configured": cf.Ready(),
+		"source":     "config",
+		"enabled":    cf.Ready(),
+		"mock_mode":  !cf.Ready() && config.DevMode(),
+		"public_zone": strings.TrimSpace(config.C.Server.PublicZone),
+	}
+
 	return status
 }
 

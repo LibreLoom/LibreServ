@@ -160,6 +160,35 @@ func TestSetDomainFailsWithoutAtRestKey(t *testing.T) {
 	}
 }
 
+func TestSetDomainFailsWithoutCloudflareInProduction(t *testing.T) {
+	d := testDeps(t)
+	acctH := AccountHandler{Deps: d}
+	devH := DeviceHandler{Deps: d}
+	cookie := registerAccount(t, acctH, "cf@b.co")
+	verifyEmailFor(t, acctH, "cf@b.co")
+
+	devID, code := mintDevice(t, d, "official")
+	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
+	bindReq.AddCookie(cookie)
+	bindRec := withVerifiedAccount(acctH, devH.Bind, bindReq)
+	if bindRec.Code != http.StatusOK {
+		t.Fatalf("bind %d %s", bindRec.Code, bindRec.Body.String())
+	}
+
+	prev := config.C.Cloudflare
+	t.Cleanup(func() { config.C.Cloudflare = prev })
+	config.C.Cloudflare = config.CloudflareConfig{}
+	t.Setenv("LUNACONNECT_DEV", "")
+
+	domReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"photos"}`))
+	domReq.AddCookie(cookie)
+	domReq = withChiParam(domReq, "deviceID", devID)
+	domRec := withVerifiedAccount(acctH, devH.SetDomain, domReq)
+	if domRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d %s", domRec.Code, domRec.Body.String())
+	}
+}
+
 func TestSetDomainSkipsWhenSubdomainAlreadySet(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}

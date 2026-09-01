@@ -187,6 +187,11 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
+	if !config.C.Cloudflare.Ready() && !config.DevMode() {
+		JSONError(w, http.StatusServiceUnavailable,
+			"Remote addresses need Cloudflare tunnel and DNS keys in the Luna Connect config file (cloudflare.account_id, api_token, zone_id). Restart the server after you add them.")
+		return
+	}
 	if err := security.AtRestReady(); err != nil {
 		slog.Error("set domain: at-rest key not configured", "error", err)
 		JSONError(w, http.StatusServiceUnavailable, "Could not protect the connection secret. Try again.")

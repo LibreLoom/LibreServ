@@ -25,7 +25,8 @@ type Server struct {
 func NewServer(db *sql.DB, objectStore store.Store) *Server {
 	tunnel := providers.NewTunnelClient()
 	dns := providers.NewDNSClient()
-	if !config.C.Cloudflare.Ready() {
+	// Dev-only mock when Cloudflare keys are missing. Production must set cloudflare.* in yaml.
+	if !config.C.Cloudflare.Ready() && config.DevMode() {
 		tunnel.MockMode = true
 		dns.MockMode = true
 	}

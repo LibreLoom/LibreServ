@@ -83,6 +83,10 @@ func TestAdminProvidersCRUD(t *testing.T) {
 	if backupStatus["configured"] != true {
 		t.Fatalf("backup status %+v", backupStatus)
 	}
+	cfStatus := cfgStatus["cloudflare"].(map[string]any)
+	if cfStatus["configured"] != false {
+		t.Fatalf("cloudflare status %+v", cfStatus)
+	}
 
 	body, _ = json.Marshal(map[string]any{
 		"service": "backup",
