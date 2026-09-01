@@ -687,49 +687,26 @@ function AccountStep({ hasAdmin, onContinue }) {
           </div>
         )}
 
-        <div
-          className={cn(
-            "flex items-stretch mt-8",
-            "motion-safe:transition-[gap] motion-safe:duration-[var(--motion-duration-medium2)]",
-            "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
-            authSubStep > 0 ? "gap-3" : "gap-0",
-          )}
-        >
-          {/* Back — always mounted; slot width + translate-x so it slides in from
-              the left while Continue (below) stays put and shrinks smoothly. */}
-          <div
-            aria-hidden={authSubStep === 0}
-            className={cn(
-              "shrink-0 overflow-hidden",
-              "motion-safe:transition-[width] motion-safe:duration-[var(--motion-duration-medium2)]",
-              "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
-              authSubStep > 0 ? "w-14" : "w-0",
-            )}
-          >
+        <div className="flex items-center gap-3 mt-8">
+          {authSubStep > 0 && (
             <Button
               type="button"
               variant="outline"
               onClick={goSubPrev}
-              disabled={submitting || authSubStep === 0}
-              tabIndex={authSubStep > 0 ? 0 : -1}
-              className={cn(
-                "h-full shrink-0 px-4 py-4",
-                authSubStep === 0 && "pointer-events-none",
-                "motion-safe:transition-[transform,opacity] motion-safe:duration-[var(--motion-duration-medium2)]",
-                "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
-                authSubStep > 0 ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0",
-              )}
+              disabled={submitting}
+              className="shrink-0 px-4 py-4"
               aria-label="Back"
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
-          </div>
+          )}
           <Button
             type="submit"
             variant="primary"
+            fullWidth
             loading={submitting && isLastAuthSubStep}
             disabled={!currentAuthField.valid || submitting}
-            className="flex-1 min-w-0 group py-4 font-mono tracking-wide hover:scale-[1.02] motion-safe:transition-[flex-grow] motion-safe:duration-[var(--motion-duration-medium2)] motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]"
+            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
           >
             {isLastAuthSubStep ? (
               submitting ? "Creating account…" : "Create account"
