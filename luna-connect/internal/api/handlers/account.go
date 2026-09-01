@@ -30,6 +30,33 @@ const authAttemptWindow = 15 * 60
 // Matches lunad's 7-day session cap so a stolen cookie does not live a month.
 const SessionTTL = 7 * 24 * time.Hour
 
+func (h AccountHandler) CheckEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !allowAuthAttempt(h.DB, ClientIP(r), email, authAttemptMax, authAttemptWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
+		return
+	}
+	if !auth.ValidEmail(email) {
+		JSONError(w, http.StatusBadRequest, "Enter a valid email address.")
+		return
+	}
+	var exists int
+	err := h.DB.QueryRow(`SELECT 1 FROM accounts WHERE email = ?`, email).Scan(&exists)
+	if err == nil {
+		JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
+		return
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		JSONError(w, http.StatusInternalServerError, "Could not check that email. Try again.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"available": true})
+}
+
 func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`

@@ -82,6 +82,7 @@ func (s *Server) routes() {
 				r.Get("/domain/available", dev.Available)
 				r.Post("/register", dev.Register)
 				r.Post("/account/register", acct.Register)
+				r.Post("/account/check-email", acct.CheckEmail)
 				r.Post("/account/login", acct.Login)
 				r.Post("/account/verify-email", acct.VerifyEmail)
 

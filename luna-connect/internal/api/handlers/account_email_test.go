@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
@@ -251,5 +252,53 @@ func TestResendVerificationAlreadyVerifiedIsOK(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out["email_verified"] != true || out["already_verified"] != true {
 		t.Fatalf("got %#v, want email_verified+already_verified", out)
+	}
+}
+
+func TestCheckEmailAvailable(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+
+	req := httptest.NewRequest(http.MethodPost, "/account/check-email",
+		bytes.NewBufferString(`{"email":"fresh@example.com"}`))
+	rec := httptest.NewRecorder()
+	acct.CheckEmail(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["available"] != true {
+		t.Fatalf("got %#v, want available true", out)
+	}
+}
+
+func TestCheckEmailRejectsDuplicate(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	registerAccount(t, acct, "taken@example.com")
+
+	req := httptest.NewRequest(http.MethodPost, "/account/check-email",
+		bytes.NewBufferString(`{"email":"taken@example.com"}`))
+	rec := httptest.NewRecorder()
+	acct.CheckEmail(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "already has an account") {
+		t.Fatalf("body %q", rec.Body.String())
+	}
+}
+
+func TestCheckEmailRejectsInvalid(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+
+	req := httptest.NewRequest(http.MethodPost, "/account/check-email",
+		bytes.NewBufferString(`{"email":"not-an-email"}`))
+	rec := httptest.NewRecorder()
+	acct.CheckEmail(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
 	}
 }

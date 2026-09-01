@@ -371,6 +371,50 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.queryByText(/booklet/i)).toBeNull();
   });
 
+  it("blocks advancing to password when the email already has an account", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/check-email") {
+        const err = new Error("That email already has an account. Sign in instead.");
+        err.status = 409;
+        throw err;
+      }
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/diyonboarding");
+    fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "taken@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    expect(await screen.findByText(/That email already has an account/i)).toBeTruthy();
+    expect(screen.getByLabelText(/email address/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
+    expect(register).not.toHaveBeenCalled();
+    expect(api).toHaveBeenCalledWith("/api/v1/account/check-email", {
+      method: "POST",
+      body: JSON.stringify({ email: "taken@example.com" }),
+    });
+  });
+
+  it("checks email availability before showing the password step", async () => {
+    mount("/diyonboarding");
+    fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "me@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/account/check-email", {
+        method: "POST",
+        body: JSON.stringify({ email: "me@example.com" }),
+      });
+    });
+    expect(await screen.findByLabelText(/password/i)).toBeTruthy();
+  });
+
   it("shows Password placeholder, helper copy, and live requirement chips while typing", async () => {
     mount("/diyonboarding");
     fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "me@example.com" } });

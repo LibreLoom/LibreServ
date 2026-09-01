@@ -562,6 +562,23 @@ export default function OnboardingPage() {
     e.preventDefault();
     if (!currentAuthField.valid || loading) return;
     if (!isLastAuthSubStep) {
+      if (!isLoginMode && authSubStep === 0) {
+        setError("");
+        setLoading(true);
+        try {
+          await api("/api/v1/account/check-email", {
+            method: "POST",
+            body: JSON.stringify({ email: email.trim() }),
+          });
+          setAuthSubDir("right");
+          setAuthSubStep((s) => s + 1);
+        } catch (err) {
+          setError(err.message || "Could not continue. Check your details and try again.");
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
       setAuthSubDir("right");
       setAuthSubStep((s) => s + 1);
       return;
