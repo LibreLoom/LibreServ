@@ -689,45 +689,47 @@ function AccountStep({ hasAdmin, onContinue }) {
 
         <div
           className={cn(
-            "flex items-center mt-8",
-            "motion-safe:transition-[gap] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+            "flex items-stretch mt-8",
+            "motion-safe:transition-[gap] motion-safe:duration-[var(--motion-duration-medium2)]",
+            "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
             authSubStep > 0 ? "gap-3" : "gap-0",
           )}
         >
-          {/* Back — always mounted; grid-track collapse (LayeredPill pattern) so
-              Continue smoothly shrinks from full width instead of jumping. */}
-          <span
+          {/* Back — always mounted; slot width + translate-x so it slides in from
+              the left while Continue (below) stays put and shrinks smoothly. */}
+          <div
             aria-hidden={authSubStep === 0}
             className={cn(
-              "grid shrink-0 min-w-0 overflow-hidden",
-              "motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300",
+              "shrink-0 overflow-hidden",
+              "motion-safe:transition-[width] motion-safe:duration-[var(--motion-duration-medium2)]",
               "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
-              authSubStep > 0 ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
+              authSubStep > 0 ? "w-14" : "w-0",
             )}
           >
-            <span className="min-w-0 overflow-hidden">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={goSubPrev}
-                disabled={submitting || authSubStep === 0}
-                tabIndex={authSubStep > 0 ? 0 : -1}
-                className={cn(
-                  "shrink-0 px-4 py-4",
-                  authSubStep === 0 && "pointer-events-none",
-                )}
-                aria-label="Back"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-            </span>
-          </span>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={goSubPrev}
+              disabled={submitting || authSubStep === 0}
+              tabIndex={authSubStep > 0 ? 0 : -1}
+              className={cn(
+                "h-full shrink-0 px-4 py-4",
+                authSubStep === 0 && "pointer-events-none",
+                "motion-safe:transition-[transform,opacity] motion-safe:duration-[var(--motion-duration-medium2)]",
+                "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+                authSubStep > 0 ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0",
+              )}
+              aria-label="Back"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+          </div>
           <Button
             type="submit"
             variant="primary"
             loading={submitting && isLastAuthSubStep}
             disabled={!currentAuthField.valid || submitting}
-            className="flex-1 min-w-0 group py-4 font-mono tracking-wide hover:scale-[1.02] motion-safe:transition-[flex-grow,width] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]"
+            className="flex-1 min-w-0 group py-4 font-mono tracking-wide hover:scale-[1.02] motion-safe:transition-[flex-grow] motion-safe:duration-[var(--motion-duration-medium2)] motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]"
           >
             {isLastAuthSubStep ? (
               submitting ? "Creating account…" : "Create account"
