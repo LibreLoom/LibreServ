@@ -354,6 +354,52 @@ describe("OnboardingPage DIY verify", () => {
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
   });
 
+  it("skips device code when account already has a bound Luna on official path", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      onboarding_path: "official",
+      onboarding_step: "domain",
+      has_bound_device: true,
+      skip_code_entry: true,
+      onboarding_device_id: "dev_bound",
+    };
+    refresh.mockResolvedValue(authState.me);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Device code$/i)).toBeNull();
+    expect(screen.queryByText(/already has a Luna/i)).toBeNull();
+  });
+
+  it("continues past account to name when Luna is already linked", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      has_bound_device: true,
+      skip_code_entry: true,
+      onboarding_device_id: "dev_bound",
+      onboarding_step: "domain",
+    };
+    refresh.mockImplementation(async () => authState.me);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/bind");
+  });
+
   it("starts /onboarding on a welcome step, not a register form", () => {
     mount();
     expect(screen.getByRole("heading", { name: /Set up your Luna/i })).toBeTruthy();

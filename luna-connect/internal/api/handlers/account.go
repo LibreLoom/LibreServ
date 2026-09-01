@@ -149,23 +149,33 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.QueryRow(`SELECT status FROM oss_payments WHERE account_id = ?`, acct.ID).Scan(&payStatus); err == nil && payStatus == "succeeded" {
 		humanVerified = true
 	}
+	dev := loadBoundDevice(h.DB, acct.ID)
+	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
+	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
+	status := onboardingStatusFields(resolvedPath, resolvedStep, dev)
+
 	JSON(w, http.StatusOK, map[string]any{
-		"id":                     acct.ID,
-		"email":                  acct.Email,
-		"email_verified":         acct.EmailVerified,
-		"has_card":               acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
-		"human_verified":         humanVerified,
-		"billing_status":         acct.BillingStatus,
-		"stored_bytes":           liveBytes,
-		"avg_stored_bytes":       avgBytes,
-		"egress_bytes":           egressBytes,
-		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
-		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
-		"backup_purge_after":     acct.BackupPurgeAfter,
-		"onboarding_path":        acct.OnboardingPath,
-		"onboarding_step":        acct.OnboardingStep,
-		"stripe_publishable_key": stripePublishableKey(),
-		"stripe_enabled":         config.C.Stripe.Enabled,
+		"id":                      acct.ID,
+		"email":                   acct.Email,
+		"email_verified":          acct.EmailVerified,
+		"has_card":                acct.HasCard && billing.BackupsUnlocked(acct.HasCard, acct.BillingStatus),
+		"human_verified":          humanVerified,
+		"billing_status":          acct.BillingStatus,
+		"stored_bytes":            liveBytes,
+		"avg_stored_bytes":        avgBytes,
+		"egress_bytes":            egressBytes,
+		"estimated_month":         billing.EstimateMonthUSD(avgBytes, egressBytes),
+		"price_copy":              "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
+		"backup_purge_after":      acct.BackupPurgeAfter,
+		"onboarding_path":         status["path"],
+		"onboarding_step":         status["step"],
+		"has_bound_device":        status["has_bound_device"],
+		"skip_code_entry":         status["skip_code_entry"],
+		"onboarding_device_id":    status["device_id"],
+		"onboarding_hostname":     status["hostname"],
+		"onboarding_setup_secret": status["setup_secret"],
+		"stripe_publishable_key":  stripePublishableKey(),
+		"stripe_enabled":          config.C.Stripe.Enabled,
 	})
 }
 
@@ -448,4 +458,3 @@ WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.
 		})))
 	})
 }
-

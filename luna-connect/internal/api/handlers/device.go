@@ -115,6 +115,11 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 	d.Subdomain = sub.String
 	d.TunnelID = tunnelID.String
 	unbindDevice(h.Deps, d, acct.ID)
+	obPath := acct.OnboardingPath
+	if obPath == "" {
+		obPath = "official"
+	}
+	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = ? WHERE id = ?`, defaultCodeStep(obPath), acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

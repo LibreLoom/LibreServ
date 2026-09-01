@@ -234,6 +234,18 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (h OnboardingHandler) Status(w http.ResponseWriter, r *http.Request) {
+	acct, ok := AccountFrom(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	dev := loadBoundDevice(h.DB, acct.ID)
+	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
+	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
+	JSON(w, http.StatusOK, onboardingStatusFields(resolvedPath, resolvedStep, dev))
+}
+
 func (h OnboardingHandler) SetOnboardingProgress(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
@@ -251,7 +263,21 @@ func (h OnboardingHandler) SetOnboardingProgress(w http.ResponseWriter, r *http.
 		JSONError(w, http.StatusBadRequest, "Unknown setup path.")
 		return
 	}
+	if step == "name" {
+		step = "domain"
+	}
+	if step == "copies" {
+		step = "backup"
+	}
+	storedPath := acct.OnboardingPath
+	if path != "" {
+		storedPath = path
+	}
+	dev := loadBoundDevice(h.DB, acct.ID)
+	if dev.HasBound && isOnboardingCodeStep(step) {
+		_, step = ResolveOnboarding(storedPath, step, dev)
+	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = COALESCE(NULLIF(?, ''), onboarding_path), onboarding_step = COALESCE(NULLIF(?, ''), onboarding_step) WHERE id = ?`,
 		path, step, acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"ok": true, "path": path, "step": step})
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "path": storedPath, "step": step})
 }

@@ -116,6 +116,7 @@ func (s *Server) routes() {
 						r.Get("/backups", bak.List)
 						r.Post("/backups/download", bak.Download)
 						r.Delete("/backups", bak.DeleteAccountObject)
+						r.Get("/onboarding/status", onb.Status)
 						r.Post("/onboarding/backups", onb.Backups)
 						r.Post("/onboarding/progress", onb.SetOnboardingProgress)
 						r.Post("/account/verify-human", onb.VerifyHuman)

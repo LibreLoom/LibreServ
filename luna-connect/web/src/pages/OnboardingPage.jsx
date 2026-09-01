@@ -262,6 +262,13 @@ function resumeStepFromServer(path, serverStep, saved) {
   return step;
 }
 
+function stepAfterBind(account, path) {
+  const resumed = resumeStepFromServer(path, account?.onboarding_step, null);
+  if (resumed === "done") return "done";
+  if (resumed === "backup") return "backup";
+  return "domain";
+}
+
 export default function OnboardingPage() {
   const {
     isAuthenticated,
@@ -316,6 +323,21 @@ export default function OnboardingPage() {
     setStep(next);
   }, []);
 
+  const seedFromOnboardingAccount = useCallback((account) => {
+    if (!account) return;
+    if (account.onboarding_device_id) setDeviceId(account.onboarding_device_id);
+    if (account.onboarding_hostname) {
+      setHostname(account.onboarding_hostname);
+      const sub = account.onboarding_hostname.split(".")[0];
+      if (sub) setName(sub);
+    }
+    if (account.onboarding_setup_secret) setSetupSecret(account.onboarding_setup_secret);
+  }, []);
+
+  const shouldSkipCodeEntry = useCallback((account) => {
+    return Boolean(account?.has_bound_device || account?.skip_code_entry);
+  }, []);
+
   const persistServerProgress = useCallback(
     async (nextStep) => {
       if (!isAuthenticated || !emailVerified) return;
@@ -354,14 +376,26 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!isAuthenticated || !me) return;
     if (me.onboarding_path && me.onboarding_path !== path) return;
+
+    seedFromOnboardingAccount(me);
+
+    const codeSteps = ["code", "diy-code", "bind"];
+    const atDefaultEntry = step === (path === "diy" ? "account" : "welcome");
+
+    if (shouldSkipCodeEntry(me) && codeSteps.includes(step)) {
+      goTo(stepAfterBind(me, path));
+      return;
+    }
+
     if (!me.onboarding_step || me.onboarding_step === "done") return;
     const resumed = resumeStepFromServer(path, me.onboarding_step, null);
-    if (resumed && resumed !== step && step === (path === "diy" ? "account" : "welcome")) {
+    if (!resumed || resumed === step) return;
+    if (atDefaultEntry || (codeSteps.includes(step) && resumed !== step)) {
       goTo(resumed);
     }
-    // Only auto-resume once on entry.
+    // Reconcile once when auth/me loads; avoid fighting mid-flow navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, me?.onboarding_step, me?.onboarding_path]);
+  }, [isAuthenticated, me?.onboarding_step, me?.onboarding_path, me?.has_bound_device, me?.skip_code_entry]);
 
   // Prefill the change-email field once when entering the account step — never on empty edits.
   useEffect(() => {
@@ -409,6 +443,11 @@ export default function OnboardingPage() {
 
   async function afterDiyAccount(account) {
     const current = account || me;
+    if (shouldSkipCodeEntry(current)) {
+      seedFromOnboardingAccount(current);
+      goTo(stepAfterBind(current, path));
+      return;
+    }
     if (current?.human_verified) {
       await mintDiyToken();
       return;
@@ -421,6 +460,12 @@ export default function OnboardingPage() {
   }
 
   async function afterOfficialAccount() {
+    const account = await refresh();
+    if (shouldSkipCodeEntry(account)) {
+      seedFromOnboardingAccount(account);
+      goTo(stepAfterBind(account, path));
+      return;
+    }
     goTo("code");
   }
 
@@ -798,10 +843,14 @@ export default function OnboardingPage() {
       <StepShell icon={User} title="Continue with your account">
         <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
           {path === "diy"
-            ? me?.human_verified
-              ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
-              : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
-            : "You are already signed in. Continue to link this Luna with its device code."}
+            ? shouldSkipCodeEntry(me)
+              ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
+              : me?.human_verified
+                ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
+                : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
+            : shouldSkipCodeEntry(me)
+              ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
+              : "You are already signed in. Continue to link this Luna with its device code."}
         </p>
         <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
         <Button
