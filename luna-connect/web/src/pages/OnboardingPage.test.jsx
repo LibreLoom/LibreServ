@@ -400,6 +400,39 @@ describe("OnboardingPage DIY verify", () => {
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/bind");
   });
 
+  it("skips name step when Luna already has an address", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      has_bound_device: true,
+      skip_code_entry: true,
+      onboarding_device_id: "dev_bound",
+      onboarding_step: "backup",
+      onboarding_hostname: "kitchen.luna.servers.libreloom.org",
+    };
+    refresh.mockImplementation(async () => authState.me);
+    localStorage.setItem(
+      "luna-connect-onboarding-progress",
+      JSON.stringify({
+        path: "official",
+        step: "domain",
+        deviceId: "dev_bound",
+        name: "kitchen",
+      }),
+    );
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByRole("heading", { name: /Optional cloud backup/i })).toBeTruthy();
+    expect(screen.queryByLabelText(/^Name$/i)).toBeNull();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/dev_bound/domain");
+  });
+
   it("starts /onboarding on a welcome step, not a register form", () => {
     mount();
     expect(screen.getByRole("heading", { name: /Set up your Luna/i })).toBeTruthy();

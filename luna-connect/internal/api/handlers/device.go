@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -186,6 +187,11 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
+	if err := security.AtRestReady(); err != nil {
+		slog.Error("set domain: at-rest key not configured", "error", err)
+		JSONError(w, http.StatusServiceUnavailable, "Could not protect the connection secret. Try again.")
+		return
+	}
 	// Tear down previous tunnel/DNS if renaming.
 	if tunnelID.Valid && tunnelID.String != "" {
 		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID.String)

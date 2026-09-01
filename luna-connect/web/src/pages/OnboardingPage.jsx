@@ -263,6 +263,7 @@ function resumeStepFromServer(path, serverStep, saved) {
 }
 
 function stepAfterBind(account, path) {
+  if (account?.onboarding_hostname) return "backup";
   const resumed = resumeStepFromServer(path, account?.onboarding_step, null);
   if (resumed === "done") return "done";
   if (resumed === "backup") return "backup";
@@ -390,7 +391,11 @@ export default function OnboardingPage() {
     if (!me.onboarding_step || me.onboarding_step === "done") return;
     const resumed = resumeStepFromServer(path, me.onboarding_step, null);
     if (!resumed || resumed === step) return;
-    if (atDefaultEntry || (codeSteps.includes(step) && resumed !== step)) {
+    const shouldReconcile =
+      atDefaultEntry ||
+      (codeSteps.includes(step) && resumed !== step) ||
+      (step === "domain" && resumed === "backup");
+    if (shouldReconcile) {
       goTo(resumed);
     }
     // Reconcile once when auth/me loads; avoid fighting mid-flow navigation.

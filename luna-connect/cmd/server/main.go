@@ -19,6 +19,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -65,6 +66,12 @@ func main() {
 	}
 	if config.C.DataDir == "" {
 		config.C.DataDir = "dev/data"
+	}
+	if !config.DevMode() {
+		if err := security.AtRestReady(); err != nil {
+			slog.Error("server.at_rest_key is required in production", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	db, err := database.Open(config.C.Database.Path)
