@@ -562,9 +562,13 @@ function AccountStep({ hasAdmin, onContinue }) {
           Create your account
         </h2>
         {authSubStep === 0 && (
-          <div className="mt-2 space-y-2 font-sans text-sm leading-relaxed text-primary">
-            <p>You&apos;re creating the initial admin account. This account can access every file on Luna.</p>
-            <p>Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders if you wish.</p>
+          <div className="mt-2 space-y-2">
+            <p className="font-sans text-primary text-sm leading-relaxed">
+              You&apos;re creating the initial admin account. This account can access every file on Luna.
+            </p>
+            <p className="font-sans text-primary text-sm leading-relaxed">
+              Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders if you wish.
+            </p>
           </div>
         )}
       </div>
@@ -683,26 +687,47 @@ function AccountStep({ hasAdmin, onContinue }) {
           </div>
         )}
 
-        <div className="flex items-center gap-3 mt-8">
-          {authSubStep > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={goSubPrev}
-              disabled={submitting}
-              className="shrink-0 px-4 py-4"
-              aria-label="Back"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
+        <div
+          className={cn(
+            "flex items-center mt-8",
+            "motion-safe:transition-[gap] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+            authSubStep > 0 ? "gap-3" : "gap-0",
           )}
+        >
+          {/* Back — always mounted; grid-track collapse (LayeredPill pattern) so
+              Continue smoothly shrinks from full width instead of jumping. */}
+          <span
+            aria-hidden={authSubStep === 0}
+            className={cn(
+              "grid shrink-0 min-w-0 overflow-hidden",
+              "motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300",
+              "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+              authSubStep > 0 ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
+            )}
+          >
+            <span className="min-w-0 overflow-hidden">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={goSubPrev}
+                disabled={submitting || authSubStep === 0}
+                tabIndex={authSubStep > 0 ? 0 : -1}
+                className={cn(
+                  "shrink-0 px-4 py-4",
+                  authSubStep === 0 && "pointer-events-none",
+                )}
+                aria-label="Back"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+            </span>
+          </span>
           <Button
             type="submit"
             variant="primary"
-            fullWidth
             loading={submitting && isLastAuthSubStep}
             disabled={!currentAuthField.valid || submitting}
-            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
+            className="flex-1 min-w-0 group py-4 font-mono tracking-wide hover:scale-[1.02] motion-safe:transition-[flex-grow,width] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]"
           >
             {isLastAuthSubStep ? (
               submitting ? "Creating account…" : "Create account"
