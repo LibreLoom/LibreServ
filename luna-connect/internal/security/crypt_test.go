@@ -7,6 +7,26 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
+func TestAtRestReadyRequiresKeyInProduction(t *testing.T) {
+	t.Setenv("LUNACONNECT_DEV", "")
+	prev := config.C.Server.AtRestKey
+	t.Cleanup(func() { config.C.Server.AtRestKey = prev })
+	config.C.Server.AtRestKey = ""
+	if err := AtRestReady(); err == nil {
+		t.Fatal("expected missing at-rest key error")
+	}
+}
+
+func TestAtRestReadyDevFallback(t *testing.T) {
+	t.Setenv("LUNACONNECT_DEV", "1")
+	prev := config.C.Server.AtRestKey
+	t.Cleanup(func() { config.C.Server.AtRestKey = prev })
+	config.C.Server.AtRestKey = ""
+	if err := AtRestReady(); err != nil {
+		t.Fatalf("dev fallback: %v", err)
+	}
+}
+
 func TestSealOpenRoundTrip(t *testing.T) {
 	t.Setenv("LUNACONNECT_DEV", "1")
 	prev := config.C.Server.AtRestKey

@@ -354,6 +354,85 @@ describe("OnboardingPage DIY verify", () => {
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
   });
 
+  it("skips device code when account already has a bound Luna on official path", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      onboarding_path: "official",
+      onboarding_step: "domain",
+      has_bound_device: true,
+      skip_code_entry: true,
+      onboarding_device_id: "dev_bound",
+    };
+    refresh.mockResolvedValue(authState.me);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Device code$/i)).toBeNull();
+    expect(screen.queryByText(/already has a Luna/i)).toBeNull();
+  });
+
+  it("continues past account to name when Luna is already linked", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      has_bound_device: true,
+      skip_code_entry: true,
+      onboarding_device_id: "dev_bound",
+      onboarding_step: "domain",
+    };
+    refresh.mockImplementation(async () => authState.me);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/bind");
+  });
+
+  it("skips name step when Luna already has an address", async () => {
+    authState.isAuthenticated = true;
+    authState.me = {
+      email: "owner@example.com",
+      email_verified: true,
+      has_bound_device: true,
+      skip_code_entry: true,
+      onboarding_device_id: "dev_bound",
+      onboarding_step: "backup",
+      onboarding_hostname: "kitchen.luna.servers.libreloom.org",
+    };
+    refresh.mockImplementation(async () => authState.me);
+    localStorage.setItem(
+      "luna-connect-onboarding-progress",
+      JSON.stringify({
+        path: "official",
+        step: "domain",
+        deviceId: "dev_bound",
+        name: "kitchen",
+      }),
+    );
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    mount("/onboarding");
+
+    expect(await screen.findByRole("heading", { name: /Optional cloud backup/i })).toBeTruthy();
+    expect(screen.queryByLabelText(/^Name$/i)).toBeNull();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/dev_bound/domain");
+  });
+
   it("starts /onboarding on a welcome step, not a register form", () => {
     mount();
     expect(screen.getByRole("heading", { name: /Set up your Luna/i })).toBeTruthy();
@@ -471,7 +550,36 @@ describe("OnboardingPage DIY verify", () => {
       });
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+    expect(screen.getByText(/installer asks for your device code/i)).toBeTruthy();
+    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
+  });
+
+  it("binds and goes to name when continuing from the DIY code step", async () => {
+    stripeLooksConfigured.mockReturnValue(false);
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/account/verification-status") return { email_verified: false };
+      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
+      }
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_diy", already_bound: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+    await createDiyAccount();
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/devices/bind", {
+        method: "POST",
+        body: JSON.stringify({ code: "A1B2-C3D4-E5F6-G7H8-J9K0" }),
+      });
+    });
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Link this Luna/i })).toBeNull();
   });
 
   it("keeps the official path free of a card step and binds after account", async () => {
@@ -491,6 +599,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
     });
+    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/^Device code$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });

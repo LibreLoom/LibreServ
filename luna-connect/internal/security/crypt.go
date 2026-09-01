@@ -15,6 +15,12 @@ import (
 
 const sealedPrefix = "v1:"
 
+// AtRestReady reports whether secrets can be encrypted at rest (production requires server.at_rest_key).
+func AtRestReady() error {
+	_, err := atRestKey()
+	return err
+}
+
 func atRestKey() ([]byte, error) {
 	raw := strings.TrimSpace(config.C.Server.AtRestKey)
 	if raw == "" {

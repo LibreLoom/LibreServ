@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -89,7 +90,7 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not link this Luna. Try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
+	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','diy-code','code') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": false})
 }
 
@@ -115,6 +116,11 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 	d.Subdomain = sub.String
 	d.TunnelID = tunnelID.String
 	unbindDevice(h.Deps, d, acct.ID)
+	obPath := acct.OnboardingPath
+	if obPath == "" {
+		obPath = "official"
+	}
+	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = ? WHERE id = ?`, defaultCodeStep(obPath), acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -181,6 +187,11 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
+	if err := security.AtRestReady(); err != nil {
+		slog.Error("set domain: at-rest key not configured", "error", err)
+		JSONError(w, http.StatusServiceUnavailable, "Could not protect the connection secret. Try again.")
+		return
+	}
 	// Tear down previous tunnel/DNS if renaming.
 	if tunnelID.Valid && tunnelID.String != "" {
 		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID.String)

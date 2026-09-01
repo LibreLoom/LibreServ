@@ -24,8 +24,9 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 
 	// Create an account (connect_keys.account_id is NOT NULL).
 	accountID := "acc-fix-" + security.RandomString(8)
-	_, err := db.Exec(`INSERT INTO customer_accounts (id, email, password_hash, plan_id) VALUES ($1, $2, 'hash', $3)`,
-		accountID, accountID+"@test.com", planID)
+	_, err := db.Exec(`INSERT INTO customer_accounts (id, email, password_hash, plan_id, username, smtp_password)
+		VALUES ($1, $2, 'hash', $3, $4, 'test-smtp-password')`,
+		accountID, accountID+"@test.com", planID, "user-"+security.RandomString(8))
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
@@ -173,16 +174,19 @@ func TestDeviceActivateReactivateShortKey(t *testing.T) {
 	connectKeyID := security.GenerateID("lic")
 	deviceID := security.GenerateID("dev")
 	_, err = db.Exec(
+		`INSERT INTO devices (id, account_id, plan_id, activated_at, last_seen_at, is_active) VALUES ($1, $2, 'free', NOW(), NOW(), TRUE)`,
+		deviceID, accountID)
+	if err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+	_, err = db.Exec(
 		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status, device_id) VALUES ($1, $2, $3, $4, 'free', 'active', $5)`,
 		connectKeyID, hashToken(key), key, accountID, deviceID)
 	if err != nil {
 		t.Fatalf("create Connect key: %v", err)
 	}
-	_, err = db.Exec(
-		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, activated_at, last_seen_at, is_active) VALUES ($1, $2, $3, 'free', NOW(), NOW(), TRUE)`,
-		deviceID, accountID, connectKeyID)
-	if err != nil {
-		t.Fatalf("create device: %v", err)
+	if _, err = db.Exec(`UPDATE devices SET connect_key_id = $1 WHERE id = $2`, connectKeyID, deviceID); err != nil {
+		t.Fatalf("link device to Connect key: %v", err)
 	}
 
 	body, _ := json.Marshal(map[string]string{"connect_key": key})

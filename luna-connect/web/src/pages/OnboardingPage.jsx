@@ -49,7 +49,6 @@ const DIY_STEPS = [
   { id: "account", label: "Account" },
   { id: "card", label: "Confirm" },
   { id: "diy-code", label: "Code" },
-  { id: "bind", label: "Link" },
   { id: "domain", label: "Name" },
   { id: "backup", label: "Backup" },
   { id: "done", label: "Done" },
@@ -164,7 +163,7 @@ function progressIndex(stepId, path) {
     card: "card",
     "diy-code": "diy-code",
     code: "code",
-    bind: "bind",
+    bind: "diy-code",
     domain: "domain",
     name: "domain",
     backup: "backup",
@@ -259,9 +258,17 @@ function resumeStepFromServer(path, serverStep, saved) {
   if (!step || step === "done") return path === "diy" ? "account" : "welcome";
   if (step === "name" || step === "copies") return step === "name" ? "domain" : "backup";
   if (step === "verify") return "account";
-  if (path === "diy" && (step === "code" || step === "oss-code")) return "diy-code";
+  if (path === "diy" && (step === "code" || step === "oss-code" || step === "bind")) return "diy-code";
   if (path === "official" && step === "bind") return "code";
   return step;
+}
+
+function stepAfterBind(account, path) {
+  if (account?.onboarding_hostname) return "backup";
+  const resumed = resumeStepFromServer(path, account?.onboarding_step, null);
+  if (resumed === "done") return "done";
+  if (resumed === "backup") return "backup";
+  return "domain";
 }
 
 export default function OnboardingPage() {
@@ -318,6 +325,21 @@ export default function OnboardingPage() {
     setStep(next);
   }, []);
 
+  const seedFromOnboardingAccount = useCallback((account) => {
+    if (!account) return;
+    if (account.onboarding_device_id) setDeviceId(account.onboarding_device_id);
+    if (account.onboarding_hostname) {
+      setHostname(account.onboarding_hostname);
+      const sub = account.onboarding_hostname.split(".")[0];
+      if (sub) setName(sub);
+    }
+    if (account.onboarding_setup_secret) setSetupSecret(account.onboarding_setup_secret);
+  }, []);
+
+  const shouldSkipCodeEntry = useCallback((account) => {
+    return Boolean(account?.has_bound_device || account?.skip_code_entry);
+  }, []);
+
   const persistServerProgress = useCallback(
     async (nextStep) => {
       if (!isAuthenticated || !emailVerified) return;
@@ -356,14 +378,30 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!isAuthenticated || !me) return;
     if (me.onboarding_path && me.onboarding_path !== path) return;
+
+    seedFromOnboardingAccount(me);
+
+    const codeSteps = ["code", "diy-code", "bind"];
+    const atDefaultEntry = step === (path === "diy" ? "account" : "welcome");
+
+    if (shouldSkipCodeEntry(me) && codeSteps.includes(step)) {
+      goTo(stepAfterBind(me, path));
+      return;
+    }
+
     if (!me.onboarding_step || me.onboarding_step === "done") return;
     const resumed = resumeStepFromServer(path, me.onboarding_step, null);
-    if (resumed && resumed !== step && step === (path === "diy" ? "account" : "welcome")) {
+    if (!resumed || resumed === step) return;
+    const shouldReconcile =
+      atDefaultEntry ||
+      (codeSteps.includes(step) && resumed !== step) ||
+      (step === "domain" && resumed === "backup");
+    if (shouldReconcile) {
       goTo(resumed);
     }
-    // Only auto-resume once on entry.
+    // Reconcile once when auth/me loads; avoid fighting mid-flow navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, me?.onboarding_step, me?.onboarding_path]);
+  }, [isAuthenticated, me?.onboarding_step, me?.onboarding_path, me?.has_bound_device, me?.skip_code_entry]);
 
   // Prefill the change-email field once when entering the account step — never on empty edits.
   useEffect(() => {
@@ -411,6 +449,11 @@ export default function OnboardingPage() {
 
   async function afterDiyAccount(account) {
     const current = account || me;
+    if (shouldSkipCodeEntry(current)) {
+      seedFromOnboardingAccount(current);
+      goTo(stepAfterBind(current, path));
+      return;
+    }
     if (current?.human_verified) {
       await mintDiyToken();
       return;
@@ -423,6 +466,12 @@ export default function OnboardingPage() {
   }
 
   async function afterOfficialAccount() {
+    const account = await refresh();
+    if (shouldSkipCodeEntry(account)) {
+      seedFromOnboardingAccount(account);
+      goTo(stepAfterBind(account, path));
+      return;
+    }
     goTo("code");
   }
 
@@ -636,8 +685,7 @@ export default function OnboardingPage() {
       verify: "account",
       card: "account",
       "diy-code": "account",
-      bind: "diy-code",
-      domain: "bind",
+      domain: "diy-code",
       backup: "domain",
       done: "backup",
     };
@@ -807,10 +855,14 @@ export default function OnboardingPage() {
       <StepShell icon={User} title="Continue with your account">
         <p className="text-muted-foreground text-sm leading-relaxed mb-6 text-pretty">
           {path === "diy"
-            ? me?.human_verified
-              ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
-              : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
-            : "You are already signed in. Continue to link this Luna with its device code."}
+            ? shouldSkipCodeEntry(me)
+              ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
+              : me?.human_verified
+                ? "You are already signed in. Continue to get a setup code for this Luna. We will not charge another dollar."
+                : "You are already signed in. Next we confirm you are a real person, then give you a setup code for this Luna."
+            : shouldSkipCodeEntry(me)
+              ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
+              : "You are already signed in. Continue to link this Luna with its device code."}
         </p>
         <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
         <Button
@@ -945,7 +997,9 @@ export default function OnboardingPage() {
   const renderCode = () => (
     <StepShell icon={Key} title="Enter the device code">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        The code that came with your Luna (****-****-****-****-****). Luna&apos;s screen shows the same code if you need it.
+        The code on your quick-start card (****-****-****-****-****). Luna&apos;s screen shows the same code while it is waiting to be linked.
+        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Setup code, paste the full code, and tap
+        Save setup code.
       </p>
       <form
         className="space-y-5 text-left"
@@ -993,10 +1047,16 @@ export default function OnboardingPage() {
     <StepShell icon={Key} title="Your device code">
       <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
       <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
-        During install on Luna, enter this full code (****-****-****-****-****). The first eight characters unlock setup from your phone.
+        During Luna OS install, after the disk is written, the installer asks for your device code on the screen connected to Luna. Paste this
+        full code (****-****-****-****-****), or press Enter to skip. The first eight characters (****-****) let you finish setup from your
+        phone on your home network.
+      </p>
+      <p className="text-sm text-muted-foreground mb-4 leading-relaxed text-pretty">
+        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Setup code, paste this code, and tap Save
+        setup code.
       </p>
       <p className="text-sm text-muted-foreground mb-8 leading-relaxed text-pretty">
-        We already filled it in for the next step on this site, where you link the code to your account.
+        When you continue, we link this code to your account. Luna picks up the link when it is online.
       </p>
       <div className="flex flex-col gap-3">
         <Button size="lg" className="w-full" variant="outline" onClick={() => handleCopy("diy", diyCode)}>
@@ -1010,60 +1070,26 @@ export default function OnboardingPage() {
             </>
           )}
         </Button>
-        <Button size="lg" className="w-full" onClick={() => goTo("bind")}>
-          Continue to link <ArrowRight className="w-4 h-4" />
-        </Button>
-      </div>
-    </StepShell>
-  );
-
-  const renderBind = () => (
-    <StepShell icon={Key} title="Link this Luna">
-      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        Confirm the full device code so we can attach this Luna to your account. Put the same code on Luna during install if you have not yet.
-      </p>
-      <form
-        className="space-y-5 text-left"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setError("");
-          setLoading(true);
-          try {
-            await bindDevice(code || diyCode);
-            goTo("domain");
-          } catch (err) {
-            setError(err.message);
-          } finally {
-            setLoading(false);
-          }
-        }}
-      >
-        <label htmlFor="bind-code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-          Device code
-        </label>
-        <ShakeTarget shake={error}>
-          <Input
-            id="bind-code"
-            className="font-mono uppercase tracking-widest"
-            value={code || diyCode}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="****-****-****-****-****"
-            autoComplete="off"
-            spellCheck={false}
-            autoFocus
-            aria-invalid={Boolean(error)}
-          />
-        </ShakeTarget>
         <Button
-          type="submit"
           size="lg"
           className="w-full"
           loading={loading}
-          disabled={(code || diyCode).trim().length < 6}
+          onClick={async () => {
+            setError("");
+            setLoading(true);
+            try {
+              await bindDevice(diyCode);
+              goTo("domain");
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          }}
         >
-          Link Luna <ArrowRight className="w-4 h-4" />
+          Continue <ArrowRight className="w-4 h-4" />
         </Button>
-      </form>
+      </div>
     </StepShell>
   );
 
@@ -1294,7 +1320,6 @@ export default function OnboardingPage() {
     );
   } else if (step === "diy-code") body = renderDiyCode();
   else if (step === "code") body = renderCode();
-  else if (step === "bind") body = renderBind();
   else if (step === "domain") body = renderDomain();
   else if (step === "backup") body = renderBackup();
   else if (step === "done") body = renderDone();
