@@ -90,7 +90,7 @@ assert_eq "$_mnt" "/sentinel-luna-data" "factory_apply must not clobber caller _
 printf 'CRLF-TOKEN-1111-2222-3333\r\nNEXT-TOKEN-4444-5555-6666\r\n' >"$WORK/crlf"
 assert_eq "$(factory_tokens_first_line "$WORK/crlf")" "CRLF-TOKEN-1111-2222-3333" "strip CR"
 
-# Device token validation (Crockford booklet, 16–32 chars normalized).
+# Device token validation (Crockford format, 16–32 chars normalized).
 assert_true factory_is_valid_device_token "AAAA-BBBB-CCCC-DDDD-EEEE"
 assert_true factory_is_valid_device_token "aaaa-bbbb-cccc-dddd-eeee"
 assert_false factory_is_valid_device_token "too-short"

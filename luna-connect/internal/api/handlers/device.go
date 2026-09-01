@@ -420,7 +420,7 @@ func itoa(n int) string {
 func insertPermanentDevice(db *sql.DB, kind, code, orderRef string) (id, grouped string, err error) {
 	norm := security.NormalizeToken(code)
 	if !security.IsOfficialShape(norm) {
-		code = security.OfficialBookletToken()
+		code = security.OfficialDeviceToken()
 		norm = security.NormalizeToken(code)
 	}
 	grouped = security.GroupCrockford(norm)

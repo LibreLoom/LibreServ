@@ -147,6 +147,7 @@ These showed up in product UI. Do not write them again. Use the replacement (and
 | Luna is asking this drive how it feels | Drive health is not a mood | `Checking this drive's health` |
 | this box (for the Luna device, in settings) | We already named it Luna | `Luna` / `this Luna` |
 | Couldn't do that | Says nothing | Name the action that failed and what to try |
+| booklet (Luna Connect credential) | Nobody calls it that; sounds like a pamphlet | `device token` (or `the card that came with Luna` when pointing at hardware) |
 
 Good: `Plug Luna into your router or modem with the included RJ45 (ethernet) cable.`
 Bad: `Connect Luna to the internet box with the included cable. Use a LAN socket — the same kind of socket your home internet uses.`

@@ -94,7 +94,7 @@ async fn redeem(
     }
     require_admin(user)?;
     let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.redeem_booklet())
+    tokio::task::spawn_blocking(move || service.redeem_device_token())
         .await
         .map_err(|_| {
             json_error(

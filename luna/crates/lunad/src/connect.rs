@@ -96,7 +96,7 @@ impl ConnectService {
         self.disable_connect_path.is_file()
     }
 
-    /// True when `{data_dir}/setup-token` exists and holds a valid booklet code.
+    /// True when `{data_dir}/setup-token` exists and holds a valid device token.
     pub fn has_valid_device_code(&self) -> bool {
         self.setup_prefix().is_some()
     }
@@ -212,12 +212,12 @@ impl ConnectService {
             return Err(Self::connect_disabled_err());
         }
         let norm = normalize_setup_code(code);
-        if !is_booklet_code(&norm) {
+        if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
-                "That code should look like ****-****-****-****-**** from the Luna Connect site (or the printed booklet).".into(),
+                "That code should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
             ));
         }
-        let grouped = group_booklet(&norm);
+        let grouped = group_device_token(&norm);
         std::fs::write(&self.token_path, format!("{grouped}\n")).map_err(|_| {
             ConnectError::Other("Could not save the device code on this Luna. Try again.".into())
         })?;
@@ -230,7 +230,7 @@ impl ConnectService {
         Ok(())
     }
 
-    pub fn redeem_booklet(&self) -> Result<(), ConnectError> {
+    pub fn redeem_device_token(&self) -> Result<(), ConnectError> {
         if self.is_connect_disabled() {
             return Err(Self::connect_disabled_err());
         }
@@ -449,10 +449,10 @@ impl ConnectService {
     pub fn setup_prefix(&self) -> Option<String> {
         let code = self.read_factory_token()?;
         let norm = normalize_setup_code(&code);
-        if !is_booklet_code(&norm) || norm.len() < 8 {
+        if !is_device_token_format(&norm) || norm.len() < 8 {
             return None;
         }
-        Some(group_booklet(&norm[..8]))
+        Some(group_device_token(&norm[..8]))
     }
 
     /// Constant-time-ish compare of a submitted unlock code against the on-disk prefix.
@@ -687,7 +687,7 @@ pub(crate) fn normalize_setup_code(raw: &str) -> String {
     out
 }
 
-pub(crate) fn is_booklet_code(norm: &str) -> bool {
+pub(crate) fn is_device_token_format(norm: &str) -> bool {
     let len = norm.len();
     if !(16..=32).contains(&len) {
         return false;
@@ -695,7 +695,7 @@ pub(crate) fn is_booklet_code(norm: &str) -> bool {
     norm.bytes().all(|b| CROCKFORD.contains(&b))
 }
 
-pub(crate) fn group_booklet(norm: &str) -> String {
+pub(crate) fn group_device_token(norm: &str) -> String {
     let mut parts = Vec::new();
     let bytes = norm.as_bytes();
     let mut i = 0;
@@ -813,7 +813,7 @@ mod tests {
     fn redeem_without_factory_token_explains_next_step() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        let err = service.redeem_booklet().unwrap_err();
+        let err = service.redeem_device_token().unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("This Luna has no code preconfigured"), "{msg}");
         assert!(

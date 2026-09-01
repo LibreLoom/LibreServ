@@ -1,14 +1,14 @@
 //! Peel an official setup code from the LUNAASSETS `TOKENS` magazine.
 //!
 //! Used during first-run setup when `{data_dir}/setup-token` is missing or
-//! malformed. Retries when a peeled line is not a valid booklet code.
+//! malformed. Retries when a peeled line is not a valid device token.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use crate::connect::{group_booklet, is_booklet_code, normalize_setup_code};
+use crate::connect::{group_device_token, is_device_token_format, normalize_setup_code};
 
 pub const MAG_RETRY_ATTEMPTS: u32 = 3;
 pub const MAG_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -89,7 +89,7 @@ pub fn fetch_setup_token_from_mag(
 
 fn is_valid_setup_token(raw: &str) -> bool {
     let norm = normalize_setup_code(raw.trim());
-    is_booklet_code(&norm)
+    is_device_token_format(&norm)
 }
 
 fn write_setup_token(path: &Path, raw: &str) -> std::io::Result<()> {
@@ -97,7 +97,7 @@ fn write_setup_token(path: &Path, raw: &str) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let norm = normalize_setup_code(raw.trim());
-    let grouped = group_booklet(&norm);
+    let grouped = group_device_token(&norm);
     std::fs::write(path, format!("{grouped}\n"))?;
     #[cfg(unix)]
     {

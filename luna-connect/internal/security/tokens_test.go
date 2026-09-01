@@ -7,7 +7,7 @@ import (
 
 func TestWebsiteTokenMatchesOfficialStrength(t *testing.T) {
 	a := NormalizeToken(WebsiteSetupToken())
-	b := NormalizeToken(OfficialBookletToken())
+	b := NormalizeToken(OfficialDeviceToken())
 	if len(a) < 16 || len(a) != len(b) {
 		t.Fatalf("website %q official %q", a, b)
 	}
@@ -17,7 +17,7 @@ func TestWebsiteTokenMatchesOfficialStrength(t *testing.T) {
 }
 
 func TestOfficialShape(t *testing.T) {
-	tok := NormalizeToken(OfficialBookletToken())
+	tok := NormalizeToken(OfficialDeviceToken())
 	if !IsOfficialShape(tok) {
 		t.Fatalf("official shape %s", tok)
 	}

@@ -156,7 +156,7 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusTooManyRequests, "Too many device codes on this account. Wait an hour, then try again.")
 		return
 	}
-	id, code, err := insertPermanentDevice(h.DB, "diy", security.OfficialBookletToken(), "")
+	id, code, err := insertPermanentDevice(h.DB, "diy", security.OfficialDeviceToken(), "")
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not make a device code. Try again.")
 		return
@@ -187,7 +187,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]minted, 0, req.Count)
 	for i := 0; i < req.Count; i++ {
-		id, code, err := insertPermanentDevice(h.DB, "official", security.OfficialBookletToken(), req.OrderRef)
+		id, code, err := insertPermanentDevice(h.DB, "official", security.OfficialDeviceToken(), req.OrderRef)
 		if err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not mint a device code. Try again.")
 			return
@@ -219,7 +219,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 	}
 	var lines []string
 	for i := 0; i < req.Count; i++ {
-		_, code, err := insertPermanentDevice(h.DB, "official", security.OfficialBookletToken(), req.OrderRef)
+		_, code, err := insertPermanentDevice(h.DB, "official", security.OfficialDeviceToken(), req.OrderRef)
 		if err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not mint device codes. Try again.")
 			return

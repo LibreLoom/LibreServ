@@ -10,9 +10,9 @@ import (
 // Crockford base32 without I, L, O, U.
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// OfficialBookletToken is a long factory setup code for Lunas purchased from LibreLoom
-// (grouped Crockford; same shape as website setup codes).
-func OfficialBookletToken() string {
+// OfficialDeviceToken is a factory device token for Lunas purchased from LibreLoom
+// (grouped Crockford; same shape as connect.luna.libreloom.org codes).
+func OfficialDeviceToken() string {
 	raw := randomCrockford(20)
 	return GroupCrockford(raw)
 }
@@ -44,7 +44,7 @@ func GroupCrockford(raw string) string {
 
 // WebsiteSetupToken is a one-use setup code for self-built boxes (same format as official).
 func WebsiteSetupToken() string {
-	return OfficialBookletToken()
+	return OfficialDeviceToken()
 }
 
 // NormalizeToken strips grouping and maps lookalike Crockford letters.

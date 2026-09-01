@@ -42,7 +42,7 @@ func testDeps(t *testing.T) Deps {
 
 func mintDevice(t *testing.T, d Deps, kind string) (id, code string) {
 	t.Helper()
-	id, code, err := insertPermanentDevice(d.DB, kind, security.OfficialBookletToken(), "")
+	id, code, err := insertPermanentDevice(d.DB, kind, security.OfficialDeviceToken(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

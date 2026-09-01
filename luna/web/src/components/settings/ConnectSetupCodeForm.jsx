@@ -6,7 +6,7 @@ import ShakeTarget from "../ui/ShakeTarget";
 import { getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 /**
- * Enter or replace the Luna Connect setup code (booklet / site code).
+ * Enter or replace the Luna Connect device token.
  * Used during first-run setup and in Settings → About → Advanced.
  */
 export default function ConnectSetupCodeForm({ surface = "secondary", compact = false }) {

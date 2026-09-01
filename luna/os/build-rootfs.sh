@@ -79,7 +79,7 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
-# tty1 getty for shell login (root / luna / pwreset). Booklet + IP help is
+# tty1 getty for shell login (root / luna / pwreset). Device token + IP help is
 # /var/lib/luna/issue (writable on LUNA_DATA); leave tty2–6 commented.
 if [ -f "$ROOTFS/etc/inittab" ]; then
     sed -i -E 's/^[[:space:]]*tty[0-9]+::.*getty/# &/' "$ROOTFS/etc/inittab"

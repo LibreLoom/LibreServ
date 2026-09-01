@@ -13,7 +13,7 @@ import (
 func TestAdminStatsAndDevices(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
-	_, code, err := insertPermanentDevice(d.DB, "official", security.OfficialBookletToken(), "order-1")
+	_, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-1")
 	if err != nil {
 		t.Fatal(err)
 	}
