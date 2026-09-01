@@ -95,6 +95,12 @@ describe("LunaPage one Luna", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Show code/i }));
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: /Hide code/i }));
+    expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show code/i }));
+    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
     expect(screen.getByText(/The public address goes away/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));

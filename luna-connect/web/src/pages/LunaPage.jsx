@@ -156,8 +156,19 @@ export default function LunaPage() {
                       </a>
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" onClick={showCode}>
-                    Show code
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (shownCode) {
+                        setShownCode("");
+                        setCopied(false);
+                        return;
+                      }
+                      showCode();
+                    }}
+                  >
+                    {shownCode ? "Hide code" : "Show code"}
                   </Button>
                   {!confirmUnbind && (
                     <Button variant="outline" size="sm" onClick={() => setConfirmUnbind(true)}>
