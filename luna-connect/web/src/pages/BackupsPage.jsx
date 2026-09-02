@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Separator } from "../components/ui/separator.jsx";
-import { InfoHint } from "../components/ui/Tooltip.jsx";
+import { InfoHint, TermHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api.js";
@@ -42,7 +42,19 @@ function PricingSummary({ surface = "secondary" }) {
         </div>
         <div className="flex justify-between gap-4">
           <dt>Downloads</dt>
-          <dd className="font-mono text-right">Free up to 3× average</dd>
+          <dd className="text-right text-sm leading-snug space-y-0.5">
+            <span className="block text-foreground">Free each month</span>
+            <span className="block text-foreground">
+              Up to 3×{" "}
+              <TermHint
+                surface={surface}
+                delayMs={0}
+                content="How much you store in the cloud on average during the month — not one day's total. You can download up to three times that amount without extra charge."
+              >
+                average storage
+              </TermHint>
+            </span>
+          </dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt>Extra download traffic</dt>
