@@ -48,6 +48,30 @@ func main() {
 	}
 	fmt.Println("migration complete")
 	printCounts("postgres", dst)
+	printPostMigrationYAML(*postgresURL)
+}
+
+func printPostMigrationYAML(postgresURL string) {
+	fmt.Println()
+	fmt.Println("=== Next: edit BOTH instance config files ===")
+	fmt.Println()
+	fmt.Println("  /etc/luna-connect/luna-connect-a.yaml")
+	fmt.Println("  /etc/luna-connect/luna-connect-b.yaml")
+	fmt.Println()
+	fmt.Println("Replace the database: section. Remove or comment out path: (SQLite only).")
+	fmt.Println()
+	fmt.Println("Paste this block into BOTH files:")
+	fmt.Println()
+	fmt.Println("database:")
+	fmt.Printf("  driver: \"postgres\"\n")
+	fmt.Printf("  url: %q\n", postgresURL)
+	fmt.Println("  # path: \"/var/lib/luna-connect/luna-connect.db\"  # remove — SQLite no longer used")
+	fmt.Println()
+	fmt.Println("Then restart:")
+	fmt.Println()
+	fmt.Println("  sudo systemctl restart luna-connect-a luna-connect-b")
+	fmt.Println()
+	fmt.Println("Full runbook: luna-connect/MIGRATION.md")
 }
 
 func envOr(key, fallback string) string {

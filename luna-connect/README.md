@@ -83,7 +83,9 @@ sudo ./luna-connect/deploy/deploy.sh --head
 # sudo ./luna-connect/deploy/deploy.sh --latest-tag
 ```
 
-Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreloom.org`.
+Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db` (SQLite) or PostgreSQL after migration. Host: `connect.luna.libreloom.org`.
+
+**SQLite → Postgres:** see [MIGRATION.md](./MIGRATION.md) for exact yaml paths (`/etc/luna-connect/luna-connect-{a,b}.yaml`), keys (`database.driver`, `database.url`), and the migrate script.
 
 Fill Cloudflare (tunnel + DNS for `*.luna.servers.libreloom.org`) and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml` (same `admin_token` and `at_rest_key` on both), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
 

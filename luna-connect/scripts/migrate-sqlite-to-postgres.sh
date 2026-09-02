@@ -17,19 +17,21 @@ set -euo pipefail
 #
 # Example:
 #   export LUNACONNECT_DATABASE_URL='postgres://luna_connect:SECRET@127.0.0.1:5432/luna_connect?sslmode=disable'
+#   sudo systemctl stop luna-connect-a luna-connect-b
 #   sudo -E bash luna-connect/scripts/migrate-sqlite-to-postgres.sh --dry-run
 #   sudo -E bash luna-connect/scripts/migrate-sqlite-to-postgres.sh
 #
-# After migration:
-#   1. Set database.driver=postgres and database.url in both instance yaml files.
-#   2. Keep LUNACONNECT_JOB_LEADER=1 only on luna-connect-a (see deploy template).
-#   3. systemctl restart luna-connect-a luna-connect-b
+# After migration, edit BOTH:
+#   /etc/luna-connect/luna-connect-a.yaml
+#   /etc/luna-connect/luna-connect-b.yaml
+# See MIGRATION.md or the yaml block printed when migration completes.
 
 usage() {
   cat <<'EOF'
 migrate-sqlite-to-postgres.sh — copy Luna Connect data from SQLite to PostgreSQL.
 
 This script copies data only. You must install and configure PostgreSQL first.
+Full runbook: luna-connect/MIGRATION.md
 
 Prerequisites
   - PostgreSQL server running (local or remote).
@@ -59,15 +61,37 @@ Usage
 
 Environment
   LUNACONNECT_DATABASE_URL   (required) Postgres connection URL
-  LUNACONNECT_SQLITE_PATH    (optional) SQLite file path
+                               → yaml key database.url
+  LUNACONNECT_SQLITE_PATH      (optional) SQLite file path
+                               → source file; not the yaml database.path after switch
 
-After migration, edit /etc/luna-connect/luna-connect-a.yaml and luna-connect-b.yaml:
+Viper env overrides (optional; production normally uses yaml):
+  LUNACONNECT_DATABASE_DRIVER  → database.driver   (set "postgres" after migration)
+  LUNACONNECT_DATABASE_URL     → database.url
+  LUNACONNECT_DATABASE_PATH    → database.path     (SQLite only — remove after switch)
+
+Config files to edit after migration (both instances, same database: block):
+
+  /etc/luna-connect/luna-connect-a.yaml
+  /etc/luna-connect/luna-connect-b.yaml
+
+Before (SQLite — default from deploy/setup.sh):
+
+  database:
+    path: "/var/lib/luna-connect/luna-connect.db"
+
+After (PostgreSQL — paste into BOTH files; remove or comment path):
 
   database:
     driver: "postgres"
     url: "postgres://luna_connect:SECRET@127.0.0.1:5432/luna_connect?sslmode=disable"
 
-Then: systemctl restart luna-connect-a luna-connect-b
+Then:
+
+  sudo systemctl restart luna-connect-a luna-connect-b
+
+The migrate command prints an exact database: block using your LUNACONNECT_DATABASE_URL
+when the copy finishes successfully.
 EOF
 }
 
@@ -95,7 +119,8 @@ not install or start Postgres for you. Set up PostgreSQL first, then export:
 
   export LUNACONNECT_DATABASE_URL='postgres://luna_connect:YOUR_PASSWORD@127.0.0.1:5432/luna_connect?sslmode=disable'
 
-Run with --help for full Ubuntu/Debian setup commands.
+Run with --help for full Ubuntu/Debian setup commands and yaml paths.
+See luna-connect/MIGRATION.md for the full runbook.
 EOF
   exit 2
 fi
