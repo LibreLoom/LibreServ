@@ -38,6 +38,7 @@ pub mod setup_access;
 pub mod smart;
 pub mod staticweb;
 pub mod summary;
+pub mod system_health;
 pub mod updates;
 pub mod uploads;
 
@@ -66,6 +67,7 @@ pub struct AppState {
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::updates::UpdateService>,
+    pub health_cache: crate::system_health::HealthCache,
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -118,6 +120,7 @@ impl AppState {
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
             updates,
+            health_cache: crate::system_health::HealthCache::default(),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }

@@ -10,7 +10,7 @@ use crate::api::response::json_error;
 
 const SETUP_KEY: &str = "setup";
 
-const VALID_STEPS: &[&str] = &["welcome", "network", "account", "name", "done"];
+const VALID_STEPS: &[&str] = &["welcome", "preflight", "network", "account", "name", "done"];
 
 fn default_step() -> String {
     "welcome".into()
@@ -61,9 +61,43 @@ struct ValidateCodeBody {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/v1/setup/preflight", get(preflight))
         .route("/api/v1/setup/validate-code", post(validate_code))
         .route("/api/v1/setup/fetch-mag", post(fetch_mag))
         .route("/api/v1/setup", get(get_setup).post(save_setup))
+}
+
+async fn preflight(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    if !crate::auth::setup_wizard_open(&state) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Setup is already finished.",
+        ));
+    }
+    let data_dir = state.data_dir.clone();
+    let db = state.db.clone();
+    let resp = tokio::task::spawn_blocking(move || {
+        let conn = db.lock().unwrap();
+        crate::system_health::run_preflight(&data_dir, &conn)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't run the system check. Try again.",
+        )
+    })?;
+    let status = if resp.healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    Ok((
+        status,
+        Json(serde_json::to_value(resp).unwrap_or(json!({}))),
+    ))
 }
 
 async fn validate_code(
