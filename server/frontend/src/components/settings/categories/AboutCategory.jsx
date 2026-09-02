@@ -164,7 +164,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
           <div className="mt-4 pt-4 border-t border-primary/10">
             <div className="flex items-center gap-2 text-sm text-accent">
               <Heart size={14} className="text-error" />
-              <span>Made with love for the open source community</span>
+              <span>Made with love: for everyone, by everyone.</span>
             </div>
           </div>
         </div>
