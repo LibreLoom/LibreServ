@@ -78,7 +78,7 @@ sudo ./luna-connect/deploy/deploy.sh --head
 
 Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreloom.org`.
 
-Fill Cloudflare and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml` (same `admin_token` and `at_rest_key` on both), then restart both units.
+Fill Cloudflare (tunnel + DNS for `*.luna.servers.libreloom.org`) and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml` (same `admin_token` and `at_rest_key` on both), then restart both units. Stripe/Resend/B2 can also be set in Admin → Connections; Cloudflare cannot.
 
 ## Tests
 

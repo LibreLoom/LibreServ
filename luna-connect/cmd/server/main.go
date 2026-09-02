@@ -73,6 +73,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if !config.C.Cloudflare.Ready() {
+		if config.DevMode() {
+			slog.Warn("cloudflare not configured — tunnels and DNS use mock mode (dev only)")
+		} else {
+			slog.Warn("cloudflare not configured — remote Luna addresses will not work until cloudflare.account_id, api_token, and zone_id are set in the config file")
+		}
+	}
 
 	db, err := database.Open(config.C.Database.Path)
 	if err != nil {

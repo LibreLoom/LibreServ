@@ -6,7 +6,7 @@ import { Separator } from "./ui/separator.jsx";
 import { HardDrive, Cloud, LogOut, Sun, Moon } from "lucide-react";
 
 const navItems = [
-  { to: "/", label: "Away from home", icon: HardDrive },
+  { to: "/", label: "Devices", icon: HardDrive },
   { to: "/backups", label: "Cloud backups", icon: Cloud },
 ];
 
@@ -19,7 +19,7 @@ export function Layout({ children }) {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-color-scheme: dark)").matches;
   const isDark = theme === "dark" || (theme === "system" && prefersDark);
-  const brandSrc = isDark ? "/favicon-dark.svg?v=6" : "/favicon.svg?v=6";
+  const brandSrc = isDark ? "/favicon-dark.svg" : "/favicon.svg";
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">

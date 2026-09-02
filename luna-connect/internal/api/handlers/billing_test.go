@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -168,6 +169,69 @@ func TestStripeWebhookRejectsBadSignature(t *testing.T) {
 	acct.StripeWebhook(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("bad sig %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStripeWebhookDisabledReturns503(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = false
+	config.C.Stripe.WebhookSecret = "whsec_test_secret"
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhook", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	acct.StripeWebhook(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("disabled stripe %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStripeWebhookMissingSecretReturns400(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	prev := config.C.Stripe
+	t.Cleanup(func() { config.C.Stripe = prev })
+	config.C.Stripe.Enabled = true
+	config.C.Stripe.SecretKey = "sk_test_live"
+	config.C.Stripe.WebhookSecret = ""
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhook", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	acct.StripeWebhook(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing webhook secret %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStripeWebhookLoadsSecretFromDB(t *testing.T) {
+	d := testDeps(t)
+	acct := AccountHandler{Deps: d}
+	prev := config.C.Stripe
+	t.Cleanup(func() {
+		config.C.Stripe = prev
+		providers.SetStripeRuntimeDB(nil)
+		providers.CaptureStripeBase()
+	})
+	config.C.Stripe = config.StripeConfig{Enabled: false, SecretKey: "sk_yaml"}
+	providers.CaptureStripeBase()
+	providers.SetStripeRuntimeDB(d.DB)
+
+	svc := providers.NewService(d.DB)
+	_, err := svc.Create("stripe", "Stripe", map[string]string{
+		"secret_key":     "sk_from_db",
+		"webhook_secret": "whsec_from_db",
+	}, map[string]string{"publishable_key": "pk_from_db", "price_id": "price_db"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"id":"evt_db","object":"event","type":"invoice.paid","data":{"object":{"id":"in_db","object":"invoice","subscription":"sub_nope"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhook", strings.NewReader(payload))
+	req.Header.Set("Stripe-Signature", stripeTestSig("whsec_from_db", payload))
+	rec := httptest.NewRecorder()
+	acct.StripeWebhook(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook from db secret %d %s", rec.Code, rec.Body.String())
 	}
 }
 

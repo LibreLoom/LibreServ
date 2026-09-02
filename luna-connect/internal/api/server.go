@@ -25,7 +25,8 @@ type Server struct {
 func NewServer(db *sql.DB, objectStore store.Store) *Server {
 	tunnel := providers.NewTunnelClient()
 	dns := providers.NewDNSClient()
-	if !config.C.Cloudflare.Ready() {
+	// Dev-only mock when Cloudflare keys are missing. Production must set cloudflare.* in yaml.
+	if !config.C.Cloudflare.Ready() && config.DevMode() {
 		tunnel.MockMode = true
 		dns.MockMode = true
 	}
@@ -148,10 +149,12 @@ func (s *Server) routes() {
 			r.Get("/admin/devices", console.Devices)
 			r.Get("/admin/accounts", console.Accounts)
 			r.Get("/admin/accounts/{accountID}", console.GetAccount)
+			r.Delete("/admin/accounts/{accountID}", console.DeleteAccount)
 			r.Get("/admin/setup-tokens", console.SetupTokens)
 			r.Post("/admin/setup-tokens", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/setup-tokens/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/setup-tokens/{tokenID}", console.RevokeSetupToken)
+			r.Post("/admin/setup-tokens/{tokenID}/purge", console.PurgeSetupToken)
 			r.Get("/admin/providers", prov.ListProviders)
 			r.With(handlers.LimitJSONBody).Post("/admin/providers", prov.CreateProvider)
 			r.With(handlers.LimitJSONBody).Put("/admin/providers/{id}", prov.UpdateProvider)

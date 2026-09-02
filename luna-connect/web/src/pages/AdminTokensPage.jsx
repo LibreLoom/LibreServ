@@ -50,6 +50,7 @@ export default function AdminTokensPage() {
   const [listAll, setListAll] = useState(false);
   const [listLimited, setListLimited] = useState(true);
   const [revokeBusy, setRevokeBusy] = useState("");
+  const [purgeBusy, setPurgeBusy] = useState("");
   const [filter, setFilter] = useState("all");
   const [supportAccountId, setSupportAccountId] = useState("");
   const [supportToken, setSupportToken] = useState("");
@@ -86,6 +87,25 @@ export default function AdminTokensPage() {
       setError(err.message);
     } finally {
       setRevokeBusy("");
+    }
+  };
+
+  const purge = async (row) => {
+    const label = row.device_hostname || row.hint || row.id;
+    const bound = row.status === "bound";
+    const msg = bound
+      ? `Purge ${label}? This disconnects the Luna from its account, stops remote access, and deletes the token. Cloud backups stay in storage.`
+      : `Purge ${label}? This deletes the token permanently. It will no longer work for setup or hello.`;
+    if (!window.confirm(msg)) return;
+    setPurgeBusy(row.id);
+    setError("");
+    try {
+      await adminApi(`/admin/setup-tokens/${encodeURIComponent(row.id)}/purge`, { method: "POST" });
+      await loadTokens(listAll);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPurgeBusy("");
     }
   };
 
@@ -327,7 +347,7 @@ export default function AdminTokensPage() {
                         {r.device_hostname || "—"}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{formatWhen(r.created_at)}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
                         {r.can_revoke && (
                           <Button
                             size="sm"
@@ -338,6 +358,14 @@ export default function AdminTokensPage() {
                             Revoke
                           </Button>
                         )}
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          loading={purgeBusy === r.id}
+                          onClick={() => purge(r)}
+                        >
+                          Purge
+                        </Button>
                       </td>
                     </tr>
                   ))}

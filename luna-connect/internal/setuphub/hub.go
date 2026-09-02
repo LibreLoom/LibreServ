@@ -19,7 +19,6 @@ type Message struct {
 	DeviceToken string `json:"device_token,omitempty"`
 	Hostname    string `json:"hostname,omitempty"`
 	TunnelToken string `json:"tunnel_token,omitempty"`
-	SetupSecret string `json:"setup_secret,omitempty"`
 	Subdomain   string `json:"subdomain,omitempty"`
 	Message     string `json:"message,omitempty"`
 	LocalPort   int    `json:"local_port,omitempty"`

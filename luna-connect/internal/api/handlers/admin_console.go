@@ -311,3 +311,37 @@ func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Req
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "revoked"})
 }
+
+// PurgeSetupToken removes a device token and its live Connect state. Backups stay.
+func (h AdminConsoleHandler) PurgeSetupToken(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
+	if id == "" {
+		JSONError(w, http.StatusBadRequest, "Device code id is required.")
+		return
+	}
+	if err := purgeDeviceToken(h.Deps, id); err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That device code was not found.")
+		return
+	} else if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not purge that device code. Try again.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "purged": true})
+}
+
+// DeleteAccount removes a customer account and purges linked Lunas. Backups stay.
+func (h AdminConsoleHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	accountID := strings.TrimSpace(chi.URLParam(r, "accountID"))
+	if accountID == "" {
+		JSONError(w, http.StatusBadRequest, "Account id is required.")
+		return
+	}
+	if err := deleteCustomerAccount(h.Deps, accountID); err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That customer account was not found.")
+		return
+	} else if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not delete that customer account. Try again.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": accountID, "deleted": true})
+}

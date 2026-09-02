@@ -116,12 +116,20 @@ func (h *ProvidersHandler) configStatus() map[string]any {
 
 	stripeDB, _ := h.svc.FindEnabled("stripe")
 	if stripeDB != nil {
-		status["stripe"] = map[string]any{"configured": true, "source": "database", "enabled": stripeDB.Enabled}
+		status["stripe"] = map[string]any{
+			"configured":         true,
+			"source":             "database",
+			"enabled":            stripeDB.Enabled,
+			"webhook_ready":      stripeDB.Enabled && strings.HasPrefix(strings.TrimSpace(stripeDB.Credential("webhook_secret", "")), "whsec_"),
+			"has_webhook_secret": strings.HasPrefix(strings.TrimSpace(stripeDB.Credential("webhook_secret", "")), "whsec_"),
+		}
 	} else {
 		status["stripe"] = map[string]any{
-			"configured": config.C.Stripe.Ready() || strings.TrimSpace(config.C.Stripe.SecretKey) != "",
-			"source":     "config",
-			"enabled":    config.C.Stripe.Enabled,
+			"configured":         config.C.Stripe.Ready() || strings.TrimSpace(config.C.Stripe.SecretKey) != "",
+			"source":             "config",
+			"enabled":            config.C.Stripe.Enabled,
+			"webhook_ready":      config.C.Stripe.WebhookReady(),
+			"has_webhook_secret": strings.HasPrefix(strings.TrimSpace(config.C.Stripe.WebhookSecret), "whsec_"),
 		}
 	}
 
@@ -139,6 +147,16 @@ func (h *ProvidersHandler) configStatus() map[string]any {
 			strings.TrimSpace(backupDB.Credential("application_key", "")) != "",
 		"source":  sourceOrEmpty(backupDB != nil),
 		"enabled": backupDB != nil && backupDB.Enabled,
+	}
+
+	// Remote Luna addresses (Cloudflare Tunnel + DNS) are config-file only — not Admin → Connections.
+	cf := config.C.Cloudflare
+	status["cloudflare"] = map[string]any{
+		"configured":  cf.Ready(),
+		"source":      "config",
+		"enabled":     cf.Ready(),
+		"mock_mode":   !cf.Ready() && config.DevMode(),
+		"public_zone": strings.TrimSpace(config.C.Server.PublicZone),
 	}
 
 	return status
