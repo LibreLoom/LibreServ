@@ -71,9 +71,14 @@ sudo bash luna-connect/deploy/setup.sh
 sudo caddy reload --config /etc/caddy/Caddyfile
 
 # later (must be root — systemctl stop/start)
-sudo ./luna-connect/deploy/deploy.sh --head
-# or after tagging: git tag luna-connect-v0.1.0 && git push --tags
-# sudo ./luna-connect/deploy/deploy.sh
+git checkout main && git pull origin main
+sudo ./luna-connect/deploy/deploy.sh
+# or explicitly:
+# sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
+
+# pinned release (when you need an older tag, not current main):
+# sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
+# sudo ./luna-connect/deploy/deploy.sh --latest-tag
 ```
 
 Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreloom.org`.

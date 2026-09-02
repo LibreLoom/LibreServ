@@ -7,11 +7,22 @@ set -euo pipefail
 # Caddy health-checks /healthz. This script soft-drains one instance at a
 # time (touch drain file → /healthz 503 → wait for Caddy to drop it → stop).
 #
-# Usage (from repo root, as root):
+# IMPORTANT — what gets deployed:
+#   On main with no flags: deploys your current main checkout (same as --head).
+#   Off main with no flags: refuses (prevents accidental tag deploys / detached HEAD).
+#   Use --tag or --latest-tag only when you intentionally want a tagged release.
+#
+# Typical production update (from repo root, as root):
+#   git checkout main && git pull origin main
 #   sudo ./luna-connect/deploy/deploy.sh
-#   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.1.0
+#   # or explicitly:
 #   sudo ./luna-connect/deploy/deploy.sh --head
-#   sudo ./luna-connect/deploy/deploy.sh --head --force   # skip preflight when one instance is already sick
+#   sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
+#
+# Tagged release (when main has moved past the tag):
+#   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
+#   sudo ./luna-connect/deploy/deploy.sh --latest-tag       # newest luna-connect-v* tag
+#   sudo ./luna-connect/deploy/deploy.sh --allow-old-tag    # alias for --latest-tag
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -29,9 +40,19 @@ usage() {
 Luna Connect — Zero-Downtime Deploy (blue/green via Caddy)
 
 Usage (from repo root, as root):
-  sudo ./luna-connect/deploy/deploy.sh                    # latest luna-connect-v* tag
-  sudo ./luna-connect/deploy.sh --tag luna-connect-v0.2.16
-  sudo ./luna-connect/deploy/deploy.sh --head             # current checkout (after git pull)
+  sudo ./luna-connect/deploy/deploy.sh
+      On main: deploy current checkout (recommended after git pull).
+      Off main: error — use --head or --tag explicitly.
+
+  sudo ./luna-connect/deploy/deploy.sh --head
+      Deploy current checkout (any branch).
+
+  sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
+      Deploy a specific release tag.
+
+  sudo ./luna-connect/deploy/deploy.sh --latest-tag
+  sudo ./luna-connect/deploy/deploy.sh --allow-old-tag
+      Deploy the newest luna-connect-v* tag (even when main is ahead).
 
 Options:
   --force    Skip preflight that requires both instances healthy.
@@ -40,7 +61,13 @@ Options:
   --help     Show this help and exit.
 
 Examples:
-  git pull && sudo ./luna-connect/deploy/deploy.sh --head --force
+  git checkout main && git pull origin main
+  sudo ./luna-connect/deploy/deploy.sh
+
+  git checkout main && git pull origin main
+  sudo ./luna-connect/deploy/deploy.sh --head --force
+
+  sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
 EOF
 }
 
@@ -49,6 +76,114 @@ log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step()  { echo -e "${BLUE}[STEP]${NC} $1"; }
+
+# --- Ref resolution (testable) -----------------------------------------------
+
+latest_luna_connect_tag() {
+    git tag --list 'luna-connect-v*' --sort=-v:refname | head -1
+}
+
+current_branch_name() {
+    git symbolic-ref -q --short HEAD 2>/dev/null || echo ""
+}
+
+# stdout: head | tag:<name> | error:<reason>
+# stderr: human messages for warnings
+resolve_deploy_mode() {
+    local ref="${1:-}"
+    local want_latest_tag="${2:-0}"
+
+    if [ -n "$ref" ]; then
+        if [ "$ref" = "HEAD" ]; then
+            echo "head"
+            return 0
+        fi
+        echo "tag:${ref}"
+        return 0
+    fi
+
+    if [ "$want_latest_tag" -eq 1 ]; then
+        local latest
+        latest="$(latest_luna_connect_tag)"
+        if [ -z "$latest" ]; then
+            echo "error:no-tags"
+            return 1
+        fi
+        local branch main_ahead=0
+        branch="$(current_branch_name)"
+        if [ "$branch" = "main" ]; then
+            if git merge-base --is-ancestor "$latest" main 2>/dev/null \
+                && [ "$(git rev-parse main)" != "$(git rev-parse "$latest"^{commit})" ]; then
+                main_ahead=1
+            fi
+        fi
+        if [ "$main_ahead" -eq 1 ]; then
+            log_warn "main is ahead of latest tag ${latest} — you are deploying the older tag on purpose."
+            log_warn "To deploy current main instead: sudo ./luna-connect/deploy/deploy.sh --head"
+        fi
+        echo "tag:${latest}"
+        return 0
+    fi
+
+    local branch
+    branch="$(current_branch_name)"
+    if [ "$branch" = "main" ]; then
+        echo "head"
+        return 0
+    fi
+
+    echo "error:not-on-main"
+    return 1
+}
+
+warn_if_main_behind_origin() {
+    if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+        return 0
+    fi
+    local behind
+    behind="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)"
+    if [ "${behind:-0}" -gt 0 ]; then
+        log_warn "main is ${behind} commit(s) behind origin/main — run: git pull origin main"
+    fi
+}
+
+announce_deploy_target() {
+    local mode="$1" ref_name="${2:-}"
+    local short_commit branch
+    short_commit="$(git rev-parse --short HEAD)"
+    case "$mode" in
+        head)
+            branch="$(current_branch_name)"
+            if [ -n "$branch" ]; then
+                log_info "Deploying ${branch} at commit ${short_commit}"
+            else
+                log_info "Deploying HEAD at commit ${short_commit}"
+            fi
+            ;;
+        tag)
+            log_info "Deploying tag ${ref_name} at commit ${short_commit}"
+            ;;
+    esac
+}
+
+checkout_deploy_ref() {
+    local mode="$1" ref_name="${2:-}"
+    case "$mode" in
+        head)
+            # Stay on current checkout; no checkout needed.
+            ;;
+        tag)
+            git checkout -f "$ref_name"
+            git clean -fd luna-connect/web/ >/dev/null 2>&1 || true
+            ;;
+        *)
+            log_error "Internal error: unknown deploy mode ${mode}"
+            exit 1
+            ;;
+    esac
+}
+
+# --- Deploy runtime ----------------------------------------------------------
 
 drain_file_for() { echo "${DATA_DIR}/drain-${1}"; }
 
@@ -221,7 +356,7 @@ preflight() {
 main() {
     require_root "$@"
 
-    local ref=""
+    local ref="" want_latest_tag=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --help|-h)
@@ -244,6 +379,10 @@ main() {
                 ref="$2"
                 shift 2
                 ;;
+            --latest-tag|--allow-old-tag)
+                want_latest_tag=1
+                shift
+                ;;
             *)
                 log_error "Unknown option: $1"
                 usage
@@ -256,23 +395,46 @@ main() {
     cd "$REPO_ROOT"
     git fetch --tags --force
 
-    if [ -z "$ref" ]; then
-        ref=$(git tag --list 'luna-connect-v*' --sort=-v:refname | head -1)
-        if [ -z "$ref" ]; then
+    local resolved mode tag_name
+    if ! resolved="$(resolve_deploy_mode "$ref" "$want_latest_tag")"; then
+        resolved=""
+    fi
+
+    case "$resolved" in
+        head)
+            mode="head"
+            warn_if_main_behind_origin
+            checkout_deploy_ref "$mode"
+            announce_deploy_target "$mode"
+            ;;
+        tag:*)
+            mode="tag"
+            tag_name="${resolved#tag:}"
+            if ! git rev-parse --verify "${tag_name}^{commit}" >/dev/null 2>&1; then
+                log_error "Tag not found: ${tag_name}"
+                exit 1
+            fi
+            checkout_deploy_ref "$mode" "$tag_name"
+            announce_deploy_target "$mode" "$tag_name"
+            ;;
+        error:no-tags)
             log_error "No luna-connect-v* tags. Create one: git tag luna-connect-v0.1.0 && git push --tags"
             log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --head"
             exit 1
-        fi
-        log_info "Deploying ${ref}"
-        git checkout -f "$ref"
-        git clean -fd luna-connect/web/ >/dev/null 2>&1 || true
-    elif [ "$ref" = "HEAD" ]; then
-        log_info "Deploying HEAD ($(git rev-parse --short HEAD))"
-    else
-        log_info "Deploying ${ref}"
-        git checkout -f "$ref"
-        git clean -fd luna-connect/web/ >/dev/null 2>&1 || true
-    fi
+            ;;
+        error:not-on-main)
+            log_error "Not on main ($(current_branch_name || echo 'detached HEAD'))."
+            log_error "Bare ./luna-connect/deploy/deploy.sh only deploys main."
+            log_error "  sudo ./luna-connect/deploy/deploy.sh --head          # current checkout"
+            log_error "  sudo ./luna-connect/deploy/deploy.sh --tag NAME      # specific release"
+            log_error "  sudo ./luna-connect/deploy/deploy.sh --latest-tag    # newest luna-connect-v* tag"
+            exit 1
+            ;;
+        *)
+            log_error "Could not resolve deploy ref."
+            exit 1
+            ;;
+    esac
 
     preflight
     build_binary
@@ -292,4 +454,6 @@ main() {
     echo "  B: http://127.0.0.1:8102  ($(systemctl is-active luna-connect-b))"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
