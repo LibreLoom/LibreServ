@@ -35,11 +35,15 @@ async fn comprehensive_check(
     let result = if force || cache.should_refresh() {
         cache.mark_refreshing();
         let data_dir = state.data_dir.clone();
-        let drive_manager = state.drive_manager.clone();
         let db = state.db.clone();
         let computed = tokio::task::spawn_blocking(move || {
-            let conn = db.lock().unwrap();
-            crate::system_health::run_comprehensive(&data_dir, &conn, &drive_manager)
+            let (preflight, drives) = {
+                let conn = db.lock().unwrap();
+                let preflight = crate::system_health::run_preflight(&data_dir, &conn);
+                let drives = crate::db::list_drives(&conn).unwrap_or_default();
+                (preflight, drives)
+            };
+            crate::system_health::finish_comprehensive(&data_dir, preflight, drives)
         })
         .await
         .unwrap_or_else(|_| crate::system_health::ComprehensiveHealthResponse {
@@ -54,10 +58,14 @@ async fn comprehensive_check(
     } else {
         cache.get().unwrap_or_else(|| {
             let data_dir = state.data_dir.clone();
-            let drive_manager = state.drive_manager.clone();
             let db = state.db.clone();
-            let conn = db.lock().unwrap();
-            crate::system_health::run_comprehensive(&data_dir, &conn, &drive_manager)
+            let (preflight, drives) = {
+                let conn = db.lock().unwrap();
+                let preflight = crate::system_health::run_preflight(&data_dir, &conn);
+                let drives = crate::db::list_drives(&conn).unwrap_or_default();
+                (preflight, drives)
+            };
+            crate::system_health::finish_comprehensive(&data_dir, preflight, drives)
         })
     };
 

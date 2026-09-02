@@ -69,6 +69,8 @@ pub fn router() -> Router<AppState> {
 
 async fn preflight(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     if !crate::auth::setup_wizard_open(&state) {
         return Err(json_error(
@@ -76,6 +78,7 @@ async fn preflight(
             "Setup is already finished.",
         ));
     }
+    crate::setup_access::check(&state, &addr, &headers)?;
     let data_dir = state.data_dir.clone();
     let db = state.db.clone();
     let resp = tokio::task::spawn_blocking(move || {

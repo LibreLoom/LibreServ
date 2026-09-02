@@ -204,6 +204,16 @@ pub fn run_comprehensive(
     _drive_manager: &DriveManager,
 ) -> ComprehensiveHealthResponse {
     let preflight = run_preflight(data_dir, conn);
+    let drives = crate::db::list_drives(conn).unwrap_or_default();
+    finish_comprehensive(data_dir, preflight, drives)
+}
+
+/// Drive probes and SMART reads — callers must not hold the DB lock.
+pub fn finish_comprehensive(
+    _data_dir: &Path,
+    preflight: PreflightResponse,
+    drives: Vec<crate::db::DriveRow>,
+) -> ComprehensiveHealthResponse {
     let mut checks = HashMap::new();
     let mut summary = HealthCheckSummary::default();
 
@@ -248,8 +258,7 @@ pub fn run_comprehensive(
         );
     }
 
-    if let Ok(drives) = crate::db::list_drives(conn) {
-        for drive in drives {
+    for drive in drives {
             if drive.state == "missing" || drive.state == "ejected" {
                 continue;
             }
@@ -381,7 +390,6 @@ pub fn run_comprehensive(
                     );
                 }
             }
-        }
     }
 
     let overall_pass = summary.failed == 0;
