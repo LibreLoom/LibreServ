@@ -112,6 +112,7 @@ func (s *Server) routes() {
 						r.Post("/billing/cancel", acct.CancelBilling)
 						r.Get("/account/devices", acct.Devices)
 						r.Get("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
+						r.Get("/account/devices/{deviceID}/setup-readiness", acct.DeviceSetupReadiness)
 						r.Post("/devices/bind", dev.Bind)
 						r.Delete("/devices/{deviceID}", dev.Unbind)
 						r.Post("/devices/{deviceID}/domain", dev.SetDomain)
