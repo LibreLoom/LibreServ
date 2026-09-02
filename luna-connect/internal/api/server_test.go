@@ -53,6 +53,46 @@ func testServerWithProviders(t *testing.T, tunnel providers.Tunnel, dns provider
 	return s.Router()
 }
 
+func TestAdminProvidersBrowserRefreshServesSPA(t *testing.T) {
+	webDir := filepath.Join(t.TempDir(), "web")
+	if err := os.MkdirAll(webDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := "<!doctype html><html><body>Luna Connect</body></html>"
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LUNACONNECT_DEV", "1")
+	config.C.Server.WebDir = webDir
+
+	h := testServer(t)
+
+	nav := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	nav.Header.Set("Accept", "text/html,application/xhtml+xml")
+	navRec := httptest.NewRecorder()
+	h.ServeHTTP(navRec, nav)
+	if navRec.Code != http.StatusOK {
+		t.Fatalf("browser refresh want 200, got %d body=%q", navRec.Code, navRec.Body.String())
+	}
+	if !strings.Contains(navRec.Body.String(), "Luna Connect") {
+		t.Fatalf("expected SPA index, got %q", navRec.Body.String())
+	}
+	if !strings.Contains(navRec.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("content-type %q", navRec.Header().Get("Content-Type"))
+	}
+
+	api := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	api.Header.Set("Accept", "application/json")
+	apiRec := httptest.NewRecorder()
+	h.ServeHTTP(apiRec, api)
+	if apiRec.Code != http.StatusUnauthorized {
+		t.Fatalf("API call want 401, got %d body=%q", apiRec.Code, apiRec.Body.String())
+	}
+	if !strings.Contains(apiRec.Body.String(), "Admin sign-in required") {
+		t.Fatalf("API body %q", apiRec.Body.String())
+	}
+}
+
 func TestSecurityHeaders(t *testing.T) {
 	h := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)

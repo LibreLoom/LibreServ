@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api/handlers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
@@ -136,6 +137,11 @@ func (s *Server) routes() {
 		r.With(handlers.LimitJSONBody).Post("/admin/seed", adm.Seed)
 
 		r.Group(func(r chi.Router) {
+			// Browser navigation (Accept: text/html) to admin paths that match
+			// API GET routes (e.g. /admin/providers) must serve the SPA on hard
+			// refresh. fetch() sends Accept: */* or application/json and passes
+			// through to AdminAuth.
+			r.Use(middleware.SPAFallback(s.serveSPA))
 			r.Use(handlers.AdminAuth(s.db))
 			r.Get("/admin/me", adm.Me)
 			r.Post("/admin/logout", adm.Logout)
@@ -166,11 +172,37 @@ func (s *Server) routes() {
 	s.router = r
 }
 
-func (s *Server) mountWeb(r *chi.Mux) {
+func (s *Server) webDir() string {
 	dir := config.C.Server.WebDir
 	if dir == "" {
 		dir = "web/dist"
 	}
+	return dir
+}
+
+func (s *Server) serveSPA(w http.ResponseWriter, req *http.Request) {
+	dir := s.webDir()
+	if _, err := os.Stat(dir); err != nil {
+		http.NotFound(w, req)
+		return
+	}
+	p := path.Join(dir, path.Clean(req.URL.Path))
+	if st, err := os.Stat(p); err == nil && !st.IsDir() {
+		http.FileServer(http.Dir(dir)).ServeHTTP(w, req)
+		return
+	}
+	f, err := os.Open(path.Join(dir, "index.html"))
+	if err != nil {
+		http.NotFound(w, req)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.Copy(w, f)
+}
+
+func (s *Server) mountWeb(r *chi.Mux) {
+	dir := s.webDir()
 	if _, err := os.Stat(dir); err != nil {
 		return
 	}
@@ -185,13 +217,6 @@ func (s *Server) mountWeb(r *chi.Mux) {
 			fs.ServeHTTP(w, req)
 			return
 		}
-		f, err := os.Open(path.Join(dir, "index.html"))
-		if err != nil {
-			http.NotFound(w, req)
-			return
-		}
-		defer f.Close()
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.Copy(w, f)
+		s.serveSPA(w, req)
 	})
 }
