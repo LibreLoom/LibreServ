@@ -146,9 +146,7 @@ pub fn watch_link_up(
                     dhcp_iface(&name);
                     last_attempt.insert(name.clone(), Instant::now());
                 }
-                if rising
-                    && let Some(wake) = &wake_connect
-                {
+                if rising && let Some(wake) = &wake_connect {
                     wake.store(true, Ordering::Relaxed);
                 }
                 if !carrier {
