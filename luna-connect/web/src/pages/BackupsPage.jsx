@@ -39,18 +39,18 @@ function PricingSummary({ surface = "secondary" }) {
         <table className="w-full text-sm">
           <tbody>
             <tr className="border-b border-border">
-              <th scope="row" className="px-3 py-2.5 text-left font-normal align-top">
+              <th scope="row" className="px-3 py-2.5 text-left font-normal align-middle">
                 Storage
               </th>
-              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-top">
+              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-middle">
                 $8 / terabyte / month
               </td>
             </tr>
             <tr className="border-b border-border">
-              <th scope="row" className="px-3 py-2.5 text-left font-normal align-top">
+              <th scope="row" className="px-3 py-2.5 text-left font-normal align-middle">
                 Downloads
               </th>
-              <td className="px-3 py-2.5 text-right leading-snug align-top">
+              <td className="px-3 py-2.5 text-right leading-snug align-middle">
                 <span className="block">Free each month</span>
                 <span className="block">
                   Up to 3×{" "}
@@ -65,10 +65,10 @@ function PricingSummary({ surface = "secondary" }) {
               </td>
             </tr>
             <tr>
-              <th scope="row" className="px-3 py-2.5 text-left font-normal align-top">
+              <th scope="row" className="px-3 py-2.5 text-left font-normal align-middle">
                 Extra download traffic
               </th>
-              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-top">
+              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-middle">
                 $0.01 / GB
               </td>
             </tr>
