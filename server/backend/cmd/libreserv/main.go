@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"log/slog"
@@ -41,17 +40,25 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", "./configs/libreserv.yaml", "path to configuration file")
-	flag.Parse()
+	parsed, err := parseCLIArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n\n", err)
+		printCLIUsage()
+		os.Exit(2)
+	}
+	if parsed.Help {
+		printCLIUsage()
+		os.Exit(0)
+	}
 
 	// Dispatch config subcommand before loading the full server
-	args := flag.Args()
-	if len(args) > 0 && args[0] == "config" {
-		handleConfigCommand(args[1:], *cfgPath)
+	if parsed.Command == "config" {
+		handleConfigCommand(parsed.CommandArgs, parsed.ConfigPath)
 		return
 	}
 
-	if err := config.LoadConfig(*cfgPath); err != nil {
+	cfgPath := parsed.ConfigPath
+	if err := config.LoadConfig(cfgPath); err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
 	cfg := config.Get()
@@ -75,7 +82,7 @@ func main() {
 	logger.Init(cfg.Logging)
 	defer logger.Close()
 
-	if err := ensureSecrets(*cfgPath); err != nil {
+	if err := ensureSecrets(cfgPath); err != nil {
 		slog.Error("failed to initialize secrets", "error", err)
 		os.Exit(1)
 	}
