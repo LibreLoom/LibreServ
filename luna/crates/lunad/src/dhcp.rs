@@ -114,7 +114,11 @@ fn dhcp_iface(iface: &str) {
 
 /// Watch sysfs carrier and request DHCP when a cable starts carrying a link,
 /// and retry while carrier stays up without a usable IPv4.
-pub fn watch_link_up(stop: std::sync::Arc<AtomicBool>) {
+/// When `wake_connect` is set, a rising carrier edge wakes the Connect poll loop.
+pub fn watch_link_up(
+    stop: std::sync::Arc<AtomicBool>,
+    wake_connect: Option<std::sync::Arc<AtomicBool>>,
+) {
     let mut last: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
     let mut last_attempt: std::collections::BTreeMap<String, Instant> =
         std::collections::BTreeMap::new();
@@ -141,6 +145,11 @@ pub fn watch_link_up(stop: std::sync::Arc<AtomicBool>) {
                 if needs_addr && (rising || due) {
                     dhcp_iface(&name);
                     last_attempt.insert(name.clone(), Instant::now());
+                }
+                if rising {
+                    if let Some(wake) = &wake_connect {
+                        wake.store(true, Ordering::Relaxed);
+                    }
                 }
                 if !carrier {
                     last_attempt.remove(&name);

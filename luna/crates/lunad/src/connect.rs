@@ -8,6 +8,11 @@ use std::sync::{Arc, Mutex};
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
+/// Steady-state Connect status pull (boot + every 5 minutes after setup).
+pub const STEADY_POLL_SECS: u64 = 300;
+/// Fast pull while setup is open and the tunnel is not running yet.
+pub const AGGRESSIVE_POLL_SECS: u64 = 10;
+
 /// Permanent Luna Connect device token (`{data_dir}/device-token`).
 /// Connect is inactive until this file holds a valid token.
 pub const DEVICE_TOKEN_FILE: &str = "device-token";
@@ -284,7 +289,36 @@ impl ConnectService {
         None
     }
 
-    /// Pull Connect status with the permanent device token. Call on boot and every 5 minutes.
+    /// True when Connect handed us a tunnel token and cloudflared is running (or mock tunnel).
+    pub fn tunnel_ready(&self) -> bool {
+        if !self.has_valid_device_code() {
+            return false;
+        }
+        let state = self.load();
+        let token = state
+            .get("tunnel_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if token.is_empty() {
+            return false;
+        }
+        if token.starts_with("mock-") {
+            return true;
+        }
+        self.tunnel_running()
+    }
+
+    /// Seconds until the next status pull. Aggressive during setup until the tunnel is up;
+    /// steady 5 minutes once setup is finished or the tunnel is already running.
+    pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
+        if !setup_wizard_open || self.tunnel_ready() {
+            STEADY_POLL_SECS
+        } else {
+            AGGRESSIVE_POLL_SECS
+        }
+    }
+
+    /// Pull Connect status with the permanent device token. Call on boot and on the poll loop.
     /// Returns true when bound (200). On 403 unbound, clears local claim state but keeps the token file.
     pub fn poll_status(&self) -> bool {
         if !self.has_valid_device_code() {
@@ -849,5 +883,54 @@ mod tests {
     fn idle_requires_quiet_window() {
         assert!(!is_idle(100, 110));
         assert!(is_idle(100, 140));
+    }
+
+    #[test]
+    fn tunnel_ready_with_mock_token_without_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .apply_claimed(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        assert!(service.tunnel_ready());
+    }
+
+    #[test]
+    fn poll_interval_aggressive_during_setup_without_tunnel() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert_eq!(
+            service.poll_interval_secs(true),
+            AGGRESSIVE_POLL_SECS,
+            "setup open without tunnel should poll fast"
+        );
+        assert_eq!(
+            service.poll_interval_secs(false),
+            STEADY_POLL_SECS,
+            "finished setup uses steady interval even without tunnel"
+        );
+    }
+
+    #[test]
+    fn poll_interval_steady_when_tunnel_ready_during_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .apply_claimed(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        assert_eq!(
+            service.poll_interval_secs(true),
+            STEADY_POLL_SECS,
+            "tunnel ready during setup should slow polling"
+        );
     }
 }

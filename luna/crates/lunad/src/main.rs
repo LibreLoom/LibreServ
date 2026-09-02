@@ -59,25 +59,47 @@ async fn main() -> anyhow::Result<()> {
     // Password recovery is the Linux `pwreset` login shell (luna-pwreset),
     // which POSTs to /api/v1/console/reset-password on loopback.
 
+    let connect_poll_wake = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
     std::thread::Builder::new()
         .name("luna-dhcp-link".into())
-        .spawn(|| {
-            lunad::dhcp::request_on_wired(std::path::Path::new("/sys/class/net"));
-            lunad::dhcp::watch_link_up(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
-                false,
-            )));
+        .spawn({
+            let wake = connect_poll_wake.clone();
+            move || {
+                lunad::dhcp::request_on_wired(std::path::Path::new("/sys/class/net"));
+                lunad::dhcp::watch_link_up(
+                    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    Some(wake),
+                );
+            }
         })
         .ok();
 
     {
         let connect = state.connect.clone();
+        let db = state.db.clone();
+        let wake = connect_poll_wake.clone();
         std::thread::Builder::new()
             .name("luna-connect-status".into())
             .spawn(move || {
+                use std::sync::atomic::Ordering;
+                use std::time::Duration;
+
                 loop {
                     let _ = connect.poll_status();
-                    // Boot + every 5 minutes: pull tunnel/domain/backup and auto-apply.
-                    std::thread::sleep(std::time::Duration::from_secs(5 * 60));
+                    let setup_open = db
+                        .lock()
+                        .map(|conn| lunad::auth::setup_wizard_open_conn(&conn))
+                        .unwrap_or(false);
+                    let interval = connect.poll_interval_secs(setup_open);
+                    let mut waited = 0u64;
+                    while waited < interval {
+                        if wake.swap(false, Ordering::Relaxed) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_secs(1));
+                        waited += 1;
+                    }
                 }
             })
             .ok();
