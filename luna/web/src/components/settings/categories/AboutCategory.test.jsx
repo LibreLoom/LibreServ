@@ -94,6 +94,38 @@ describe("AboutCategory", () => {
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
   });
 
+  it("shows Luna Connect on/off and device token controls in Advanced", async () => {
+    renderPage(stubFetch());
+    await screen.findByText("Default source");
+
+    expect(await screen.findByLabelText("Device token from Luna Connect")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Save device token/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).toBeNull();
+  });
+
+  it("shows turn-off controls in Advanced when Connect is linked", async () => {
+    const baseFetch = stubFetch();
+    const fetchImpl = vi.fn(async (path, options) => {
+      if (path.startsWith("/api/v1/connect/status")) {
+        return new Response(
+          JSON.stringify({
+            enabled: true,
+            connect_active: true,
+            hostname: "kitchen.luna.servers.libreloom.org",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return baseFetch(path, options);
+    });
+    renderPage(fetchImpl);
+    await screen.findByText("Default source");
+
+    expect(await screen.findByRole("button", { name: /Turn Luna Connect off/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Remove device token/i })).toBeTruthy();
+    expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
+  });
+
   it("flags a custom source when keys differ from the built-in key", async () => {
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,

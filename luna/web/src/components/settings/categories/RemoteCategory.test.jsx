@@ -16,20 +16,21 @@ function renderPage() {
 }
 
 describe("RemoteCategory", () => {
-  it("points at About → Advanced when Connect is off", async () => {
+  it("shows Luna Connect link copy when Connect is off", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ));
     renderPage();
-    expect(await screen.findByRole("link", { name: /Open About → Advanced/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Sync with Luna Connect/i })).toBeTruthy();
-    expect(screen.getByText(/connect\.luna\.libreloom\.org/i)).toBeTruthy();
-    expect(screen.getAllByText(/About → Advanced/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Other options/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Tailscale/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Configure your subdomain & add cloud backup on/i)).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Luna Connect" });
+    expect(link).toHaveAttribute("href", "https://connect.luna.libreloom.org");
+    expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sync with Luna Connect/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/About → Advanced/i)).not.toBeInTheDocument();
   });
 
-  it("shows hostname and change field when on", async () => {
+  it("shows read-only address and Luna Connect link when on", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(JSON.stringify({
         enabled: true,
@@ -41,7 +42,9 @@ describe("RemoteCategory", () => {
     renderPage();
     expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByLabelText("Luna Connect address")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Save new address/i })).toBeTruthy();
-    expect(screen.getByText(/free forever/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Luna Connect" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("kitchen")).not.toBeInTheDocument();
   });
 });

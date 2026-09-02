@@ -57,11 +57,11 @@ export default function UpdateSourceCard({ index = 3 }) {
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
       <div className="px-5 py-4 space-y-4">
-        <CollapsibleSection title="Device token" mono pill defaultOpen>
+        <CollapsibleSection title="Luna Connect" mono pill defaultOpen>
           <div className="space-y-3 mb-1">
             <p className="text-sm text-primary leading-relaxed">
-              Add a device token from Luna Connect to turn on remote access and cloud backup.
-              Purchased Lunas can also use the token that came with the device.
+              Turn Luna Connect on or off and manage the device token for this Luna.
+              Purchased Lunas can use the token that came with the device.
             </p>
             <ConnectSetupCodeForm compact />
           </div>
