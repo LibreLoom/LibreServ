@@ -132,7 +132,14 @@ export default function LunaPage() {
                   <span className="font-mono text-sm">{luna.code_hint || "••••"}</span>
                 </div>
                 {luna.hostname ? (
-                  <p className="font-mono text-sm break-all">{luna.hostname}</p>
+                  <a
+                    href={`https://${luna.hostname}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-sm break-all underline underline-offset-4 hover:text-foreground motion-safe:transition-colors"
+                  >
+                    {luna.hostname}
+                  </a>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Linked, but no public name yet.{" "}

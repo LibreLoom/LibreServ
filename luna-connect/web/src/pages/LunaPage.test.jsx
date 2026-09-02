@@ -73,7 +73,10 @@ describe("LunaPage one Luna", () => {
       ],
     });
     mount();
-    expect(await screen.findByText("photos.luna.servers.libreloom.org")).toBeTruthy();
+    const hostnameLink = await screen.findByRole("link", { name: "photos.luna.servers.libreloom.org" });
+    expect(hostnameLink.getAttribute("href")).toBe("https://photos.luna.servers.libreloom.org");
+    expect(hostnameLink.getAttribute("target")).toBe("_blank");
+    expect(hostnameLink.getAttribute("rel")).toBe("noreferrer");
     expect(screen.queryByText("extra.luna.servers.libreloom.org")).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();
