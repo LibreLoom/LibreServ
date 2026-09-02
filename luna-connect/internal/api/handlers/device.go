@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -183,6 +184,12 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().Unix()
 	_, _ = h.DB.Exec(`UPDATE devices SET last_seen_at = ? WHERE id = ?`, now, dev.ID)
+
+	if portHeader := r.Header.Get("X-Luna-Local-Port"); portHeader != "" {
+		if port, err := strconv.Atoi(portHeader); err == nil {
+			syncDeviceLocalPort(h.Deps, dev.ID, port)
+		}
+	}
 
 	unlocked := false
 	var hasCard int

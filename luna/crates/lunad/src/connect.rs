@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -49,6 +50,7 @@ pub struct ConnectService {
     base_url: String,
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
+    active_tunnel_token: Arc<Mutex<Option<String>>>,
     local_port: u16,
 }
 
@@ -66,6 +68,7 @@ impl ConnectService {
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
             device_key,
             child: Arc::new(Mutex::new(None)),
+            active_tunnel_token: Arc::new(Mutex::new(None)),
             local_port: 8090,
         }
     }
@@ -293,7 +296,7 @@ impl ConnectService {
         let Ok(code) = self.device_code() else {
             return false;
         };
-        match self.call_json_status("GET", "/api/v1/status", Some(&code), None) {
+        match self.call_device_status(&code) {
             Ok(remote) => {
                 let mut state = self.load();
                 if let Some(h) = remote.get("hostname") {
@@ -504,41 +507,122 @@ impl ConnectService {
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
-        if self.tunnel_running() {
-            return Ok(());
-        }
         let token = self
             .load()
             .get("tunnel_token")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if token.is_empty() || token.starts_with("mock-") {
+        if token.is_empty() {
+            return Ok(());
+        }
+        if token.starts_with("mock-") {
             let mut state = self.load();
             state["tunnel_active"] = json!(true);
             return self.save(&state);
         }
-        let child = Command::new("cloudflared")
-            .args(["tunnel", "run", "--token", &token])
+
+        if self.tunnel_running_with_token(&token) {
+            return Ok(());
+        }
+        self.stop_tunnel();
+
+        let bin = Self::cloudflared_bin();
+        tracing::info!(path = %bin.display(), port = self.local_port, "starting cloudflared tunnel");
+
+        let mut child = Command::new(&bin)
+            .args(["tunnel", "--no-autoupdate", "run"])
+            .env("TUNNEL_TOKEN", &token)
+            .env("CLOUDFLARED_TUNNEL_TOKEN", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
-            .map_err(|_| {
+            .map_err(|e| {
+                tracing::error!(path = %bin.display(), error = %e, "cloudflared spawn failed");
                 ConnectError::Other(
                     "Luna couldn't start the protected connection. Try again in a few minutes."
                         .into(),
                 )
             })?;
+
+        if let Some(stderr) = child.stderr.take() {
+            std::thread::Builder::new()
+                .name("cloudflared-log".into())
+                .spawn(move || {
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines().map_while(Result::ok) {
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            tracing::warn!(target: "cloudflared", "{trimmed}");
+                        }
+                    }
+                })
+                .ok();
+        }
+
+        *self.active_tunnel_token.lock().unwrap() = Some(token);
         *self.child.lock().unwrap() = Some(child);
         Ok(())
     }
 
+    fn tunnel_running_with_token(&self, token: &str) -> bool {
+        let mut g = self.child.lock().unwrap();
+        if let Some(child) = g.as_mut() {
+            match child.try_wait() {
+                Ok(None) => {
+                    let active = self.active_tunnel_token.lock().unwrap();
+                    return active.as_deref() == Some(token);
+                }
+                _ => *g = None,
+            }
+        }
+        false
+    }
+
     fn stop_tunnel(&self) {
+        *self.active_tunnel_token.lock().unwrap() = None;
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    /// Status pull reports Luna's HTTP listen port so Connect can aim the tunnel at the right origin.
+    fn call_device_status(&self, code: &str) -> Result<Value, ConnectError> {
+        let url = format!("{}{}", self.base_url.trim_end_matches('/'), "/api/v1/status");
+        let mut req = ureq::get(&url).header("Authorization", format!("Bearer {code}"));
+        if self.local_port > 0 {
+            req = req.header("X-Luna-Local-Port", self.local_port.to_string());
+        }
+        let mut response = match req.call() {
+            Ok(r) => r,
+            Err(ureq::Error::StatusCode(403)) => {
+                return Err(ConnectError::Other("403 unbound".into()));
+            }
+            Err(e) => return Err(map_transport_error(e)),
+        };
+        response
+            .body_mut()
+            .read_json::<Value>()
+            .map_err(|_| ConnectError::Other("Connect sent a reply Luna couldn't read.".into()))
+    }
+
+    /// Resolve cloudflared: Luna OS ships it in /usr/local/bin, but OpenRC service PATH
+    /// often omits that directory.
+    fn cloudflared_bin() -> PathBuf {
+        const CANDIDATES: &[&str] = &[
+            "/usr/local/bin/cloudflared",
+            "/usr/bin/cloudflared",
+            "/sbin/cloudflared",
+        ];
+        for candidate in CANDIDATES {
+            let path = Path::new(candidate);
+            if path.is_file() {
+                return path.to_path_buf();
+            }
+        }
+        PathBuf::from("cloudflared")
     }
 
     fn tunnel_running(&self) -> bool {
@@ -843,6 +927,16 @@ mod tests {
         let service =
             ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into())).with_local_port(80);
         assert_eq!(service.local_port, 80);
+    }
+
+    #[test]
+    fn cloudflared_bin_prefers_usr_local() {
+        if Path::new("/usr/local/bin/cloudflared").is_file() {
+            assert_eq!(
+                ConnectService::cloudflared_bin(),
+                PathBuf::from("/usr/local/bin/cloudflared")
+            );
+        }
     }
 
     #[test]

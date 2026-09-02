@@ -116,7 +116,7 @@ command="/usr/local/sbin/luna-run"
 command_args=""
 command_background="yes"
 pidfile="/run/luna.pid"
-start_stop_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80"
+start_stop_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80 --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 depend() {
     need localmount
     # HTTP must not wait on mDNS — avahi can start in parallel.

@@ -58,6 +58,41 @@ func cloudflareDomainReady() (int, string) {
 	return 0, ""
 }
 
+// syncDeviceLocalPort updates the stored origin port when Luna reports a different HTTP listen port
+// (production Luna OS uses port 80; dev defaults to 8090). Reconfigures tunnel ingress when needed.
+func syncDeviceLocalPort(deps Deps, deviceID string, port int) {
+	if port <= 0 || port > 65535 {
+		return
+	}
+	var curPort int
+	var sub, tunnelID string
+	err := deps.DB.QueryRow(
+		`SELECT COALESCE(local_port, 8090), COALESCE(subdomain, ''), COALESCE(tunnel_id, '') FROM devices WHERE id = ?`,
+		deviceID,
+	).Scan(&curPort, &sub, &tunnelID)
+	if err != nil {
+		return
+	}
+	if curPort == port {
+		return
+	}
+	if tunnelID != "" && sub != "" && (config.C.Cloudflare.Ready() || config.DevMode()) {
+		providers.RefreshCloudflare()
+		host := domainname.Hostname(sub, config.C.Server.PublicZone)
+		if err := deps.Tunnel.ConfigureIngress(
+			config.C.Cloudflare.AccountID,
+			config.C.Cloudflare.APIToken,
+			tunnelID,
+			host,
+			"http://127.0.0.1:"+itoa(port),
+		); err != nil {
+			slog.Warn("sync local_port: ingress update failed", "device", deviceID, "port", port, "err", err)
+			return
+		}
+	}
+	_, _ = deps.DB.Exec(`UPDATE devices SET local_port = ? WHERE id = ?`, port, deviceID)
+}
+
 // applyDeviceDomain provisions tunnel+DNS for a bound device (same logic as account SetDomain).
 func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]any, int, string) {
 	providers.RefreshCloudflare()
