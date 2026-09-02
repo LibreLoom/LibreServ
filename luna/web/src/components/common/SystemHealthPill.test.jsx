@@ -23,28 +23,28 @@ function renderPill() {
 
 describe("SystemHealthPill", () => {
   beforeEach(() => {
-    vi.mocked(useSystemHealthCheck).mockReturnValue({
+    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
       data: null,
       isLoading: false,
       error: null,
-    });
+    }));
   });
 
   it("shows the healthy state when all checks pass", () => {
-    vi.mocked(useSystemHealthCheck).mockReturnValue({
+    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
       data: {
         overall_pass: true,
         checks: { database: { status: "passed", message: "OK", category: "system" } },
       },
       isLoading: false,
       error: null,
-    });
+    }));
     renderPill();
     expect(screen.getByText("All systems healthy")).toBeInTheDocument();
   });
 
   it("shows an issue count when checks fail", () => {
-    vi.mocked(useSystemHealthCheck).mockReturnValue({
+    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({
       data: {
         overall_pass: false,
         checks: {
@@ -53,7 +53,7 @@ describe("SystemHealthPill", () => {
       },
       isLoading: false,
       error: null,
-    });
+    }));
     renderPill();
     expect(screen.getByText("1 issue")).toBeInTheDocument();
   });

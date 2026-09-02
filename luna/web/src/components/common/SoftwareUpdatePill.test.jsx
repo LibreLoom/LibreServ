@@ -48,11 +48,11 @@ function renderPill() {
 
 describe("SoftwareUpdatePill", () => {
   beforeEach(() => {
-    vi.mocked(useSoftwareUpdates).mockReturnValue({
+    vi.mocked(useSoftwareUpdates).mockReturnValue(/** @type {any} */({
       data: { update_available: false },
       isLoading: false,
       error: null,
-    });
+    }));
   });
 
   it("renders nothing when up to date", () => {
@@ -61,11 +61,11 @@ describe("SoftwareUpdatePill", () => {
   });
 
   it("shows the update version when an update is available", () => {
-    vi.mocked(useSoftwareUpdates).mockReturnValue({
+    vi.mocked(useSoftwareUpdates).mockReturnValue(/** @type {any} */({
       data: { update_available: true, latest_version: "luna-v0.2.0" },
       isLoading: false,
       error: null,
-    });
+    }));
     renderPill();
     expect(screen.getByText("luna-v0.2.0 ready")).toBeInTheDocument();
     expect(screen.getByRole("link")).toHaveAttribute("href", "/settings#about");

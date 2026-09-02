@@ -22,6 +22,7 @@ function jsonResponse(body, status = 200) {
  * @param {any} [opts.detected]
  * @param {any} [opts.network]
  * @param {any} [opts.connect]
+ * @param {boolean} [opts.connectActive]
  * @param {any} [opts.jobs]
  * @param {any} [opts.access]
  * @param {Record<string, any>} [opts.summaries]

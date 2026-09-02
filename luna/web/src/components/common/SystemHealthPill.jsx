@@ -89,7 +89,7 @@ export default function SystemHealthPill() {
   }, [isOpen, updatePosition]);
 
   const handleToggle = () => {
-    haptic("tap");
+    haptic("light");
     if (isOpen) close();
     else setIsOpen(true);
   };

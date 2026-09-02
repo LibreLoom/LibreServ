@@ -322,6 +322,7 @@ function connectionDotClass(net) {
  *   isAdmin: boolean,
  *   remoteOn: boolean,
  *   remoteDomain?: string,
+ *   connectActive?: boolean,
  * }} props
  */
 function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain, connectActive }) {
