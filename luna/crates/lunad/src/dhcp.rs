@@ -146,10 +146,10 @@ pub fn watch_link_up(
                     dhcp_iface(&name);
                     last_attempt.insert(name.clone(), Instant::now());
                 }
-                if rising {
-                    if let Some(wake) = &wake_connect {
-                        wake.store(true, Ordering::Relaxed);
-                    }
+                if rising
+                    && let Some(wake) = &wake_connect
+                {
+                    wake.store(true, Ordering::Relaxed);
                 }
                 if !carrier {
                     last_attempt.remove(&name);

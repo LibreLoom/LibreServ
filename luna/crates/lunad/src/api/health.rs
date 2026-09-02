@@ -124,7 +124,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let mut state = AppState::new(conn, drive_manager, dir.path());
+        let state = AppState::new(conn, drive_manager, dir.path());
         let auth = state.auth.clone();
         let user = auth
             .register("Max", "Max", "hunter22hunter1", "admin")
