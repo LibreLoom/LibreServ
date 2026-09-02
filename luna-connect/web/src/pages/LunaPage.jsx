@@ -136,7 +136,7 @@ export default function LunaPage() {
                     href={`https://${luna.hostname}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-mono text-sm break-all underline underline-offset-4 hover:text-foreground motion-safe:transition-colors"
+                    className="font-mono text-sm break-all text-foreground hover:opacity-80 motion-safe:transition-opacity"
                   >
                     {luna.hostname}
                   </a>
