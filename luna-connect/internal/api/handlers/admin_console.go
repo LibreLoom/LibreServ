@@ -159,7 +159,7 @@ FROM accounts WHERE id = ?`, accountID).
 
 func (h AdminConsoleHandler) listAccountDevices(accountID string) ([]map[string]any, error) {
 	rows, err := h.DB.Query(`
-SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.code_hint, ''), d.kind,
+SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''), d.kind,
   COALESCE(d.last_seen_at, 0), d.revoked, d.created_at, COALESCE(d.order_ref, '')
 FROM devices d
 WHERE d.account_id = ?
@@ -173,33 +173,13 @@ ORDER BY d.created_at DESC`, accountID)
 	now := time.Now().Unix()
 	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, name, sub, hint, kind, orderRef string
+		var id, name, sub, tunnelID, hint, kind, orderRef string
 		var lastSeen, created int64
 		var revoked int
-		if err := rows.Scan(&id, &name, &sub, &hint, &kind, &lastSeen, &revoked, &created, &orderRef); err != nil {
+		if err := rows.Scan(&id, &name, &sub, &tunnelID, &hint, &kind, &lastSeen, &revoked, &created, &orderRef); err != nil {
 			return nil, err
 		}
-		status := "bound"
-		if revoked != 0 {
-			status = "revoked"
-		}
-		hostname := ""
-		if sub != "" {
-			hostname = sub + "." + zone
-		}
-		list = append(list, map[string]any{
-			"id":              id,
-			"name":            name,
-			"subdomain":       sub,
-			"device_hostname": hostname,
-			"hint":            hint,
-			"kind":            kind,
-			"status":          status,
-			"order_ref":       orderRef,
-			"last_seen_at":    lastSeen,
-			"online":          lastSeen > 0 && now-lastSeen <= OnlineWithinSec,
-			"created_at":      created,
-		})
+		list = append(list, deviceListFields(id, name, sub, tunnelID, hint, kind, orderRef, lastSeen, created, revoked, zone, now))
 	}
 	return list, nil
 }

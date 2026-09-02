@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -142,7 +141,6 @@ func unbindDevice(deps Deps, d Device, accountID string) {
 
 // SetDomain provisions tunnel+DNS for a bound device (account-side).
 func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
-	providers.RefreshCloudflare()
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
@@ -154,95 +152,21 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		LocalPort int    `json:"local_port"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	sub := domainname.Normalize(req.Subdomain)
-	if msg := domainname.Validate(sub); msg != "" {
-		JSONError(w, http.StatusBadRequest, msg)
-		return
-	}
-	port := req.LocalPort
-	if port <= 0 {
-		port = 8090
-	}
 	var account sql.NullString
-	var curSub, tunnelID, sealed sql.NullString
-	var curPort int
-	err := h.DB.QueryRow(`SELECT account_id, subdomain, tunnel_id, tunnel_token, local_port FROM devices WHERE id = ?`, id).
-		Scan(&account, &curSub, &tunnelID, &sealed, &curPort)
+	err := h.DB.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, id).Scan(&account)
 	if err != nil || !account.Valid || account.String != acct.ID {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
 		return
 	}
-	if curSub.Valid && curSub.String == sub && tunnelID.Valid && tunnelID.String != "" {
-		host := domainname.Hostname(sub, config.C.Server.PublicZone)
-		out := map[string]any{"hostname": host, "subdomain": sub, "device_id": id}
-		if sealed.Valid && sealed.String != "" {
-			if tok, err := security.OpenString(sealed.String); err == nil {
-				out["tunnel_token"] = tok
-			}
-		}
-		JSON(w, http.StatusOK, out)
+	out, status, msg := applyDeviceDomain(h.Deps, id, req.Subdomain, req.LocalPort)
+	if msg != "" {
+		JSONError(w, status, msg)
 		return
 	}
-	var exists int
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = ? AND id != ?`, sub, id).Scan(&exists)
-	if exists > 0 {
-		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
-		return
+	if status == http.StatusCreated {
+		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','domain') THEN 'backup' ELSE onboarding_step END WHERE id = ?`, acct.ID)
 	}
-	host := domainname.Hostname(sub, config.C.Server.PublicZone)
-	if !config.C.Cloudflare.Ready() && !config.DevMode() {
-		JSONError(w, http.StatusServiceUnavailable,
-			"Remote addresses need Cloudflare tunnel and DNS keys. Add them in Admin → Connections, or in the Luna Connect config file (cloudflare.account_id, api_token, zone_id).")
-		return
-	}
-	if err := security.AtRestReady(); err != nil {
-		slog.Error("set domain: at-rest key not configured", "error", err)
-		JSONError(w, http.StatusServiceUnavailable, "Could not protect the connection secret. Try again.")
-		return
-	}
-	// Tear down previous tunnel/DNS if renaming.
-	if tunnelID.Valid && tunnelID.String != "" {
-		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID.String)
-	}
-	if curSub.Valid && curSub.String != "" {
-		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(curSub.String, config.C.Server.PublicZone))
-	}
-	creds, err := h.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+sub)
-	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Could not create the secure connection. Try again.")
-		return
-	}
-	tid, ttoken := creds.TunnelID, creds.Token
-	if err := h.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
-		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		JSONError(w, http.StatusBadGateway, "Could not set up the address. Try again.")
-		return
-	}
-	if err := h.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
-		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		JSONError(w, http.StatusBadGateway, "Could not publish the address. Try again.")
-		return
-	}
-	sealedTok, err := security.SealString(ttoken)
-	if err != nil {
-		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
-		JSONError(w, http.StatusInternalServerError, "Could not protect the connection secret. Try again.")
-		return
-	}
-	_, err = h.DB.Exec(`UPDATE devices SET subdomain = ?, tunnel_id = ?, tunnel_token = ?, local_port = ?, name = ? WHERE id = ?`,
-		sub, tid, sealedTok, port, sub, id)
-	if err != nil {
-		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
-		JSONError(w, http.StatusInternalServerError, "Could not save the address. Try again.")
-		return
-	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','domain') THEN 'backup' ELSE onboarding_step END WHERE id = ?`, acct.ID)
-	JSON(w, http.StatusCreated, map[string]any{
-		"device_id": id, "hostname": host, "subdomain": sub,
-		"tunnel_token": ttoken,
-	})
+	JSON(w, status, out)
 }
 
 // Status is called by Luna with Bearer = full device code.
