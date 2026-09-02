@@ -73,13 +73,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if !config.C.Cloudflare.Ready() {
-		if config.DevMode() {
-			slog.Warn("cloudflare not configured — tunnels and DNS use mock mode (dev only)")
-		} else {
-			slog.Warn("cloudflare not configured — remote Luna addresses will not work until cloudflare.account_id, api_token, and zone_id are set in the config file")
-		}
-	}
 
 	db, err := database.Open(config.C.Database.Path)
 	if err != nil {
@@ -96,6 +89,19 @@ func main() {
 	if err := providers.ApplyStripeFromDB(db); err != nil {
 		slog.Warn("stripe provider overlay", "error", err)
 	}
+	providers.CaptureCloudflareBase()
+	providers.SetCloudflareRuntimeDB(db)
+	if err := providers.ApplyCloudflareFromDB(db); err != nil {
+		slog.Warn("cloudflare provider overlay", "error", err)
+	}
+	if !config.C.Cloudflare.Ready() {
+		if config.DevMode() {
+			slog.Warn("cloudflare not configured — tunnels and DNS use mock mode (dev only)")
+		} else {
+			slog.Warn("cloudflare not configured — remote Luna addresses will not work until Cloudflare keys are set in Admin → Connections or the config file")
+		}
+	}
+
 	st, _, err := store.Open(db, config.C.Backup.Driver, config.C.DataDir)
 	if err != nil {
 		slog.Error("store", "error", err)

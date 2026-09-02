@@ -21,10 +21,10 @@ database:
 data_dir: "dev/data"
 
 # Remote Luna addresses (*.luna.servers.libreloom.org) — Cloudflare Tunnel + DNS.
-# NOT in Admin → Connections. Create an API token at cloudflare.com → Profile → API Tokens
-# with Cloudflare Tunnel Edit + DNS Edit on the public zone. Set account_id, zone_id, and api_token
-# here on every instance (blue/green), then restart. Without these, naming a Luna on the website
-# cannot create a real tunnel.
+# Prefer Admin → Connections to manage these at runtime (database overlays this section).
+# Yaml/env fallback when no enabled Cloudflare provider is saved in the database.
+# Create an API token at cloudflare.com → Profile → API Tokens with Cloudflare Tunnel
+# Edit + DNS Edit on the public zone.
 cloudflare:
   account_id: ""
   api_token: ""

@@ -6,6 +6,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
 
 // purgeDeviceToken disconnects a Luna from its account, tears down tunnel/DNS,
@@ -44,6 +45,7 @@ FROM devices WHERE id = ?`, deviceID).
 }
 
 func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
+	providers.RefreshCloudflare()
 	if deps.Tunnel != nil && tunnelID != "" {
 		if err := deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID); err != nil {
 			slog.Warn("purge device: tunnel delete failed", "tunnel_id", tunnelID, "err", err)

@@ -13,7 +13,7 @@ import { adminApi } from "../context/AdminAuthContext.jsx";
  * Keys must match internal/api/handlers/providers.go allowedService values.
  * Stripe is applied at runtime (ApplyStripeFromDB). B2 keys drive cloud backup
  * object storage (one private bucket per Luna). Resend sends account verification
- * emails when configured.
+ * emails when configured. Cloudflare creates tunnels and DNS for remote Luna addresses.
  */
 const SERVICE_FIELDS = {
   stripe: {
@@ -55,42 +55,21 @@ const SERVICE_FIELDS = {
       { key: "bucket_prefix", label: "Bucket name prefix", placeholder: "luna-backup" },
     ],
   },
+  cloudflare: {
+    label: "Remote access (Cloudflare)",
+    description:
+      "Creates a Cloudflare Tunnel and DNS name for each Luna when someone picks a name during setup (for example kitchen.luna.servers.libreloom.org). Your API token is on cloudflare.com → Profile → API Tokens → Create Token. Give it Cloudflare Tunnel Edit and DNS Edit on the public zone. Zone ID is on the zone’s Overview page in the Cloudflare dashboard (right-hand column).",
+    credentials: [
+      { key: "account_id", label: "Account ID", placeholder: "32-character hex" },
+      { key: "api_token", label: "API token", placeholder: "Create token with Tunnel Edit + DNS Edit", type: "password" },
+    ],
+    settings: [
+      { key: "zone_id", label: "Zone ID", placeholder: "32-character hex for luna.servers.libreloom.org" },
+    ],
+  },
 };
 
-const SERVICE_ORDER = ["stripe", "smtp", "backup"];
-
-function CloudflareRemoteCard({ status, loading }) {
-  if (loading) return null;
-  const zone = status?.public_zone || "luna.servers.libreloom.org";
-  const configured = Boolean(status?.configured);
-  const mock = Boolean(status?.mock_mode);
-  return (
-    <Card className="mb-6 animate-fade-in border-accent/40">
-      <CardHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <CardTitle className="text-base">Remote access (Cloudflare)</CardTitle>
-          {configured ? (
-            <Badge variant="success">configured in config file</Badge>
-          ) : mock ? (
-            <Badge variant="outline">dev mock mode</Badge>
-          ) : (
-            <Badge variant="outline">not set — tunnels will not work</Badge>
-          )}
-        </div>
-        <CardDescription>
-          Creates a Cloudflare Tunnel and DNS name for each Luna when someone picks a name during
-          setup (<span className="font-mono">*.{zone}</span>). Requires{" "}
-          <span className="font-mono">cloudflare.account_id</span>,{" "}
-          <span className="font-mono">api_token</span>, and{" "}
-          <span className="font-mono">zone_id</span> in{" "}
-          <span className="font-mono">luna-connect.yaml</span> (or{" "}
-          <span className="font-mono">/etc/luna-connect/luna-connect-a.yaml</span> on the server).
-          API token needs Cloudflare Tunnel Edit and DNS Edit on that zone.
-        </CardDescription>
-      </CardHeader>
-    </Card>
-  );
-}
+const SERVICE_ORDER = ["stripe", "smtp", "backup", "cloudflare"];
 
 function emptyForm(service) {
   const spec = SERVICE_FIELDS[service];
@@ -233,6 +212,9 @@ export default function AdminProvidersPage() {
   function statusBadge(service) {
     const st = configStatus[service];
     if (!st) return null;
+    if (service === "cloudflare" && st.mock_mode && !st.configured) {
+      return <Badge variant="outline">dev mock mode</Badge>;
+    }
     if (service === "stripe" && st.configured && st.enabled && !st.webhook_ready) {
       return (
         <>
@@ -253,21 +235,13 @@ export default function AdminProvidersPage() {
   return (
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Connections</h2>
-      <p className="text-muted-foreground mb-4 max-w-3xl">
+      <p className="text-muted-foreground mb-6 max-w-3xl">
         Stripe keys apply right away for billing. Backblaze B2 keys turn on off-site cloud
         backup (one private bucket per Luna). Resend sends account verification emails when
-        configured. Secrets stay in the database and are never shown in full again; leave a secret
-        blank when editing to keep the current value. If nothing is saved here, Stripe still uses
-        the config file, and cloud backup falls back to this server’s disk.
-      </p>
-      <CloudflareRemoteCard status={configStatus.cloudflare} loading={loading} />
-
-      <p className="text-muted-foreground mb-6 max-w-3xl text-sm">
-        Remote Luna addresses (for example <span className="font-mono">kitchen.luna.servers.libreloom.org</span>)
-        are <strong>not</strong> configured on this page. They need Cloudflare Tunnel and DNS keys in
-        the Luna Connect config file on the server (<span className="font-mono">cloudflare.account_id</span>,{" "}
-        <span className="font-mono">api_token</span>, <span className="font-mono">zone_id</span>). Restart
-        both blue/green instances after you change them.
+        configured. Cloudflare keys create remote Luna addresses when someone picks a name.
+        Secrets stay in the database and are never shown in full again; leave a secret
+        blank when editing to keep the current value. If nothing is saved here, Stripe and
+        Cloudflare still use the config file, and cloud backup falls back to this server’s disk.
       </p>
 
       {loading ? (
@@ -332,6 +306,9 @@ export default function AdminProvidersPage() {
                     <p className="text-muted-foreground text-center">
                       No {spec.label.toLowerCase()} connection saved yet. Add one below
                       {service === "stripe" && configStatus.stripe?.configured
+                        ? " (config file is in use until you add one here)"
+                        : ""}
+                      {service === "cloudflare" && configStatus.cloudflare?.configured
                         ? " (config file is in use until you add one here)"
                         : ""}
                       .

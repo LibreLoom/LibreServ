@@ -102,7 +102,7 @@ cp configs/luna-connect.yaml.example configs/luna-connect.yaml
 make test
 make build   # → bin/luna-connect
 ```
-Env prefix: `LUNACONNECT_`. Public URL `https://connect.luna.libreloom.org`.
+Env prefix: `LUNACONNECT_`. Public URL `https://connect.luna.libreloom.org`. Admin → Connections stores Stripe, Resend, B2, and Cloudflare (tunnel + DNS) in `service_providers`; yaml/env is the fallback when no enabled DB provider exists (same overlay pattern as Stripe).
 
 ---
 

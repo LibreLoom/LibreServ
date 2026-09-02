@@ -203,3 +203,78 @@ func TestAdminProvidersStripeOverlay(t *testing.T) {
 		t.Fatalf("after delete expected yaml secret, got %q", config.C.Stripe.SecretKey)
 	}
 }
+
+func TestAdminProvidersCloudflareOverlay(t *testing.T) {
+	d := testDeps(t)
+	prev := config.C.Cloudflare
+	t.Cleanup(func() {
+		config.C.Cloudflare = prev
+		providers.CaptureCloudflareBase()
+		providers.SetCloudflareRuntimeDB(nil)
+	})
+	config.C.Cloudflare = config.CloudflareConfig{
+		AccountID: "yaml-account",
+		APIToken:  "yaml-token",
+		ZoneID:    "yaml-zone",
+	}
+	providers.CaptureCloudflareBase()
+	providers.SetCloudflareRuntimeDB(d.DB)
+
+	h := NewProvidersHandler(d.DB)
+	body, _ := json.Marshal(map[string]any{
+		"service": "cloudflare",
+		"name":    "Cloudflare",
+		"credentials": map[string]string{
+			"account_id": "cf-account-db",
+			"api_token":  "cf-token-db",
+		},
+		"settings": map[string]string{
+			"zone_id": "cf-zone-db",
+		},
+		"enabled": true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/admin/providers", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.CreateProvider(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create status=%d: %s", w.Code, w.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	creds := created["credentials"].(map[string]any)
+	if creds["api_token"] == "cf-token-db" {
+		t.Fatal("create must not echo full api_token")
+	}
+	if !config.C.Cloudflare.Ready() {
+		t.Fatal("expected cloudflare ready after create")
+	}
+	if config.C.Cloudflare.AccountID != "cf-account-db" {
+		t.Fatalf("account_id=%q", config.C.Cloudflare.AccountID)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	w = httptest.NewRecorder()
+	h.ListProviders(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list status=%d: %s", w.Code, w.Body.String())
+	}
+	var listResp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &listResp)
+	cfStatus := listResp["config_status"].(map[string]any)["cloudflare"].(map[string]any)
+	if cfStatus["configured"] != true || cfStatus["source"] != "database" {
+		t.Fatalf("cloudflare status %+v", cfStatus)
+	}
+
+	id := created["id"].(string)
+	req = providersChiRequest(http.MethodDelete, "/admin/providers/"+id, nil, map[string]string{"id": id})
+	w = httptest.NewRecorder()
+	h.DeleteProvider(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete status=%d: %s", w.Code, w.Body.String())
+	}
+	if config.C.Cloudflare.AccountID != "yaml-account" {
+		t.Fatalf("after delete expected yaml account, got %q", config.C.Cloudflare.AccountID)
+	}
+}

@@ -189,6 +189,58 @@ func TestSetDomainFailsWithoutCloudflareInProduction(t *testing.T) {
 	}
 }
 
+func TestSetDomainWithDBCloudflareCreds(t *testing.T) {
+	d := testDeps(t)
+	prev := config.C.Cloudflare
+	t.Cleanup(func() {
+		config.C.Cloudflare = prev
+		providers.CaptureCloudflareBase()
+		providers.SetCloudflareRuntimeDB(nil)
+		t.Setenv("LUNACONNECT_DEV", "1")
+	})
+	config.C.Cloudflare = config.CloudflareConfig{}
+	providers.CaptureCloudflareBase()
+	providers.SetCloudflareRuntimeDB(d.DB)
+
+	acctH := AccountHandler{Deps: d}
+	devH := DeviceHandler{Deps: d}
+	cookie := registerAccount(t, acctH, "dbcf@b.co")
+	verifyEmailFor(t, acctH, "dbcf@b.co")
+
+	devID, code := mintDevice(t, d, "official")
+	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
+	bindReq.AddCookie(cookie)
+	bindRec := withVerifiedAccount(acctH, devH.Bind, bindReq)
+	if bindRec.Code != http.StatusOK {
+		t.Fatalf("bind %d %s", bindRec.Code, bindRec.Body.String())
+	}
+
+	svc := providers.NewService(d.DB)
+	_, err := svc.Create("cloudflare", "Cloudflare", map[string]string{
+		"account_id": "cf-account",
+		"api_token":  "cf-token",
+	}, map[string]string{
+		"zone_id": "cf-zone",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.RefreshCloudflare()
+	if !config.C.Cloudflare.Ready() {
+		t.Fatal("expected cloudflare ready from DB")
+	}
+
+	t.Setenv("LUNACONNECT_DEV", "")
+
+	domReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"pantry"}`))
+	domReq.AddCookie(cookie)
+	domReq = withChiParam(domReq, "deviceID", devID)
+	domRec := withVerifiedAccount(acctH, devH.SetDomain, domReq)
+	if domRec.Code != http.StatusCreated && domRec.Code != http.StatusOK {
+		t.Fatalf("domain %d %s", domRec.Code, domRec.Body.String())
+	}
+}
+
 func TestSetDomainSkipsWhenSubdomainAlreadySet(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}

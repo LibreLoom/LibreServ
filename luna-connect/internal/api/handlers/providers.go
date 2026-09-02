@@ -18,6 +18,7 @@ var secretCredentialKeys = map[string]bool{
 	"webhook_secret":  true,
 	"api_key":         true,
 	"application_key": true,
+	"api_token":       true,
 }
 
 // ProvidersHandler handles admin service provider configuration.
@@ -149,14 +150,25 @@ func (h *ProvidersHandler) configStatus() map[string]any {
 		"enabled": backupDB != nil && backupDB.Enabled,
 	}
 
-	// Remote Luna addresses (Cloudflare Tunnel + DNS) are config-file only — not Admin → Connections.
-	cf := config.C.Cloudflare
-	status["cloudflare"] = map[string]any{
-		"configured":  cf.Ready(),
-		"source":      "config",
-		"enabled":     cf.Ready(),
-		"mock_mode":   !cf.Ready() && config.DevMode(),
-		"public_zone": strings.TrimSpace(config.C.Server.PublicZone),
+	cfDB, _ := h.svc.FindEnabled("cloudflare")
+	if cfDB != nil {
+		ready := providers.CloudflareProviderReady(cfDB)
+		status["cloudflare"] = map[string]any{
+			"configured":  ready,
+			"source":      "database",
+			"enabled":     cfDB.Enabled && ready,
+			"mock_mode":   !ready && config.DevMode(),
+			"public_zone": strings.TrimSpace(config.C.Server.PublicZone),
+		}
+	} else {
+		cf := config.C.Cloudflare
+		status["cloudflare"] = map[string]any{
+			"configured":  cf.Ready(),
+			"source":      "config",
+			"enabled":     cf.Ready(),
+			"mock_mode":   !cf.Ready() && config.DevMode(),
+			"public_zone": strings.TrimSpace(config.C.Server.PublicZone),
+		}
 	}
 
 	return status
@@ -181,7 +193,7 @@ func (h *ProvidersHandler) CreateProvider(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !allowedService(req.Service) {
-		JSONError(w, http.StatusBadRequest, "Unknown service type. Use stripe, smtp, or backup.")
+		JSONError(w, http.StatusBadRequest, "Unknown service type. Use stripe, smtp, backup, or cloudflare.")
 		return
 	}
 	if req.Service == "stripe" {
@@ -199,6 +211,9 @@ func (h *ProvidersHandler) CreateProvider(w http.ResponseWriter, r *http.Request
 	if req.Service == "stripe" {
 		_ = providers.ApplyStripeFromDB(h.db)
 	}
+	if req.Service == "cloudflare" {
+		_ = providers.ApplyCloudflareFromDB(h.db)
+	}
 	JSON(w, http.StatusOK, redactProvider(*p))
 }
 
@@ -215,7 +230,7 @@ func (h *ProvidersHandler) UpdateProvider(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !allowedService(req.Service) {
-		JSONError(w, http.StatusBadRequest, "Unknown service type. Use stripe, smtp, or backup.")
+		JSONError(w, http.StatusBadRequest, "Unknown service type. Use stripe, smtp, backup, or cloudflare.")
 		return
 	}
 	if req.Service == "stripe" {
@@ -232,6 +247,9 @@ func (h *ProvidersHandler) UpdateProvider(w http.ResponseWriter, r *http.Request
 	if req.Service == "stripe" {
 		_ = providers.ApplyStripeFromDB(h.db)
 	}
+	if req.Service == "cloudflare" {
+		_ = providers.ApplyCloudflareFromDB(h.db)
+	}
 	JSON(w, http.StatusOK, map[string]string{"message": "Connection updated."})
 }
 
@@ -243,15 +261,20 @@ func (h *ProvidersHandler) DeleteProvider(w http.ResponseWriter, r *http.Request
 		JSONError(w, http.StatusInternalServerError, "Could not remove this connection. Try again.")
 		return
 	}
-	if existing != nil && existing.Service == "stripe" {
-		_ = providers.ApplyStripeFromDB(h.db)
+	if existing != nil {
+		switch existing.Service {
+		case "stripe":
+			_ = providers.ApplyStripeFromDB(h.db)
+		case "cloudflare":
+			_ = providers.ApplyCloudflareFromDB(h.db)
+		}
 	}
 	JSON(w, http.StatusOK, map[string]string{"message": "Connection removed."})
 }
 
 func allowedService(s string) bool {
 	switch s {
-	case "stripe", "smtp", "backup":
+	case "stripe", "smtp", "backup", "cloudflare":
 		return true
 	default:
 		return false

@@ -11,6 +11,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -125,6 +126,7 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 }
 
 func unbindDevice(deps Deps, d Device, accountID string) {
+	providers.RefreshCloudflare()
 	if deps.Tunnel != nil && d.TunnelID != "" {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
 	}
@@ -140,6 +142,7 @@ func unbindDevice(deps Deps, d Device, accountID string) {
 
 // SetDomain provisions tunnel+DNS for a bound device (account-side).
 func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
+	providers.RefreshCloudflare()
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
@@ -189,7 +192,7 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
 	if !config.C.Cloudflare.Ready() && !config.DevMode() {
 		JSONError(w, http.StatusServiceUnavailable,
-			"Remote addresses need Cloudflare tunnel and DNS keys in the Luna Connect config file (cloudflare.account_id, api_token, zone_id). Restart the server after you add them.")
+			"Remote addresses need Cloudflare tunnel and DNS keys. Add them in Admin → Connections, or in the Luna Connect config file (cloudflare.account_id, api_token, zone_id).")
 		return
 	}
 	if err := security.AtRestReady(); err != nil {
@@ -288,6 +291,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
+	providers.RefreshCloudflare()
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
