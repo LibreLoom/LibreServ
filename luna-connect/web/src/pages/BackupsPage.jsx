@@ -20,12 +20,9 @@ function daysUntil(unixSeconds) {
 /** Chunked pricing — Miller's Law / Law of Common Region. */
 function PricingSummary({ surface = "secondary" }) {
   return (
-    <section
-      className="rounded-large-element border border-border bg-background text-foreground p-4 space-y-3"
-      aria-labelledby="backup-pricing-heading"
-    >
+    <section className="space-y-3" aria-labelledby="backup-pricing-heading">
       <div className="flex items-center gap-2">
-        <h4 id="backup-pricing-heading" className="font-mono text-xs uppercase tracking-widest">
+        <h4 id="backup-pricing-heading" className="font-mono text-xs uppercase tracking-widest text-foreground">
           Pricing
         </h4>
         <InfoHint
@@ -35,32 +32,49 @@ function PricingSummary({ surface = "secondary" }) {
           content="We bill from your average storage over the month, not a single day. Downloads are free up to three times that average; extra download traffic costs $0.01 per GB."
         />
       </div>
-      <dl className="space-y-2 text-sm leading-relaxed">
-        <div className="flex justify-between gap-4">
-          <dt>Storage</dt>
-          <dd className="font-mono text-right">$8 / terabyte / month</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt>Downloads</dt>
-          <dd className="text-right text-sm leading-snug space-y-0.5">
-            <span className="block text-foreground">Free each month</span>
-            <span className="block text-foreground">
-              Up to 3×{" "}
-              <TermHint
-                surface={surface}
-                delayMs={0}
-                content="How much you store in the cloud on average during the month — not one day's total. You can download up to three times that amount without extra charge."
-              >
-                average storage
-              </TermHint>
-            </span>
-          </dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt>Extra download traffic</dt>
-          <dd className="font-mono text-right">$0.01 / GB</dd>
-        </div>
-      </dl>
+      <div
+        className="overflow-x-auto rounded-large-element border border-border bg-background text-foreground"
+        data-testid="backup-pricing-table"
+      >
+        <table className="w-full text-sm">
+          <tbody>
+            <tr className="border-b border-border">
+              <th scope="row" className="px-3 py-2.5 text-left font-normal align-top">
+                Storage
+              </th>
+              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-top">
+                $8 / terabyte / month
+              </td>
+            </tr>
+            <tr className="border-b border-border">
+              <th scope="row" className="px-3 py-2.5 text-left font-normal align-top">
+                Downloads
+              </th>
+              <td className="px-3 py-2.5 text-right leading-snug align-top">
+                <span className="block">Free each month</span>
+                <span className="block">
+                  Up to 3×{" "}
+                  <TermHint
+                    surface={surface}
+                    delayMs={0}
+                    content="How much you store in the cloud on average during the month — not one day's total. You can download up to three times that amount without extra charge."
+                  >
+                    average storage
+                  </TermHint>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" className="px-3 py-2.5 text-left font-normal align-top">
+                Extra download traffic
+              </th>
+              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-top">
+                $0.01 / GB
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
