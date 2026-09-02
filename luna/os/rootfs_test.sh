@@ -71,6 +71,8 @@ assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 assert_file_has "$BUILD" 'cloudflared' \
 	"rootfs must ship cloudflared so Luna Connect tunnels can start"
+assert_file_has "$BUILD" 'PATH=/usr/local/sbin:/usr/local/bin' \
+	"lunad OpenRC service must include /usr/local/bin in PATH for cloudflared"
 assert_file_has "$BUILD" 'tty1::respawn:/sbin/getty -f /var/lib/luna/issue' \
 	"rootfs must enable tty1 getty with issue file on LUNA_DATA"
 assert_file_has "$BUILD" 'luna-pwreset' \
