@@ -52,7 +52,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Mail size={24} aria-hidden="true" />
         </div>
-        <p className="text-sm text-primary/80">
+        <p className="text-sm text-accent">
           Change email for <strong>{user.username}</strong>
         </p>
       </div>
@@ -61,14 +61,14 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
         <div>
           <label
             htmlFor="email"
-            className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+            className="text-secondary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
           >
             New Email
           </label>
           <div className="relative">
             <Mail
               size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
               aria-hidden="true"
             />
             <input
@@ -91,7 +91,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
             />
           </div>
           {error && (
-            <p id="email-error" className="text-secondary/80 text-xs mt-1 px-5">
+            <p id="email-error" className="text-secondary text-xs mt-1 px-5">
               {error}
             </p>
           )}

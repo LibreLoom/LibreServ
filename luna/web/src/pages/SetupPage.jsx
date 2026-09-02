@@ -10,7 +10,6 @@ import {
   PASSWORD_POLICY_HINT,
   passwordChecks,
 } from "../lib/passwordPolicy";
-import NetworkStep from "../components/setup/NetworkStep";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
 import useSetupProgress from "../hooks/useSetupProgress";
@@ -26,7 +25,7 @@ import TextLink from "../components/ui/TextLink";
 const STEP = {
   SETUP_CODE: "setup_code",
   WELCOME:    "welcome",
-  NETWORK:    "network",
+  NETWORK:    "network", // legacy saved progress only — no user-facing step (ethernet-only)
   ACCOUNT:    "account",
   NAME:       "name",
   DONE:       "done",
@@ -93,7 +92,6 @@ SetupCard.propTypes = {
 // Shown on every step, including Welcome.
 const VISIBLE_STEPS = [
   { id: STEP.WELCOME,    label: "Welcome" },
-  { id: STEP.NETWORK,    label: "Network" },
   { id: STEP.ACCOUNT,    label: "Account" },
   { id: STEP.NAME,       label: "Name" },
   { id: STEP.DONE,       label: "Done" },
@@ -196,19 +194,17 @@ function WelcomeStep({ onBegin }) {
       </div>
 
       <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
-        Luna
+        Welcome.
       </h1>
 
-      <p className="text-primary/68 text-xl leading-[1.65] mb-8 max-w-[22rem]">
-        Your files, your drives, your house. No subscription — ever.
+      <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
+        Let&rsquo;s get Luna set up for you.
       </p>
-
-      <DiscoveryPaths />
 
       <Button
         variant="primary"
         onClick={onBegin}
-        className="group mt-8 px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
       >
         Begin Setup
         <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
@@ -861,7 +857,6 @@ DoneStep.propTypes = {
 // (forward → slide from right, back → slide from left) on step change.
 const STEP_ORDER = [
   STEP.WELCOME,
-  STEP.NETWORK,
   STEP.ACCOUNT,
   STEP.NAME,
   STEP.DONE,
@@ -924,8 +919,13 @@ export default function SetupPage() {
         };
 
         let next = STEP.WELCOME;
-        if (savedStep && STEP_ORDER.includes(savedStep) && savedStep !== STEP.WELCOME) {
-          next = savedStep;
+        if (savedStep && savedStep !== STEP.WELCOME) {
+          // Luna is ethernet-only: if you can open setup, the cable path is already
+          // satisfied — skip the legacy network step from older saved progress.
+          next = savedStep === STEP.NETWORK ? STEP.ACCOUNT : savedStep;
+          if (!STEP_ORDER.includes(next) && next !== STEP.SETUP_CODE) {
+            next = STEP.WELCOME;
+          }
         }
         // "done" is only shown after a successful finish in this session.
         // A stale/partial record should resume at naming.
@@ -1024,8 +1024,7 @@ export default function SetupPage() {
   const handleCodeVerified = useCallback(() => {
     setStep(STEP.WELCOME);
   }, []);
-  const handleBegin = useCallback(() => advanceStep(STEP.NETWORK), [advanceStep]);
-  const handleConnectionDone = useCallback(() => {
+  const handleBegin = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };
     advanceStep(STEP.ACCOUNT, data);
   }, [advanceStep]);
@@ -1067,8 +1066,6 @@ export default function SetupPage() {
     );
   } else if (step === STEP.WELCOME) {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
-  } else if (step === STEP.NETWORK) {
-    renderedStep = <NetworkStep name="Luna" onContinue={handleConnectionDone} />;
   } else if (step === STEP.ACCOUNT) {
     renderedStep = (
       <AccountStep

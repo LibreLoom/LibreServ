@@ -315,7 +315,7 @@ export default function RepoStatusCard({ index = 0 }) {
 
           {loading ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 size={20} className="animate-spin text-primary/50" />
+              <Loader2 size={20} className="animate-spin text-accent" />
             </div>
           ) : fetchError ? (
             <div className="flex items-center justify-center py-6">

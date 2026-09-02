@@ -9,9 +9,9 @@ const STATUS_CONFIG = {
   },
   unsaved: {
     icon: Circle,
-    iconClass: "text-primary/40",
+    iconClass: "text-accent",
     text: "Unsaved changes",
-    textClass: "text-primary/60",
+    textClass: "text-accent",
   },
   saving: {
     icon: Loader2,

@@ -151,7 +151,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             </div>
           )}
         >
-          <p className="text-sm text-primary/80">
+          <p className="text-sm text-accent">
             No problem. You&rsquo;ll set up each service yourself later in Settings. You can switch to Connect at any time.
           </p>
         </ModalCard>

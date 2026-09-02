@@ -85,11 +85,11 @@ export function ActionResultModal({ result, onClose }) {
               <p className="font-mono font-medium">
                 {result.success ? "Success" : "Failed"}
               </p>
-              <p className="text-sm text-primary/70">
+              <p className="text-sm text-primary">
                 Exit code: {exitCode ?? "N/A"}
               </p>
             </div>
-            <div className="flex items-center gap-1 text-sm text-primary/60">
+            <div className="flex items-center gap-1 text-sm text-accent">
               <Clock size={14} />
               <span>{formatDuration(result.duration)}</span>
             </div>
@@ -128,7 +128,7 @@ export function ActionResultModal({ result, onClose }) {
                 )}
               >
                 <div className="bg-primary/50 border border-secondary/20 rounded-large-element p-3 mt-2">
-                  <div className="max-h-80 overflow-x-auto overflow-y-auto pr-2 text-sm font-mono whitespace-pre-wrap break-all text-primary/80 select-text">
+                  <div className="max-h-80 overflow-x-auto overflow-y-auto pr-2 text-sm font-mono whitespace-pre-wrap break-all text-accent select-text">
                     {output}
                   </div>
                 </div>

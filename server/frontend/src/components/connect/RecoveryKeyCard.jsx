@@ -111,7 +111,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
               variant="ghost"
               size="icon"
               onClick={() => setRevealed(!revealed)}
-              title={revealed ? "Hide key" : "Show key"}
+              tooltip={revealed ? "Hide key" : "Show key"}
             >
               {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
             </Button>
@@ -120,7 +120,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
                 variant="ghost"
                 size="icon"
                 onClick={handleCopy}
-                title={copied ? "Copied!" : "Copy to clipboard"}
+                tooltip={copied ? "Copied!" : "Copy to clipboard"}
               >
                 {copied ? <Check size={16} /> : <Copy size={16} />}
               </Button>
@@ -129,7 +129,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
               variant="ghost"
               size="icon"
               onClick={handleDownload}
-              title="Download key file"
+              tooltip="Download key file"
             >
               <Download size={16} />
             </Button>

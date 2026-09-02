@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
 import { haptic } from "../../utils/haptics";
 import Spinner from "./Spinner.jsx";
+import { Tooltip } from "./Tooltip.jsx";
 
 // Minimal Slot implementation — merges props onto the single element child.
 // Replaces the radix-ui Slot dependency for the asChild pattern. Tolerates
@@ -150,6 +151,8 @@ export default function Button({
   active = false,
   asChild = false,
   className = "",
+  tooltip,
+  title,
   onClick,
   ...props
 }) {
@@ -174,43 +177,60 @@ export default function Button({
 
   // asChild: style the child element (e.g. a router Link or anchor) as a
   // Button. Button-only attributes (type, disabled) don't apply to links.
+  const nativeTitle = tooltip ? undefined : title;
+  const sharedProps = {
+    ref,
+    "data-slot": "button",
+    "data-surface": surface,
+    "aria-pressed": active || undefined,
+    className: buttonClass,
+    onClick: handleClick,
+    title: nativeTitle,
+    ...props,
+  };
+
   if (asChild) {
-    return (
+    const linkButton = (
       <Slot
-        ref={ref}
-        data-slot="button"
-        data-surface={surface}
-        aria-pressed={active || undefined}
+        {...sharedProps}
         aria-disabled={disabled || loading || undefined}
-        className={buttonClass}
-        onClick={handleClick}
-        {...props}
       >
         {children}
       </Slot>
+    );
+    return tooltip ? (
+      <Tooltip content={tooltip} surface={surface}>
+        {linkButton}
+      </Tooltip>
+    ) : (
+      linkButton
     );
   }
 
   const spinnerSize = size === "sm" || size === "iconSm" ? "sm" : size === "lg" ? "lg" : "md";
 
-  return (
+  const buttonEl = (
     <button
-      ref={ref}
+      {...sharedProps}
       type={type}
-      data-slot="button"
-      data-surface={surface}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      aria-pressed={active || undefined}
-      className={buttonClass}
-      onClick={handleClick}
-      {...props}
     >
       {loading && <Spinner decorative size={spinnerSize} className="pointer-events-none" />}
       {loading && <span className="sr-only">Loading</span>}
       {children}
     </button>
   );
+
+  if (tooltip) {
+    return (
+      <Tooltip content={tooltip} surface={surface}>
+        {buttonEl}
+      </Tooltip>
+    );
+  }
+
+  return buttonEl;
 }
 
 Button.propTypes = {
@@ -226,4 +246,6 @@ Button.propTypes = {
   active: PropTypes.bool,
   asChild: PropTypes.bool,
   className: PropTypes.string,
+  tooltip: PropTypes.node,
+  title: PropTypes.string,
 };

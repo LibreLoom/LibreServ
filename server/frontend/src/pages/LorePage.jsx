@@ -126,7 +126,6 @@ export default function LorePage() {
                         <ClickableCard
                           action="/pigeon"
                           ariaLabel="A mysterious clipboard. Click to follow it."
-                          title="What's on the clipboard?"
                           className="bg-transparent p-0"
                         >
                           {blockCode}

@@ -113,7 +113,7 @@ export default function ResetPassword() {
           <span className="text-primary font-mono text-xl font-normal block text-center">
             Validating reset link...
           </span>
-          <p className="text-primary/80 text-sm text-center mt-2">{resetQuip}</p>
+          <p className="text-accent text-sm text-center mt-2">{resetQuip}</p>
           <div className="flex justify-center mt-6">
             <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
           </div>
@@ -133,7 +133,7 @@ export default function ResetPassword() {
           <span className="text-primary font-mono text-xl font-normal block text-center">
             Reset Password
           </span>
-          <p className="text-primary/80 text-sm text-center mt-2">{resetQuip}</p>
+          <p className="text-accent text-sm text-center mt-2">{resetQuip}</p>
           <div className="mt-6">
             <Alert variant="error" message={error || "Invalid or expired reset link"} />
           </div>
@@ -160,13 +160,13 @@ export default function ResetPassword() {
         <span className="text-primary font-mono text-xl font-normal block text-center">
           Reset Password
         </span>
-        <p className="text-primary/80 text-sm text-center mt-2">{resetQuip}</p>
+        <p className="text-accent text-sm text-center mt-2">{resetQuip}</p>
 
         {success ? (
           <div className="mt-6">
             <Alert variant="success" message="Password reset successfully! Redirecting to login..." />
             <div className="mt-4 text-center">
-              <a href="/login" className="text-primary/80 underline text-sm">
+              <a href="/login" className="text-accent underline text-sm">
                 Go to login now
               </a>
             </div>

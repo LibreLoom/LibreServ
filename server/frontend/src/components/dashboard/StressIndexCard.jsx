@@ -82,10 +82,10 @@ export default function StressIndexCard({ value, breakdownItems = [] }) {
                     <div className="flex items-center gap-2">
                       <ItemIcon
                         size={12}
-                        className="text-primary/50 shrink-0"
+                        className="text-accent shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="text-xs font-mono text-primary/70">
+                      <span className="text-xs font-mono text-accent">
                         {item.label}
                       </span>
                       <span className="text-xs font-mono text-primary ml-auto">

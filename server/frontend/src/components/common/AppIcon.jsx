@@ -83,7 +83,7 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
         style={{ width: size, height: size }}
       >
         <span
-          className="font-mono font-bold text-secondary/50"
+          className="font-mono font-bold text-accent"
           style={{ fontSize: size * 0.4 }}
         >
           {appId.charAt(0).toUpperCase()}

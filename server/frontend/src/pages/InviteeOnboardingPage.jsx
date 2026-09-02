@@ -91,7 +91,7 @@ export default function InviteeOnboardingPage() {
         <div className="w-full max-w-lg bg-secondary text-primary rounded-large-element p-8 text-center">
           <AlertCircle size={32} className="text-accent mx-auto mb-3" />
           <h1 className="font-mono text-xl mb-2">This invitation isn't valid</h1>
-          <p className="text-primary/70 text-sm">
+          <p className="text-accent text-sm">
             The link may have expired or already been used. Ask the person who
             invited you to send a new one.
           </p>
@@ -112,7 +112,7 @@ export default function InviteeOnboardingPage() {
         <h1 className="text-primary font-mono text-xl font-normal block text-center">
           You're invited to join
         </h1>
-        <p className="text-primary/80 text-sm text-center mt-2">
+        <p className="text-accent text-sm text-center mt-2">
           Invited as <span className="font-medium">{invite.email}</span> ({invite.role}).
           Set your username and password to finish.
         </p>

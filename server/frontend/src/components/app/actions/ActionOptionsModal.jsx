@@ -207,7 +207,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
       {({ close }) => (
       <form onSubmit={handleSubmit} className="space-y-4">
         {action.description && (
-          <p className="text-sm text-primary/70 mb-4">{action.description}</p>
+          <p className="text-sm text-accent mb-4">{action.description}</p>
         )}
 
         <div className="space-y-4">

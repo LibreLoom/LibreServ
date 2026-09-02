@@ -61,7 +61,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <p className="text-sm text-primary/70 px-5">
+      <p className="text-sm text-accent px-5">
         We'll email them a link to set their own username and password. If you make
         them an admin, they'll be asked to set up two-factor authentication before
         they can use LibreServ.
@@ -84,7 +84,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
         <label
           htmlFor="invite-role"
-          className="text-primary/80 font-sans text-sm shrink-0"
+          className="text-accent font-sans text-sm shrink-0"
         >
           Role:
         </label>

@@ -104,7 +104,7 @@ export default function RoutesCard({
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     {appName ? (
-                      <div className="flex items-center justify-center bg-primary/10 rounded-large-element font-mono text-xs text-primary/60 min-w-[28px] h-7 px-1.5">
+                      <div className="flex items-center justify-center bg-primary/10 rounded-large-element font-mono text-xs text-accent min-w-[28px] h-7 px-1.5">
                         {appName.slice(0, 2).toUpperCase()}
                       </div>
                     ) : (
@@ -134,7 +134,7 @@ export default function RoutesCard({
                       variant="ghost"
                       size="iconSm"
                       onClick={() => onEdit(route)}
-                      title="Edit route"
+                      tooltip="Edit route"
                       aria-label="Edit route"
                     >
                       <span className="opacity-50"><Pencil size={14} className="text-accent" aria-hidden="true" /></span>
@@ -143,7 +143,7 @@ export default function RoutesCard({
                       variant="ghost"
                       size="iconSm"
                       onClick={() => onDelete(route)}
-                      title="Delete route"
+                      tooltip="Delete route"
                       aria-label="Delete route"
                       className="hover:bg-error/10 hover:text-error"
                     >

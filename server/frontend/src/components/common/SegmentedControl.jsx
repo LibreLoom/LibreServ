@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics";
+import { Tooltip } from "../ui/Tooltip.jsx";
 
 export default function SegmentedControl({
   options,
@@ -35,38 +36,46 @@ export default function SegmentedControl({
           className="h-full w-full rounded-pill bg-accent animate-segmented-settle"
         />
       </div>
-      {options.map(({ value: optValue, icon: Icon, label, disabled, title }) => (
-        <button
-          key={optValue}
-          title={title}
-          onClick={() => {
-            if (disabled) {
-              haptic("error");
-              onDisabledClick(optValue);
-              return;
-            }
-            haptic("selection");
-            onChange(optValue);
-          }}
-          className={cn(
-            "relative z-10 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill",
-            "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
-            disabled
-              ? "text-accent opacity-50 cursor-not-allowed"
-              : value === optValue
-                ? "text-secondary"
-                : "text-accent hover:text-primary"
-          )}
-          style={{ transitionDuration: "var(--motion-duration-short2)" }}
-          role="radio"
-          aria-checked={value === optValue}
-          aria-disabled={disabled || undefined}
-          aria-label={label}
-        >
-          {Icon && <Icon size={14} />}
-          <span>{label}</span>
-        </button>
-      ))}
+      {options.map(({ value: optValue, icon: Icon, label, disabled, title }) => {
+        const segment = (
+          <button
+            key={optValue}
+            onClick={() => {
+              if (disabled) {
+                haptic("error");
+                onDisabledClick(optValue);
+                return;
+              }
+              haptic("selection");
+              onChange(optValue);
+            }}
+            className={cn(
+              "relative z-10 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill",
+              "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
+              disabled
+                ? "text-accent opacity-50 cursor-not-allowed"
+                : value === optValue
+                  ? "text-secondary"
+                  : "text-accent hover:text-primary"
+            )}
+            style={{ transitionDuration: "var(--motion-duration-short2)" }}
+            role="radio"
+            aria-checked={value === optValue}
+            aria-disabled={disabled || undefined}
+            aria-label={label}
+          >
+            {Icon && <Icon size={14} />}
+            <span>{label}</span>
+          </button>
+        );
+        return title ? (
+          <Tooltip key={optValue} content={title} surface="secondary">
+            {segment}
+          </Tooltip>
+        ) : (
+          segment
+        );
+      })}
     </div>
   );
 }

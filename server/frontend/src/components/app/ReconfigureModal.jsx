@@ -196,10 +196,10 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
       <form id="reconfigure-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Intro text — plain language per AGENTS.md conventions */}
         <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
-          <Settings className="text-primary/80 shrink-0 mt-0.5" size={18} />
-          <div className="text-sm text-primary/80">
+          <Settings className="text-accent shrink-0 mt-0.5" size={18} />
+          <div className="text-sm text-accent">
             <p>Change the settings for <strong>{app?.name}</strong>.</p>
-            <p className="mt-1 text-primary/60">
+            <p className="mt-1 text-accent">
               The app will restart to apply your changes. Passwords that you leave blank will keep their current values.
             </p>
           </div>
@@ -207,7 +207,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
 
         {loadingFields && (
           <div className="flex items-center justify-center py-8">
-            <Loader2 size={24} className="animate-spin text-primary/50" />
+            <Loader2 size={24} className="animate-spin text-accent" />
           </div>
         )}
 
@@ -222,7 +222,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
           <>
             {basicFields.length > 0 && (
               <div className="space-y-4">
-                <p className="text-xs font-mono text-primary/50 uppercase tracking-wide">
+                <p className="text-xs font-mono text-accent uppercase tracking-wide">
                   Application Settings
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -256,7 +256,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
                 <button
                   type="button"
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="flex items-center gap-2 text-xs font-mono text-primary/50 uppercase tracking-wide hover:text-primary/70 motion-safe:transition-colors"
+                  className="flex items-center gap-2 text-xs font-mono text-accent uppercase tracking-wide hover:text-primary/70 motion-safe:transition-colors"
                 >
                   {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   Advanced Settings
@@ -275,9 +275,9 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
 
         {!loadingFields && !hasFields && (
           <div className="text-center py-8">
-            <Info className="mx-auto text-primary/50 mb-3" size={32} />
-            <p className="text-primary/70">No settings available to change.</p>
-            <p className="text-sm text-primary/60 mt-1">
+            <Info className="mx-auto text-accent mb-3" size={32} />
+            <p className="text-accent">No settings available to change.</p>
+            <p className="text-sm text-accent mt-1">
               This app doesn't have configurable options.
             </p>
           </div>

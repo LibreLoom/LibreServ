@@ -19,7 +19,7 @@ function CompleteStep({ app, instance, onDone }) {
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Installation Complete!
         </h2>
-        <p className="text-secondary/70">
+        <p className="text-accent">
           {app?.name || "Your app"} is ready to use.
         </p>
       </div>
@@ -32,12 +32,12 @@ function CompleteStep({ app, instance, onDone }) {
             </svg>
             <div>
               <h3 className="font-mono text-sm font-medium text-secondary">Domain Ready</h3>
-              <p className="text-xs text-secondary/70">Your app is accessible on the web</p>
+              <p className="text-xs text-accent">Your app is accessible on the web</p>
             </div>
           </div>
 
           <div className="bg-primary/5 rounded-pill px-4 py-3">
-            <div className="text-xs font-mono text-secondary/50 uppercase tracking-wide mb-2">Access URL</div>
+            <div className="text-xs font-mono text-accent uppercase tracking-wide mb-2">Access URL</div>
             <div className="font-mono text-xl text-accent break-all">
               {subdomain}.{domain}
             </div>

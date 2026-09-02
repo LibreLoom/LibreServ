@@ -335,7 +335,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
       <form onSubmit={handleSubmit}>
         {mode === "create" ? (
           <>
-            <p className="text-xs text-primary/50 mb-6 leading-relaxed">
+            <p className="text-xs text-accent mb-6 leading-relaxed">
               Give this subdomain its own address on the internet: anyone who
               opens it is sent to the address on this device you choose below.
             </p>
@@ -391,7 +391,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         ) : (
           route && (
             <div className="mb-5 flex items-center gap-2 px-4 py-2.5 rounded-large-element bg-primary/5">
-              <Globe size={16} className="text-primary/50 shrink-0" />
+              <Globe size={16} className="text-accent shrink-0" />
               <p className="font-mono text-sm text-primary truncate">
                 {route.subdomain ? `${route.subdomain}.${route.domain}` : route.domain}
               </p>
@@ -433,7 +433,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                   {testingBackend ? "Testing..." : "Test"}
                 </Button>
               </div>
-              <p className="text-xs text-primary/50 mt-2 leading-relaxed">
+              <p className="text-xs text-accent mt-2 leading-relaxed">
                 The address on this device that should answer for this subdomain.
                 Use <span className="font-mono">localhost:8080</span> for a service
                 on this device, or an IP like <span className="font-mono">192.168.1.50:3000</span>.
@@ -495,7 +495,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           )}
 
           {mode === "edit" && selectedApp && (
-            <p className="text-xs text-primary/50">
+            <p className="text-xs text-accent">
               This route belongs to <span className="font-mono text-primary">{selectedApp.name}</span>.
             </p>
           )}
@@ -511,7 +511,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
               disabled={loading}
             />
           ) : (
-            <p className="text-xs text-primary/50 leading-relaxed">
+            <p className="text-xs text-accent leading-relaxed">
               The route is enabled as soon as it's created, with automatic HTTPS.
             </p>
           )}

@@ -13,7 +13,7 @@ function ConfigFieldRenderer({ field, value, onChange, disabled, surface = "seco
   const [localError, setLocalError] = useState(null);
 
   const textColor = surface === "secondary" ? "text-primary" : "text-secondary";
-  const mutedTextColor = surface === "secondary" ? "text-primary/70" : "text-secondary/70";
+  const mutedTextColor = surface === "secondary" ? "text-accent" : "text-accent";
 
   const handleChange = (newValue) => {
     if (field.type === "port") {

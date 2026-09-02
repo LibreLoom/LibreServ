@@ -18,7 +18,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
           <AlertTriangle className="w-8 h-8 text-warning" />
         </div>
         <h2 className="font-mono text-2xl font-normal text-secondary">No Remote Access</h2>
-        <p className="text-secondary/70 text-sm max-w-md mx-auto">
+        <p className="text-accent text-sm max-w-md mx-auto">
           To install <span className="font-mono text-accent">{app?.name}</span> with remote access, you need to set up a domain and network access first.
         </p>
       </div>
@@ -40,7 +40,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
           <div className="flex-shrink-0 w-5 h-5 rounded-full bg-success flex items-center justify-center mt-0.5">
             <Check size={12} className="text-primary" strokeWidth={3} />
           </div>
-          <p className="text-sm text-secondary/80">
+          <p className="text-sm text-secondary">
             Setting up remote access takes just a few minutes and enables secure access to all your apps from anywhere.
           </p>
         </div>

@@ -69,27 +69,27 @@ function AppCardInner({ app }) {
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="flex items-center gap-2">
-          <Cpu size={14} className="text-primary/50" aria-hidden="true" />
-          <span className="text-primary/70">CPU:</span>
+          <Cpu size={14} className="text-accent" aria-hidden="true" />
+          <span className="text-accent">CPU:</span>
           <span className="font-mono">
             {app.cpu_percent != null ? `${app.cpu_percent.toFixed(1)}%` : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <MemoryStick size={14} className="text-primary/50" aria-hidden="true" />
-          <span className="text-primary/70">RAM:</span>
+          <MemoryStick size={14} className="text-accent" aria-hidden="true" />
+          <span className="text-accent">RAM:</span>
           <span className="font-mono">
             {app.memory_usage != null ? formatBytes(app.memory_usage) : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Clock size={14} className="text-primary/50" aria-hidden="true" />
-          <span className="text-primary/70">{uptimeLabel}:</span>
+          <Clock size={14} className="text-accent" aria-hidden="true" />
+          <span className="text-accent">{uptimeLabel}:</span>
           <span className="font-mono">{formatDuration(uptime)}</span>
         </div>
         <div className="flex items-center gap-2">
-          <TrendingUp size={14} className="text-primary/50" aria-hidden="true" />
-          <span className="text-primary/70">Avail:</span>
+          <TrendingUp size={14} className="text-accent" aria-hidden="true" />
+          <span className="text-accent">Avail:</span>
           <span className="font-mono">
             {app.availability_pct != null ? `${app.availability_pct.toFixed(0)}%` : "-"}
           </span>
@@ -124,7 +124,7 @@ function NoAppsCard() {
           className="w-14 h-14 rounded-pill bg-primary/10 flex items-center justify-center mb-5"
           aria-hidden="true"
         >
-          <Package size={22} className="text-primary/50" />
+          <Package size={22} className="text-accent" />
         </div>
 
         <h3 className="font-mono text-xl font-normal tracking-tight text-primary mb-2">
@@ -158,7 +158,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
             <Package size={22} className="text-primary/30" />
           </div>
           <div className="text-left">
-            <div className="font-mono font-normal text-primary/50">Loading apps...</div>
+            <div className="font-mono font-normal text-accent">Loading apps...</div>
           </div>
         </div>
       </Card>
@@ -178,7 +178,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
           </div>
           <div className="text-left">
             <div className="font-mono font-normal text-error">Failed to load apps</div>
-            <div className="font-mono font-normal text-sm text-primary/50">{error.message}</div>
+            <div className="font-mono font-normal text-sm text-accent">{error.message}</div>
           </div>
         </div>
       </Card>

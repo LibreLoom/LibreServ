@@ -112,7 +112,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Configure {app?.name || "App"}
         </h2>
-        <p className="text-secondary/70 text-sm">
+        <p className="text-accent text-sm">
           Set up the basic settings for this application.
         </p>
       </div>
@@ -120,7 +120,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
 
       {basicFields.length > 0 && (
         <div className="space-y-4">
-          <p className="text-xs font-mono text-secondary/50 uppercase tracking-wide">
+          <p className="text-xs font-mono text-accent uppercase tracking-wide">
             Application Settings
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -153,7 +153,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-2 text-xs font-mono text-secondary/50 uppercase tracking-wide hover:text-secondary/70 motion-safe:transition-colors"
+            className="flex items-center gap-2 text-xs font-mono text-accent uppercase tracking-wide hover:text-secondary/70 motion-safe:transition-colors"
           >
             <span>
               {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -167,9 +167,9 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
 
       {configuration.length === 0 && (
         <div className="text-center py-8">
-          <Info className="mx-auto text-secondary/50 mb-3" size={32} />
-          <p className="text-secondary/70">No configuration needed.</p>
-          <p className="text-sm text-secondary/70 mt-1">
+          <Info className="mx-auto text-accent mb-3" size={32} />
+          <p className="text-accent">No configuration needed.</p>
+          <p className="text-sm text-accent mt-1">
             This app is ready to install with default settings.
           </p>
         </div>
