@@ -13,4 +13,4 @@ The phone stays on home internet.
 ## BOM
 - Ethernet patch cable in the box (required).
 - No USB Wi-Fi dongle.
-- Official setup code for Lunas purchased from LibreLoom (factory: each flash peels from `TOKENS` on the installer USB’s `LUNAASSETS` partition).
+- Official device token for Lunas purchased from LibreLoom (factory: each flash peels from `TOKENS` on the installer USB’s `LUNAASSETS` partition).
