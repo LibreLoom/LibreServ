@@ -19,7 +19,7 @@ set -euo pipefail
 #   sudo ./luna-connect/deploy/deploy.sh --head
 #   # same when already on main:
 #   sudo ./luna-connect/deploy/deploy.sh
-#   sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
+#   sudo ./luna-connect/deploy/deploy.sh --head --force   # sick peer or both down (Postgres migration, recovery)
 #
 # Tagged release (when main has moved past the tag):
 #   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
@@ -63,9 +63,11 @@ Usage (from repo root, as root):
       Deploy the newest luna-connect-v* tag (even when main is ahead).
 
 Options:
-  --force    Skip preflight that requires both instances healthy.
-             Use when one instance is already broken but its peer is healthy.
-             Drain still refuses to stop the only live instance (no site-wide 503).
+  --force    Recovery / degraded deploy — skip preflight and peer health gates.
+             When neither instance is healthy (cold start): install binary and
+             start A then B sequentially — no soft drain.
+             When one peer is sick: deploy anyway (may 503 briefly if stopping
+             the only live instance). When both are healthy, ZDU drain still runs.
   --help     Show this help and exit.
 
 Examples:
@@ -250,6 +252,18 @@ drain_file_for() { echo "${DATA_DIR}/drain-${1}"; }
 
 is_healthy() { curl -sf --max-time 3 "http://127.0.0.1:${1}/healthz" >/dev/null 2>&1; }
 
+# True when at least one instance responds healthy on /healthz.
+any_instance_healthy() {
+    local inst port
+    for inst in "${INSTANCES[@]}"; do
+        port="${inst##*:}"
+        if is_healthy "$port"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 peer_of() {
     local name="$1"
     if [ "$name" = "a" ]; then
@@ -271,8 +285,25 @@ wait_healthy() {
     log_info "  ${name} healthy after ${elapsed}s"
 }
 
+# Stop an instance without soft-drain (cold start / --force when peer is down).
+hard_stop_instance() {
+    local name="$1"
+    local df
+    df="$(drain_file_for "$name")"
+    rm -f "$df"
+    if ! systemctl is-active --quiet "luna-connect-${name}"; then
+        log_info "  ${name} already stopped"
+        return 0
+    fi
+    log_info "  Hard-stopping ${name} (no soft drain)..."
+    if ! systemctl stop "luna-connect-${name}"; then
+        log_error "  systemctl stop luna-connect-${name} failed"
+        return 1
+    fi
+}
+
 # Soft-drain: fail /healthz so Caddy drops this upstream, then stop the unit.
-# Never stop an instance unless its peer is healthy (avoids site-wide 503).
+# Without --force, never stop an instance unless its peer is healthy (avoids site-wide 503).
 drain() {
     local name="$1" port="$2"
     local peer peer_name peer_port
@@ -283,8 +314,23 @@ drain() {
     df="$(drain_file_for "$name")"
 
     if ! is_healthy "$peer_port"; then
+        if [ "$FORCE_DEPLOY" -eq 1 ]; then
+            if ! any_instance_healthy; then
+                log_warn "  Cold start: no instance healthy — skipping soft drain for ${name}"
+            else
+                log_warn "  Peer ${peer_name} (:${peer_port}) not healthy — --force: deploying ${name} anyway"
+            fi
+            hard_stop_instance "$name"
+            return $?
+        fi
         log_error "  Peer ${peer_name} (:${peer_port}) is not healthy — refusing to drain ${name} (would 503 the site)"
         return 1
+    fi
+
+    if ! systemctl is-active --quiet "luna-connect-${name}"; then
+        log_info "  ${name} already stopped — skipping drain"
+        rm -f "$df"
+        return 0
     fi
 
     log_info "  Soft-draining ${name} (Caddy must drop it before stop)..."
@@ -398,8 +444,13 @@ preflight() {
     done
     if [ "$unhealthy" -ne 0 ]; then
         if [ "$FORCE_DEPLOY" -eq 1 ]; then
-            log_warn "Preflight failed but --force set — continuing (peer must stay healthy during each drain)."
-            log_warn "If only one instance serves traffic, deploy fixes the sick one first (A, then B)."
+            if ! any_instance_healthy; then
+                log_warn "Preflight failed but --force set — cold start (both instances down)."
+                log_warn "Will install binary and start A, then B, without ZDU soft drain."
+            else
+                log_warn "Preflight failed but --force set — continuing with degraded deploy."
+                log_warn "Peer health checks skipped when draining; brief outage possible."
+            fi
             return 0
         fi
         log_error "Fix the unhealthy instance first (journalctl -u luna-connect-a -u luna-connect-b)."
@@ -520,6 +571,10 @@ main() {
 
     preflight
     build_binary
+
+    if [ "$FORCE_DEPLOY" -eq 1 ] && ! any_instance_healthy; then
+        log_warn "Cold start mode: neither instance is healthy — sequential start (A, then B)."
+    fi
 
     for inst in "${INSTANCES[@]}"; do
         name="${inst%%:*}"
