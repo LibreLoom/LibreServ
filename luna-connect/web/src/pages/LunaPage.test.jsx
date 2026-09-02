@@ -77,6 +77,8 @@ describe("LunaPage one Luna", () => {
     expect(hostnameLink.getAttribute("href")).toBe("https://photos.luna.servers.libreloom.org");
     expect(hostnameLink.getAttribute("target")).toBe("_blank");
     expect(hostnameLink.getAttribute("rel")).toBe("noreferrer");
+    expect(screen.getByTestId("luna-hostname-hero")).toBeTruthy();
+    expect(screen.getByTestId("luna-device-toolbar")).toBeTruthy();
     expect(screen.queryByText("extra.luna.servers.libreloom.org")).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();

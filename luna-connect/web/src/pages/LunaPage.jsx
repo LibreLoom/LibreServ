@@ -8,6 +8,88 @@ import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
+function DeviceStatusRow({ online, codeHint }) {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
+      data-testid="luna-device-status"
+    >
+      <span
+        className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-mono ${
+          online
+            ? "bg-success/20 border border-success/30 text-success"
+            : "bg-accent/20 border border-border text-muted-foreground"
+        }`}
+      >
+        {online ? "Online" : "Offline"}
+      </span>
+      {codeHint ? (
+        <span className="font-mono text-xs">
+          Device hint <span className="text-foreground">{codeHint}</span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function HostnameHero({ hostname, copied, onCopy }) {
+  return (
+    <div
+      className="rounded-large-element bg-muted border border-border p-5 sm:p-6 text-foreground"
+      data-testid="luna-hostname-hero"
+    >
+      <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-3">
+        Public address
+      </p>
+      <div className="flex items-start gap-3">
+        <a
+          href={`https://${hostname}`}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-xl sm:text-2xl break-all flex-1 min-w-0 text-foreground hover:underline motion-safe:transition-colors"
+        >
+          {hostname}
+        </a>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={() => onCopy(hostname, "hostname")}
+          aria-label="Copy address"
+        >
+          {copied === "hostname" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnbindClick }) {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 pt-4 border-t border-border"
+      data-testid="luna-device-toolbar"
+    >
+      {hostname ? (
+        <Button variant="secondary" size="sm" asChild>
+          <a href={`https://${hostname}`} target="_blank" rel="noreferrer">
+            <ExternalLink className="h-4 w-4" />
+            Open Luna
+          </a>
+        </Button>
+      ) : null}
+      <Button variant="outline" size="sm" onClick={onToggleCode}>
+        {shownCode ? "Hide code" : "Show code"}
+      </Button>
+      {!confirmUnbind ? (
+        <Button variant="outline" size="sm" onClick={onUnbindClick}>
+          Unbind Luna
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function LunaPage() {
   const { me, refreshMe } = useAuth();
   const [devices, setDevices] = useState([]);
@@ -94,7 +176,7 @@ export default function LunaPage() {
         </Card>
       )}
 
-      <Card className="animate-fade-in-up">
+      <Card className="animate-fade-in-up" data-testid="luna-device-card">
         <CardHeader>
           <CardTitle>My Luna</CardTitle>
           <CardDescription>
@@ -117,83 +199,49 @@ export default function LunaPage() {
               </div>
             </div>
           ) : (
-            <>
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex items-center rounded-pill px-3 py-1 text-xs font-mono ${
-                      luna.online
-                        ? "bg-success/20 border border-success/30 text-success"
-                        : "bg-accent/20 border border-border text-muted-foreground"
-                    }`}
-                  >
-                    {luna.online ? "Online" : "Offline"}
-                  </span>
-                  <span className="font-mono text-sm text-muted-foreground">{luna.code_hint || "••••"}</span>
-                </div>
+            <div className="space-y-4">
+              <DeviceStatusRow online={luna.online} codeHint={luna.code_hint} />
 
-                {luna.hostname ? (
-                  <div className="rounded-large-element bg-muted border border-border px-4 py-3 flex items-center gap-3">
-                    <a
-                      href={`https://${luna.hostname}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-mono text-base sm:text-lg break-all flex-1 min-w-0 text-foreground hover:opacity-80 motion-safe:transition-opacity"
-                    >
-                      {luna.hostname}
-                    </a>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => copyText(luna.hostname, "hostname")}
-                      aria-label="Copy address"
-                    >
-                      {copied === "hostname" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="rounded-large-element border border-dashed border-border px-4 py-3">
-                    <p className="text-sm text-muted-foreground">
-                      Linked, but no public name yet.{" "}
-                      <Link className="underline" to="/onboarding">
-                        Finish setup
-                      </Link>
-                    </p>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {luna.hostname && (
-                    <Button variant="secondary" size="sm" asChild>
-                      <a href={`https://${luna.hostname}`} target="_blank" rel="noreferrer">
-                        <ExternalLink className="h-4 w-4" />
-                        Open
-                      </a>
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (shownCode) {
-                        setShownCode("");
-                        setCopied(null);
-                        return;
-                      }
-                      showCode();
-                    }}
-                  >
-                    {shownCode ? "Hide code" : "Show code"}
-                  </Button>
-                  {!confirmUnbind && (
-                    <Button variant="outline" size="sm" onClick={() => setConfirmUnbind(true)}>
-                      Unbind Luna
-                    </Button>
-                  )}
+              {luna.hostname ? (
+                <HostnameHero
+                  hostname={luna.hostname}
+                  copied={copied}
+                  onCopy={copyText}
+                />
+              ) : (
+                <div
+                  className="rounded-large-element border border-dashed border-border px-5 py-4"
+                  data-testid="luna-hostname-pending"
+                >
+                  <p className="text-sm text-muted-foreground">
+                    Linked, but no public name yet.{" "}
+                    <Link className="underline text-foreground" to="/onboarding">
+                      Finish setup
+                    </Link>
+                  </p>
                 </div>
-              </div>
+              )}
+
+              <DeviceToolbar
+                hostname={luna.hostname}
+                shownCode={shownCode}
+                confirmUnbind={confirmUnbind}
+                onToggleCode={() => {
+                  if (shownCode) {
+                    setShownCode("");
+                    setCopied(null);
+                    return;
+                  }
+                  showCode();
+                }}
+                onUnbindClick={() => setConfirmUnbind(true)}
+              />
+
               {confirmUnbind && (
-                <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
+                <div
+                  className="rounded-large-element bg-muted border border-border px-4 py-4 space-y-3"
+                  data-testid="luna-unbind-confirm"
+                >
                   <p className="text-sm leading-relaxed">
                     The public address goes away. Cloud backups stay on this account (archived) and stay billed until you turn payment off. Someone else can bind this Luna later with the same device code.
                   </p>
@@ -207,10 +255,17 @@ export default function LunaPage() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           )}
+
           {shownCode && (
-            <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
+            <div
+              className="rounded-large-element bg-muted border border-border px-5 py-4 space-y-3"
+              data-testid="luna-device-code"
+            >
+              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+                Device code
+              </p>
               <p className="font-mono text-xl tracking-widest break-all">{shownCode}</p>
               <Button variant="secondary" onClick={() => copyText(shownCode, "code")}>
                 <Copy className="h-4 w-4" />
@@ -218,6 +273,7 @@ export default function LunaPage() {
               </Button>
             </div>
           )}
+
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
