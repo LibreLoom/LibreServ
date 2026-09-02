@@ -153,6 +153,14 @@ Good: `Plug Luna into your router or modem with the included RJ45 (ethernet) cab
 Bad: `Connect Luna to the internet box with the included cable. Use a LAN socket — the same kind of socket your home internet uses.`
 Also bad: `ssh into the box and journalctl -u caddy until the ACME DNS-01 challenge succeeds.`
 
+#### WALL OF SHAME — cachebusters in production
+
+Do not append manual version query strings to static asset URLs in production builds.
+
+| Shame (never ship) | Why it failed | Use instead |
+|---|---|---|
+| `favicon.svg?v=6` on production | Vite content-hashes built assets; query cachebusters pollute URLs, break CDN caching semantics, and look amateur | Clean paths (`/favicon.svg`); rely on build hashes or proper `Cache-Control` headers |
+
 ### Go
 - Module path: `gt.plainskill.net/LibreLoom/LibreServ`
 - Router: `github.com/go-chi/chi/v5` (not gin)
