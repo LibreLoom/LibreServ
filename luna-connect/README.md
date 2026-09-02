@@ -60,7 +60,7 @@ Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_toke
 
 ## Deploy (ZDU)
 
-Same blue/green pattern as LibreServ Connect: two systemd instances behind Caddy, shared SQLite + object dir.
+Same blue/green pattern as LibreServ Connect: two systemd instances behind Caddy, shared database + object dir.
 
 **How drain works:** `deploy.sh` touches `/var/lib/luna-connect/drain-{a|b}`. That instance’s `/healthz` returns **503** while it still serves in-flight requests. Caddy’s active health check drops it, then the script stops the unit, swaps the binary, clears the drain file, and starts it again. The peer must be healthy before either side is drained (otherwise you get a site-wide 503).
 

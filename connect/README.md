@@ -34,6 +34,11 @@ Requires `Authorization: Bearer $CONNECT_ADMIN_TOKEN`.
 - `GET /admin/devices`
 - `GET /admin/devices/{deviceID}`
 - `POST /admin/devices/{deviceID}/credentials/rotate`
+- `GET /admin/accounts`
+- `GET /admin/accounts/{accountID}`
+- `GET /admin/connect-keys`
+- `POST /admin/connect-keys`
+- `DELETE /admin/connect-keys/{keyID}`
 - `GET /admin/cases`
 - `POST /admin/cases/{caseID}/messages`
 - `POST /admin/cases/{caseID}/consent-requests`
