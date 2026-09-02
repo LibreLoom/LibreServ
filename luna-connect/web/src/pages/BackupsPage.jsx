@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Separator } from "../components/ui/separator.jsx";
-import { InfoHint, TermHint } from "../components/ui/Tooltip.jsx";
+import { InfoHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api.js";
@@ -17,7 +17,13 @@ function daysUntil(unixSeconds) {
   return Math.max(0, Math.ceil((unixSeconds * 1000 - Date.now()) / 86400000));
 }
 
-/** Chunked pricing — Miller's Law / Law of Common Region. */
+const PRICING_ROWS = [
+  { label: "Storage", value: "$8 / terabyte / month", mono: true },
+  { label: "Downloads", value: "Free up to 3× monthly average", mono: false },
+  { label: "Extra download traffic", value: "$0.01 / GB", mono: true },
+];
+
+/** Scannable pricing rows — label left, value right, one line per row. */
 function PricingSummary({ surface = "secondary" }) {
   return (
     <section className="space-y-3" aria-labelledby="backup-pricing-heading">
@@ -29,49 +35,33 @@ function PricingSummary({ surface = "secondary" }) {
           surface={surface}
           delayMs={0}
           label="How cloud backup pricing works"
-          content="We bill from your average storage over the month, not a single day. Downloads are free up to three times that average; extra download traffic costs $0.01 per GB."
+          content="We bill from your average storage over the month, not a single day. Downloads are free up to three times that monthly average; extra download traffic costs $0.01 per GB."
         />
       </div>
       <div
-        className="overflow-x-auto rounded-large-element border border-border bg-background text-foreground"
+        className="overflow-x-auto rounded-large-element border border-border"
         data-testid="backup-pricing-table"
       >
         <table className="w-full text-sm">
           <tbody>
-            <tr className="border-b border-border">
-              <th scope="row" className="px-3 py-2.5 text-left font-normal align-middle">
-                Storage
-              </th>
-              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-middle">
-                $8 / terabyte / month
-              </td>
-            </tr>
-            <tr className="border-b border-border">
-              <th scope="row" className="px-3 py-2.5 text-left font-normal align-middle">
-                Downloads
-              </th>
-              <td className="px-3 py-2.5 text-right leading-snug align-middle">
-                <span className="block">Free each month</span>
-                <span className="block">
-                  Up to 3×{" "}
-                  <TermHint
-                    surface={surface}
-                    delayMs={0}
-                    content="How much you store in the cloud on average during the month — not one day's total. You can download up to three times that amount without extra charge."
-                  >
-                    average storage
-                  </TermHint>
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row" className="px-3 py-2.5 text-left font-normal align-middle">
-                Extra download traffic
-              </th>
-              <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap align-middle">
-                $0.01 / GB
-              </td>
-            </tr>
+            {PRICING_ROWS.map((row, index) => (
+              <tr
+                key={row.label}
+                className={index < PRICING_ROWS.length - 1 ? "border-b border-border" : ""}
+              >
+                <th
+                  scope="row"
+                  className="px-4 py-3 text-left font-normal align-middle whitespace-nowrap"
+                >
+                  {row.label}
+                </th>
+                <td
+                  className={`px-4 py-3 text-right align-middle ${row.mono ? "font-mono whitespace-nowrap" : ""}`}
+                >
+                  {row.value}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

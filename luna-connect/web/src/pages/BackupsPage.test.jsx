@@ -22,8 +22,8 @@ describe("BackupsPage", () => {
     expect(screen.getByTestId("backups-gated")).toBeTruthy();
     expect(screen.getByTestId("backups-files")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
-    expect(screen.getByText(/Free each month/i)).toBeTruthy();
-    expect(screen.getByText(/average storage/i)).toBeTruthy();
+    expect(screen.getByText(/Free up to 3× monthly average/i)).toBeTruthy();
+    expect(screen.queryByText(/average storage/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
     expect(screen.getByTestId("backup-empty-state")).toBeTruthy();
   });
