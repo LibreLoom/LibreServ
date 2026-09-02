@@ -2,7 +2,7 @@ package accounts
 
 import (
 	"context"
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"time"
 )
@@ -11,7 +11,7 @@ const orphanGraceDays = 7
 
 // CleanupOrphans removes Luna Connect accounts that never verified email,
 // never bound a Luna, and never added a card — idle signups only.
-func CleanupOrphans(ctx context.Context, db *sql.DB) (int64, error) {
+func CleanupOrphans(ctx context.Context, db *database.DB) (int64, error) {
 	if db == nil {
 		return 0, nil
 	}
@@ -32,7 +32,7 @@ WHERE created_at < ?
 	return n, nil
 }
 
-func RunCleanupLoop(ctx context.Context, db *sql.DB) {
+func RunCleanupLoop(ctx context.Context, db *database.DB) {
 	if _, err := CleanupOrphans(ctx, db); err != nil {
 		slog.Warn("orphan account cleanup failed", "error", err)
 	}

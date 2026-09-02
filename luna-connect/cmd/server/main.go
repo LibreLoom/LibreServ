@@ -18,6 +18,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/jobs"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
@@ -64,6 +65,9 @@ func main() {
 	if config.C.Database.Path == "" {
 		config.C.Database.Path = "dev/luna-connect.db"
 	}
+	if config.C.Database.Driver == "" {
+		config.C.Database.Driver = "sqlite"
+	}
 	if config.C.DataDir == "" {
 		config.C.DataDir = "dev/data"
 	}
@@ -74,7 +78,7 @@ func main() {
 		}
 	}
 
-	db, err := database.Open(config.C.Database.Path)
+	db, err := database.OpenFromConfig(config.C.Database.Driver, config.C.Database.Path, config.C.Database.URL)
 	if err != nil {
 		slog.Error("db", "error", err)
 		os.Exit(1)
@@ -110,34 +114,40 @@ func main() {
 
 	srv := api.NewServer(db, st)
 
-	go accounts.RunCleanupLoop(context.Background(), db)
+	jobLeader := jobs.NewLeader(db)
+	defer jobLeader.Close()
+	jobLeader.LogStartup()
 
-	// Hourly: sample stored bytes for month-average billing (B2-style).
-	// Daily: report period-average storage + egress overage to Stripe meters.
-	go func() {
-		sample := time.NewTicker(1 * time.Hour)
-		report := time.NewTicker(24 * time.Hour)
-		defer sample.Stop()
-		defer report.Stop()
-		billing.SampleStorage(db)
-		for {
-			select {
-			case <-sample.C:
-				billing.SampleStorage(db)
-			case <-report.C:
-				billing.ReportUsage(db)
+	if jobLeader.IsLeader() {
+		go accounts.RunCleanupLoop(context.Background(), db)
+
+		// Hourly: sample stored bytes for month-average billing (B2-style).
+		// Daily: report period-average storage + egress overage to Stripe meters.
+		go func() {
+			sample := time.NewTicker(1 * time.Hour)
+			report := time.NewTicker(24 * time.Hour)
+			defer sample.Stop()
+			defer report.Stop()
+			billing.SampleStorage(db)
+			for {
+				select {
+				case <-sample.C:
+					billing.SampleStorage(db)
+				case <-report.C:
+					billing.ReportUsage(db)
+				}
 			}
-		}
-	}()
+		}()
 
-	go func() {
-		srv.ProcessRetention(time.Now().Unix())
-		t := time.NewTicker(24 * time.Hour)
-		defer t.Stop()
-		for range t.C {
+		go func() {
 			srv.ProcessRetention(time.Now().Unix())
-		}
-	}()
+			t := time.NewTicker(24 * time.Hour)
+			defer t.Stop()
+			for range t.C {
+				srv.ProcessRetention(time.Now().Unix())
+			}
+		}()
+	}
 	bind := net.JoinHostPort(config.C.Server.Address, strconv.Itoa(config.C.Server.Port))
 	httpServer := &http.Server{
 		Addr:              bind,

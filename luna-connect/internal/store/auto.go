@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"io"
 	"os"
 	"strings"
@@ -19,12 +20,12 @@ const (
 // Get/Delete use the storage_backend recorded on backup_objects so enabling or
 // disabling B2 never points at the wrong store (or bills for unreachable bytes).
 type Auto struct {
-	DB    *sql.DB
+	DB    *database.DB
 	Local *Local
 	B2    *B2
 }
 
-func backupProviderReady(db *sql.DB) bool {
+func backupProviderReady(db *database.DB) bool {
 	if db == nil {
 		return false
 	}
@@ -37,7 +38,7 @@ func backupProviderReady(db *sql.DB) bool {
 }
 
 // PreferredBackend is where new Puts should go given current Admin → Connections.
-func PreferredBackend(db *sql.DB) string {
+func PreferredBackend(db *database.DB) string {
 	if backupProviderReady(db) {
 		return BackendB2
 	}

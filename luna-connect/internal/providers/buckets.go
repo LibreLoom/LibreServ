@@ -3,6 +3,7 @@ package providers
 import (
 	"database/sql"
 	"fmt"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"strings"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 // BucketProvisioner creates and persists one B2 bucket per Luna device.
 type BucketProvisioner struct {
-	DB        *sql.DB
+	DB        *database.DB
 	Providers *Service
 	B2        *B2Client
 }

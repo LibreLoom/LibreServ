@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
@@ -14,7 +14,7 @@ type BoundDevice struct {
 	HasBound  bool
 }
 
-func loadBoundDevice(db *sql.DB, accountID string) BoundDevice {
+func loadBoundDevice(db *database.DB, accountID string) BoundDevice {
 	var id, sub string
 	err := db.QueryRow(`SELECT id, COALESCE(subdomain,'') FROM devices WHERE account_id = ? LIMIT 1`, accountID).
 		Scan(&id, &sub)
@@ -79,7 +79,7 @@ func ResolveOnboarding(path, step string, dev BoundDevice) (resolvedPath, resolv
 	return resolvedPath, resolvedStep
 }
 
-func persistOnboardingIfChanged(db *sql.DB, accountID, path, step, resolvedPath, resolvedStep string) {
+func persistOnboardingIfChanged(db *database.DB, accountID, path, step, resolvedPath, resolvedStep string) {
 	if resolvedPath == path && resolvedStep == step {
 		return
 	}

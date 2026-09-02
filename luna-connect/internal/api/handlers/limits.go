@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"net/http"
 	"strings"
 	"time"
@@ -10,7 +10,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
-func allowGuess(db *sql.DB, key string, max int, windowSec int64) bool {
+func allowGuess(db *database.DB, key string, max int, windowSec int64) bool {
 	if db == nil || key == "" || max <= 0 {
 		return false
 	}
@@ -71,7 +71,7 @@ func allowGuess(db *sql.DB, key string, max int, windowSec int64) bool {
 	return n == 1
 }
 
-func allowAuthAttempt(db *sql.DB, ip, email string, max int, windowSec int64) bool {
+func allowAuthAttempt(db *database.DB, ip, email string, max int, windowSec int64) bool {
 	if db == nil || max <= 0 {
 		return false
 	}

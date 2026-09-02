@@ -2,7 +2,6 @@ package store
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -291,7 +290,7 @@ func b2TestHandler(objects map[string][]byte) http.HandlerFunc {
 	}
 }
 
-func mustProviderID(t *testing.T, db *sql.DB) string {
+func mustProviderID(t *testing.T, db *database.DB) string {
 	t.Helper()
 	var id string
 	if err := db.QueryRow(`SELECT id FROM service_providers WHERE service = 'backup' LIMIT 1`).Scan(&id); err != nil {

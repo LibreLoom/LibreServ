@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ const backupRetentionDays = 30
 
 var purgeWarningDays = []int{0, 3, 7, 14, 21, 27}
 
-func scheduleBackupPurge(db *sql.DB, accountID string) int64 {
+func scheduleBackupPurge(db *database.DB, accountID string) int64 {
 	if db == nil || accountID == "" {
 		return 0
 	}

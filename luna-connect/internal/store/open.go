@@ -1,8 +1,8 @@
 package store
 
 import (
-	"database/sql"
 	"fmt"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -13,7 +13,7 @@ import (
 // Open picks the object store from backup.driver and Admin → Connections.
 // driver "auto" uses B2 when an enabled backup provider with keys exists
 // (checked per request, so Connections updates apply without restart).
-func Open(db *sql.DB, driver, dataDir string) (Store, string, error) {
+func Open(db *database.DB, driver, dataDir string) (Store, string, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
 	if driver == "" {
 		driver = "auto"

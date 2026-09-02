@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"strings"
 	"sync"
 
@@ -13,7 +13,7 @@ var (
 	cloudflareBase   *config.CloudflareConfig
 
 	cloudflareRuntimeMu sync.Mutex
-	cloudflareRuntimeDB *sql.DB
+	cloudflareRuntimeDB *database.DB
 )
 
 // CaptureCloudflareBase stores yaml/env Cloudflare settings so admin DB overlays
@@ -27,7 +27,7 @@ func CaptureCloudflareBase() {
 
 // SetCloudflareRuntimeDB registers the shared DB used by RefreshCloudflare so every
 // blue/green instance reloads Admin → Connections Cloudflare keys before use.
-func SetCloudflareRuntimeDB(db *sql.DB) {
+func SetCloudflareRuntimeDB(db *database.DB) {
 	cloudflareRuntimeMu.Lock()
 	defer cloudflareRuntimeMu.Unlock()
 	cloudflareRuntimeDB = db
@@ -49,7 +49,7 @@ func RefreshCloudflare() {
 // ApplyCloudflareFromDB overlays an enabled Cloudflare provider from the database
 // onto the in-memory config. Starts from the captured yaml/env base when available.
 // Call after migrate and after admin Cloudflare mutations.
-func ApplyCloudflareFromDB(db *sql.DB) error {
+func ApplyCloudflareFromDB(db *database.DB) error {
 	cloudflareBaseMu.Lock()
 	base := cloudflareBase
 	cloudflareBaseMu.Unlock()

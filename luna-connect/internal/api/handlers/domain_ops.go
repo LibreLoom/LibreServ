@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -19,7 +20,7 @@ type boundDeviceDomain struct {
 	Port      int
 }
 
-func loadBoundDeviceDomain(db *sql.DB, deviceID string) (boundDeviceDomain, int, string) {
+func loadBoundDeviceDomain(db *database.DB, deviceID string) (boundDeviceDomain, int, string) {
 	var d boundDeviceDomain
 	var account sql.NullString
 	var curSub, tunnelID, sealed sql.NullString
