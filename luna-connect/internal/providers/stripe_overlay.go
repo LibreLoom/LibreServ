@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"strings"
 	"sync"
 
@@ -13,7 +13,7 @@ var (
 	stripeBase   *config.StripeConfig
 
 	stripeRuntimeMu sync.Mutex
-	stripeRuntimeDB *sql.DB
+	stripeRuntimeDB *database.DB
 )
 
 // CaptureStripeBase stores the yaml/env Stripe settings so admin DB overlays
@@ -27,7 +27,7 @@ func CaptureStripeBase() {
 
 // SetStripeRuntimeDB registers the shared DB used by RefreshStripe so every
 // blue/green instance reloads Admin → Connections Stripe keys before use.
-func SetStripeRuntimeDB(db *sql.DB) {
+func SetStripeRuntimeDB(db *database.DB) {
 	stripeRuntimeMu.Lock()
 	defer stripeRuntimeMu.Unlock()
 	stripeRuntimeDB = db
@@ -49,7 +49,7 @@ func RefreshStripe() {
 // ApplyStripeFromDB overlays an enabled Stripe provider from the database onto
 // the in-memory config. Starts from the captured yaml/env base when available.
 // Call after migrate and after admin Stripe mutations.
-func ApplyStripeFromDB(db *sql.DB) error {
+func ApplyStripeFromDB(db *database.DB) error {
 	stripeBaseMu.Lock()
 	base := stripeBase
 	stripeBaseMu.Unlock()

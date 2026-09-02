@@ -40,7 +40,9 @@ type AuthConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path string `mapstructure:"path"`
+	Driver string `mapstructure:"driver"` // sqlite (default) or postgres
+	Path   string `mapstructure:"path"`   // sqlite file path
+	URL    string `mapstructure:"url"`    // postgres DSN
 }
 
 type CloudflareConfig struct {
@@ -99,6 +101,7 @@ func setDefaults() {
 	viper.SetDefault("server.port", 8092)
 	viper.SetDefault("server.base_url", "https://connect.luna.libreloom.org")
 	viper.SetDefault("server.public_zone", "luna.servers.libreloom.org")
+	viper.SetDefault("database.driver", "sqlite")
 	viper.SetDefault("database.path", "dev/luna-connect.db")
 	viper.SetDefault("data_dir", "dev/data")
 	viper.SetDefault("backup.driver", "auto")

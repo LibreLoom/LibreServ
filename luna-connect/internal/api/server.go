@@ -1,7 +1,7 @@
 package api
 
 import (
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"io"
 	"net/http"
 	"os"
@@ -18,12 +18,12 @@ import (
 )
 
 type Server struct {
-	db     *sql.DB
+	db     *database.DB
 	router *chi.Mux
 	deps   handlers.Deps
 }
 
-func NewServer(db *sql.DB, objectStore store.Store) *Server {
+func NewServer(db *database.DB, objectStore store.Store) *Server {
 	tunnel := providers.NewTunnelClient()
 	dns := providers.NewDNSClient()
 	// Dev-only mock when Cloudflare keys are missing. Production must set cloudflare.* in yaml.

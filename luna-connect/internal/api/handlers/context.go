@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"net"
 	"net/http"
 	"strings"
@@ -70,7 +71,7 @@ func AccountFrom(ctx context.Context) (Account, bool) {
 }
 
 type Deps struct {
-	DB     *sql.DB
+	DB     *database.DB
 	Store  store.Store
 	Tunnel providers.Tunnel
 	DNS    providers.DNS

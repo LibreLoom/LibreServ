@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"net/http"
 	"strconv"
 	"time"
@@ -183,7 +184,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().Unix()
-	_, _ = h.DB.Exec(`UPDATE devices SET last_seen_at = ? WHERE id = ?`, now, dev.ID)
+	touchLastSeen(h.DB, dev.ID, now)
 
 	if portHeader := r.Header.Get("X-Luna-Local-Port"); portHeader != "" {
 		if port, err := strconv.Atoi(portHeader); err == nil {
@@ -344,7 +345,7 @@ func itoa(n int) string {
 }
 
 // insertPermanentDevice creates an unbound device with the given plaintext code.
-func insertPermanentDevice(db *sql.DB, kind, code, orderRef string) (id, grouped string, err error) {
+func insertPermanentDevice(db *database.DB, kind, code, orderRef string) (id, grouped string, err error) {
 	norm := security.NormalizeToken(code)
 	if !security.IsOfficialShape(norm) {
 		code = security.OfficialDeviceToken()

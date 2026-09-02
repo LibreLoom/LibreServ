@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"net"
 	"net/http"
 	"strings"
@@ -17,7 +17,7 @@ type adminCtxKey struct{}
 
 // AdminAuth accepts a staff session Bearer from /admin/login, or the static
 // server.admin_token (ops / tests).
-func AdminAuth(db *sql.DB) func(http.Handler) http.Handler {
+func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 	fails := newFailLimiter(10, time.Minute)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +72,7 @@ func AdminIDFrom(ctx context.Context) string {
 	return id
 }
 
-func CreateAdminSession(db *sql.DB, adminID string) (string, error) {
+func CreateAdminSession(db *database.DB, adminID string) (string, error) {
 	token := security.RandomHex(32)
 	ttl := config.C.Auth.SessionTTLHours
 	if ttl <= 0 {

@@ -159,7 +159,12 @@ func (h BackupHandler) List(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	rows, err := h.DB.Query(`SELECT device_id, relative_path, size, content_hash, updated_at FROM backup_objects WHERE account_id = ? ORDER BY relative_path`, acct.ID)
+	limit, offset := parseListPage(r)
+	var total int
+	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM backup_objects WHERE account_id = ?`, acct.ID).Scan(&total)
+	totalPtr := total
+
+	rows, err := h.DB.Query(`SELECT device_id, relative_path, size, content_hash, updated_at FROM backup_objects WHERE account_id = ? ORDER BY relative_path LIMIT ? OFFSET ?`, acct.ID, limit, offset)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not list cloud backups.")
 		return
@@ -179,8 +184,9 @@ func (h BackupHandler) List(w http.ResponseWriter, r *http.Request) {
 		list = append(list, o)
 	}
 	JSON(w, http.StatusOK, map[string]any{
-		"objects": list,
-		"note":    "This is the latest copy we have, not a history of old versions.",
+		"objects":    list,
+		"pagination": buildListPage(limit, offset, len(list), &totalPtr),
+		"note":       "This is the latest copy we have, not a history of old versions.",
 	})
 }
 

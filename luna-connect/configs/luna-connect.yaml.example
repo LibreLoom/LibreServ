@@ -16,7 +16,9 @@ auth:
   session_ttl_hours: 168
 
 database:
+  # driver: sqlite   # default for dev; use postgres in production at scale
   path: "dev/luna-connect.db"
+  # url: "postgres://luna_connect:CHANGE_ME@127.0.0.1:5432/luna_connect?sslmode=disable"
 
 data_dir: "dev/data"
 

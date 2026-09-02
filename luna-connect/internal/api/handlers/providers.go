@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"net/http"
 	"strings"
 
@@ -23,11 +23,11 @@ var secretCredentialKeys = map[string]bool{
 
 // ProvidersHandler handles admin service provider configuration.
 type ProvidersHandler struct {
-	db  *sql.DB
+	db  *database.DB
 	svc *providers.Service
 }
 
-func NewProvidersHandler(db *sql.DB) *ProvidersHandler {
+func NewProvidersHandler(db *database.DB) *ProvidersHandler {
 	return &ProvidersHandler{db: db, svc: providers.NewService(db)}
 }
 

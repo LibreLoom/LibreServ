@@ -3,6 +3,7 @@ package billing
 import (
 	"database/sql"
 	"fmt"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -74,7 +75,7 @@ func EstimateMonthUSD(avgStorageBytes, egressBytes int64) float64 {
 
 // SampleStorage records current SUM(backup_objects.size) for every account that
 // has ever stored data or has an active subscription. Call at least hourly.
-func SampleStorage(db *sql.DB) {
+func SampleStorage(db *database.DB) {
 	if db == nil {
 		return
 	}
@@ -122,7 +123,7 @@ ON CONFLICT(account_id, period_ym) DO NOTHING`, accountID, period)
 }
 
 // RecordEgress adds successful download bytes to the account’s current UTC month.
-func RecordEgress(db *sql.DB, accountID string, bytes int64) {
+func RecordEgress(db *database.DB, accountID string, bytes int64) {
 	if db == nil || accountID == "" || bytes <= 0 {
 		return
 	}
@@ -147,7 +148,7 @@ type PeriodUsage struct {
 }
 
 // LoadPeriodUsage returns month-to-date average storage + egress for billed accounts.
-func LoadPeriodUsage(db *sql.DB, period string) ([]PeriodUsage, error) {
+func LoadPeriodUsage(db *database.DB, period string) ([]PeriodUsage, error) {
 	if db == nil {
 		return nil, nil
 	}
@@ -193,7 +194,7 @@ WHERE a.stripe_customer_id IS NOT NULL AND a.stripe_customer_id != ''
 }
 
 // AccountPeriodUsage returns average storage + egress for one account (UI).
-func AccountPeriodUsage(db *sql.DB, accountID string) (avgBytes, egressBytes int64) {
+func AccountPeriodUsage(db *database.DB, accountID string) (avgBytes, egressBytes int64) {
 	if db == nil || accountID == "" {
 		return 0, 0
 	}
@@ -215,7 +216,7 @@ WHERE account_id = ? AND period_ym = ?`, accountID, period).Scan(&egressBytes)
 
 // ReportUsage samples once, then reports period-average storage GB and egress
 // overage GB to Stripe Billing Meters (aggregation must be Last on both).
-func ReportUsage(db *sql.DB) {
+func ReportUsage(db *database.DB) {
 	providers.RefreshStripe()
 	if db == nil || !config.C.Stripe.Ready() {
 		return

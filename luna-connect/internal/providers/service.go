@@ -3,6 +3,7 @@ package providers
 import (
 	"database/sql"
 	"encoding/json"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -10,11 +11,11 @@ import (
 
 // Service provides service provider configuration operations.
 type Service struct {
-	db *sql.DB
+	db *database.DB
 }
 
 // NewService creates a providers service.
-func NewService(db *sql.DB) *Service {
+func NewService(db *database.DB) *Service {
 	return &Service{db: db}
 }
 

@@ -36,12 +36,18 @@ func (h AdminConsoleHandler) Stats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h AdminConsoleHandler) Devices(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parseListPage(r)
+	var total int
+	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&total)
+	totalPtr := total
+
 	rows, err := h.DB.Query(`
 SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), d.account_id, COALESCE(a.email, ''), d.created_at,
   COALESCE(d.code_hint, ''), d.kind, COALESCE(d.last_seen_at, 0), d.revoked
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
-ORDER BY d.created_at DESC`)
+ORDER BY d.created_at DESC
+LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not list devices.")
 		return
@@ -82,15 +88,24 @@ ORDER BY d.created_at DESC`)
 			"created_at":    created,
 		})
 	}
-	JSON(w, http.StatusOK, map[string]any{"devices": list})
+	JSON(w, http.StatusOK, map[string]any{
+		"devices":    list,
+		"pagination": buildListPage(limit, offset, len(list), &totalPtr),
+	})
 }
 
 func (h AdminConsoleHandler) Accounts(w http.ResponseWriter, r *http.Request) {
+	limit, offset := parseListPage(r)
+	var total int
+	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&total)
+	totalPtr := total
+
 	rows, err := h.DB.Query(`
 SELECT a.id, a.email, a.has_card, a.billing_status, a.email_verified, a.created_at,
   (SELECT COUNT(*) FROM devices d WHERE d.account_id = a.id) AS device_count
 FROM accounts a
-ORDER BY a.created_at DESC`)
+ORDER BY a.created_at DESC
+LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not list accounts.")
 		return
@@ -114,10 +129,11 @@ ORDER BY a.created_at DESC`)
 			"created_at":     created,
 		})
 	}
-	JSON(w, http.StatusOK, map[string]any{"accounts": list})
+	JSON(w, http.StatusOK, map[string]any{
+		"accounts":   list,
+		"pagination": buildListPage(limit, offset, len(list), &totalPtr),
+	})
 }
-
-// GetAccount returns one customer account with linked Lunas (device tokens).
 func (h AdminConsoleHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
 	accountID := strings.TrimSpace(chi.URLParam(r, "accountID"))
 	if accountID == "" {
@@ -189,6 +205,7 @@ func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request)
 	q := r.URL.Query().Get("q")
 	all := strings.EqualFold(r.URL.Query().Get("all"), "1") ||
 		strings.EqualFold(r.URL.Query().Get("all"), "true")
+	limit, offset := parseListPage(r)
 
 	query := `
 SELECT d.id, d.kind, CASE WHEN d.revoked != 0 THEN 'revoked' WHEN d.account_id IS NOT NULL AND d.account_id != '' THEN 'bound' ELSE 'unbound' END,
@@ -197,15 +214,22 @@ SELECT d.id, d.kind, CASE WHEN d.revoked != 0 THEN 'revoked' WHEN d.account_id I
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
 WHERE 1=1`
+	countQuery := `SELECT COUNT(*) FROM devices d LEFT JOIN accounts a ON a.id = d.account_id WHERE 1=1`
 	args := []any{}
 	if q = strings.TrimSpace(q); q != "" {
-		query += ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ?)`
+		filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ?)`
+		query += filter
+		countQuery += filter
 		like := "%" + q + "%"
 		args = append(args, like, like, like, like)
 	}
 	query += ` ORDER BY d.created_at DESC`
+	var total int
+	_ = h.DB.QueryRow(countQuery, args...).Scan(&total)
+	totalPtr := total
 	if !all {
-		query += ` LIMIT 500`
+		query += ` LIMIT ? OFFSET ?`
+		args = append(args, limit, offset)
 	}
 	rows, err := h.DB.Query(query, args...)
 	if err != nil {
@@ -252,11 +276,18 @@ WHERE 1=1`
 		}
 		list = append(list, item)
 	}
-	JSON(w, http.StatusOK, map[string]any{
-		"tokens":  list,
-		"limited": !all,
-		"limit":   500,
-	})
+	out := map[string]any{
+		"tokens": list,
+	}
+	if all {
+		out["limited"] = false
+		out["limit"] = len(list)
+	} else {
+		out["limited"] = true
+		out["limit"] = limit
+		out["pagination"] = buildListPage(limit, offset, len(list), &totalPtr)
+	}
+	JSON(w, http.StatusOK, out)
 }
 
 func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {

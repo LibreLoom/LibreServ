@@ -1,9 +1,9 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,14 +14,14 @@ import (
 
 // B2 stores backup objects in one Backblaze B2 bucket per Luna device.
 type B2 struct {
-	DB          *sql.DB
+	DB          *database.DB
 	Provisioner *providers.BucketProvisioner
 	Client      *providers.B2Client
 	TmpDir      string
 }
 
 // NewB2 creates a B2-backed object store. tmpDir holds brief staging files during upload.
-func NewB2(db *sql.DB, tmpDir string) (*B2, error) {
+func NewB2(db *database.DB, tmpDir string) (*B2, error) {
 	if tmpDir == "" {
 		tmpDir = os.TempDir()
 	}
