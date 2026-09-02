@@ -25,6 +25,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const updates = useQuery({
     queryKey: ["system-updates"],
     queryFn: () => getJson("/api/v1/system/updates"),
+    refetchInterval: 60 * 60 * 1000,
   });
 
   const check = useMutation({
@@ -183,7 +184,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           )}
 
           <p className="mt-4 text-sm text-accent">
-            Updates only install when you tap the button — Luna never installs them on its own.
+            Luna only installs updates when you tell it to. No automatic or forced updates here.
           </p>
         </div>
       </SettingsCard>

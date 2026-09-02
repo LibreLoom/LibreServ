@@ -9,6 +9,20 @@ function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
+function healthyPreflight() {
+  return {
+    healthy: true,
+    checks: {
+      database: { status: "ok", category: "system" },
+      database_writable: { status: "ok", category: "storage" },
+      data_path_writable: { status: "ok", category: "storage" },
+      logs_path_writable: { status: "ok", category: "storage" },
+      disk_space: { status: "ok", category: "system", disk_space_bytes_free: 8_000_000_000 },
+      api_server: { status: "ok", category: "system" },
+    },
+  };
+}
+
 function stubFetch({
   network = {},
   setup = { name: "Luna", setup_completed: false, current_step: "welcome", step_data: {} },
@@ -22,6 +36,7 @@ function stubFetch({
     if (u.includes("/auth/status")) {
       return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive });
     }
+    if (u.includes("/api/v1/setup/preflight")) return jsonResponse(healthyPreflight());
     if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
       return jsonResponse({ ok: false, source: "none", attempts: 0 });
     }
@@ -86,20 +101,23 @@ describe("SetupPage", () => {
     expect(screen.getByRole("button", { name: /Begin Setup/i })).toBeTruthy();
   });
 
-  it("advances to Create your account when Begin Setup is clicked", async () => {
+  it("advances to system check then Create your account when Begin Setup is clicked", async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal("fetch", fetchMock);
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
+    expect(screen.getByText(/2\s*\/\s*5/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText("1 of 4")).toBeTruthy();
+    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
     await waitFor(() => {
       const progressPosts = fetchMock.mock.calls.filter(([url, init]) => {
         return String(url).includes("/api/v1/setup") && (init?.method || "GET").toUpperCase() === "POST";
       });
       const savePost = progressPosts.find(([, init]) => {
         const body = init?.body ? JSON.parse(init.body) : {};
-        return body.current_step === "account" && body.step_data?.network_connected === true;
+        return body.current_step === "account" && body.step_data?.preflight_passed === true;
       });
       expect(savePost).toBeTruthy();
     });
@@ -119,7 +137,7 @@ describe("SetupPage", () => {
     );
     renderSetup();
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText("1 of 4")).toBeTruthy();
+    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
     expect(screen.getByLabelText(/What's your name/i)).toBeTruthy();
   });
 
@@ -156,9 +174,10 @@ describe("SetupPage", () => {
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText(/2\s*\/\s*4/)).toBeTruthy();
-    expect(screen.queryByText(/\/\s*5/)).toBeNull();
+    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
@@ -178,8 +197,10 @@ describe("SetupPage", () => {
     vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText("1 of 4")).toBeTruthy();
+    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));

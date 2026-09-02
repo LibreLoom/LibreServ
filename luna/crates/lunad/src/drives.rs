@@ -585,7 +585,8 @@ fn is_erofs(err: &luna_core::marker::MarkerError) -> bool {
     text.contains("read-only file system") || text.contains("erofs") || text.contains("os error 30")
 }
 
-fn probe_writable(root: &Path) -> anyhow::Result<()> {
+/// Safe create/write/sync/delete probe — shared by adoption and health checks.
+pub(crate) fn probe_writable(root: &Path) -> anyhow::Result<()> {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())

@@ -129,7 +129,7 @@ describe("SettingsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /^About$/i }));
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
-    expect(screen.getByText(/Updates only install when you tap the button/i)).toBeTruthy();
+    expect(screen.getByText(/Luna only installs updates when you tell it to/i)).toBeTruthy();
   });
 
   it("splits Devices into Mobile App and Desktop App cards", async () => {

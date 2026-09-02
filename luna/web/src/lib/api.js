@@ -89,6 +89,22 @@ export async function getJson(path, options = {}) {
   return request(path, options);
 }
 
+/** Like getJson but returns parsed JSON even when status is 503 (health checks). */
+export async function getJsonAllowErrorStatus(path, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  const res = await apiFetch(path, { ...options, headers });
+  const text = await res.text();
+  if (!text) {
+    if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`);
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiError(res.status, "Luna sent a response this page couldn't read. Try again.");
+  }
+}
+
 export async function postJson(path, body, options = {}) {
   return request(path, {
     ...options,

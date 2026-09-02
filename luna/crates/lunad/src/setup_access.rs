@@ -301,6 +301,27 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn remote_preflight_without_token_is_forbidden() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("device-token"),
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
+        let app = app(dir.path());
+        let res = call(
+            &app,
+            Method::GET,
+            "/api/v1/setup/preflight",
+            "",
+            REMOTE,
+            None,
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
     #[test]
     fn private_ranges_are_lan() {
         let addr = std::net::SocketAddr::new(

@@ -4,6 +4,7 @@ import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ValueDisplay from "../../common/ValueDisplay.jsx";
 import SystemUpdatesCard from "./SystemUpdatesCard.jsx";
+import SystemChecksCard from "./SystemChecksCard.jsx";
 import UpdateSourceCard from "./UpdateSourceCard.jsx";
 import { getJson } from "../../../lib/api";
 
@@ -53,9 +54,11 @@ export default function AboutCategory() {
         </div>
       </SettingsCard>
 
-      <SystemUpdatesCard index={2} />
+      <SystemChecksCard index={2} />
 
-      <UpdateSourceCard index={3} />
+      <SystemUpdatesCard index={3} />
+
+      <UpdateSourceCard index={4} />
     </div>
   );
 }

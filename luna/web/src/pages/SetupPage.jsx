@@ -19,12 +19,14 @@ import { StepTransitionProvider } from "../components/setup/StepTransition";
 import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import useLabelErrorState from "../hooks/useLabelErrorState";
+import PreflightStep from "../components/setup/PreflightStep.jsx";
 import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
   SETUP_CODE: "setup_code",
   WELCOME:    "welcome",
+  PREFLIGHT:  "preflight",
   NETWORK:    "network", // legacy saved progress only — no user-facing step (ethernet-only)
   ACCOUNT:    "account",
   NAME:       "name",
@@ -92,6 +94,7 @@ SetupCard.propTypes = {
 // Shown on every step, including Welcome.
 const VISIBLE_STEPS = [
   { id: STEP.WELCOME,    label: "Welcome" },
+  { id: STEP.PREFLIGHT,  label: "System check" },
   { id: STEP.ACCOUNT,    label: "Account" },
   { id: STEP.NAME,       label: "Name" },
   { id: STEP.DONE,       label: "Done" },
@@ -857,6 +860,7 @@ DoneStep.propTypes = {
 // (forward → slide from right, back → slide from left) on step change.
 const STEP_ORDER = [
   STEP.WELCOME,
+  STEP.PREFLIGHT,
   STEP.ACCOUNT,
   STEP.NAME,
   STEP.DONE,
@@ -923,6 +927,9 @@ export default function SetupPage() {
           // Luna is ethernet-only: if you can open setup, the cable path is already
           // satisfied — skip the legacy network step from older saved progress.
           next = savedStep === STEP.NETWORK ? STEP.ACCOUNT : savedStep;
+          if (savedStep === STEP.WELCOME && savedData.preflight_passed) {
+            next = STEP.ACCOUNT;
+          }
           if (!STEP_ORDER.includes(next) && next !== STEP.SETUP_CODE) {
             next = STEP.WELCOME;
           }
@@ -1026,6 +1033,10 @@ export default function SetupPage() {
   }, []);
   const handleBegin = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };
+    advanceStep(STEP.PREFLIGHT, data);
+  }, [advanceStep]);
+  const handlePreflightPass = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
     advanceStep(STEP.ACCOUNT, data);
   }, [advanceStep]);
   const handleAccountContinue = useCallback(() => {
@@ -1066,6 +1077,8 @@ export default function SetupPage() {
     );
   } else if (step === STEP.WELCOME) {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
+  } else if (step === STEP.PREFLIGHT) {
+    renderedStep = <PreflightStep onPass={handlePreflightPass} />;
   } else if (step === STEP.ACCOUNT) {
     renderedStep = (
       <AccountStep

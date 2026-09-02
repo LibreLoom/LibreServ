@@ -149,6 +149,21 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let updates_bg = state.updates.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+        ticker.tick().await;
+        loop {
+            let svc = updates_bg.clone();
+            let version = env!("CARGO_PKG_VERSION").to_string();
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = svc.check(&version, false);
+            })
+            .await;
+            ticker.tick().await;
+        }
+    });
+
     let protect_db = state.db.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
