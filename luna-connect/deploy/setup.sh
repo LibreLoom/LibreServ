@@ -79,7 +79,7 @@ server:
 
 database:
   path: "${DATA_DIR}/luna-connect.db"
-  # Production Postgres (after migrate-sqlite-to-postgres.sh):
+  # Production Postgres:
   # driver: "postgres"
   # url: "postgres://luna_connect:CHANGE_ME@127.0.0.1:5432/luna_connect?sslmode=disable"
 

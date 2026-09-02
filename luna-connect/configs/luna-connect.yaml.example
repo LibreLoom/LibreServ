@@ -15,7 +15,6 @@ auth:
   # Staff admin session length (hours). Default 168 (7 days).
   session_ttl_hours: 168
 
-# database: — see luna-connect/MIGRATION.md for SQLite → Postgres on production hosts.
 # Production paths: /etc/luna-connect/luna-connect-a.yaml and luna-connect-b.yaml
 # Env overrides: LUNACONNECT_DATABASE_DRIVER, LUNACONNECT_DATABASE_URL, LUNACONNECT_DATABASE_PATH
 database:

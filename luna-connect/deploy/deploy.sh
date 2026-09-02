@@ -19,7 +19,7 @@ set -euo pipefail
 #   sudo ./luna-connect/deploy/deploy.sh --head
 #   # same when already on main:
 #   sudo ./luna-connect/deploy/deploy.sh
-#   sudo ./luna-connect/deploy/deploy.sh --head --force   # sick peer or both down (Postgres migration, recovery)
+#   sudo ./luna-connect/deploy/deploy.sh --head --force   # sick peer or both down (recovery)
 #
 # Tagged release (when main has moved past the tag):
 #   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
