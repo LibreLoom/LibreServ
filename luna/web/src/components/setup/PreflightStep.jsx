@@ -102,7 +102,7 @@ export default function PreflightStep({ onPass }) {
   const [checks, setChecks] = useState(null);
   const [healthy, setHealthy] = useState(null);
   const [error, setError] = useState(null);
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState(true);
 
   const runChecks = useCallback(async () => {
     setRunning(true);
@@ -123,8 +123,29 @@ export default function PreflightStep({ onPass }) {
   }, []);
 
   useEffect(() => {
-    runChecks();
-  }, [runChecks]);
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      try {
+        const data = await getJsonAllowErrorStatus("/api/v1/setup/preflight");
+        if (cancelled) return;
+        if (data.checks) {
+          setChecks(data.checks);
+          setHealthy(data.healthy);
+        } else {
+          throw new Error("Luna sent an unexpected response.");
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setError(`Could not reach Luna: ${err.message || "try again."}`);
+      } finally {
+        if (!cancelled) setRunning(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const checkEntries = useMemo(
     () => (checks ? Object.entries(checks).filter(([name]) => KNOWN_CHECKS.has(name)) : []),
