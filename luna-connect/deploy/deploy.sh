@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Luna Connect — Zero-Downtime Deploy (blue/green via Caddy).
 #
-# Two instances (A :8101, B :8102) share one SQLite file + object store.
+# Two instances (A :8101, B :8102) share one database (SQLite file or Postgres).
 # Caddy health-checks /healthz. This script soft-drains one instance at a
 # time (touch drain file → /healthz 503 → wait for Caddy to drop it → stop).
 #

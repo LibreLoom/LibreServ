@@ -79,6 +79,9 @@ server:
 
 database:
   path: "${DATA_DIR}/luna-connect.db"
+  # Production Postgres (after migrate-sqlite-to-postgres.sh):
+  # driver: "postgres"
+  # url: "postgres://luna_connect:CHANGE_ME@127.0.0.1:5432/luna_connect?sslmode=disable"
 
 data_dir: "${DATA_DIR}/objects"
 
@@ -112,6 +115,15 @@ template="$SCRIPT_DIR/luna-connect-instance.service.tmpl"
 for inst in "${INSTANCES[@]}"; do
     name="${inst%%:*}"
     sed "s/{INSTANCE}/${name}/g" "$template" > "/etc/systemd/system/luna-connect-${name}.service"
+    if [ "$name" = "a" ]; then
+        mkdir -p "/etc/systemd/system/luna-connect-${name}.service.d"
+        cat > "/etc/systemd/system/luna-connect-${name}.service.d/job-leader.conf" <<'EOF'
+[Service]
+# Only instance A runs background jobs (Stripe meters, retention, orphan cleanup).
+# With Postgres, advisory locks also prevent duplicate job runs if both instances start.
+Environment=LUNACONNECT_JOB_LEADER=1
+EOF
+    fi
 done
 systemctl daemon-reload
 
