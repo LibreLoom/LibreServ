@@ -7,14 +7,15 @@ set -euo pipefail
 # Caddy health-checks /healthz. This script soft-drains one instance at a
 # time (touch drain file → /healthz 503 → wait for Caddy to drop it → stop).
 #
-# IMPORTANT — what gets deployed:
-#   On main with no flags: deploys your current main checkout (same as --head).
+# IMPORTANT — what gets deployed (always built from source; never Forgejo release assets):
+#   On main with no flags: git pull --ff-only origin main, then build that checkout.
+#   --head: build current checkout without pulling (warns if main is behind origin).
 #   Off main with no flags: refuses (prevents accidental tag deploys / detached HEAD).
 #   Use --tag or --latest-tag only when you intentionally want a tagged release.
 #
 # Typical production update (from repo root, as root):
-#   git checkout main && git pull origin main
-#   sudo ./luna-connect/deploy/deploy.sh
+#   git checkout main
+#   sudo ./luna-connect/deploy/deploy.sh    # pulls origin/main, then builds
 #   # or explicitly:
 #   sudo ./luna-connect/deploy/deploy.sh --head
 #   sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
@@ -41,11 +42,11 @@ Luna Connect — Zero-Downtime Deploy (blue/green via Caddy)
 
 Usage (from repo root, as root):
   sudo ./luna-connect/deploy/deploy.sh
-      On main: deploy current checkout (recommended after git pull).
+      On main: pull origin/main, then build (recommended production path).
       Off main: error — use --head or --tag explicitly.
 
   sudo ./luna-connect/deploy/deploy.sh --head
-      Deploy current checkout (any branch).
+      Build current checkout without pulling (any branch).
 
   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
       Deploy a specific release tag.
@@ -61,10 +62,10 @@ Options:
   --help     Show this help and exit.
 
 Examples:
-  git checkout main && git pull origin main
+  git checkout main
   sudo ./luna-connect/deploy/deploy.sh
 
-  git checkout main && git pull origin main
+  git checkout main
   sudo ./luna-connect/deploy/deploy.sh --head --force
 
   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
@@ -144,6 +145,31 @@ warn_if_main_behind_origin() {
     behind="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)"
     if [ "${behind:-0}" -gt 0 ]; then
         log_warn "main is ${behind} commit(s) behind origin/main — run: git pull origin main"
+    fi
+}
+
+# Default deploy on main: fast-forward from origin before building.
+# Explicit --head keeps the current checkout (warn only if behind).
+sync_main_from_origin() {
+    local explicit_head="${1:-0}"
+    local branch
+    branch="$(current_branch_name)"
+    if [ "$branch" != "main" ]; then
+        return 0
+    fi
+    if [ "$explicit_head" -eq 1 ]; then
+        warn_if_main_behind_origin
+        return 0
+    fi
+    if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+        log_warn "origin/main not found — deploying local main checkout as-is"
+        return 0
+    fi
+    log_info "Pulling latest main from origin..."
+    git fetch origin main
+    if ! git merge --ff-only origin/main; then
+        log_error "Cannot fast-forward main to origin/main — resolve locally, then retry"
+        exit 1
     fi
 }
 
@@ -356,7 +382,7 @@ preflight() {
 main() {
     require_root "$@"
 
-    local ref="" want_latest_tag=0
+    local ref="" want_latest_tag=0 explicit_head=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --help|-h)
@@ -369,6 +395,7 @@ main() {
                 ;;
             --head)
                 ref="HEAD"
+                explicit_head=1
                 shift
                 ;;
             --tag)
@@ -393,7 +420,11 @@ main() {
 
     log_step "Luna Connect — Zero-Downtime Deploy"
     cd "$REPO_ROOT"
-    git fetch --tags --force
+
+    if [ "$want_latest_tag" -eq 1 ] || { [ -n "$ref" ] && [ "$ref" != "HEAD" ]; }; then
+        log_info "Fetching luna-connect-v* tags from origin..."
+        git fetch --tags origin
+    fi
 
     local resolved mode tag_name
     if ! resolved="$(resolve_deploy_mode "$ref" "$want_latest_tag")"; then
@@ -403,7 +434,7 @@ main() {
     case "$resolved" in
         head)
             mode="head"
-            warn_if_main_behind_origin
+            sync_main_from_origin "$explicit_head"
             checkout_deploy_ref "$mode"
             announce_deploy_target "$mode"
             ;;
