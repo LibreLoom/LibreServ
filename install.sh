@@ -334,33 +334,48 @@ for r in json.load(sys.stdin):
     log_info "Latest release: ${LATEST_RELEASE}"
 }
 
-# Download and install binary
+# Download and install binary.
+# Verify signature + checksum on a temp file first; only then replace the
+# installed binary. Failures return (do not exit) so --upgrade can restore.
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
     DOWNLOAD_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
     CHECKSUM_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
     SIG_URL="${CHECKSUM_URL}.minisig"
 
-    if [ "$NO_SYSTEMD" = false ] && systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
-        log_info "Stopping existing service..."
-        run_systemctl stop "${SERVICE_NAME}"
-    fi
+    mkdir -p "${INSTALL_DIR}"
+
+    local tmp_bin tmp_sums tmp_sig pub_file
+    tmp_bin="$(mktemp "${INSTALL_DIR}/.libreserv.download.XXXXXX")"
+    tmp_sums="$(mktemp)"
+    tmp_sig="$(mktemp)"
+    pub_file=""
+
+    cleanup_download_temps() {
+        [ -n "${tmp_bin}" ] && rm -f "${tmp_bin}"
+        [ -n "${tmp_sums}" ] && rm -f "${tmp_sums}"
+        [ -n "${tmp_sig}" ] && rm -f "${tmp_sig}"
+        [ -n "${pub_file}" ] && rm -f "${pub_file}"
+        return 0
+    }
 
     log_info "Downloading ${BINARY_NAME}..."
-    if ! curl -fsSL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"; then
+    if ! curl -fsSL "${DOWNLOAD_URL}" -o "${tmp_bin}"; then
         log_error "Failed to download binary from ${DOWNLOAD_URL}"
+        cleanup_download_temps
         return 1
     fi
 
     log_info "Downloading checksums..."
-    if ! curl -fsSL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"; then
+    if ! curl -fsSL "${CHECKSUM_URL}" -o "${tmp_sums}"; then
         log_error "Could not download checksums. This install needs SHA256SUMS.txt from the release."
-        exit 1
+        cleanup_download_temps
+        return 1
     fi
-    if ! curl -fsSL "${SIG_URL}" -o "/tmp/SHA256SUMS.txt.minisig"; then
+    if ! curl -fsSL "${SIG_URL}" -o "${tmp_sig}"; then
         log_error "Could not download the checksum signature. That file proves the download is from us, not whoever owns the download host."
-        rm -f /tmp/SHA256SUMS.txt
-        exit 1
+        cleanup_download_temps
+        return 1
     fi
 
     if ! command -v minisign >/dev/null 2>&1; then
@@ -370,42 +385,48 @@ download_binary() {
         log_error "  Fedora:  dnf install minisign"
         log_error "  Debian:  apt install minisign"
         log_error "  Alpine:  apk add minisign"
-        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
-        exit 1
+        cleanup_download_temps
+        return 1
     fi
 
-    PUB_FILE="$(mktemp)"
-    printf '%s\n' "${RELEASE_MINISIGN_PUB}" > "${PUB_FILE}"
-    if ! minisign -V -q -p "${PUB_FILE}" -m /tmp/SHA256SUMS.txt -x /tmp/SHA256SUMS.txt.minisig; then
+    pub_file="$(mktemp)"
+    printf '%s\n' "${RELEASE_MINISIGN_PUB}" > "${pub_file}"
+    if ! minisign -V -q -p "${pub_file}" -m "${tmp_sums}" -x "${tmp_sig}"; then
         log_error "The checksum file was not signed by LibreServ. Nothing was installed."
-        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig "${PUB_FILE}"
-        rm -f "${INSTALL_DIR}/libreserv"
-        exit 1
+        cleanup_download_temps
+        return 1
     fi
-    rm -f "${PUB_FILE}"
+    rm -f "${pub_file}"
+    pub_file=""
 
     log_info "Verifying checksum..."
-    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
+    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" "${tmp_sums}" | awk '{print $1}')
     if [ -z "$EXPECTED_HASH" ]; then
         log_error "Checksum not found for ${BINARY_NAME} in SHA256SUMS.txt"
-        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
-        rm -f "${INSTALL_DIR}/libreserv"
-        exit 1
+        cleanup_download_temps
+        return 1
     fi
-    ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
+    ACTUAL_HASH=$(sha256sum "${tmp_bin}" | awk '{print $1}')
     if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
         log_error "Checksum verification failed!"
         log_error "Expected: ${EXPECTED_HASH}"
         log_error "Got:      ${ACTUAL_HASH}"
-        rm -f "${INSTALL_DIR}/libreserv"
-        rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
+        cleanup_download_temps
         return 1
     fi
     log_info "Checksum and signature verified"
-    rm -f /tmp/SHA256SUMS.txt /tmp/SHA256SUMS.txt.minisig
 
-    chmod +x "${INSTALL_DIR}/libreserv"
+    # Only stop / replace after the download has proven good.
+    if [ "$NO_SYSTEMD" = false ] && systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+        log_info "Stopping existing service..."
+        run_systemctl stop "${SERVICE_NAME}"
+    fi
+
+    chmod +x "${tmp_bin}"
+    mv -f "${tmp_bin}" "${INSTALL_DIR}/libreserv"
+    tmp_bin=""
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
+    cleanup_download_temps
 }
 
 # Download restic binary for restic-based backups
@@ -718,21 +739,24 @@ do_upgrade() {
         cp "${INSTALL_DIR}/libreserv" "${BACKUP_BINARY}"
     fi
 
-    run_systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-
+    # Keep the running service up while the new binary is downloaded and
+    # verified. download_binary stops it only after checks pass, just before
+    # replacing the installed file.
     create_directories
     get_latest_release
     INSTALL_VERSION="$LATEST_RELEASE"
 
     if ! download_binary; then
-        log_error "Download failed. Restoring previous binary..."
+        log_error "Download or verification failed. Leaving the previous binary in place."
         if [ -f "${BACKUP_BINARY}" ]; then
+            # Re-link / restore in case a partial install moved anything.
             cp "${BACKUP_BINARY}" "${INSTALL_DIR}/libreserv"
             chmod +x "${INSTALL_DIR}/libreserv"
             ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
             log_info "Previous binary restored"
             run_systemctl start "${SERVICE_NAME}" 2>/dev/null || true
         fi
+        rm -f "${BACKUP_BINARY}"
         exit 1
     fi
 
