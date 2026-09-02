@@ -9,15 +9,16 @@ set -euo pipefail
 #
 # IMPORTANT — what gets deployed (always built from source; never Forgejo release assets):
 #   On main with no flags: git pull --ff-only origin main, then build that checkout.
-#   --head: build current checkout without pulling (warns if main is behind origin).
+#   --head: git checkout main, pull origin/main, then build (works from any branch).
+#   --no-pull: build current checkout without pulling (warns if main is behind origin).
+#   --branch NAME: checkout NAME, pull origin/NAME when it exists, then build.
 #   Off main with no flags: refuses (prevents accidental tag deploys / detached HEAD).
 #   Use --tag or --latest-tag only when you intentionally want a tagged release.
 #
 # Typical production update (from repo root, as root):
-#   git checkout main
-#   sudo ./luna-connect/deploy/deploy.sh    # pulls origin/main, then builds
-#   # or explicitly:
 #   sudo ./luna-connect/deploy/deploy.sh --head
+#   # same when already on main:
+#   sudo ./luna-connect/deploy/deploy.sh
 #   sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
 #
 # Tagged release (when main has moved past the tag):
@@ -43,10 +44,16 @@ Luna Connect — Zero-Downtime Deploy (blue/green via Caddy)
 Usage (from repo root, as root):
   sudo ./luna-connect/deploy/deploy.sh
       On main: pull origin/main, then build (recommended production path).
-      Off main: error — use --head or --tag explicitly.
+      Off main: error — use --head, --branch, --no-pull, or --tag explicitly.
 
   sudo ./luna-connect/deploy/deploy.sh --head
+      Checkout main, pull origin/main, then build (from any starting branch).
+
+  sudo ./luna-connect/deploy/deploy.sh --no-pull
       Build current checkout without pulling (any branch).
+
+  sudo ./luna-connect/deploy/deploy.sh --branch NAME
+      Checkout NAME, pull origin/NAME when it exists, then build.
 
   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
       Deploy a specific release tag.
@@ -62,11 +69,11 @@ Options:
   --help     Show this help and exit.
 
 Examples:
-  git checkout main
-  sudo ./luna-connect/deploy/deploy.sh
+  sudo ./luna-connect/deploy/deploy.sh --head
 
-  git checkout main
   sudo ./luna-connect/deploy/deploy.sh --head --force
+
+  sudo ./luna-connect/deploy/deploy.sh --no-pull
 
   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
 EOF
@@ -148,29 +155,57 @@ warn_if_main_behind_origin() {
     fi
 }
 
-# Default deploy on main: fast-forward from origin before building.
-# Explicit --head keeps the current checkout (warn only if behind).
-sync_main_from_origin() {
-    local explicit_head="${1:-0}"
+checkout_main() {
+    local branch
+    branch="$(current_branch_name)"
+    if [ "$branch" != "main" ]; then
+        log_info "Checking out main..."
+        git checkout main
+    fi
+}
+
+pull_branch_from_origin() {
+    local branch="$1"
+    if ! git rev-parse --verify "origin/${branch}" >/dev/null 2>&1; then
+        log_warn "origin/${branch} not found — deploying local ${branch} checkout as-is"
+        return 0
+    fi
+    log_info "Pulling latest ${branch} from origin..."
+    git fetch origin "$branch"
+    if ! git merge --ff-only "origin/${branch}"; then
+        log_error "Cannot fast-forward ${branch} to origin/${branch} — resolve locally, then retry"
+        exit 1
+    fi
+}
+
+# Prepare the branch to build: checkout (--head/--branch), then pull unless --no-pull.
+sync_head_checkout() {
+    local no_pull="${1:-0}" want_main="${2:-0}" deploy_branch="${3:-}"
+
+    if [ -n "$deploy_branch" ]; then
+        log_info "Checking out ${deploy_branch}..."
+        git fetch origin "$deploy_branch" 2>/dev/null || true
+        git checkout "$deploy_branch"
+        if [ "$no_pull" -eq 0 ]; then
+            pull_branch_from_origin "$deploy_branch"
+        fi
+        return 0
+    fi
+
+    if [ "$want_main" -eq 1 ]; then
+        checkout_main
+    fi
+
     local branch
     branch="$(current_branch_name)"
     if [ "$branch" != "main" ]; then
         return 0
     fi
-    if [ "$explicit_head" -eq 1 ]; then
+    if [ "$no_pull" -eq 1 ]; then
         warn_if_main_behind_origin
         return 0
     fi
-    if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
-        log_warn "origin/main not found — deploying local main checkout as-is"
-        return 0
-    fi
-    log_info "Pulling latest main from origin..."
-    git fetch origin main
-    if ! git merge --ff-only origin/main; then
-        log_error "Cannot fast-forward main to origin/main — resolve locally, then retry"
-        exit 1
-    fi
+    pull_branch_from_origin "main"
 }
 
 announce_deploy_target() {
@@ -382,7 +417,7 @@ preflight() {
 main() {
     require_root "$@"
 
-    local ref="" want_latest_tag=0 explicit_head=0
+    local ref="" want_latest_tag=0 no_pull=0 want_main=0 deploy_branch=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --help|-h)
@@ -395,8 +430,22 @@ main() {
                 ;;
             --head)
                 ref="HEAD"
-                explicit_head=1
+                want_main=1
                 shift
+                ;;
+            --no-pull)
+                ref="HEAD"
+                no_pull=1
+                shift
+                ;;
+            --branch)
+                if [ -z "${2:-}" ]; then
+                    log_error "--branch requires a branch name"
+                    exit 1
+                fi
+                ref="HEAD"
+                deploy_branch="$2"
+                shift 2
                 ;;
             --tag)
                 if [ -z "${2:-}" ]; then
@@ -434,7 +483,7 @@ main() {
     case "$resolved" in
         head)
             mode="head"
-            sync_main_from_origin "$explicit_head"
+            sync_head_checkout "$no_pull" "$want_main" "$deploy_branch"
             checkout_deploy_ref "$mode"
             announce_deploy_target "$mode"
             ;;
@@ -450,13 +499,15 @@ main() {
             ;;
         error:no-tags)
             log_error "No luna-connect-v* tags. Create one: git tag luna-connect-v0.1.0 && git push --tags"
-            log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --head"
+            log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --no-pull"
             exit 1
             ;;
         error:not-on-main)
             log_error "Not on main ($(current_branch_name || echo 'detached HEAD'))."
             log_error "Bare ./luna-connect/deploy/deploy.sh only deploys main."
-            log_error "  sudo ./luna-connect/deploy/deploy.sh --head          # current checkout"
+            log_error "  sudo ./luna-connect/deploy/deploy.sh --head            # checkout main, pull, build"
+            log_error "  sudo ./luna-connect/deploy/deploy.sh --no-pull       # current checkout, no pull"
+            log_error "  sudo ./luna-connect/deploy/deploy.sh --branch NAME   # checkout branch, pull, build"
             log_error "  sudo ./luna-connect/deploy/deploy.sh --tag NAME      # specific release"
             log_error "  sudo ./luna-connect/deploy/deploy.sh --latest-tag    # newest luna-connect-v* tag"
             exit 1

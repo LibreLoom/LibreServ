@@ -71,10 +71,12 @@ sudo bash luna-connect/deploy/setup.sh
 sudo caddy reload --config /etc/caddy/Caddyfile
 
 # later (must be root — systemctl stop/start)
-git checkout main
-sudo ./luna-connect/deploy/deploy.sh
-# or explicitly (no pull — builds exactly this checkout):
+sudo ./luna-connect/deploy/deploy.sh --head
+# same when already on main:
+# sudo ./luna-connect/deploy/deploy.sh
 # sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
+# build exactly this checkout (no pull):
+# sudo ./luna-connect/deploy/deploy.sh --no-pull
 
 # pinned release (when you need an older tag, not current main):
 # sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17

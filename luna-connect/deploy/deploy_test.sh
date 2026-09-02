@@ -75,6 +75,13 @@ run_tests() {
     echo "resolve_deploy_mode on feature branch (no flags → error)"
     assert_fail "feature branch refuses" resolve_deploy_mode "" 0
     assert_eq "feature --head" "head" "$(resolve_deploy_mode "HEAD" 0)"
+    assert_eq "feature --no-pull" "head" "$(resolve_deploy_mode "HEAD" 0)"
+
+    git checkout -q main
+    echo "sync_head_checkout --head checks out main"
+    git checkout -q -b other
+    sync_head_checkout 0 1 ""
+    assert_eq "after --head sync" "main" "$(current_branch_name)"
 
     echo ""
     echo "Results: ${pass} passed, ${fail} failed"
