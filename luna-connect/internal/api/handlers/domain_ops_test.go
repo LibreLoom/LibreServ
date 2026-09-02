@@ -12,6 +12,8 @@ import (
 
 func TestSyncDeviceLocalPortUpdatesIngress(t *testing.T) {
 	d := testDeps(t)
+	prev := config.C.Cloudflare
+	t.Cleanup(func() { config.C.Cloudflare = prev })
 	config.C.Cloudflare.AccountID = "acct"
 	config.C.Cloudflare.APIToken = "token"
 	config.C.Cloudflare.ZoneID = "zone"
