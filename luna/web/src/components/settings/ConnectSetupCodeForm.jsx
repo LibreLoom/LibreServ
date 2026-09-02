@@ -5,6 +5,8 @@ import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
 
+const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
+
 /**
  * Enter or replace the Luna Connect device token.
  * Used during first-run setup and in Settings → About → Advanced.
@@ -58,6 +60,18 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
       setError(apiErrorMessage(err));
     },
   });
+  const deactivate = useMutation({
+    mutationFn: () => postJson("/api/v1/connect/deactivate", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["connect-status"] });
+      queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+      setError(null);
+      setSaved(false);
+    },
+    onError: (err) => {
+      setError(apiErrorMessage(err));
+    },
+  });
 
   const s = status.data || {};
   const connectActive = Boolean(s.connect_active);
@@ -69,7 +83,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
 
   if (enabled) {
     return (
-      <div className="space-y-2" data-slot="connect-setup-code-form">
+      <div className="space-y-3" data-slot="connect-setup-code-form">
         <p className="text-sm text-primary leading-relaxed">
           Luna Connect is on
           {s.hostname || s.domain ? (
@@ -78,8 +92,43 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
               at <span className="font-mono break-all">{s.hostname || s.domain}</span>
             </>
           ) : null}
-          . Change the address under External services.
+          . Configure your subdomain on{" "}
+          <a
+            href={LUNA_CONNECT_URL}
+            className={
+              surface === "primary"
+                ? "text-accent hover:text-secondary motion-safe:transition-colors underline underline-offset-4"
+                : "text-accent hover:text-primary motion-safe:transition-colors underline underline-offset-4"
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Luna Connect
+          </a>
+          .
         </p>
+        {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="danger"
+            surface={surface === "primary" ? "primary" : "secondary"}
+            fullWidth
+            loading={deactivate.isPending}
+            onClick={() => deactivate.mutate()}
+          >
+            Turn Luna Connect off
+          </Button>
+          <Button
+            variant="outline"
+            surface={surface === "primary" ? "primary" : "secondary"}
+            fullWidth
+            loading={removeToken.isPending}
+            disabled={deactivate.isPending}
+            onClick={() => removeToken.mutate()}
+          >
+            Remove device token
+          </Button>
+        </div>
       </div>
     );
   }
