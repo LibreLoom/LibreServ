@@ -48,6 +48,8 @@ beforeEach(() => {
     unobserve() {}
     disconnect() {}
   };
+  authState.isAuthenticated = false;
+  authState.me = null;
 });
 
 function mount(path = "/onboarding") {
@@ -697,6 +699,9 @@ describe("OnboardingPage finish flow", () => {
     localStorage.clear();
     authState.isAuthenticated = true;
     authState.me = { email: "owner@example.com", email_verified: true };
+    refresh.mockImplementation(async () => authState.me);
+    updateAccountEmail.mockResolvedValue({});
+    stripeLooksConfigured.mockReturnValue(false);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
       if (path === "/api/v1/devices/dev_1/domain") {
@@ -708,6 +713,15 @@ describe("OnboardingPage finish flow", () => {
       }
       if (path === "/api/v1/account/devices") {
         return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: true }] };
+      }
+      if (path === "/api/v1/account/devices/dev_1/setup-readiness") {
+        return {
+          ready: true,
+          online: true,
+          has_tunnel: true,
+          reachable: true,
+          hostname: "kitchen.luna.servers.libreloom.org",
+        };
       }
       if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
       if (path === "/api/v1/onboarding/progress") return { ok: true };
@@ -740,6 +754,15 @@ describe("OnboardingPage finish flow", () => {
       if (path === "/api/v1/account/devices") {
         return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: false }] };
       }
+      if (path === "/api/v1/account/devices/dev_1/setup-readiness") {
+        return {
+          ready: false,
+          online: false,
+          has_tunnel: true,
+          reachable: false,
+          hostname: "kitchen.luna.servers.libreloom.org",
+        };
+      }
       if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -749,13 +772,13 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
-    expect(screen.getByText(/Waiting for Luna to come online/i)).toBeTruthy();
+    expect(screen.getByText(/Waiting for Luna to come online and your address to respond/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Complete setup on Luna/i })).toBeNull();
   });
 
-  it("polls device status and advances to the done card when Luna comes online", async () => {
+  it("polls device status and advances to the done card when Luna is ready", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    let online = false;
+    let ready = false;
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
       if (path === "/api/v1/devices/dev_1/domain") {
@@ -766,7 +789,18 @@ describe("OnboardingPage finish flow", () => {
         };
       }
       if (path === "/api/v1/account/devices") {
-        return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online }] };
+        return {
+          devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: ready }],
+        };
+      }
+      if (path === "/api/v1/account/devices/dev_1/setup-readiness") {
+        return {
+          ready,
+          online: ready,
+          has_tunnel: true,
+          reachable: ready,
+          hostname: "kitchen.luna.servers.libreloom.org",
+        };
       }
       if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
       if (path === "/api/v1/onboarding/progress") return { ok: true };
@@ -777,7 +811,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
 
-    online = true;
+    ready = true;
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();

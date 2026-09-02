@@ -34,7 +34,7 @@ import {
   PASSWORD_POLICY_HELPER,
   passwordChecks,
 } from "../lib/passwordPolicy.js";
-import { DEVICE_ONLINE_POLL_MS, fetchDeviceOnline } from "../lib/deviceOnline.js";
+import { DEVICE_ONLINE_POLL_MS, fetchDeviceSetupReady } from "../lib/deviceOnline.js";
 import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 import { cn } from "../lib/utils.js";
 
@@ -325,8 +325,8 @@ export default function OnboardingPage() {
 
   const goToFinish = useCallback(async () => {
     try {
-      const online = await fetchDeviceOnline(api, deviceId);
-      goTo(online ? "done" : "plug-in");
+      const ready = await fetchDeviceSetupReady(api, deviceId);
+      goTo(ready ? "done" : "plug-in");
     } catch {
       goTo("plug-in");
     }
@@ -385,17 +385,17 @@ export default function OnboardingPage() {
 
     let cancelled = false;
 
-    async function checkOnline() {
+    async function checkReady() {
       try {
-        const online = await fetchDeviceOnline(api, deviceId);
-        if (!cancelled && online) goTo("done");
+        const ready = await fetchDeviceSetupReady(api, deviceId);
+        if (!cancelled && ready) goTo("done");
       } catch {
         /* keep waiting */
       }
     }
 
-    checkOnline();
-    const timer = setInterval(checkOnline, DEVICE_ONLINE_POLL_MS);
+    checkReady();
+    const timer = setInterval(checkReady, DEVICE_ONLINE_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -1306,7 +1306,7 @@ export default function OnboardingPage() {
       </div>
       <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        <span>Waiting for Luna to come online…</span>
+        <span>Waiting for Luna to come online and your address to respond…</span>
       </div>
     </StepShell>
   );

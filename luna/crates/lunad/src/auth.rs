@@ -540,19 +540,24 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
 }
 
 /// True while the first-run setup wizard is still open (`setup_completed` is
-/// false or unset). Used to keep network/connect endpoints reachable during
-/// setup even when a dev database already has an account.
-pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
-    let Ok(conn) = state.db.lock() else {
-        return false;
-    };
-    let completed = crate::db::get_meta(&conn, "setup")
+/// false or unset).
+pub fn setup_wizard_open_conn(conn: &rusqlite::Connection) -> bool {
+    let completed = crate::db::get_meta(conn, "setup")
         .ok()
         .flatten()
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
         .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
         .unwrap_or(false);
     !completed
+}
+
+/// Used to keep network/connect endpoints reachable during setup even when a dev
+/// database already has an account.
+pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
+    let Ok(conn) = state.db.lock() else {
+        return false;
+    };
+    setup_wizard_open_conn(&conn)
 }
 
 /// Global auth guard: health, auth, setup, and the SPA shell stay public;
