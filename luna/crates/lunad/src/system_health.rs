@@ -259,66 +259,66 @@ pub fn finish_comprehensive(
     }
 
     for drive in drives {
-            if drive.state == "missing" || drive.state == "ejected" {
-                continue;
-            }
-            let label = if drive.label.trim().is_empty() {
-                "Drive".into()
-            } else {
-                drive.label.clone()
-            };
-            let rw_name = format!("drive_{}_read_write", drive.id);
-            let smart_name = format!("drive_{}_smart", drive.id);
+        if drive.state == "missing" || drive.state == "ejected" {
+            continue;
+        }
+        let label = if drive.label.trim().is_empty() {
+            "Drive".into()
+        } else {
+            drive.label.clone()
+        };
+        let rw_name = format!("drive_{}_read_write", drive.id);
+        let smart_name = format!("drive_{}_smart", drive.id);
 
-            if drive.state == "readonly" || drive.mount_point.is_empty() {
-                summary.total_checks += 1;
+        if drive.state == "readonly" || drive.mount_point.is_empty() {
+            summary.total_checks += 1;
+            summary.failed += 1;
+            checks.insert(
+                rw_name,
+                HealthCheckResult {
+                    status: "failed".into(),
+                    message: format!(
+                        "{label} is read-only or not mounted — Luna can't save new files there."
+                    ),
+                    details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
+                    category: "drives".into(),
+                },
+            );
+        } else {
+            let mount = PathBuf::from(&drive.mount_point);
+            let writable = crate::drives::probe_writable(&mount).is_ok();
+            summary.total_checks += 1;
+            if writable {
+                summary.passed += 1;
+                checks.insert(
+                    rw_name,
+                    HealthCheckResult {
+                        status: "passed".into(),
+                        message: format!("{label} passed a read-and-write test."),
+                        details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
+                        category: "drives".into(),
+                    },
+                );
+            } else {
                 summary.failed += 1;
                 checks.insert(
                     rw_name,
                     HealthCheckResult {
                         status: "failed".into(),
                         message: format!(
-                            "{label} is read-only or not mounted — Luna can't save new files there."
+                            "{label} didn't pass a write test. Open Drives to see what Luna found."
                         ),
                         details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
                         category: "drives".into(),
                     },
                 );
-            } else {
-                let mount = PathBuf::from(&drive.mount_point);
-                let writable = crate::drives::probe_writable(&mount).is_ok();
-                summary.total_checks += 1;
-                if writable {
-                    summary.passed += 1;
-                    checks.insert(
-                        rw_name,
-                        HealthCheckResult {
-                            status: "passed".into(),
-                            message: format!("{label} passed a read-and-write test."),
-                            details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
-                            category: "drives".into(),
-                        },
-                    );
-                } else {
-                    summary.failed += 1;
-                    checks.insert(
-                        rw_name,
-                        HealthCheckResult {
-                            status: "failed".into(),
-                            message: format!(
-                                "{label} didn't pass a write test. Open Drives to see what Luna found."
-                            ),
-                            details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
-                            category: "drives".into(),
-                        },
-                    );
-                }
             }
+        }
 
-            summary.total_checks += 1;
-            if drive.device.is_empty() {
-                summary.skipped += 1;
-                checks.insert(
+        summary.total_checks += 1;
+        if drive.device.is_empty() {
+            summary.skipped += 1;
+            checks.insert(
                     smart_name,
                     HealthCheckResult {
                         status: "skipped".into(),
@@ -329,11 +329,11 @@ pub fn finish_comprehensive(
                         category: "drives".into(),
                     },
                 );
-            } else {
-                let health = smart::read(&drive.device);
-                if !health.available {
-                    summary.skipped += 1;
-                    checks.insert(
+        } else {
+            let health = smart::read(&drive.device);
+            if !health.available {
+                summary.skipped += 1;
+                checks.insert(
                         smart_name,
                         HealthCheckResult {
                             status: "skipped".into(),
@@ -344,36 +344,36 @@ pub fn finish_comprehensive(
                             category: "drives".into(),
                         },
                     );
-                } else if health.overall == "passed" {
-                    summary.passed += 1;
-                    let worn = health.reallocated_sectors.unwrap_or(0) > 0;
-                    let mut msg = if worn {
-                        format!(
-                            "{label} is still working, but it has repaired some worn spots. Copy important files off it soon."
-                        )
-                    } else {
-                        format!("{label} reported no hardware problems.")
-                    };
-                    if let Some(temp) = health.temperature_c {
-                        msg.push_str(&format!(" It's about {temp}°C."));
-                    }
-                    checks.insert(
-                        smart_name,
-                        HealthCheckResult {
-                            status: "passed".into(),
-                            message: msg,
-                            details: Some(json!({
-                                "drive_id": drive.id,
-                                "drive_label": label,
-                                "temperature_c": health.temperature_c,
-                                "reallocated_sectors": health.reallocated_sectors,
-                            })),
-                            category: "drives".into(),
-                        },
-                    );
+            } else if health.overall == "passed" {
+                summary.passed += 1;
+                let worn = health.reallocated_sectors.unwrap_or(0) > 0;
+                let mut msg = if worn {
+                    format!(
+                        "{label} is still working, but it has repaired some worn spots. Copy important files off it soon."
+                    )
                 } else {
-                    summary.failed += 1;
-                    checks.insert(
+                    format!("{label} reported no hardware problems.")
+                };
+                if let Some(temp) = health.temperature_c {
+                    msg.push_str(&format!(" It's about {temp}°C."));
+                }
+                checks.insert(
+                    smart_name,
+                    HealthCheckResult {
+                        status: "passed".into(),
+                        message: msg,
+                        details: Some(json!({
+                            "drive_id": drive.id,
+                            "drive_label": label,
+                            "temperature_c": health.temperature_c,
+                            "reallocated_sectors": health.reallocated_sectors,
+                        })),
+                        category: "drives".into(),
+                    },
+                );
+            } else {
+                summary.failed += 1;
+                checks.insert(
                         smart_name,
                         HealthCheckResult {
                             status: "failed".into(),
@@ -388,8 +388,8 @@ pub fn finish_comprehensive(
                             category: "drives".into(),
                         },
                     );
-                }
             }
+        }
     }
 
     let overall_pass = summary.failed == 0;

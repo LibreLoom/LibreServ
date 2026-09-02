@@ -624,7 +624,11 @@ impl ConnectService {
 
     /// Status pull reports Luna's HTTP listen port so Connect can aim the tunnel at the right origin.
     fn call_device_status(&self, code: &str) -> Result<Value, ConnectError> {
-        let url = format!("{}{}", self.base_url.trim_end_matches('/'), "/api/v1/status");
+        let url = format!(
+            "{}{}",
+            self.base_url.trim_end_matches('/'),
+            "/api/v1/status"
+        );
         let mut req = ureq::get(&url).header("Authorization", format!("Bearer {code}"));
         if self.local_port > 0 {
             req = req.header("X-Luna-Local-Port", self.local_port.to_string());
