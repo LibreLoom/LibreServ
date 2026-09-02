@@ -14,6 +14,8 @@ import { TermHint } from "../components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
+import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
+import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
 import { folderHref as driveFolderHref, pathBasename } from "../lib/paths.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
@@ -639,6 +641,12 @@ export default function DashboardPage() {
       padded={false}
       headerClassName="px-8 mb-10"
       headerCardClassName="group"
+      rightContent={
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {isAdmin ? <SoftwareUpdatePill /> : null}
+          <SystemHealthPill />
+        </div>
+      }
     >
       <section
         className="flex flex-col md:flex-row gap-8 px-8 w-full"
