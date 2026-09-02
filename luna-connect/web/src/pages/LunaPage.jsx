@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api.js";
@@ -16,7 +16,7 @@ export default function LunaPage() {
   const [shownCode, setShownCode] = useState("");
   const [unbinding, setUnbinding] = useState(false);
   const [confirmUnbind, setConfirmUnbind] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(null);
 
   const load = useCallback(() => {
     return api("/api/v1/account/devices")
@@ -66,11 +66,11 @@ export default function LunaPage() {
     }
   }
 
-  async function copyCode(text) {
+  async function copyText(text, target) {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopied(target);
+      setTimeout(() => setCopied(null), 2000);
     } catch {
       setError("Could not copy. Select the text and copy it yourself.");
     }
@@ -118,7 +118,7 @@ export default function LunaPage() {
             </div>
           ) : (
             <>
-              <div className="rounded-large-element border border-border px-4 py-3 space-y-3">
+              <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`inline-flex items-center rounded-pill px-3 py-1 text-xs font-mono ${
@@ -129,26 +129,40 @@ export default function LunaPage() {
                   >
                     {luna.online ? "Online" : "Offline"}
                   </span>
-                  <span className="font-mono text-sm">{luna.code_hint || "••••"}</span>
+                  <span className="font-mono text-sm text-muted-foreground">{luna.code_hint || "••••"}</span>
                 </div>
+
                 {luna.hostname ? (
-                  <a
-                    href={`https://${luna.hostname}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-mono text-sm break-all text-foreground hover:opacity-80 motion-safe:transition-opacity"
-                  >
-                    {luna.hostname}
-                  </a>
+                  <div className="rounded-large-element bg-muted border border-border px-4 py-3 flex items-center gap-3">
+                    <a
+                      href={`https://${luna.hostname}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-base sm:text-lg break-all flex-1 min-w-0 text-foreground hover:opacity-80 motion-safe:transition-opacity"
+                    >
+                      {luna.hostname}
+                    </a>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => copyText(luna.hostname, "hostname")}
+                      aria-label="Copy address"
+                    >
+                      {copied === "hostname" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Linked, but no public name yet.{" "}
-                    <Link className="underline" to="/onboarding">
-                      Finish setup
-                    </Link>
-                  </p>
+                  <div className="rounded-large-element border border-dashed border-border px-4 py-3">
+                    <p className="text-sm text-muted-foreground">
+                      Linked, but no public name yet.{" "}
+                      <Link className="underline" to="/onboarding">
+                        Finish setup
+                      </Link>
+                    </p>
+                  </div>
                 )}
-                <div className="flex flex-col sm:flex-row gap-2">
+
+                <div className="flex flex-wrap items-center gap-2">
                   {luna.hostname && (
                     <Button variant="secondary" size="sm" asChild>
                       <a href={`https://${luna.hostname}`} target="_blank" rel="noreferrer">
@@ -163,7 +177,7 @@ export default function LunaPage() {
                     onClick={() => {
                       if (shownCode) {
                         setShownCode("");
-                        setCopied(false);
+                        setCopied(null);
                         return;
                       }
                       showCode();
@@ -198,9 +212,9 @@ export default function LunaPage() {
           {shownCode && (
             <div className="rounded-large-element bg-background text-foreground border border-border px-4 py-4 space-y-3">
               <p className="font-mono text-xl tracking-widest break-all">{shownCode}</p>
-              <Button variant="secondary" onClick={() => copyCode(shownCode)}>
+              <Button variant="secondary" onClick={() => copyText(shownCode, "code")}>
                 <Copy className="h-4 w-4" />
-                {copied ? "Copied" : "Copy code"}
+                {copied === "code" ? "Copied" : "Copy code"}
               </Button>
             </div>
           )}
