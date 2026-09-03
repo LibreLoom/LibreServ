@@ -125,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
                         setup_code: st.setup_code.clone(),
                         connect_hostname: st.hostname.clone(),
                         unclaimed: st.unclaimed,
+                        device_token_error: st.device_token_error.clone(),
                     };
                     let text = lunad::console::help_text(&snap);
                     if text != last {

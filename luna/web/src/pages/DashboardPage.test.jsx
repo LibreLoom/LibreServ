@@ -183,6 +183,25 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
   });
 
+  it("shows a device token error with instructions to change it", async () => {
+    stubFetch({
+      connectActive: true,
+      connect: {
+        enabled: false,
+        tunnel_active: false,
+        device_token_error:
+          "Luna Connect did not accept this device token. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.",
+      },
+    });
+    renderPage();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not accept this device token/i);
+    expect(screen.getByRole("link", { name: /Change the device token/i })).toHaveAttribute(
+      "href",
+      "/settings#about",
+    );
+    expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
+  });
+
   it("shows storage, root counts, and folder shortcuts on drive cards", async () => {
     stubFetch();
     renderPage();

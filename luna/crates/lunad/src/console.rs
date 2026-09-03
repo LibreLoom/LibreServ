@@ -17,6 +17,8 @@ pub struct ConsoleSnapshot {
     pub setup_code: Option<String>,
     pub connect_hostname: Option<String>,
     pub unclaimed: bool,
+    /// When set, HDMI shows this error and how to paste a new device token.
+    pub device_token_error: Option<String>,
 }
 
 pub fn issue_path(data_dir: &Path) -> PathBuf {
@@ -49,7 +51,16 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         }
         lines.push("    luna.local  — if your phone finds it".into());
     }
-    if snap.unclaimed
+    if let Some(err) = snap.device_token_error.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(String::new());
+        lines.extend(wrap_indent(err, "  ", 60));
+        if snap.ipv4.is_empty() {
+            lines
+                .push("  After this Luna has an address, open it from a phone or computer.".into());
+        }
+    }
+    if snap.device_token_error.is_none()
+        && snap.unclaimed
         && let Some(code) = &snap.setup_code
     {
         lines.push(String::new());
@@ -57,7 +68,9 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
     }
-    if let Some(host) = &snap.connect_hostname {
+    if snap.device_token_error.is_none()
+        && let Some(host) = &snap.connect_hostname
+    {
         lines.push(String::new());
         lines.push("  Away from home:".into());
         lines.push(format!("    https://{host}"));
@@ -68,6 +81,29 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     lines.push("============================================================".into());
     lines.push(String::new());
     lines
+}
+
+fn wrap_indent(text: &str, indent: &str, width: usize) -> Vec<String> {
+    let max = width.saturating_sub(indent.len()).max(8);
+    let mut out = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if line.is_empty() {
+            line.push_str(word);
+            continue;
+        }
+        if line.len() + 1 + word.len() > max {
+            out.push(format!("{indent}{line}"));
+            line = word.to_string();
+        } else {
+            line.push(' ');
+            line.push_str(word);
+        }
+    }
+    if !line.is_empty() {
+        out.push(format!("{indent}{line}"));
+    }
+    out
 }
 
 /// Write help text for getty (`getty -f /var/lib/luna/issue`).
@@ -91,6 +127,7 @@ mod tests {
             setup_code: Some("ABCD-EFGH".into()),
             connect_hostname: None,
             unclaimed: true,
+            ..Default::default()
         });
         assert!(text.contains("192.168.1.20"));
         assert!(text.contains("luna.local"));
@@ -123,5 +160,44 @@ mod tests {
         write_issue(dir.path(), &snap).unwrap();
         let body = std::fs::read_to_string(issue_path(dir.path())).unwrap();
         assert!(body.contains("10.0.0.5"));
+    }
+
+    #[test]
+    fn device_token_error_shows_change_instructions() {
+        let text = help_text(&ConsoleSnapshot {
+            ipv4: vec!["192.168.1.20".into()],
+            cable_in: true,
+            setup_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
+            connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
+            unclaimed: true,
+            device_token_error: Some(crate::connect::DEVICE_TOKEN_REJECTED_MSG.into()),
+        });
+        assert!(text.contains("did not accept this device token"));
+        assert!(text.contains("Settings → About → Advanced"));
+        assert!(text.contains("192.168.1.20"));
+        assert!(
+            !text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"),
+            "rejected token must not be shown as a working device code"
+        );
+        assert!(
+            !text.contains("photos.luna.servers.libreloom.org"),
+            "rejected token must not advertise remote access"
+        );
+    }
+
+    #[test]
+    fn malformed_token_error_hides_device_code() {
+        let text = help_text(&ConsoleSnapshot {
+            ipv4: vec![],
+            cable_in: true,
+            setup_code: Some("ABCD-EFGH".into()),
+            unclaimed: true,
+            device_token_error: Some(crate::connect::DEVICE_TOKEN_MALFORMED_MSG.into()),
+            ..Default::default()
+        });
+        assert!(text.contains("not valid"));
+        assert!(text.contains("Settings → About → Advanced"));
+        assert!(text.contains("After this Luna has an address"));
+        assert!(!text.contains("ABCD-EFGH"));
     }
 }

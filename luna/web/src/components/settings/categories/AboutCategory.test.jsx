@@ -126,6 +126,31 @@ describe("AboutCategory", () => {
     expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
   });
 
+  it("shows how to change a rejected device token in Advanced", async () => {
+    const baseFetch = stubFetch();
+    const fetchImpl = vi.fn(async (path, options) => {
+      if (path.startsWith("/api/v1/connect/status")) {
+        return new Response(
+          JSON.stringify({
+            enabled: false,
+            connect_active: true,
+            device_token_error:
+              "Luna Connect did not accept this device token. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return baseFetch(path, options);
+    });
+    renderPage(fetchImpl);
+    await screen.findByText("Default source");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not accept this device token/i);
+    expect(screen.getByLabelText("Device token from Luna Connect")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Save device token/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Remove device token/i })).toBeTruthy();
+  });
+
   it("flags a custom source when keys differ from the built-in key", async () => {
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,

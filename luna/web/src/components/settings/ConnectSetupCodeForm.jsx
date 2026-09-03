@@ -76,12 +76,18 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
   const s = status.data || {};
   const connectActive = Boolean(s.connect_active);
   const enabled = Boolean(s.enabled);
+  const tokenError =
+    typeof s.device_token_error === "string" && s.device_token_error.trim()
+      ? s.device_token_error
+      : null;
+  const linked = enabled && !tokenError;
+  const pendingBind = connectActive && !enabled && !tokenError;
   const inputClass =
     surface === "primary"
       ? "w-full min-w-0 rounded-pill bg-secondary text-primary px-4 py-2 font-mono tracking-widest"
       : "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono tracking-widest";
 
-  if (enabled) {
+  if (linked) {
     return (
       <div className="space-y-3" data-slot="connect-setup-code-form">
         <p className="text-sm text-primary leading-relaxed">
@@ -133,7 +139,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
     );
   }
 
-  if (connectActive && !enabled) {
+  if (pendingBind) {
     return (
       <div className="space-y-3" data-slot="connect-setup-code-form">
         <p className="text-sm text-primary leading-relaxed">
@@ -169,7 +175,12 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
 
   return (
     <div className="space-y-3" data-slot="connect-setup-code-form">
-      {!compact && (
+      {tokenError && (
+        <p className="text-sm text-error leading-relaxed" role="alert">
+          {tokenError}
+        </p>
+      )}
+      {!compact && !tokenError && (
         <p className="text-sm text-primary leading-relaxed">
           Paste your device token from Luna Connect (****-****-****-****-****).
         </p>
@@ -178,7 +189,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
         <label htmlFor="luna-connect-setup-code" className="block text-sm text-primary mb-1.5">
           Device token
         </label>
-        <ShakeTarget shake={error}>
+        <ShakeTarget shake={error || tokenError}>
           <input
             id="luna-connect-setup-code"
             className={inputClass}
@@ -192,12 +203,12 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
             autoComplete="off"
             spellCheck={false}
             aria-label="Device token from Luna Connect"
-            aria-invalid={Boolean(error)}
+            aria-invalid={Boolean(error || tokenError)}
           />
         </ShakeTarget>
       </div>
       {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
-      {saved && !error && (
+      {saved && !error && !tokenError && (
         <p className="text-sm text-success leading-relaxed">Device token saved.</p>
       )}
       <div className="flex flex-col gap-2">
@@ -211,6 +222,18 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
         >
           Save device token
         </Button>
+        {(connectActive || tokenError) && (
+          <Button
+            variant="outline"
+            surface={surface === "primary" ? "primary" : "secondary"}
+            fullWidth
+            loading={removeToken.isPending}
+            disabled={saveCode.isPending}
+            onClick={() => removeToken.mutate()}
+          >
+            Remove device token
+          </Button>
+        )}
       </div>
     </div>
   );

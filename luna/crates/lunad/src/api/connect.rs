@@ -248,6 +248,10 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "That name is already in use, or Connect is already on. Pick another name or turn it off first.",
         ),
+        ConnectError::InvalidToken => json_error(
+            StatusCode::UNAUTHORIZED,
+            crate::connect::DEVICE_TOKEN_REJECTED_MSG,
+        ),
         ConnectError::Other(msg) => json_error(StatusCode::BAD_REQUEST, msg),
     }
 }
