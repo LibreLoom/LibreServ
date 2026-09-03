@@ -39,6 +39,7 @@ pub mod smart;
 pub mod staticweb;
 pub mod summary;
 pub mod system_health;
+mod update_host;
 pub mod updates;
 pub mod uploads;
 
