@@ -172,9 +172,10 @@ mod tests {
             unclaimed: true,
             device_token_error: Some(crate::connect::DEVICE_TOKEN_REJECTED_MSG.into()),
         });
-        assert!(text.contains("did not accept this device token"));
-        assert!(text.contains("Settings → About → Advanced"));
-        assert!(text.contains("192.168.1.20"));
+        let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("did not accept this device token"));
+        assert!(flat.contains("Settings → About → Advanced"));
+        assert!(flat.contains("192.168.1.20"));
         assert!(
             !text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"),
             "rejected token must not be shown as a working device code"
@@ -195,9 +196,10 @@ mod tests {
             device_token_error: Some(crate::connect::DEVICE_TOKEN_MALFORMED_MSG.into()),
             ..Default::default()
         });
-        assert!(text.contains("not valid"));
-        assert!(text.contains("Settings → About → Advanced"));
-        assert!(text.contains("After this Luna has an address"));
+        let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("not valid"));
+        assert!(flat.contains("Settings → About → Advanced"));
+        assert!(flat.contains("After this Luna has an address"));
         assert!(!text.contains("ABCD-EFGH"));
     }
 }
