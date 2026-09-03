@@ -311,14 +311,51 @@ impl ConnectService {
         self.tunnel_running()
     }
 
-    /// Seconds until the next status pull. Aggressive during setup until the tunnel is up;
-    /// steady 5 minutes once setup is finished or the tunnel is already running.
+    /// Seconds until the next status pull. Aggressive while the tunnel connector is not
+    /// healthy yet (setup wizard open, or Connect already assigned a hostname/token).
+    /// Steady 5 minutes once cloudflared is running (or Connect is inactive).
     pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
-        if !setup_wizard_open || self.tunnel_ready() {
-            STEADY_POLL_SECS
-        } else {
-            AGGRESSIVE_POLL_SECS
+        if self.tunnel_ready() {
+            return STEADY_POLL_SECS;
         }
+        if setup_wizard_open || self.expects_tunnel_connector() {
+            AGGRESSIVE_POLL_SECS
+        } else {
+            STEADY_POLL_SECS
+        }
+    }
+
+    /// True when Connect has bound this Luna and we should be running cloudflared.
+    fn expects_tunnel_connector(&self) -> bool {
+        if !self.has_valid_device_code() {
+            return false;
+        }
+        let state = self.load();
+        let has_token = state
+            .get("tunnel_token")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty());
+        let has_hostname = state
+            .get("hostname")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty());
+        let paired = state
+            .get("paired")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || state
+                .get("bound")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        has_token || has_hostname || paired
+    }
+
+    /// Start cloudflared from on-disk connect.json (e.g. right after lunad boot).
+    pub fn restore_tunnel_from_disk(&self) {
+        if !self.has_valid_device_code() {
+            return;
+        }
+        let _ = self.ensure_tunnel();
     }
 
     /// Pull Connect status with the permanent device token. Call on boot and on the poll loop.
@@ -392,6 +429,8 @@ impl ConnectService {
             state["tunnel_token"] = t.clone();
         }
         self.save(&state)?;
+        // Domain assignment publishes DNS immediately; start cloudflared now or visitors see 1033.
+        let _ = self.ensure_tunnel();
         Ok(changed)
     }
 
@@ -541,13 +580,24 @@ impl ConnectService {
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
-        let token = self
-            .load()
+        let state = self.load();
+        let token = state
             .get("tunnel_token")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let hostname = state
+            .get("hostname")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if token.is_empty() {
+            if !hostname.is_empty() {
+                // DNS can already point at a Cloudflare Tunnel while Luna has no token → Error 1033.
+                tracing::error!(
+                    hostname,
+                    "Connect assigned a hostname but no tunnel token is on disk — cloudflared cannot start (no service unit; lunad must spawn it)"
+                );
+            }
             return Ok(());
         }
         if token.starts_with("mock-") {
@@ -562,12 +612,18 @@ impl ConnectService {
         self.stop_tunnel();
 
         let bin = Self::cloudflared_bin();
-        tracing::info!(path = %bin.display(), port = self.local_port, "starting cloudflared tunnel");
+        // Token mode: no config.yml and no OpenRC/systemd unit. Bare `cloudflared` will say
+        // "config not found"; lunad must pass --token (and keep the child alive).
+        tracing::info!(
+            path = %bin.display(),
+            port = self.local_port,
+            hostname,
+            "starting cloudflared tunnel (token mode, managed by lunad)"
+        );
 
         let mut child = Command::new(&bin)
-            .args(["tunnel", "--no-autoupdate", "run"])
+            .args(["tunnel", "--no-autoupdate", "run", "--token", &token])
             .env("TUNNEL_TOKEN", &token)
-            .env("CLOUDFLARED_TUNNEL_TOKEN", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -593,6 +649,26 @@ impl ConnectService {
                     }
                 })
                 .ok();
+        }
+
+        // cloudflared exits quickly on bad tokens; surface that instead of leaving DNS on 1033.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                tracing::error!(
+                    ?status,
+                    hostname,
+                    "cloudflared exited immediately after start — tunnel will stay on Error 1033 until this is fixed"
+                );
+                return Err(ConnectError::Other(
+                    "Luna couldn't keep the protected connection running. Try again in a few minutes."
+                        .into(),
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "could not check cloudflared child status");
+            }
         }
 
         *self.active_tunnel_token.lock().unwrap() = Some(token);
@@ -1010,7 +1086,28 @@ mod tests {
         assert_eq!(
             service.poll_interval_secs(false),
             STEADY_POLL_SECS,
-            "finished setup uses steady interval even without tunnel"
+            "unbound device with setup closed can use steady interval"
+        );
+    }
+
+    #[test]
+    fn poll_interval_aggressive_after_domain_assigned_setup_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "arst.luna.servers.libreloom.org",
+                "subdomain": "arst",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        assert!(!service.tunnel_ready());
+        assert_eq!(
+            service.poll_interval_secs(false),
+            AGGRESSIVE_POLL_SECS,
+            "paired hostname without a live connector must keep polling fast after setup closes"
         );
     }
 

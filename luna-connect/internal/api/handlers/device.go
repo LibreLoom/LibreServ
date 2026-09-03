@@ -3,7 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -213,10 +214,46 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		out["subdomain"] = sub.String
 		out["hostname"] = domainname.Hostname(sub.String, config.C.Server.PublicZone)
 		out["tunnel_id"] = dev.TunnelID
+		tok := ""
 		if sealed.Valid && sealed.String != "" {
-			if tok, err := security.OpenString(sealed.String); err == nil {
-				out["tunnel_token"] = tok
+			opened, err := security.OpenString(sealed.String)
+			if err != nil {
+				// Hostname/DNS can exist while Luna has no usable token → Cloudflare Error 1033.
+				slog.Error("device status: tunnel token decrypt failed; regenerating tunnel",
+					"device_id", dev.ID, "subdomain", sub.String, "err", err)
+				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+					if t, ok := healed["tunnel_token"].(string); ok {
+						tok = t
+					}
+					if tid, ok := healed["tunnel_id"].(string); ok {
+						out["tunnel_id"] = tid
+					}
+				} else {
+					slog.Error("device status: tunnel regenerate failed",
+						"device_id", dev.ID, "status", st, "msg", msg)
+				}
+			} else {
+				tok = opened
 			}
+		} else {
+			slog.Error("device status: hostname set but tunnel token missing; regenerating tunnel",
+				"device_id", dev.ID, "subdomain", sub.String)
+			if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+				if t, ok := healed["tunnel_token"].(string); ok {
+					tok = t
+				}
+				if tid, ok := healed["tunnel_id"].(string); ok {
+					out["tunnel_id"] = tid
+				}
+			} else {
+				slog.Error("device status: tunnel regenerate failed",
+					"device_id", dev.ID, "status", st, "msg", msg)
+			}
+		}
+		if tok != "" {
+			out["tunnel_token"] = tok
+		} else {
+			out["tunnel_token_missing"] = true
 		}
 	}
 	JSON(w, http.StatusOK, out)

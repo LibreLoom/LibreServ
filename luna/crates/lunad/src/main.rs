@@ -38,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
         lunad::connect::ConnectService::new(&cfg.data_dir, std::env::var("LUNA_CONNECT_URL").ok())
             .with_local_port(cfg.port),
     );
+    connect.restore_tunnel_from_disk();
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
     // Catch-up gallery index for every adopted mount already on disk.
