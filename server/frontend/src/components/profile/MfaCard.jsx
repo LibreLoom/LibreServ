@@ -327,8 +327,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
               </div>
               {!clipboardOk ? (
                 <p className="text-xs text-secondary mb-2">
-                  Select the codes below, then copy them. Automatic copy needs a secure
-                  connection, and this page does not have one yet.
+                  Select the codes below, then copy them.
                 </p>
               ) : null}
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
@@ -724,8 +723,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
               </div>
               {!clipboardOk ? (
                 <p className="text-xs text-primary mt-2">
-                  Select the key above, then copy it. Automatic copy needs a secure
-                  connection, and this page does not have one yet.
+                  Select the key above, then copy it.
                 </p>
               ) : null}
             </CollapsibleSection>
@@ -1117,8 +1115,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
               </div>
               {!clipboardOk ? (
                 <p className="text-xs text-secondary mb-2">
-                  Select the codes below, then copy them. Automatic copy needs a secure
-                  connection, and this page does not have one yet.
+                  Select the codes below, then copy them.
                 </p>
               ) : null}
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
