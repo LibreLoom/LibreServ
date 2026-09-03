@@ -257,7 +257,5 @@ fn read_key(timeout: Duration) -> io::Result<Option<Key>> {
 fn exec_login(login_bin: &str, username: &str) -> io::Result<()> {
     // BusyBox / util-linux: `login -- USER` prompts for password.
     let err = Command::new(login_bin).arg("--").arg(username).exec();
-    Err(io::Error::other(format!(
-        "exec {login_bin} failed: {err}"
-    )))
+    Err(io::Error::other(format!("exec {login_bin} failed: {err}")))
 }
