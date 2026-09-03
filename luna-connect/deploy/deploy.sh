@@ -10,23 +10,22 @@ set -euo pipefail
 # IMPORTANT — what gets deployed (always built from source; never Forgejo release assets):
 #   Remote refs always clobber the host checkout (reset --hard + clean -fd). Local dirt,
 #   divergent commits, and leftover build artifacts do not win over --head/--branch/--tag.
-#   On main with no flags: hard-reset to origin/main, then build.
+#   No flags / --latest-tag: hard-reset to the newest luna-connect-v* tag, then build
+#   (safe production default — tip of main is opt-in via --head).
 #   --head: hard-reset to origin/main from any starting branch, then build.
 #   --no-pull: build current checkout without fetching (warns if main is behind origin).
 #   --branch NAME: hard-reset to origin/NAME when it exists, then build.
-#   Off main with no flags: refuses (prevents accidental tag deploys / detached HEAD).
-#   Use --tag or --latest-tag only when you intentionally want a tagged release.
+#   --tag NAME: hard-reset to that release tag, then build.
 #
 # Typical production update (from repo root, as root):
-#   sudo ./luna-connect/deploy/deploy.sh --head
-#   # same when already on main:
-#   sudo ./luna-connect/deploy/deploy.sh
-#   sudo ./luna-connect/deploy/deploy.sh --head --force   # sick peer or both down (recovery)
+#   sudo ./luna-connect/deploy/deploy.sh                 # latest luna-connect-v* tag
+#   sudo ./luna-connect/deploy/deploy.sh --latest-tag    # same as no flags
+#   sudo ./luna-connect/deploy/deploy.sh --head          # tip of origin/main
+#   sudo ./luna-connect/deploy/deploy.sh --head --force  # sick peer or both down (recovery)
 #
-# Tagged release (when main has moved past the tag):
+# Explicit tagged release:
 #   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
-#   sudo ./luna-connect/deploy/deploy.sh --latest-tag       # newest luna-connect-v* tag
-#   sudo ./luna-connect/deploy/deploy.sh --allow-old-tag    # alias for --latest-tag
+#   sudo ./luna-connect/deploy/deploy.sh --allow-old-tag  # alias for --latest-tag
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -45,8 +44,9 @@ Luna Connect — Zero-Downtime Deploy (blue/green via Caddy)
 
 Usage (from repo root, as root):
   sudo ./luna-connect/deploy/deploy.sh
-      On main: hard-reset to origin/main, then build (recommended production path).
-      Off main: error — use --head, --branch, --no-pull, or --tag explicitly.
+  sudo ./luna-connect/deploy/deploy.sh --latest-tag
+  sudo ./luna-connect/deploy/deploy.sh --allow-old-tag
+      Hard-reset to the newest luna-connect-v* tag, then build (safe default).
 
   sudo ./luna-connect/deploy/deploy.sh --head
       Hard-reset to origin/main from any starting branch, then build.
@@ -60,10 +60,6 @@ Usage (from repo root, as root):
   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
       Hard-reset to that release tag (clobbers host checkout), then build.
 
-  sudo ./luna-connect/deploy/deploy.sh --latest-tag
-  sudo ./luna-connect/deploy/deploy.sh --allow-old-tag
-      Hard-reset to the newest luna-connect-v* tag, then build.
-
 Options:
   --force    Recovery / degraded deploy — skip preflight and peer health gates.
              When neither instance is healthy (cold start): install binary and
@@ -73,7 +69,7 @@ Options:
   --help     Show this help and exit.
 
 Examples:
-  sudo ./luna-connect/deploy/deploy.sh --head
+  sudo ./luna-connect/deploy/deploy.sh
 
   sudo ./luna-connect/deploy/deploy.sh --head --force
 
@@ -101,9 +97,10 @@ current_branch_name() {
 
 # stdout: head | tag:<name> | error:<reason>
 # stderr: human messages for warnings
+# Empty ref (no flags / --latest-tag): newest luna-connect-v* tag — safe default.
 resolve_deploy_mode() {
     local ref="${1:-}"
-    local want_latest_tag="${2:-0}"
+    local _want_latest_tag="${2:-0}" # kept for callers; empty ref always means latest tag
 
     if [ -n "$ref" ]; then
         if [ "$ref" = "HEAD" ]; then
@@ -114,38 +111,26 @@ resolve_deploy_mode() {
         return 0
     fi
 
-    if [ "$want_latest_tag" -eq 1 ]; then
-        local latest
-        latest="$(latest_luna_connect_tag)"
-        if [ -z "$latest" ]; then
-            echo "error:no-tags"
-            return 1
-        fi
-        local branch main_ahead=0
-        branch="$(current_branch_name)"
-        if [ "$branch" = "main" ]; then
-            if git merge-base --is-ancestor "$latest" main 2>/dev/null \
-                && [ "$(git rev-parse main)" != "$(git rev-parse "$latest"^{commit})" ]; then
-                main_ahead=1
-            fi
-        fi
-        if [ "$main_ahead" -eq 1 ]; then
-            log_warn "main is ahead of latest tag ${latest} — you are deploying the older tag on purpose."
-            log_warn "To deploy current main instead: sudo ./luna-connect/deploy/deploy.sh --head"
-        fi
-        echo "tag:${latest}"
-        return 0
+    local latest
+    latest="$(latest_luna_connect_tag)"
+    if [ -z "$latest" ]; then
+        echo "error:no-tags"
+        return 1
     fi
-
-    local branch
+    local branch main_ahead=0
     branch="$(current_branch_name)"
     if [ "$branch" = "main" ]; then
-        echo "head"
-        return 0
+        if git merge-base --is-ancestor "$latest" main 2>/dev/null \
+            && [ "$(git rev-parse main)" != "$(git rev-parse "$latest"^{commit})" ]; then
+            main_ahead=1
+        fi
     fi
-
-    echo "error:not-on-main"
-    return 1
+    if [ "$main_ahead" -eq 1 ]; then
+        log_warn "main is ahead of latest tag ${latest} — deploying the tagged release on purpose."
+        log_warn "To deploy tip of main instead: sudo ./luna-connect/deploy/deploy.sh --head"
+    fi
+    echo "tag:${latest}"
+    return 0
 }
 
 warn_if_main_behind_origin() {
@@ -570,9 +555,9 @@ main() {
     log_step "Luna Connect — Zero-Downtime Deploy"
     cd "$REPO_ROOT"
 
-    if [ "$want_latest_tag" -eq 1 ] || { [ -n "$ref" ] && [ "$ref" != "HEAD" ]; }; then
-        # Host tags often diverge from origin (moved/retagged). Default fetch refuses
-        # to clobber them and exits non-zero under set -e — force luna-connect tags.
+    # Default (no flags) and explicit tag modes: always force-refresh release tags.
+    # Host tags often diverge from origin; plain fetch refuses to clobber under set -e.
+    if [ -z "$ref" ] || [ "$want_latest_tag" -eq 1 ] || { [ -n "$ref" ] && [ "$ref" != "HEAD" ]; }; then
         log_info "Fetching luna-connect-v* tags from origin (force)..."
         if ! git fetch origin --force 'refs/tags/luna-connect-v*:refs/tags/luna-connect-v*'; then
             log_error "Failed to fetch luna-connect-v* tags from origin"
@@ -604,17 +589,8 @@ main() {
             ;;
         error:no-tags)
             log_error "No luna-connect-v* tags. Create one: git tag luna-connect-v0.1.0 && git push --tags"
+            log_info "Or deploy tip of main: sudo ./luna-connect/deploy/deploy.sh --head"
             log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --no-pull"
-            exit 1
-            ;;
-        error:not-on-main)
-            log_error "Not on main ($(current_branch_name || echo 'detached HEAD'))."
-            log_error "Bare ./luna-connect/deploy/deploy.sh only deploys main."
-            log_error "  sudo ./luna-connect/deploy/deploy.sh --head            # checkout main, pull, build"
-            log_error "  sudo ./luna-connect/deploy/deploy.sh --no-pull       # current checkout, no pull"
-            log_error "  sudo ./luna-connect/deploy/deploy.sh --branch NAME   # checkout branch, pull, build"
-            log_error "  sudo ./luna-connect/deploy/deploy.sh --tag NAME      # specific release"
-            log_error "  sudo ./luna-connect/deploy/deploy.sh --latest-tag    # newest luna-connect-v* tag"
             exit 1
             ;;
         *)
