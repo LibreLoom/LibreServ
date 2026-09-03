@@ -244,6 +244,10 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
             StatusCode::BAD_GATEWAY,
             "Connect couldn't be reached. Check your internet connection and try again.",
         ),
+        ConnectError::GatewayChallenge => json_error(
+            StatusCode::BAD_GATEWAY,
+            crate::connect::CONNECT_CHALLENGED_MSG,
+        ),
         ConnectError::Conflict => json_error(
             StatusCode::CONFLICT,
             "That name is already in use, or Connect is already on. Pick another name or turn it off first.",
