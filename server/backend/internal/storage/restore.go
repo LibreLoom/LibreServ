@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,7 +16,7 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 	startTime := time.Now()
 	result := &RestoreResult{BackupID: backupID}
 
-	log.Printf("RestoreApp: starting restore for backup %s", backupID)
+	slog.Info(fmt.Sprintf("RestoreApp: starting restore for backup %s", backupID))
 
 	if !s.UseRestic() {
 		result.Error = fmt.Errorf("restoring backups requires restic — install restic or enable auto-provision")
@@ -27,7 +26,7 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 	backup, err := s.GetBackup(ctx, backupID)
 	if err != nil {
 		result.Error = fmt.Errorf("backup not found: %w", err)
-		log.Printf("RestoreApp: backup not found: %v", err)
+		slog.Warn(fmt.Sprintf("RestoreApp: backup not found: %v", err))
 		return result, result.Error
 	}
 
@@ -44,27 +43,27 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 		return result, result.Error
 	}
 
-	log.Printf("RestoreApp: found backup for app %s, restoring to app %s (format=%s)", backup.AppID, targetAppID, backup.Format)
+	slog.Info(fmt.Sprintf("RestoreApp: found backup for app %s, restoring to app %s (format=%s)", backup.AppID, targetAppID, backup.Format))
 
 	var appPath, appStatus string
 	err = s.db.QueryRow("SELECT path, status FROM apps WHERE id = ?", targetAppID).Scan(&appPath, &appStatus)
 	if err != nil {
 		result.Error = fmt.Errorf("app not found (id=%s): %w", targetAppID, err)
-		log.Printf("RestoreApp: app not found (id=%s): %v", targetAppID, err)
+		slog.Warn(fmt.Sprintf("RestoreApp: app not found (id=%s): %v", targetAppID, err))
 		return result, result.Error
 	}
 
 	if opts.StopBeforeRestore && appStatus == "running" {
-		log.Printf("Stopping app %s for restore", targetAppID)
+		slog.Info(fmt.Sprintf("Stopping app %s for restore", targetAppID))
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		if err := s.runtime.ComposeStop(stopCtx, appPath); err != nil {
 			cancel()
 			result.Error = fmt.Errorf("failed to stop app %s before restore: %w", targetAppID, err)
-			log.Printf("RestoreApp: failed to stop app %s: %v", targetAppID, err)
+			slog.Warn(fmt.Sprintf("RestoreApp: failed to stop app %s: %v", targetAppID, err))
 			return result, result.Error
 		}
-		log.Printf("App %s stopped successfully", targetAppID)
+		slog.Info(fmt.Sprintf("App %s stopped successfully", targetAppID))
 	}
 
 	return s.restoreWithRestic(ctx, backup, targetAppID, appPath, opts, result, startTime)
@@ -78,30 +77,30 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 	}
 
 	currentBackupPath := appPath + ".pre-restore-" + time.Now().Format("20060102-150405")
-	log.Printf("Creating pre-restore backup: renaming %s to %s", appPath, currentBackupPath)
+	slog.Info(fmt.Sprintf("Creating pre-restore backup: renaming %s to %s", appPath, currentBackupPath))
 	if err := os.Rename(appPath, currentBackupPath); err != nil {
 		result.Error = fmt.Errorf("failed to backup current app state at %s: %w", appPath, err)
 		return result, result.Error
 	}
 	defer func() {
 		if result.Error == nil {
-			log.Printf("Cleaning up pre-restore backup %s", currentBackupPath)
+			slog.Info(fmt.Sprintf("Cleaning up pre-restore backup %s", currentBackupPath))
 			if err := os.RemoveAll(currentBackupPath); err != nil {
-				log.Printf("Warning: failed to remove pre-restore backup %s: %v", currentBackupPath, err)
+				slog.Warn(fmt.Sprintf("Warning: failed to remove pre-restore backup %s: %v", currentBackupPath, err))
 			}
 			return
 		}
 		// A failed rollback leaves the app directory half-restored or missing
 		// entirely. Reporting only the original restore error would hide that,
 		// so the rollback failure is folded into result.Error.
-		log.Printf("Restore failed, rolling back from %s", currentBackupPath)
+		slog.Warn(fmt.Sprintf("Restore failed, rolling back from %s", currentBackupPath))
 		if err := os.RemoveAll(appPath); err != nil {
-			log.Printf("Rollback: failed to clear app directory %s: %v", appPath, err)
+			slog.Warn(fmt.Sprintf("Rollback: failed to clear app directory %s: %v", appPath, err))
 			result.Error = fmt.Errorf("%w (rollback also failed: could not clear %s: %v)", result.Error, appPath, err)
 			return
 		}
 		if err := os.Rename(currentBackupPath, appPath); err != nil {
-			log.Printf("Rollback: failed to restore previous app state from %s: %v", currentBackupPath, err)
+			slog.Warn(fmt.Sprintf("Rollback: failed to restore previous app state from %s: %v", currentBackupPath, err))
 			result.Error = fmt.Errorf("%w (rollback also failed: previous app state left at %s: %v)", result.Error, currentBackupPath, err)
 		}
 	}()
@@ -144,7 +143,7 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 		return result, result.Error
 	}
 	if restoredAppDir != "" {
-		log.Printf("restoreWithRestic: found restored app dir at %s", restoredAppDir)
+		slog.Info(fmt.Sprintf("restoreWithRestic: found restored app dir at %s", restoredAppDir))
 		innerEntries, innerErr := os.ReadDir(restoredAppDir)
 		if innerErr != nil {
 			result.Error = fmt.Errorf("read restored app dir: %w", innerErr)
@@ -170,7 +169,7 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 	}
 
 	if backup.AppID != "" && targetAppID != "" && backup.AppID != targetAppID {
-		log.Printf("RestoreApp: rewriting instance ID %s -> %s in config files", backup.AppID, targetAppID)
+		slog.Info(fmt.Sprintf("RestoreApp: rewriting instance ID %s -> %s in config files", backup.AppID, targetAppID))
 		if err := rewriteInstanceID(appPath, backup.AppID, targetAppID); err != nil {
 			result.Error = fmt.Errorf("failed to rewrite instance ID: %w", err)
 			return result, result.Error
@@ -178,11 +177,11 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 	}
 
 	if opts.RestartAfterRestore {
-		log.Printf("Starting app %s after restore", targetAppID)
+		slog.Info(fmt.Sprintf("Starting app %s after restore", targetAppID))
 		startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if err := s.runtime.ComposeUp(startCtx, appPath); err != nil {
-			log.Printf("Warning: failed to start app %s after restore: %v", targetAppID, err)
+			slog.Warn(fmt.Sprintf("Warning: failed to start app %s after restore: %v", targetAppID, err))
 			s.setAppStatus(targetAppID, "stopped")
 		} else {
 			s.setAppStatus(targetAppID, "running")
@@ -190,11 +189,11 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 	}
 
 	result.Duration = time.Since(startTime)
-	log.Printf("Restic restore completed for %s from snapshot %s in %v", backup.AppID, backup.SnapshotID, result.Duration)
+	slog.Info(fmt.Sprintf("Restic restore completed for %s from snapshot %s in %v", backup.AppID, backup.SnapshotID, result.Duration))
 
 	if backup.AppID != "" && targetAppID != "" && backup.AppID != targetAppID {
 		if _, err := s.db.Exec("UPDATE backups SET app_id = ? WHERE id = ?", targetAppID, backup.ID); err != nil {
-			log.Printf("Warning: failed to update backup app_id: %v", err)
+			slog.Warn(fmt.Sprintf("Warning: failed to update backup app_id: %v", err))
 		}
 	}
 
@@ -206,7 +205,7 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 // the outcome — but a stale status in the UI needs a trace.
 func (s *BackupService) setAppStatus(appID, status string) {
 	if _, err := s.db.Exec("UPDATE apps SET status = ?, updated_at = ? WHERE id = ?", status, time.Now(), appID); err != nil {
-		log.Printf("Warning: failed to set app %s status to %s: %v", appID, status, err)
+		slog.Warn(fmt.Sprintf("Warning: failed to set app %s status to %s: %v", appID, status, err))
 	}
 }
 
@@ -354,11 +353,11 @@ func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string, op
 	}
 	defer func() {
 		if err := os.Remove(restoreTmp); err != nil && !os.IsNotExist(err) {
-			log.Printf("Warning: failed to remove temporary restore file %s: %v", restoreTmp, err)
+			slog.Warn(fmt.Sprintf("Warning: failed to remove temporary restore file %s: %v", restoreTmp, err))
 		}
 	}()
 
-	log.Printf("Restoring database from backup %s into %s", backupID, dbPath)
+	slog.Info(fmt.Sprintf("Restoring database from backup %s into %s", backupID, dbPath))
 	if err := s.db.ReplaceFile(ctx, restoreTmp); err != nil {
 		return fmt.Errorf("database restore failed: %w", err)
 	}
@@ -406,7 +405,7 @@ func (s *BackupService) ListDatabaseBackups(ctx context.Context) ([]DatabaseBack
 	for rows.Next() {
 		var b DatabaseBackup
 		if err := rows.Scan(&b.ID, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum); err != nil {
-			log.Printf("failed to scan database backup row: %v", err)
+			slog.Warn(fmt.Sprintf("failed to scan database backup row: %v", err))
 			continue
 		}
 		backups = append(backups, b)
@@ -430,11 +429,11 @@ func (s *BackupService) CleanupOldDatabaseBackups(ctx context.Context, retention
 
 	for i := retention; i < len(backups); i++ {
 		if err := os.Remove(backups[i].Path); err != nil && !os.IsNotExist(err) {
-			log.Printf("Failed to delete old database backup file %s: %v", backups[i].Path, err)
+			slog.Warn(fmt.Sprintf("Failed to delete old database backup file %s: %v", backups[i].Path, err))
 		}
 
 		if err := s.DeleteDatabaseBackupRecord(ctx, backups[i].ID); err != nil {
-			log.Printf("Failed to delete old database backup record %s: %v", backups[i].ID, err)
+			slog.Warn(fmt.Sprintf("Failed to delete old database backup record %s: %v", backups[i].ID, err))
 		}
 	}
 
@@ -454,9 +453,9 @@ func (s *BackupService) CleanupGhostDatabaseBackups(ctx context.Context) error {
 
 	for _, b := range backups {
 		if _, err := os.Stat(b.Path); os.IsNotExist(err) {
-			log.Printf("Cleaning up ghost database backup record: %s (file missing)", b.ID)
+			slog.Warn(fmt.Sprintf("Cleaning up ghost database backup record: %s (file missing)", b.ID))
 			if err := s.DeleteDatabaseBackupRecord(ctx, b.ID); err != nil {
-				log.Printf("warning: failed to delete ghost backup record %s: %v", b.ID, err)
+				slog.Warn(fmt.Sprintf("warning: failed to delete ghost backup record %s: %v", b.ID, err))
 			}
 		}
 	}
@@ -537,14 +536,14 @@ func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
 		return nil
 	}
 
-	log.Printf("rewriteInstanceID: replacing %s -> %s in %s", oldInstanceID, newInstanceID, appPath)
+	slog.Info(fmt.Sprintf("rewriteInstanceID: replacing %s -> %s in %s", oldInstanceID, newInstanceID, appPath))
 
 	libreservPath := filepath.Join(appPath, ".libreserv.yaml")
 	if _, err := os.Stat(libreservPath); err == nil {
 		if err := rewriteFileInstanceID(libreservPath, oldInstanceID, newInstanceID); err != nil {
 			return fmt.Errorf("failed to rewrite .libreserv.yaml: %w", err)
 		}
-		log.Printf("rewriteInstanceID: rewritten .libreserv.yaml")
+		slog.Info("rewriteInstanceID: rewritten .libreserv.yaml")
 	}
 
 	composePath := filepath.Join(appPath, "docker-compose.yml")
@@ -552,7 +551,7 @@ func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
 		if err := rewriteFileInstanceID(composePath, oldInstanceID, newInstanceID); err != nil {
 			return fmt.Errorf("failed to rewrite docker-compose.yml: %w", err)
 		}
-		log.Printf("rewriteInstanceID: rewritten docker-compose.yml")
+		slog.Info("rewriteInstanceID: rewritten docker-compose.yml")
 	}
 
 	appComposeDir := filepath.Join(appPath, "app-compose")
@@ -561,9 +560,9 @@ func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
 			if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".yml") || strings.HasSuffix(entry.Name(), ".yaml")) {
 				fullPath := filepath.Join(appComposeDir, entry.Name())
 				if err := rewriteFileInstanceID(fullPath, oldInstanceID, newInstanceID); err != nil {
-					log.Printf("rewriteInstanceID: warning: failed to rewrite %s: %v", entry.Name(), err)
+					slog.Warn(fmt.Sprintf("rewriteInstanceID: warning: failed to rewrite %s: %v", entry.Name(), err))
 				} else {
-					log.Printf("rewriteInstanceID: rewritten %s", entry.Name())
+					slog.Info(fmt.Sprintf("rewriteInstanceID: rewritten %s", entry.Name()))
 				}
 			}
 		}
@@ -580,7 +579,7 @@ func rewriteFileInstanceID(filePath, oldID, newID string) error {
 
 	content := string(data)
 	if !strings.Contains(content, oldID) {
-		log.Printf("rewriteFileInstanceID: %s does not contain old instance ID, skipping", filePath)
+		slog.Info(fmt.Sprintf("rewriteFileInstanceID: %s does not contain old instance ID, skipping", filePath))
 		return nil
 	}
 
@@ -598,6 +597,6 @@ func rewriteFileInstanceID(filePath, oldID, newID string) error {
 		return err
 	}
 
-	log.Printf("rewriteFileInstanceID: replaced instance ID in %s", filePath)
+	slog.Info(fmt.Sprintf("rewriteFileInstanceID: replaced instance ID in %s", filePath))
 	return nil
 }
