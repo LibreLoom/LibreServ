@@ -156,6 +156,47 @@ describe("SetupPage", () => {
     expect(screen.getByLabelText(/What's your name/i)).toBeTruthy();
   });
 
+  it("does not attach a substep slide/pop class to the name field on first account paint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    const input = await screen.findByLabelText(/What's your name/i);
+    // SetupCard may still slide the step; the field group inside the form must
+    // not also play slide-in-from-*-pop on first paint (that double-pop jumped
+    // when the name input was focused).
+    const form = input.closest("form");
+    expect(form).toBeTruthy();
+    expect(form.querySelectorAll("[class*='slide-in-from']").length).toBe(0);
+  });
+
+  it("slides the username field in after continuing from the name substep", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    const username = await screen.findByLabelText(/Pick a username/i);
+    const form = username.closest("form");
+    expect(form.querySelector("[class*='slide-in-from']")).toBeTruthy();
+  });
+
   it("asks for the first eight characters when remote setup is locked", async () => {
     const fetchMock = vi.fn(async (url, init) => {
       const u = String(url);

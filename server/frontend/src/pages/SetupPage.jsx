@@ -79,6 +79,9 @@ function SetupCard({ children, className = "", header = null }) {
         <div
           key={tKey}
           className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+          // backwards (not both): drop the transform after the slide so focused
+          // inputs inside the card don't jump on a leftover compositing layer.
+          style={{ animationFillMode: "backwards" }}
         >
           {children}
         </div>
