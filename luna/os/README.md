@@ -91,7 +91,7 @@ and are ignored by the Luna updater. Release assets:
 
 - `lunad-linux-amd64` (or `lunad-linux-arm64`) — always
 - `luna-os-x86_64.img` — OS cuts only (raw A/B slot image; no Luna state)
-- `luna-rapidinstall-x86_64.iso` — OS cuts only (factory / recovery USB)
+- `luna-rapidinstall-x86_64.iso.xz` — OS cuts only (xz-compressed factory / recovery ISO; decompress with `xz -dk` before `dd`)
 - `luna-desktop-x86_64.flatpak` — Luna for Linux
 - `Luna-Desktop-Setup-*-x86_64.exe` — Luna Desktop (Windows NSIS installer)
 - `luna-android.apk` — Luna Android photo backup
