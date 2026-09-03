@@ -113,7 +113,6 @@ async fn main() -> anyhow::Result<()> {
         std::thread::Builder::new()
             .name("luna-console-help".into())
             .spawn(move || {
-                let mut last = String::new();
                 loop {
                     let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
                     let net = lunad::net::read_status(
@@ -197,11 +196,10 @@ async fn main() -> anyhow::Result<()> {
                         unclaimed: st.unclaimed,
                         problems,
                     };
-                    let text = lunad::console::help_text(&snap);
-                    if text != last {
-                        let _ = lunad::console::write_issue(&data_dir, &snap);
-                        last = text;
-                    }
+                    // Always rewrite so luna-console's mtime liveness check stays
+                    // honest when status text is unchanged (e.g. Connect hostname
+                    // already shown).
+                    let _ = lunad::console::write_issue(&data_dir, &snap);
                     std::thread::sleep(std::time::Duration::from_secs(2));
                 }
             })
