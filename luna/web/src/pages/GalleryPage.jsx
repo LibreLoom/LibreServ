@@ -306,6 +306,25 @@ export default function GalleryPage() {
     || sharePhoto != null
     || lightbox != null;
 
+  // Nothing to search or segment until a drive is added — keep the page to
+  // this one card so the next step (Drives) is obvious.
+  if (noDrives) {
+    return (
+      <Page title="Photos" titleId="gallery-title">
+        <EmptyState
+          icon={PlugZap}
+          title="No drives to look in"
+          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos."
+          action={
+            <Button variant="primary" asChild>
+              <Link to="/drives">Go to Drives</Link>
+            </Button>
+          }
+        />
+      </Page>
+    );
+  }
+
   return (
     <Page title="Photos" titleId="gallery-title">
       <GalleryToolbar
@@ -321,20 +340,7 @@ export default function GalleryPage() {
         </PageNotice>
       )}
 
-      {noDrives && (
-        <EmptyState
-          icon={PlugZap}
-          title="No drives to look in"
-          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos."
-          action={
-            <Button variant="primary" asChild>
-              <Link to="/drives">Go to Drives</Link>
-            </Button>
-          }
-        />
-      )}
-
-      {looking && photos.length === 0 && !noDrives && activeSegment === "library" && (
+      {looking && photos.length === 0 && activeSegment === "library" && (
         <div className="rounded-large-element bg-secondary text-primary p-6 mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">

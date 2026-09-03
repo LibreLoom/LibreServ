@@ -133,6 +133,9 @@ describe("GalleryPage", () => {
     renderGallery();
     expect(await screen.findByText(/No drives to look in/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Search photos/i)).not.toBeInTheDocument();
+    expect(document.querySelector("[data-slot=gallery-toolbar]")).toBeNull();
   });
 
   it("defaults the URL hash to #library when none is set", async () => {
