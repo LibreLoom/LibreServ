@@ -92,9 +92,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
     }
-    if !token_problem
-        && let Some(host) = &snap.connect_hostname
-    {
+    if !token_problem && let Some(host) = &snap.connect_hostname {
         lines.push(String::new());
         lines.push("  Away from home:".into());
         lines.push(format!("    https://{host}"));

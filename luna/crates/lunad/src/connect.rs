@@ -595,7 +595,6 @@ impl ConnectService {
         self.device_code()
     }
 
-
     /// User-facing error when the on-disk token cannot be used with Connect.
     pub fn device_token_error(&self) -> Option<String> {
         if self.token_file_malformed() {
@@ -706,10 +705,7 @@ impl ConnectService {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let hostname = state
-            .get("hostname")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let hostname = state.get("hostname").and_then(|v| v.as_str()).unwrap_or("");
         if token.is_empty() {
             if !hostname.is_empty() {
                 // DNS can already point at a Cloudflare Tunnel while Luna has no token → Error 1033.
@@ -1332,5 +1328,4 @@ mod tests {
         service.set_oss_code("ZZZZ-YYYY-XXXX-WWWW-VVVV").unwrap();
         assert!(service.status().device_token_error.is_none());
     }
-
 }
