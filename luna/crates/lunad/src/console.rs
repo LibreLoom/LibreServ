@@ -111,15 +111,19 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
 
 fn wrap_indent(text: &str, indent: &str, width: usize) -> Vec<String> {
     let max = width.saturating_sub(indent.len()).max(8);
+    let cont = " ".repeat(indent.chars().count());
     let mut out = Vec::new();
     let mut line = String::new();
+    let mut first = true;
     for word in text.split_whitespace() {
         if line.is_empty() {
             line.push_str(word);
             continue;
         }
         if line.len() + 1 + word.len() > max {
-            out.push(format!("{indent}{line}"));
+            let prefix = if first { indent } else { &cont };
+            out.push(format!("{prefix}{line}"));
+            first = false;
             line = word.to_string();
         } else {
             line.push(' ');
@@ -127,7 +131,8 @@ fn wrap_indent(text: &str, indent: &str, width: usize) -> Vec<String> {
         }
     }
     if !line.is_empty() {
-        out.push(format!("{indent}{line}"));
+        let prefix = if first { indent } else { &cont };
+        out.push(format!("{prefix}{line}"));
     }
     out
 }
