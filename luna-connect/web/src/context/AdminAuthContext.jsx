@@ -25,7 +25,7 @@ export async function adminApi(path, opts = {}) {
   const token = getAdminToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (method !== "GET" && method !== "HEAD" && !headers.Authorization) {
-    // CSRF cookie path for seed/login without bearer
+    // CSRF cookie path for login without bearer
     const match = typeof document !== "undefined" ? document.cookie.match(/(?:^|; )luna_connect_csrf=([^;]*)/) : null;
     if (match) headers["X-CSRF-Token"] = decodeURIComponent(match[1]);
   } else if (method !== "GET" && method !== "HEAD") {
@@ -101,13 +101,6 @@ export function AdminAuthProvider({ children }) {
     }
   }, []);
 
-  const seedAdmin = useCallback(async (email, password, name) => {
-    return adminApi("/admin/seed", {
-      method: "POST",
-      body: JSON.stringify({ email, password, name }),
-    });
-  }, []);
-
   const logout = useCallback(async () => {
     try {
       await adminApi("/admin/logout", { method: "POST", body: "{}" });
@@ -128,7 +121,7 @@ export function AdminAuthProvider({ children }) {
   }, []);
 
   return (
-    <AdminAuthContext.Provider value={{ ready, isAuthenticated, account, loading, login, seedAdmin, logout, updateAccount }}>
+    <AdminAuthContext.Provider value={{ ready, isAuthenticated, account, loading, login, logout, updateAccount }}>
       {children}
     </AdminAuthContext.Provider>
   );
