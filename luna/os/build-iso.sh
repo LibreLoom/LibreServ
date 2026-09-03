@@ -23,6 +23,7 @@ fi
 
 echo "==> lunad ($MUSL_TARGET release)"
 cargo build --release -p lunad --target "$MUSL_TARGET"
+export LUNA_CONSOLE_BIN="$ROOT/target/${MUSL_TARGET}/release/luna-console"
 export LUNAD_BIN="$ROOT/target/${MUSL_TARGET}/release/lunad"
 if [ ! -x "$LUNAD_BIN" ]; then
 	echo "missing $LUNAD_BIN" >&2

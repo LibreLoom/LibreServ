@@ -79,12 +79,12 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
-# tty1 getty for shell login (root / luna / pwreset). Device token + IP help is
+# tty1 luna-console for status + shell login (root / luna / pwreset). Device token + IP help is
 # /var/lib/luna/issue (writable on LUNA_DATA); leave tty2–6 commented.
 if [ -f "$ROOTFS/etc/inittab" ]; then
     sed -i -E 's/^[[:space:]]*tty[0-9]+::.*getty/# &/' "$ROOTFS/etc/inittab"
     sed -i -E '/^#?[[:space:]]*tty1::/d' "$ROOTFS/etc/inittab"
-    printf 'tty1::respawn:/sbin/getty -f /var/lib/luna/issue 38400 tty1\n' >> "$ROOTFS/etc/inittab"
+    printf 'tty1::respawn:/usr/local/bin/luna-console\n' >> "$ROOTFS/etc/inittab"
 fi
 
 # cloudflared is not in Alpine 3.24; official Go binaries are static.
@@ -314,6 +314,16 @@ chmod +x "$ROOTFS/etc/local.d/luna-boot-ok.start"
 
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"
+CONSOLE_BIN="${LUNA_CONSOLE_BIN:-}"
+if [ -z "$CONSOLE_BIN" ]; then
+    CONSOLE_BIN="$(dirname "$BIN")/luna-console"
+fi
+if [ ! -x "$CONSOLE_BIN" ]; then
+    echo "missing luna-console binary next to lunad ($CONSOLE_BIN)" >&2
+    echo "build it first: cargo build --release -p lunad --bin luna-console (musl) or set LUNA_CONSOLE_BIN" >&2
+    exit 1
+fi
+install -m 0755 "$CONSOLE_BIN" "$ROOTFS/usr/local/bin/luna-console"
 mkdir -p "$ROOTFS/var/lib/luna"
 
 # Console password reset: Linux user `pwreset` runs this as its login shell.
@@ -372,7 +382,7 @@ esac
 PWRESET
 chmod 755 "$ROOTFS/usr/local/sbin/luna-pwreset"
 
-# Seed getty issue file (lunad overwrites with live IP / setup code).
+# Seed console issue file (lunad overwrites with live IP / setup code).
 cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
 
 ============================================================

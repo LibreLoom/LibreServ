@@ -323,9 +323,17 @@ function connectionDotClass(net) {
  *   remoteOn: boolean,
  *   remoteDomain?: string,
  *   connectActive?: boolean,
+ *   deviceTokenError?: string | null,
  * }} props
  */
-function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain, connectActive }) {
+function ConnectionCard({
+  net,
+  isAdmin,
+  remoteOn,
+  remoteDomain,
+  connectActive,
+  deviceTokenError,
+}) {
   return (
     <Card data-slot="connection-card">
       <div className="flex items-center gap-2 mb-1">
@@ -341,7 +349,19 @@ function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain, connectActive })
         {connectionHeadline(net)}
       </div>
       <p className="text-primary text-sm mt-2">{connectionDetail(net)}</p>
-      {isAdmin && connectActive && (
+      {isAdmin && deviceTokenError ? (
+        <div className="mt-4 space-y-3">
+          <p className="text-sm text-error leading-relaxed" role="alert">
+            {deviceTokenError}
+          </p>
+          <Button size="md" variant="primary" asChild fullWidth className="justify-between">
+            <Link to="/settings#about" aria-label="Change the device token">
+              <span>Change the device token</span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </Link>
+          </Button>
+        </div>
+      ) : isAdmin && connectActive ? (
         <Button
           size="md"
           variant="primary"
@@ -362,7 +382,7 @@ function ConnectionCard({ net, isAdmin, remoteOn, remoteDomain, connectActive })
             </span>
           </Link>
         </Button>
-      )}
+      ) : null}
     </Card>
   );
 }
@@ -633,6 +653,11 @@ export default function DashboardPage() {
   const grants = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
   const remoteOn = Boolean(connect.data?.enabled && connect.data?.tunnel_active);
   const remoteDomain = connect.data?.domain;
+  const deviceTokenError =
+    typeof connect.data?.device_token_error === "string" &&
+    connect.data.device_token_error.trim()
+      ? connect.data.device_token_error
+      : null;
 
   return (
     <Page
@@ -661,6 +686,7 @@ export default function DashboardPage() {
             remoteOn={remoteOn}
             remoteDomain={remoteDomain}
             connectActive={connectActive}
+            deviceTokenError={deviceTokenError}
           />
           {recentJobs.length > 0 && (
             <RecentJobsCard jobs={recentJobs} drives={adopted} />

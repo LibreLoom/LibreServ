@@ -17,6 +17,14 @@ pub const AGGRESSIVE_POLL_SECS: u64 = 10;
 /// Permanent Luna Connect device token (`{data_dir}/device-token`).
 /// Connect is inactive until this file holds a valid token.
 pub const DEVICE_TOKEN_FILE: &str = "device-token";
+
+/// Connect rejected the on-disk token (HTTP 401 / revoked / unknown).
+pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
+/// On-disk token file is present but not a valid Crockford device token.
+pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. It should look like ****-****-****-****-****. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
+/// Connect was unreachable on the last status pull (sticky while token is present).
+pub const CONNECT_UNREACHABLE_MSG: &str = "Luna Connect could not be reached. Check this Luna's internet connection. Luna will keep trying.";
+
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
 /// TODO: We need to add remote access options for non-connect users.
@@ -27,6 +35,8 @@ pub enum ConnectError {
     Unreachable,
     #[error("That name is already in use. Pick another.")]
     Conflict,
+    #[error("{msg}", msg = DEVICE_TOKEN_REJECTED_MSG)]
+    InvalidToken,
     #[error("{0}")]
     Other(String),
 }
@@ -45,6 +55,12 @@ pub struct ConnectStatus {
     pub paired: bool,
     pub unclaimed: bool,
     pub setup_code: Option<String>,
+    /// Present when the on-disk token is malformed or Connect rejected it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_token_error: Option<String>,
+    /// Sticky when Connect could not be reached while a device token is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_unreachable: Option<String>,
     pub backup_sources: Vec<Value>,
 }
 
@@ -56,6 +72,10 @@ pub struct ConnectService {
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
     active_tunnel_token: Arc<Mutex<Option<String>>>,
+    /// Sticky until a later poll succeeds or the token is replaced/removed.
+    rejected_token: Mutex<bool>,
+    /// Sticky while polls fail with Unreachable.
+    connect_unreachable: Mutex<bool>,
     local_port: u16,
 }
 
@@ -74,6 +94,8 @@ impl ConnectService {
             device_key,
             child: Arc::new(Mutex::new(None)),
             active_tunnel_token: Arc::new(Mutex::new(None)),
+            rejected_token: Mutex::new(false),
+            connect_unreachable: Mutex::new(false),
             local_port: 8090,
         }
     }
@@ -92,6 +114,20 @@ impl ConnectService {
     /// Pairing codes and backup folder lists are admin-only after setup.
     pub fn status_for(&self, reveal_secrets: bool) -> ConnectStatus {
         let mut status = self.status_inner();
+        let token_error = self.device_token_error();
+        let unreachable = self.connect_unreachable_message();
+        if token_error.is_some() {
+            status.enabled = false;
+            status.paired = false;
+            status.unclaimed = false;
+            status.tunnel_active = false;
+            status.hostname = None;
+            status.domain = None;
+            status.subdomain = None;
+            status.setup_code = None;
+        }
+        status.device_token_error = token_error;
+        status.connect_unreachable = unreachable;
         if !reveal_secrets {
             status.setup_code = None;
             status.backup_sources = Vec::new();
@@ -130,6 +166,8 @@ impl ConnectService {
             paired: false,
             unclaimed: true,
             setup_code: None,
+            device_token_error: None,
+            connect_unreachable: None,
             backup_sources: Vec::new(),
         }
     }
@@ -174,6 +212,8 @@ impl ConnectService {
             paired: enabled,
             unclaimed: !enabled,
             setup_code: self.display_setup_code(enabled),
+            device_token_error: None,
+            connect_unreachable: None,
             backup_sources: state
                 .get("backup_sources")
                 .and_then(|v| v.as_array())
@@ -213,6 +253,8 @@ impl ConnectService {
                 std::fs::set_permissions(&self.token_path, std::fs::Permissions::from_mode(0o600));
         }
         let _ = std::fs::remove_file(&self.legacy_token_path);
+        self.set_rejected_token(false);
+        self.set_connect_unreachable(false);
         Ok(())
     }
 
@@ -369,6 +411,8 @@ impl ConnectService {
         };
         match self.call_device_status(&code) {
             Ok(remote) => {
+                self.set_rejected_token(false);
+                self.set_connect_unreachable(false);
                 let mut state = self.load();
                 if let Some(h) = remote.get("hostname") {
                     state["hostname"] = h.clone();
@@ -395,7 +439,19 @@ impl ConnectService {
                 true
             }
             Err(ConnectError::Other(msg)) if msg.contains("403") || msg.contains("unbound") => {
+                self.set_rejected_token(false);
+                self.set_connect_unreachable(false);
                 self.clear_claim_keep_code();
+                false
+            }
+            Err(ConnectError::InvalidToken) => {
+                self.set_rejected_token(true);
+                self.set_connect_unreachable(false);
+                self.stop_tunnel();
+                false
+            }
+            Err(ConnectError::Unreachable) => {
+                self.set_connect_unreachable(true);
                 false
             }
             Err(_) => false,
@@ -440,6 +496,8 @@ impl ConnectService {
         let _ = std::fs::remove_file(&self.state_path);
         let _ = std::fs::remove_file(&self.token_path);
         let _ = std::fs::remove_file(&self.legacy_token_path);
+        self.set_rejected_token(false);
+        self.set_connect_unreachable(false);
         Ok(())
     }
 
@@ -535,6 +593,68 @@ impl ConnectService {
 
     pub fn token(&self) -> Result<String, ConnectError> {
         self.device_code()
+    }
+
+
+    /// User-facing error when the on-disk token cannot be used with Connect.
+    pub fn device_token_error(&self) -> Option<String> {
+        if self.token_file_malformed() {
+            return Some(DEVICE_TOKEN_MALFORMED_MSG.to_string());
+        }
+        if self.rejected_token() {
+            return Some(DEVICE_TOKEN_REJECTED_MSG.to_string());
+        }
+        None
+    }
+
+    fn connect_unreachable_message(&self) -> Option<String> {
+        if self.device_token_error().is_some() {
+            return None;
+        }
+        if !self.has_valid_device_code() {
+            return None;
+        }
+        if self.connect_unreachable() {
+            Some(CONNECT_UNREACHABLE_MSG.to_string())
+        } else {
+            None
+        }
+    }
+
+    fn token_file_present(&self) -> bool {
+        self.token_path.is_file() || self.legacy_token_path.is_file()
+    }
+
+    fn token_file_malformed(&self) -> bool {
+        self.token_file_present() && self.read_device_token().is_none()
+    }
+
+    fn rejected_token(&self) -> bool {
+        *self
+            .rejected_token
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn set_rejected_token(&self, rejected: bool) {
+        *self
+            .rejected_token
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = rejected;
+    }
+
+    fn connect_unreachable(&self) -> bool {
+        *self
+            .connect_unreachable
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn set_connect_unreachable(&self, unreachable: bool) {
+        *self
+            .connect_unreachable
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = unreachable;
     }
 
     pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
@@ -711,6 +831,9 @@ impl ConnectService {
         }
         let mut response = match req.call() {
             Ok(r) => r,
+            Err(ureq::Error::StatusCode(401)) => {
+                return Err(ConnectError::InvalidToken);
+            }
             Err(ureq::Error::StatusCode(403)) => {
                 return Err(ConnectError::Other("403 unbound".into()));
             }
@@ -845,6 +968,7 @@ impl ConnectService {
 
 fn map_transport_error(err: ureq::Error) -> ConnectError {
     match err {
+        ureq::Error::StatusCode(401) => ConnectError::InvalidToken,
         ureq::Error::StatusCode(409) => ConnectError::Conflict,
         _ => ConnectError::Unreachable,
     }
@@ -1128,4 +1252,85 @@ mod tests {
             "tunnel ready during setup should slow polling"
         );
     }
+
+    fn serve_once(status: u16, body: &str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = body.to_string();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn malformed_device_token_sets_status_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let st = service.status();
+        assert!(!st.connect_active);
+        assert_eq!(
+            st.device_token_error.as_deref(),
+            Some(DEVICE_TOKEN_MALFORMED_MSG)
+        );
+        assert!(
+            st.device_token_error
+                .as_deref()
+                .unwrap()
+                .contains("Settings → About → Advanced")
+        );
+    }
+
+    #[test]
+    fn poll_401_sets_rejected_token_error() {
+        let url = serve_once(
+            401,
+            "{\"error\":\"This Luna is not signed in to Connect.\"}",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(!service.poll_status());
+        let st = service.status();
+        assert!(st.connect_active);
+        assert!(!st.enabled);
+        assert_eq!(
+            st.device_token_error.as_deref(),
+            Some(DEVICE_TOKEN_REJECTED_MSG)
+        );
+        assert!(st.setup_code.is_none());
+    }
+
+    #[test]
+    fn poll_403_unbound_is_not_a_token_failure() {
+        let url = serve_once(403, "{\"error\":\"unbound\"}");
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(!service.poll_status());
+        assert!(service.status().device_token_error.is_none());
+    }
+
+    #[test]
+    fn replacing_device_token_clears_rejected_error() {
+        let url = serve_once(401, "{}");
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(!service.poll_status());
+        assert!(service.status().device_token_error.is_some());
+        service.set_oss_code("ZZZZ-YYYY-XXXX-WWWW-VVVV").unwrap();
+        assert!(service.status().device_token_error.is_none());
+    }
+
 }
