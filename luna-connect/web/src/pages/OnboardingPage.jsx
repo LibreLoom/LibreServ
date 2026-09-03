@@ -1259,13 +1259,10 @@ export default function OnboardingPage() {
           Turn on cloud backup
         </Button>
       )}
-      <p className="text-xs text-muted-foreground text-center mt-6 mb-2">
-        The address stays free if you skip this.
-      </p>
       <Button
         variant="outline"
         size="lg"
-        className="w-full"
+        className="w-full mt-6"
         onClick={async () => {
           setError("");
           try {

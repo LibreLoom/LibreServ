@@ -436,7 +436,7 @@ describe("OnboardingPage DIY verify", () => {
     ).toBeTruthy();
     expect(screen.getByTestId("backup-pricing-table")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
-    expect(screen.getByText(/The address stays free if you skip this/i)).toBeTruthy();
+    expect(screen.queryByText(/The address stays free if you skip this/i)).toBeNull();
     expect(screen.queryByLabelText(/^Name$/i)).toBeNull();
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/dev_bound/domain");
   });

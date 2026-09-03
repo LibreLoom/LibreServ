@@ -22,10 +22,14 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
         />
       </div>
       <div
-        className="overflow-x-auto rounded-large-element border border-border"
+        className="rounded-large-element border border-border overflow-hidden"
         data-testid="backup-pricing-table"
       >
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col className="w-[42%]" />
+            <col className="w-[58%]" />
+          </colgroup>
           <tbody>
             {PRICING_ROWS.map((row, index) => (
               <tr
@@ -34,12 +38,12 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
               >
                 <th
                   scope="row"
-                  className="px-4 py-3 text-left font-normal align-middle whitespace-nowrap"
+                  className="px-4 py-3 text-left font-normal align-middle break-words"
                 >
                   {row.label}
                 </th>
                 <td
-                  className={`px-4 py-3 text-right align-middle ${row.mono ? "font-mono whitespace-nowrap" : ""}`}
+                  className={`px-4 py-3 text-right align-middle break-words ${row.mono ? "font-mono" : ""}`}
                 >
                   {row.value}
                 </td>
