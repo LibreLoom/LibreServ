@@ -24,6 +24,8 @@ pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this de
 pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. It should look like ****-****-****-****-****. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
 /// Connect was unreachable on the last status pull (sticky while token is present).
 pub const CONNECT_UNREACHABLE_MSG: &str = "Luna Connect could not be reached. Check this Luna's internet connection. Luna will keep trying.";
+/// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
+pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked this Luna's connection check with a network challenge (a check meant for web browsers, not devices). The secure tunnel may not start until that challenge is turned off for machine requests. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
@@ -33,6 +35,9 @@ const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 pub enum ConnectError {
     #[error("Connect couldn't be reached. Check your internet connection and try again.")]
     Unreachable,
+    /// HTML/gateway challenge (e.g. Cloudflare managed challenge) — not an authentic unbind.
+    #[error("{msg}", msg = CONNECT_CHALLENGED_MSG)]
+    GatewayChallenge,
     #[error("That name is already in use. Pick another.")]
     Conflict,
     #[error("{msg}", msg = DEVICE_TOKEN_REJECTED_MSG)]
@@ -74,8 +79,8 @@ pub struct ConnectService {
     active_tunnel_token: Arc<Mutex<Option<String>>>,
     /// Sticky until a later poll succeeds or the token is replaced/removed.
     rejected_token: Mutex<bool>,
-    /// Sticky while polls fail with Unreachable.
-    connect_unreachable: Mutex<bool>,
+    /// Sticky user-facing reachability/challenge message while a device token is present.
+    connect_unreachable: Mutex<Option<&'static str>>,
     local_port: u16,
 }
 
@@ -95,7 +100,7 @@ impl ConnectService {
             child: Arc::new(Mutex::new(None)),
             active_tunnel_token: Arc::new(Mutex::new(None)),
             rejected_token: Mutex::new(false),
-            connect_unreachable: Mutex::new(false),
+            connect_unreachable: Mutex::new(None),
             local_port: 8090,
         }
     }
@@ -254,7 +259,7 @@ impl ConnectService {
         }
         let _ = std::fs::remove_file(&self.legacy_token_path);
         self.set_rejected_token(false);
-        self.set_connect_unreachable(false);
+        self.clear_connect_unreachable();
         Ok(())
     }
 
@@ -401,7 +406,8 @@ impl ConnectService {
     }
 
     /// Pull Connect status with the permanent device token. Call on boot and on the poll loop.
-    /// Returns true when bound (200). On 403 unbound, clears local claim state but keeps the token file.
+    /// Returns true when bound (200). On authentic JSON 403 unbound, clears local claim state but
+    /// keeps the token file. Cloudflare/HTML gateway challenges keep the claim and set a sticky error.
     pub fn poll_status(&self) -> bool {
         if !self.has_valid_device_code() {
             return false;
@@ -412,7 +418,7 @@ impl ConnectService {
         match self.call_device_status(&code) {
             Ok(remote) => {
                 self.set_rejected_token(false);
-                self.set_connect_unreachable(false);
+                self.clear_connect_unreachable();
                 let mut state = self.load();
                 if let Some(h) = remote.get("hostname") {
                     state["hostname"] = h.clone();
@@ -440,18 +446,22 @@ impl ConnectService {
             }
             Err(ConnectError::Other(msg)) if msg.contains("403") || msg.contains("unbound") => {
                 self.set_rejected_token(false);
-                self.set_connect_unreachable(false);
+                self.clear_connect_unreachable();
                 self.clear_claim_keep_code();
                 false
             }
             Err(ConnectError::InvalidToken) => {
                 self.set_rejected_token(true);
-                self.set_connect_unreachable(false);
+                self.clear_connect_unreachable();
                 self.stop_tunnel();
                 false
             }
+            Err(ConnectError::GatewayChallenge) => {
+                self.set_connect_unreachable(CONNECT_CHALLENGED_MSG);
+                false
+            }
             Err(ConnectError::Unreachable) => {
-                self.set_connect_unreachable(true);
+                self.set_connect_unreachable(CONNECT_UNREACHABLE_MSG);
                 false
             }
             Err(_) => false,
@@ -497,7 +507,7 @@ impl ConnectService {
         let _ = std::fs::remove_file(&self.token_path);
         let _ = std::fs::remove_file(&self.legacy_token_path);
         self.set_rejected_token(false);
-        self.set_connect_unreachable(false);
+        self.clear_connect_unreachable();
         Ok(())
     }
 
@@ -613,11 +623,7 @@ impl ConnectService {
         if !self.has_valid_device_code() {
             return None;
         }
-        if self.connect_unreachable() {
-            Some(CONNECT_UNREACHABLE_MSG.to_string())
-        } else {
-            None
-        }
+        self.connect_unreachable_msg().map(str::to_string)
     }
 
     fn token_file_present(&self) -> bool {
@@ -642,18 +648,25 @@ impl ConnectService {
             .unwrap_or_else(|e| e.into_inner()) = rejected;
     }
 
-    fn connect_unreachable(&self) -> bool {
+    fn connect_unreachable_msg(&self) -> Option<&'static str> {
         *self
             .connect_unreachable
             .lock()
             .unwrap_or_else(|e| e.into_inner())
     }
 
-    fn set_connect_unreachable(&self, unreachable: bool) {
+    fn set_connect_unreachable(&self, msg: &'static str) {
         *self
             .connect_unreachable
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = unreachable;
+            .unwrap_or_else(|e| e.into_inner()) = Some(msg);
+    }
+
+    fn clear_connect_unreachable(&self) {
+        *self
+            .connect_unreachable
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
@@ -821,23 +834,48 @@ impl ConnectService {
             self.base_url.trim_end_matches('/'),
             "/api/v1/status"
         );
-        let mut req = ureq::get(&url).header("Authorization", format!("Bearer {code}"));
+        // http_status_as_error(false): read body/headers on 4xx so we can distinguish
+        // Cloudflare managed challenges from authentic Connect unbound JSON.
+        let mut req = ureq::get(&url)
+            .config()
+            .http_status_as_error(false)
+            .build()
+            .header("Authorization", format!("Bearer {code}"));
         if self.local_port > 0 {
             req = req.header("X-Luna-Local-Port", self.local_port.to_string());
         }
         let mut response = match req.call() {
             Ok(r) => r,
-            Err(ureq::Error::StatusCode(401)) => {
-                return Err(ConnectError::InvalidToken);
-            }
-            Err(ureq::Error::StatusCode(403)) => {
-                return Err(ConnectError::Other("403 unbound".into()));
-            }
             Err(e) => return Err(map_transport_error(e)),
         };
-        response
-            .body_mut()
-            .read_json::<Value>()
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let cf_mitigated = response
+            .headers()
+            .get("cf-mitigated")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let body = response.body_mut().read_to_string().unwrap_or_default();
+        if status == 401 {
+            return Err(ConnectError::InvalidToken);
+        }
+        if status == 403 {
+            return Err(classify_403(
+                status,
+                &content_type,
+                &body,
+                cf_mitigated.as_deref(),
+            ));
+        }
+        if !(200..300).contains(&status) {
+            return Err(ConnectError::Unreachable);
+        }
+        serde_json::from_str(&body)
             .map_err(|_| ConnectError::Other("Connect sent a reply Luna couldn't read.".into()))
     }
 
@@ -883,8 +921,8 @@ impl ConnectService {
         self.call_json_status(method, path, key, body)
     }
 
-    /// Like call_json, but maps HTTP 403 to `ConnectError::Other("403 unbound")` so callers
-    /// can clear local tunnel state after an unbind.
+    /// Like call_json, but maps authentic Connect JSON 403 to `ConnectError::Other("403 unbound")`
+    /// and Cloudflare/HTML challenges to `GatewayChallenge` (keep local claim).
     fn call_json_status(
         &self,
         method: &str,
@@ -894,23 +932,30 @@ impl ConnectService {
     ) -> Result<Value, ConnectError> {
         let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
         let auth = key.map(|k| format!("Bearer {k}"));
+        // Allow reading non-2xx bodies (CF challenge HTML vs Connect JSON).
         let result = match (method, body) {
             ("GET", _) => {
-                let mut req = ureq::get(&url);
+                let mut req = ureq::get(&url).config().http_status_as_error(false).build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
                 req.call()
             }
             ("POST", Some(body)) => {
-                let mut req = ureq::post(&url);
+                let mut req = ureq::post(&url)
+                    .config()
+                    .http_status_as_error(false)
+                    .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
                 req.send_json(body)
             }
             ("POST", None) => {
-                let mut req = ureq::post(&url);
+                let mut req = ureq::post(&url)
+                    .config()
+                    .http_status_as_error(false)
+                    .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
@@ -920,14 +965,36 @@ impl ConnectService {
         };
         let mut response = match result {
             Ok(r) => r,
-            Err(ureq::Error::StatusCode(403)) => {
-                return Err(ConnectError::Other("403 unbound".into()));
-            }
             Err(e) => return Err(map_transport_error(e)),
         };
-        response
-            .body_mut()
-            .read_json::<Value>()
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let cf_mitigated = response
+            .headers()
+            .get("cf-mitigated")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let body_text = response.body_mut().read_to_string().unwrap_or_default();
+        if status == 401 {
+            return Err(ConnectError::InvalidToken);
+        }
+        if status == 403 {
+            return Err(classify_403(
+                status,
+                &content_type,
+                &body_text,
+                cf_mitigated.as_deref(),
+            ));
+        }
+        if !(200..300).contains(&status) {
+            return Err(map_transport_error(ureq::Error::StatusCode(status)));
+        }
+        serde_json::from_str(&body_text)
             .map_err(|_| ConnectError::Other("Connect sent a reply Luna couldn't read.".into()))
     }
 
@@ -968,6 +1035,56 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
         ureq::Error::StatusCode(409) => ConnectError::Conflict,
         _ => ConnectError::Unreachable,
     }
+}
+
+/// Classify an HTTP 403 from Connect or a fronting gateway.
+/// Authentic Connect unbind is JSON. Cloudflare managed challenges are HTML (+ cf-mitigated).
+fn classify_403(
+    status: u16,
+    content_type: &str,
+    body: &str,
+    cf_mitigated: Option<&str>,
+) -> ConnectError {
+    if looks_like_cf_challenge(status, content_type, body, cf_mitigated) {
+        return ConnectError::GatewayChallenge;
+    }
+    if is_json_connect_body(content_type, body) {
+        return ConnectError::Other("403 unbound".into());
+    }
+    // Non-JSON gateway block (WAF plain text, empty body, etc.) — keep local claim.
+    ConnectError::Unreachable
+}
+
+fn is_json_connect_body(content_type: &str, body: &str) -> bool {
+    let ct = content_type.to_ascii_lowercase();
+    if ct.contains("application/json") || ct.contains("+json") {
+        return true;
+    }
+    body.trim_start().starts_with('{')
+}
+
+/// True when an HTTP reply looks like a Cloudflare managed JS challenge (not Connect JSON).
+fn looks_like_cf_challenge(
+    status: u16,
+    content_type: &str,
+    body: &str,
+    cf_mitigated: Option<&str>,
+) -> bool {
+    if !(status == 403 || status == 503) {
+        return false;
+    }
+    if cf_mitigated.is_some_and(|v| v.eq_ignore_ascii_case("challenge")) {
+        return true;
+    }
+    let ct = content_type.to_ascii_lowercase();
+    if ct.contains("text/html") {
+        return true;
+    }
+    let lower = body.to_ascii_lowercase();
+    lower.contains("just a moment")
+        || lower.contains("challenges.cloudflare.com")
+        || lower.contains("cf-browser-verification")
+        || lower.contains("cdn-cgi/challenge-platform")
 }
 
 /// Crockford base32 without I, L, O, U (same alphabet as Luna Connect).
@@ -1250,22 +1367,54 @@ mod tests {
     }
 
     fn serve_once(status: u16, body: &str) -> String {
+        serve_raw(status, "application/json", body, &[])
+    }
+
+    fn serve_raw(
+        status: u16,
+        content_type: &str,
+        body: &str,
+        extra_headers: &[(&str, &str)],
+    ) -> String {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let body = body.to_string();
+        let content_type = content_type.to_string();
+        let extra: Vec<(String, String)> = extra_headers
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
         std::thread::spawn(move || {
             if let Ok((mut stream, _)) = listener.accept() {
                 let mut buf = [0u8; 2048];
                 let _ = stream.read(&mut buf);
-                let resp = format!(
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                let mut resp = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n",
                     body.len()
                 );
+                for (k, v) in &extra {
+                    resp.push_str(&format!("{k}: {v}\r\n"));
+                }
+                resp.push_str("\r\n");
+                resp.push_str(&body);
                 let _ = stream.write_all(resp.as_bytes());
             }
         });
         format!("http://{addr}")
+    }
+
+    fn seed_claim(service: &ConnectService) {
+        service
+            .save(&json!({
+                "hostname": "repro.luna.servers.libreloom.org",
+                "subdomain": "repro",
+                "tunnel_token": "mock-preexisting-tunnel-token",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        assert!(service.state_path.is_file());
     }
 
     #[test]
@@ -1305,6 +1454,141 @@ mod tests {
             Some(DEVICE_TOKEN_REJECTED_MSG)
         );
         assert!(st.setup_code.is_none());
+    }
+
+    #[test]
+    fn poll_403_json_unbound_clears_claim() {
+        let url = serve_once(403, "{\"error\":\"unbound\"}");
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        seed_claim(&service);
+        assert!(!service.poll_status());
+        assert!(
+            !service.state_path.is_file(),
+            "authentic Connect unbound must clear connect.json"
+        );
+        assert!(service.status().device_token_error.is_none());
+        assert!(service.status().connect_unreachable.is_none());
+        assert!(dir.path().join(DEVICE_TOKEN_FILE).is_file());
+    }
+
+    #[test]
+    fn poll_403_cf_challenge_keeps_claim_and_sets_sticky() {
+        let html = "<!DOCTYPE html><html><head><title>Just a moment...</title></head>\
+            <body class=\"cf-browser-verification\">Just a moment...\
+            <script src=\"https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page\"></script>\
+            </body></html>";
+        let url = serve_raw(
+            403,
+            "text/html; charset=UTF-8",
+            html,
+            &[("cf-mitigated", "challenge")],
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        seed_claim(&service);
+        assert!(!service.poll_status());
+        assert!(
+            service.state_path.is_file(),
+            "CF challenge must not wipe connect.json"
+        );
+        let st = service.status();
+        assert_eq!(
+            st.connect_unreachable.as_deref(),
+            Some(CONNECT_CHALLENGED_MSG)
+        );
+        assert!(st.device_token_error.is_none());
+        let state = service.load();
+        assert_eq!(
+            state.get("tunnel_token").and_then(|v| v.as_str()),
+            Some("mock-preexisting-tunnel-token")
+        );
+    }
+
+    #[test]
+    fn poll_403_non_json_gateway_keeps_claim_as_unreachable() {
+        let url = serve_raw(403, "text/plain", "blocked by gateway", &[]);
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        seed_claim(&service);
+        assert!(!service.poll_status());
+        assert!(service.state_path.is_file());
+        assert_eq!(
+            service.status().connect_unreachable.as_deref(),
+            Some(CONNECT_UNREACHABLE_MSG)
+        );
+    }
+
+    #[test]
+    fn poll_200_bound_applies_tunnel_token() {
+        let url = serve_once(
+            200,
+            r#"{"hostname":"repro.luna.servers.libreloom.org","subdomain":"repro","tunnel_token":"mock-repro-tunnel-token","backup_unlocked":false,"paired":true,"bound":true}"#,
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(service.poll_status());
+        let st = service.status();
+        assert!(st.enabled);
+        assert_eq!(
+            st.hostname.as_deref(),
+            Some("repro.luna.servers.libreloom.org")
+        );
+        assert!(st.connect_unreachable.is_none());
+        let state = service.load();
+        assert_eq!(
+            state.get("tunnel_token").and_then(|v| v.as_str()),
+            Some("mock-repro-tunnel-token")
+        );
+        assert!(service.tunnel_ready());
+    }
+
+    #[test]
+    fn looks_like_cf_challenge_detects_markers() {
+        assert!(looks_like_cf_challenge(
+            403,
+            "text/html",
+            "Just a moment...",
+            Some("challenge")
+        ));
+        assert!(looks_like_cf_challenge(
+            403,
+            "application/octet-stream",
+            "cdn-cgi/challenge-platform",
+            None
+        ));
+        assert!(!looks_like_cf_challenge(
+            403,
+            "application/json",
+            "{\"error\":\"unbound\"}",
+            None
+        ));
+        assert!(!looks_like_cf_challenge(
+            200,
+            "text/html",
+            "Just a moment...",
+            Some("challenge")
+        ));
+    }
+
+    #[test]
+    fn classify_403_distinguishes_challenge_from_unbound() {
+        match classify_403(403, "text/html", "Just a moment...", Some("challenge")) {
+            ConnectError::GatewayChallenge => {}
+            other => panic!("expected GatewayChallenge, got {other:?}"),
+        }
+        match classify_403(403, "application/json", "{\"error\":\"unbound\"}", None) {
+            ConnectError::Other(msg) => assert!(msg.contains("unbound")),
+            other => panic!("expected unbound Other, got {other:?}"),
+        }
+        match classify_403(403, "text/plain", "nope", None) {
+            ConnectError::Unreachable => {}
+            other => panic!("expected Unreachable, got {other:?}"),
+        }
     }
 
     #[test]
