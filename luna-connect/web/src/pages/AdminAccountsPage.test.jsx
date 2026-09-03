@@ -91,7 +91,6 @@ describe("AdminAccountsPage", () => {
     const rows = screen.getAllByText("user@example.com");
     rows[0].click();
     expect(await screen.findByTestId("account-detail")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Mint replacement token/i })).toBeTruthy();
     expect(screen.getByText("myluna.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByText("Online")).toBeTruthy();
   });

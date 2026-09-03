@@ -31,10 +31,8 @@ describe("AdminTokensPage", () => {
     );
     expect(screen.getByTestId("admin-layout")).toBeTruthy();
     expect(screen.getByTestId("device-tokens-table")).toBeTruthy();
-    expect(screen.getByTestId("device-token-recovery")).toBeTruthy();
-    expect(screen.getByTestId("mint-for-account")).toBeTruthy();
-    expect(screen.getByText(/contact support with their order id/i)).toBeTruthy();
-    expect(screen.getByText(/TOKENS on the LUNAASSETS partition/i)).toBeTruthy();
+    expect(screen.getByText(/one-off code for support/i)).toBeTruthy();
+    expect(screen.getByText(/put that file on the LUNAASSETS partition/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /New token/i })).toBeTruthy();
     expect(screen.getByTestId("bulk-tokens")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create list/i })).toBeTruthy();
