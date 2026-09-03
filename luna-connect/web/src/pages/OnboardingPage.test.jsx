@@ -431,6 +431,12 @@ describe("OnboardingPage DIY verify", () => {
     mount("/onboarding");
 
     expect(await screen.findByRole("heading", { name: /Optional cloud backup/i })).toBeTruthy();
+    expect(
+      screen.getByText(/Adding your card allows you to backup files from your Luna to the cloud/i),
+    ).toBeTruthy();
+    expect(screen.getByTestId("backup-pricing-table")).toBeTruthy();
+    expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
+    expect(screen.getByText(/The address stays free if you skip this/i)).toBeTruthy();
     expect(screen.queryByLabelText(/^Name$/i)).toBeNull();
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/devices/dev_bound/domain");
   });

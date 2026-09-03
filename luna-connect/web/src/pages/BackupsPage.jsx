@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Separator } from "../components/ui/separator.jsx";
+import { BackupPricingTable } from "../components/BackupPricingTable.jsx";
 import { InfoHint } from "../components/ui/Tooltip.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -15,58 +16,6 @@ import { BackupBrowser } from "../components/BackupBrowser.jsx";
 function daysUntil(unixSeconds) {
   if (!unixSeconds) return null;
   return Math.max(0, Math.ceil((unixSeconds * 1000 - Date.now()) / 86400000));
-}
-
-const PRICING_ROWS = [
-  { label: "Storage", value: "$8 / terabyte / month", mono: true },
-  { label: "Downloads", value: "Free up to 3× monthly average", mono: false },
-  { label: "Extra download traffic", value: "$0.01 / GB", mono: true },
-];
-
-/** Scannable pricing rows — label left, value right, one line per row. */
-function PricingSummary({ surface = "secondary" }) {
-  return (
-    <section className="space-y-3" aria-labelledby="backup-pricing-heading">
-      <div className="flex items-center gap-2">
-        <h4 id="backup-pricing-heading" className="font-mono text-xs uppercase tracking-widest text-foreground">
-          Pricing
-        </h4>
-        <InfoHint
-          surface={surface}
-          delayMs={0}
-          label="How cloud backup pricing works"
-          content="We bill from your average storage over the month, not a single day. Downloads are free up to three times that monthly average; extra download traffic costs $0.01 per GB."
-        />
-      </div>
-      <div
-        className="overflow-x-auto rounded-large-element border border-border"
-        data-testid="backup-pricing-table"
-      >
-        <table className="w-full text-sm">
-          <tbody>
-            {PRICING_ROWS.map((row, index) => (
-              <tr
-                key={row.label}
-                className={index < PRICING_ROWS.length - 1 ? "border-b border-border" : ""}
-              >
-                <th
-                  scope="row"
-                  className="px-4 py-3 text-left font-normal align-middle whitespace-nowrap"
-                >
-                  {row.label}
-                </th>
-                <td
-                  className={`px-4 py-3 text-right align-middle ${row.mono ? "font-mono whitespace-nowrap" : ""}`}
-                >
-                  {row.value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
 }
 
 /** Von Restorff — current cost stands out from pricing details. */
@@ -285,7 +234,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
             <h4 id="backup-reactivate-heading" className="font-mono text-xs uppercase tracking-widest">
               Turn payment back on
             </h4>
-            <PricingSummary />
+            <BackupPricingTable />
             {addCard}
           </section>
           {error && <p className="text-sm text-error">{error}</p>}
@@ -302,7 +251,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
           <p className="text-sm leading-relaxed">
             Add a payment card so we can store a cloud backup of your files off-site.
           </p>
-          <PricingSummary />
+          <BackupPricingTable />
           <Separator />
           {addCard}
           {error && <p className="text-sm text-error">{error}</p>}
@@ -320,7 +269,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
         </CardHeader>
         <CardContent className="space-y-5">
           <MonthlyCostHighlight amount={me.estimated_month} />
-          <PricingSummary />
+          <BackupPricingTable />
           <Separator />
           <CancelPaymentSection
             confirmCancel={confirmCancel}
