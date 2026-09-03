@@ -108,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let connect = state.connect.clone();
         let data_dir = cfg.data_dir.clone();
+        let db = state.db.clone();
         std::thread::Builder::new()
             .name("luna-console-help".into())
             .spawn(move || {
@@ -119,19 +120,88 @@ async fn main() -> anyhow::Result<()> {
                         &proc_route,
                     );
                     let st = connect.status();
+                    let mut problems: Vec<String> = Vec::new();
+
+                    if let Some(err) = st.device_token_error.clone() {
+                        problems.push(err);
+                    }
+                    if let Some(err) = st.connect_unreachable.clone() {
+                        problems.push(err);
+                    }
+                    if st.connect_active
+                        && st.enabled
+                        && st.hostname.is_some()
+                        && !st.tunnel_active
+                        && st.device_token_error.is_none()
+                    {
+                        problems.push(
+                            "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying."
+                                .into(),
+                        );
+                    }
+
+                    if !net.ethernet_connected {
+                        problems.push(
+                            "No ethernet cable detected. Plug Luna into your router or modem with the included RJ45 (ethernet) cable."
+                                .into(),
+                        );
+                    } else if net.ipv4.is_empty() {
+                        problems.push(
+                            "Waiting for a network address from your router or modem.".into(),
+                        );
+                    } else if !net.has_default_route {
+                        problems.push(
+                            "This Luna has a network address, but no path out to the internet. Check the router or modem."
+                                .into(),
+                        );
+                    }
+
+                    if let Ok(conn) = db.lock() {
+                        let preflight = lunad::system_health::run_preflight(&data_dir, &conn);
+                        let mut preflight_errors: Vec<_> = preflight
+                            .checks
+                            .into_iter()
+                            .filter(|(_, c)| c.status != "ok")
+                            .filter_map(|(_, c)| c.error)
+                            .collect();
+                        preflight_errors.sort();
+                        problems.extend(preflight_errors);
+
+                        if let Ok(drives) = lunad::db::list_drives(&conn) {
+                            for drive in drives {
+                                match drive.state.as_str() {
+                                    "readonly" => problems.push(format!(
+                                        "Drive \"{}\" can be read but not written. Check the cable or try another port.",
+                                        drive.label
+                                    )),
+                                    "missing" => problems.push(format!(
+                                        "Drive \"{}\" is missing. Plug it back in.",
+                                        drive.label
+                                    )),
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+
+                    // Keep problem list short enough for a small HDMI screen.
+                    problems.truncate(6);
+
                     let snap = lunad::console::ConsoleSnapshot {
                         ipv4: net.ipv4.clone(),
                         cable_in: net.ethernet_connected,
+                        has_default_route: net.has_default_route,
                         setup_code: st.setup_code.clone(),
                         connect_hostname: st.hostname.clone(),
                         unclaimed: st.unclaimed,
+                        problems,
                     };
                     let text = lunad::console::help_text(&snap);
                     if text != last {
                         let _ = lunad::console::write_issue(&data_dir, &snap);
                         last = text;
                     }
-                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    std::thread::sleep(std::time::Duration::from_secs(2));
                 }
             })
             .ok();

@@ -46,6 +46,10 @@ tracing-subscriber.workspace = true
 name = "inject-mock-pssd-exif"
 path = "src/bin/inject-mock-pssd-exif.rs"
 
+[[bin]]
+name = "luna-console"
+path = "src/bin/luna-console.rs"
+
 [dev-dependencies]
 tempfile = "3"
 minisign = "0.7"

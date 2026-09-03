@@ -73,8 +73,12 @@ assert_file_has "$BUILD" 'cloudflared' \
 	"rootfs must ship cloudflared so Luna Connect tunnels can start"
 assert_file_has "$BUILD" 'PATH=/usr/local/sbin:/usr/local/bin' \
 	"lunad OpenRC service must include /usr/local/bin in PATH for cloudflared"
-assert_file_has "$BUILD" 'tty1::respawn:/sbin/getty -f /var/lib/luna/issue' \
-	"rootfs must enable tty1 getty with issue file on LUNA_DATA"
+assert_file_has "$BUILD" 'tty1::respawn:/usr/local/bin/luna-console' \
+	"rootfs must run luna-console on tty1 instead of stock getty"
+assert_file_has "$BUILD" 'install -m 0755 "$CONSOLE_BIN" "$ROOTFS/usr/local/bin/luna-console"' \
+	"rootfs build must install luna-console next to lunad"
+assert_file_lacks "$BUILD" 'tty1::respawn:/sbin/getty' \
+	"rootfs must not respawn BusyBox getty on tty1"
 assert_file_has "$BUILD" 'luna-pwreset' \
 	"rootfs must ship luna-pwreset as the pwreset login shell"
 assert_file_has "$BUILD" 'pwreset:x:1001' \
