@@ -10,34 +10,24 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../co
 import { Sun, Moon } from "lucide-react";
 
 export default function AdminLogin() {
-  const { login, seedAdmin, loading } = useAdminAuth();
+  const { login, loading } = useAdminAuth();
   const { toggle } = useTheme();
   const navigate = useNavigate();
-  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [needs2FA, setNeeds2FA] = useState(false);
   const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
 
   useEffect(() => {
-    // Ensure CSRF cookie exists before login/seed POSTs.
+    // Ensure CSRF cookie exists before login POSTs.
     fetch("/api/v1/config", { credentials: "include" }).catch(() => {});
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setInfo("");
     try {
-      if (mode === "seed") {
-        await seedAdmin(email, password, name);
-        setMode("login");
-        setInfo("Admin account created. Sign in to continue.");
-        return;
-      }
       const res = await login(email, password, totpCode);
       if (res.requires_2fa) {
         setNeeds2FA(true);
@@ -67,21 +57,13 @@ export default function AdminLogin() {
           <CardDescription>
             {needs2FA
               ? "Enter your authenticator code to continue."
-              : mode === "seed"
-                ? "Create the first admin account."
-                : "Sign in to mint device tokens and manage this Connect."}
+              : "Sign in to mint device tokens and manage this Connect."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!needs2FA && (
               <>
-                {mode === "seed" && (
-                  <div>
-                    <Label htmlFor="name">Name</Label>
-                    <Input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-                  </div>
-                )}
                 <div>
                   <Label htmlFor="email">Email</Label>
                   <Input
@@ -102,7 +84,7 @@ export default function AdminLogin() {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"}
+                      placeholder="Enter your password"
                       required
                     />
                   </div>
@@ -127,37 +109,10 @@ export default function AdminLogin() {
               </ShakeTarget>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
-            {info && <p className="text-sm text-muted-foreground">{info}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
-              {needs2FA ? "Verify" : mode === "seed" ? "Create admin" : "Sign in"}
+              {needs2FA ? "Verify" : "Sign in"}
             </Button>
           </form>
-          {mode === "login" && !needs2FA && (
-            <button
-              type="button"
-              onClick={() => {
-                setMode("seed");
-                setError("");
-                setInfo("");
-              }}
-              className="mt-4 w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              First time? Create the first admin account
-            </button>
-          )}
-          {mode === "seed" && (
-            <button
-              type="button"
-              onClick={() => {
-                setMode("login");
-                setError("");
-                setInfo("");
-              }}
-              className="mt-4 w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Back to sign in
-            </button>
-          )}
         </CardContent>
       </Card>
     </div>
