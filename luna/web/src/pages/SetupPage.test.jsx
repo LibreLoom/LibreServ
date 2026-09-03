@@ -28,13 +28,27 @@ function stubFetch({
   setup = { name: "Luna", setup_completed: false, current_step: "welcome", step_data: {} },
   hasAdmin = false,
   connectActive = false,
+  connect = /** @type {Record<string, unknown>} */ ({}),
+  me = null,
 } = {}) {
   return vi.fn(async (url, init) => {
     const u = String(url);
     const method = (init?.method || "GET").toUpperCase();
-    if (u.includes("/auth/me")) return jsonResponse({}, 401);
+    if (u.includes("/auth/me")) {
+      if (me) return jsonResponse(me);
+      return jsonResponse({}, 401);
+    }
     if (u.includes("/auth/status")) {
       return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive });
+    }
+    if (u.includes("/api/v1/connect/status")) {
+      return jsonResponse({
+        connect_active: connectActive,
+        enabled: Boolean(connect.hostname || connect.domain),
+        hostname: null,
+        domain: null,
+        ...connect,
+      });
     }
     if (u.includes("/api/v1/setup/preflight")) return jsonResponse(healthyPreflight());
     if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
@@ -94,7 +108,8 @@ describe("SetupPage", () => {
     expect(screen.getByText(/get Luna set up for you/i)).toBeTruthy();
     expect(screen.queryByText("luna.local")).toBeNull();
     expect(screen.queryByText("192.168.1.20")).toBeNull();
-    expect(screen.queryByText(/current address on the screen/i)).toBeNull();
+    expect(screen.queryByText(/On your home internet only/i)).toBeNull();
+    expect(screen.queryByText(/Everywhere/i)).toBeNull();
     expect(screen.queryByText("http://luna")).toBeNull();
     expect(screen.queryByText("http://169.254.42.42")).toBeNull();
     expect(screen.queryByText(/Luna Setup/i)).toBeNull();
