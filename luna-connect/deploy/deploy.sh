@@ -571,8 +571,13 @@ main() {
     cd "$REPO_ROOT"
 
     if [ "$want_latest_tag" -eq 1 ] || { [ -n "$ref" ] && [ "$ref" != "HEAD" ]; }; then
-        log_info "Fetching luna-connect-v* tags from origin..."
-        git fetch --tags origin
+        # Host tags often diverge from origin (moved/retagged). Default fetch refuses
+        # to clobber them and exits non-zero under set -e — force luna-connect tags.
+        log_info "Fetching luna-connect-v* tags from origin (force)..."
+        if ! git fetch origin --force 'refs/tags/luna-connect-v*:refs/tags/luna-connect-v*'; then
+            log_error "Failed to fetch luna-connect-v* tags from origin"
+            exit 1
+        fi
     fi
 
     local resolved mode tag_name
