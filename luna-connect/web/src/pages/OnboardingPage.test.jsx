@@ -772,7 +772,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
-    expect(screen.getByText(/Waiting for Luna to come online and your address to respond/i)).toBeTruthy();
+    expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Complete setup on Luna/i })).toBeNull();
   });
 
@@ -833,6 +833,6 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
-    expect(screen.queryByText(/Waiting for Luna to come online/i)).toBeNull();
+    expect(screen.queryByText(/^Waiting…$/)).toBeNull();
   });
 });

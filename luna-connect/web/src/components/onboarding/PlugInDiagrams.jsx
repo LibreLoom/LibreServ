@@ -1,45 +1,120 @@
-/** Simple line-art: barrel plug and cable into an RJ45-style port. */
+/** US Type A/B power plug: plug body, two flat blades, round ground pin. */
 export function PowerPlugDiagram({ className = "" }) {
   return (
     <svg
-      viewBox="0 0 120 80"
+      viewBox="0 0 80 80"
       className={className}
       role="img"
-      aria-label="Power cable plugged into Luna"
+      aria-label="US power plug"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="8" y="28" width="44" height="24" rx="6" stroke="currentColor" strokeWidth="2" />
-      <path d="M52 40h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <rect x="70" y="22" width="42" height="36" rx="8" stroke="currentColor" strokeWidth="2" />
-      <circle cx="82" cy="40" r="3" fill="currentColor" />
-      <path d="M20 52v14M36 52v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      {/* Cable stub */}
+      <path d="M40 6v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      {/* Plug body */}
+      <rect
+        x="20"
+        y="14"
+        width="40"
+        height="28"
+        rx="7"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      {/* NEMA flat blades */}
+      <rect
+        x="28"
+        y="42"
+        width="6"
+        height="24"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <rect
+        x="46"
+        y="42"
+        width="6"
+        height="24"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      {/* Round ground pin (longer tip) */}
+      <line
+        x1="40"
+        y1="42"
+        x2="40"
+        y2="68"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      <circle cx="40" cy="70" r="3" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
 
-/** Simple line-art: RJ45 plug and ethernet cable. */
+/** RJ45 ethernet port: face-on jack with latch notch and eight contacts. */
 export function EthernetDiagram({ className = "" }) {
+  // Eight contact positions across the jack opening (evenly spaced).
+  const pins = [26, 31, 36, 41, 46, 51, 56, 61];
   return (
     <svg
-      viewBox="0 0 120 80"
+      viewBox="0 0 80 80"
       className={className}
       role="img"
-      aria-label="RJ45 ethernet cable plugged into Luna"
+      aria-label="RJ45 ethernet port"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
+      {/* Device faceplate */}
+      <rect
+        x="8"
+        y="18"
+        width="64"
+        height="44"
+        rx="6"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      {/* Jack opening */}
+      <rect
+        x="18"
+        y="28"
+        width="44"
+        height="24"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      {/* Top latch / keying notch */}
       <path
-        d="M8 34h28l6 12h20l6-12h28"
+        d="M34 28v4h12v-4"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
-      <rect x="34" y="46" width="52" height="10" rx="2" stroke="currentColor" strokeWidth="2" />
-      <path d="M42 50h4M50 50h4M58 50h4M66 50h4M74 50h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M8 34v-10M98 34v-10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <rect x="70" y="18" width="42" height="36" rx="8" stroke="currentColor" strokeWidth="2" />
-      <rect x="82" y="30" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+      {/* Left keying shoulder */}
+      <path
+        d="M18 34h6v8h-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      {/* Contact pins inside the opening */}
+      {pins.map((x, i) => (
+        <line
+          key={x}
+          x1={x}
+          y1={48}
+          x2={x}
+          y2={i % 2 === 0 ? 44 : 45.5}
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      ))}
     </svg>
   );
 }
