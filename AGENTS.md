@@ -234,7 +234,7 @@ Before ANY UI work:
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git
-- Two-way sync is enabled between Forgejo, GitHub, and GitLab. All git objects sync (commits, branches, tags, deletes) — change one remote and the others follow. Do not repeat the same push/delete on every forge.
+- **One forge only.** Forgejo (`gt.plainskill.net`), GitHub, and GitLab stay in sync automatically (commits, branches, tags, and deletes). Push, tag, or delete on **whichever remote this checkout already uses** (usually `origin` as Cursor provisioned it) and stop. **Never** also push/tag/delete the same change on Forgejo, GitHub, or GitLab “to be safe” — duplicate pushes fight the sync. If another forge looks behind, wait for sync; do not dual-push.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
 - Branch naming: `feat/{desc}`, `fix/{desc}`, `docs/{desc}`, `chore/{desc}`
 
