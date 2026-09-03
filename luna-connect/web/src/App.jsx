@@ -51,7 +51,7 @@ function Loading() {
 }
 
 export default function App() {
-  const { isAuthenticated, ready, me } = useAuth();
+  const { isAuthenticated, ready } = useAuth();
   const { isAuthenticated: adminAuthed } = useAdminAuth();
   return (
     <Suspense fallback={<Loading />}>
@@ -66,9 +66,9 @@ export default function App() {
           element={
             !ready
               ? <Loading />
-              : isAuthenticated && me?.email_verified
+              : isAuthenticated
                 ? <LunaPage />
-                : <Navigate to="/onboarding" replace />
+                : <Navigate to="/login" replace />
           }
         />
         <Route path="/backups" element={<Protected><BackupsPage /></Protected>} />
