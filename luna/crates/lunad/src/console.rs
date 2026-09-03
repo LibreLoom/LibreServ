@@ -90,21 +90,34 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  Plug the included RJ45 (ethernet) cable from Luna".into());
         lines.push("  into a LAN port on your router or modem.".into());
     }
+    let token_problem = snap.problems.iter().any(|p| {
+        p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")
+    });
+
     if !snap.ipv4.is_empty() {
         if snap.cable_in && !snap.has_default_route {
             lines.push("  This Luna has an address, but no path to the wider internet.".into());
             lines.push("  Check the router or modem, then wait a moment.".into());
         }
-        lines.push("  On your phone or laptop (stay on home internet):".into());
-        for ip in &snap.ipv4 {
-            lines.push(format!("    http://{ip}"));
-        }
-        lines.push("    luna.local  — if your phone finds it".into());
     }
 
-    let token_problem = snap.problems.iter().any(|p| {
-        p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")
-    });
+    // How to open Luna: Everywhere (when remote is configured), then home LAN.
+    let show_remote = !token_problem && snap.connect_hostname.is_some();
+    let show_home = !snap.ipv4.is_empty() || show_remote;
+    if show_remote {
+        if let Some(host) = &snap.connect_hostname {
+            lines.push("  Everywhere:".into());
+            lines.push(format!("    {host}"));
+            lines.push(String::new());
+        }
+    }
+    if show_home {
+        lines.push("  On your home internet only:".into());
+        lines.push("    luna.local".into());
+        for ip in &snap.ipv4 {
+            lines.push(format!("    {ip}"));
+        }
+    }
 
     if !token_problem
         && snap.unclaimed
@@ -114,11 +127,6 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  Device code (purchased from LibreLoom):".into());
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
-    }
-    if !token_problem && let Some(host) = &snap.connect_hostname {
-        lines.push(String::new());
-        lines.push("  Away from home:".into());
-        lines.push(format!("    https://{host}"));
     }
 
     lines.push(String::new());
@@ -220,8 +228,29 @@ mod tests {
         assert!(text.contains("almost full"));
         assert!(text.contains("Drive Photos"));
         let problem_at = text.find("What's wrong:").unwrap();
-        let open_at = text.find("On your phone").unwrap();
+        let open_at = text.find("On your home internet only:").unwrap();
         assert!(problem_at < open_at);
+    }
+
+    #[test]
+    fn remote_hostname_listed_under_everywhere() {
+        let text = help_text(&ConsoleSnapshot {
+            ipv4: vec!["192.168.1.20".into()],
+            cable_in: true,
+            has_default_route: true,
+            connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
+            ..Default::default()
+        });
+        let everywhere_at = text.find("Everywhere:").unwrap();
+        let home_at = text.find("On your home internet only:").unwrap();
+        let host_at = text.find("photos.luna.servers.libreloom.org").unwrap();
+        let local_at = text.find("luna.local").unwrap();
+        assert!(everywhere_at < host_at);
+        assert!(host_at < home_at);
+        assert!(home_at < local_at);
+        assert!(!text.contains("Away from home"));
+        assert!(!text.contains("https://"));
+        assert!(!text.contains("http://"));
     }
 
     #[test]

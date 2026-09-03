@@ -1,8 +1,7 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowRight, Cable, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson, setSetupToken, clearSetupToken, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
@@ -20,6 +19,7 @@ import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import useLabelErrorState from "../hooks/useLabelErrorState";
 import PreflightStep from "../components/setup/PreflightStep.jsx";
+import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -148,42 +148,6 @@ function LogoMark({ size = 64 }) {
   );
 }
 LogoMark.propTypes = { size: PropTypes.number };
-
-/** Where to find Luna after install. Phone stays on home internet. */
-function DiscoveryPaths({ name = "Luna" }) {
-  const netStatus = useQuery({
-    queryKey: ["network-status"],
-    queryFn: () => getJson("/api/v1/network/status"),
-    refetchInterval: 3000,
-    retry: false,
-  });
-  const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
-  const label = name || "Luna";
-  return (
-    <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left">
-      <p className="text-xs text-secondary mb-3">
-        Stay on your home internet. You can find {label} at:
-      </p>
-      <ul className="space-y-2.5 text-xs">
-        <li className="flex items-center gap-2.5">
-          <Cable size={14} className="text-secondary shrink-0" />
-          <span className="font-mono text-secondary shrink-0">luna.local</span>
-          <span className="text-secondary">— if your phone finds it</span>
-        </li>
-        {ipv4.map((ip) => (
-          <li key={ip} className="flex items-center gap-2.5">
-            <Check size={14} className="text-secondary shrink-0" />
-            <span className="font-mono text-secondary shrink-0">{ip}</span>
-            <span className="text-secondary">— current address on the screen</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-DiscoveryPaths.propTypes = {
-  name: PropTypes.string,
-};
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
 // Content-only: SetupPage renders the persistent shell (SetupShell + SetupCard
@@ -834,7 +798,7 @@ function DoneStep({ name, onGoDrives }) {
         </p>
 
         {/* Discovery paths — where to find Luna after setup */}
-        <DiscoveryPaths name={label} />
+        <DiscoveryPaths />
 
         <div className="mt-8 animate-in fade-in duration-300 delay-400">
           <Button
