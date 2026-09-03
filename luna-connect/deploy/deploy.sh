@@ -8,10 +8,12 @@ set -euo pipefail
 # time (touch drain file → /healthz 503 → wait for Caddy to drop it → stop).
 #
 # IMPORTANT — what gets deployed (always built from source; never Forgejo release assets):
-#   On main with no flags: git pull --ff-only origin main, then build that checkout.
-#   --head: git checkout main, pull origin/main, then build (works from any branch).
-#   --no-pull: build current checkout without pulling (warns if main is behind origin).
-#   --branch NAME: checkout NAME, pull origin/NAME when it exists, then build.
+#   Remote refs always clobber the host checkout (reset --hard + clean -fd). Local dirt,
+#   divergent commits, and leftover build artifacts do not win over --head/--branch/--tag.
+#   On main with no flags: hard-reset to origin/main, then build.
+#   --head: hard-reset to origin/main from any starting branch, then build.
+#   --no-pull: build current checkout without fetching (warns if main is behind origin).
+#   --branch NAME: hard-reset to origin/NAME when it exists, then build.
 #   Off main with no flags: refuses (prevents accidental tag deploys / detached HEAD).
 #   Use --tag or --latest-tag only when you intentionally want a tagged release.
 #
@@ -43,24 +45,24 @@ Luna Connect — Zero-Downtime Deploy (blue/green via Caddy)
 
 Usage (from repo root, as root):
   sudo ./luna-connect/deploy/deploy.sh
-      On main: pull origin/main, then build (recommended production path).
+      On main: hard-reset to origin/main, then build (recommended production path).
       Off main: error — use --head, --branch, --no-pull, or --tag explicitly.
 
   sudo ./luna-connect/deploy/deploy.sh --head
-      Checkout main, pull origin/main, then build (from any starting branch).
+      Hard-reset to origin/main from any starting branch, then build.
 
   sudo ./luna-connect/deploy/deploy.sh --no-pull
-      Build current checkout without pulling (any branch).
+      Build current checkout without fetching (any branch).
 
   sudo ./luna-connect/deploy/deploy.sh --branch NAME
-      Checkout NAME, pull origin/NAME when it exists, then build.
+      Hard-reset to origin/NAME when it exists, then build.
 
   sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
-      Deploy a specific release tag.
+      Hard-reset to that release tag (clobbers host checkout), then build.
 
   sudo ./luna-connect/deploy/deploy.sh --latest-tag
   sudo ./luna-connect/deploy/deploy.sh --allow-old-tag
-      Deploy the newest luna-connect-v* tag (even when main is ahead).
+      Hard-reset to the newest luna-connect-v* tag, then build.
 
 Options:
   --force    Recovery / degraded deploy — skip preflight and peer health gates.
@@ -153,8 +155,39 @@ warn_if_main_behind_origin() {
     local behind
     behind="$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)"
     if [ "${behind:-0}" -gt 0 ]; then
-        log_warn "main is ${behind} commit(s) behind origin/main — run: git pull origin main"
+        log_warn "main is ${behind} commit(s) behind origin/main — deploy with --head to clobber to origin/main"
     fi
+}
+
+# Discard host dirt and make HEAD exactly match commitish (branch tip, tag, or SHA).
+clobber_to_ref() {
+    local ref="$1"
+    local branch=""
+    log_info "Clobbering checkout to ${ref} (reset --hard + clean -fd)..."
+    if ! git rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1; then
+        log_error "Ref not found after fetch: ${ref}"
+        exit 1
+    fi
+    case "$ref" in
+        origin/*)
+            # Keep a real local branch named after the remote tip (not detached HEAD).
+            branch="${ref#origin/}"
+            git checkout -f -B "$branch" "$ref"
+            ;;
+        *)
+            if git show-ref --verify --quiet "refs/heads/${ref}" 2>/dev/null; then
+                git checkout -f -B "$ref" "$ref"
+            elif git show-ref --verify --quiet "refs/remotes/origin/${ref}" 2>/dev/null; then
+                git checkout -f -B "$ref" "origin/${ref}"
+            else
+                # Tag or raw SHA → detached HEAD is fine for tagged deploys.
+                git checkout -f "$ref"
+            fi
+            ;;
+    esac
+    git reset --hard "$ref"
+    git clean -fd
+    log_info "Checkout is now $(git rev-parse --short HEAD) ($(git describe --tags --always --dirty 2>/dev/null || true))"
 }
 
 checkout_main() {
@@ -162,40 +195,51 @@ checkout_main() {
     branch="$(current_branch_name)"
     if [ "$branch" != "main" ]; then
         log_info "Checking out main..."
-        git checkout main
+        git checkout -f main
     fi
 }
 
-pull_branch_from_origin() {
+# Fetch origin/branch and hard-reset local branch to it (clobbers local commits/dirt).
+clobber_branch_from_origin() {
     local branch="$1"
-    if ! git rev-parse --verify "origin/${branch}" >/dev/null 2>&1; then
-        log_warn "origin/${branch} not found — deploying local ${branch} checkout as-is"
-        return 0
-    fi
-    log_info "Pulling latest ${branch} from origin..."
-    git fetch origin "$branch"
-    if ! git merge --ff-only "origin/${branch}"; then
-        log_error "Cannot fast-forward ${branch} to origin/${branch} — resolve locally, then retry"
+    log_info "Fetching origin/${branch}..."
+    if ! git fetch origin "$branch"; then
+        log_error "git fetch origin ${branch} failed"
         exit 1
     fi
+    if ! git rev-parse --verify "origin/${branch}" >/dev/null 2>&1; then
+        log_warn "origin/${branch} not found — deploying local ${branch} checkout as-is"
+        git checkout -f "$branch" 2>/dev/null || git checkout -f -B "$branch"
+        git clean -fd
+        return 0
+    fi
+    clobber_to_ref "origin/${branch}"
 }
 
-# Prepare the branch to build: checkout (--head/--branch), then pull unless --no-pull.
+# Prepare the branch to build: hard-reset to origin (--head/--branch) unless --no-pull.
 sync_head_checkout() {
     local no_pull="${1:-0}" want_main="${2:-0}" deploy_branch="${3:-}"
 
     if [ -n "$deploy_branch" ]; then
-        log_info "Checking out ${deploy_branch}..."
-        git fetch origin "$deploy_branch" 2>/dev/null || true
-        git checkout "$deploy_branch"
-        if [ "$no_pull" -eq 0 ]; then
-            pull_branch_from_origin "$deploy_branch"
+        if [ "$no_pull" -eq 1 ]; then
+            log_info "Checking out local ${deploy_branch} (--no-pull)..."
+            git checkout -f "$deploy_branch"
+            git clean -fd
+            return 0
         fi
+        clobber_branch_from_origin "$deploy_branch"
         return 0
     fi
 
     if [ "$want_main" -eq 1 ]; then
-        checkout_main
+        if [ "$no_pull" -eq 1 ]; then
+            checkout_main
+            git clean -fd
+            warn_if_main_behind_origin
+            return 0
+        fi
+        clobber_branch_from_origin "main"
+        return 0
     fi
 
     local branch
@@ -207,24 +251,25 @@ sync_head_checkout() {
         warn_if_main_behind_origin
         return 0
     fi
-    pull_branch_from_origin "main"
+    clobber_branch_from_origin "main"
 }
 
 announce_deploy_target() {
     local mode="$1" ref_name="${2:-}"
-    local short_commit branch
+    local short_commit full_commit branch
     short_commit="$(git rev-parse --short HEAD)"
+    full_commit="$(git rev-parse HEAD)"
     case "$mode" in
         head)
             branch="$(current_branch_name)"
             if [ -n "$branch" ]; then
-                log_info "Deploying ${branch} at commit ${short_commit}"
+                log_info "Deploying ${branch} at ${short_commit} (${full_commit})"
             else
-                log_info "Deploying HEAD at commit ${short_commit}"
+                log_info "Deploying HEAD at ${short_commit} (${full_commit})"
             fi
             ;;
         tag)
-            log_info "Deploying tag ${ref_name} at commit ${short_commit}"
+            log_info "Deploying tag ${ref_name} at ${short_commit} (${full_commit})"
             ;;
     esac
 }
@@ -233,11 +278,15 @@ checkout_deploy_ref() {
     local mode="$1" ref_name="${2:-}"
     case "$mode" in
         head)
-            # Stay on current checkout; no checkout needed.
+            # sync_head_checkout already clobbered to origin/branch.
             ;;
         tag)
-            git checkout -f "$ref_name"
-            git clean -fd luna-connect/web/ >/dev/null 2>&1 || true
+            # Force-update the local tag from origin in case it was moved/repushed.
+            log_info "Fetching tag ${ref_name} from origin (force)..."
+            git fetch origin "refs/tags/${ref_name}:refs/tags/${ref_name}" --force 2>/dev/null \
+                || git fetch origin tag "$ref_name" --force 2>/dev/null \
+                || true
+            clobber_to_ref "$ref_name"
             ;;
         *)
             log_error "Internal error: unknown deploy mode ${mode}"
