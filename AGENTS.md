@@ -234,7 +234,10 @@ Before ANY UI work:
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git
-- **One forge only.** Forgejo (`gt.plainskill.net`), GitHub, and GitLab stay in sync automatically (commits, branches, tags, and deletes). Push, tag, or delete on **whichever remote this checkout already uses** (usually `origin` as Cursor provisioned it) and stop. **Never** also push/tag/delete the same change on Forgejo, GitHub, or GitLab “to be safe” — duplicate pushes fight the sync. If another forge looks behind, wait for sync; do not dual-push.
+- **Push to one forge only.** This repo mirrors across Forgejo (`gt.plainskill.net`), GitHub, and GitLab. Every commit, branch, tag, and delete on one forge is copied to the others.
+- Agents and local checkouts must use **only** the remote already configured as `origin` (whatever Cursor or the host provisioned). Push once there, then stop.
+- **Do not** push, tag, or delete the same change on a second forge “so it shows up faster.” That races the mirror and can break sync.
+- If Forgejo (or another forge) looks behind after a GitHub push, **wait for the mirror** — do not dual-push to catch it up. Host deploys that pull Forgejo can use `deploy.sh --head` until a tag arrives.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
 - Branch naming: `feat/{desc}`, `fix/{desc}`, `docs/{desc}`, `chore/{desc}`
 
