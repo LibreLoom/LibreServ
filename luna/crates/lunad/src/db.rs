@@ -289,6 +289,30 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
     Ok(())
 }
 
+/// Update kernel device name (and optionally mount point) together with state.
+/// Used when a stick returns under a new `/dev/sdX` name but the same `.luna` id.
+pub fn update_drive_placement(
+    conn: &Connection,
+    id: &str,
+    device: &str,
+    mount_point: Option<&str>,
+    state: &str,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    if let Some(mp) = mount_point {
+        conn.execute(
+            "UPDATE drives SET device = ?2, mount_point = ?3, state = ?4, updated_at = ?5 WHERE id = ?1",
+            params![id, device, mp, state, now],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE drives SET device = ?2, state = ?3, updated_at = ?4 WHERE id = ?1",
+            params![id, device, state, now],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
     conn.execute("DELETE FROM drives WHERE id = ?1", params![id])?;
     Ok(())
