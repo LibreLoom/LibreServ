@@ -200,6 +200,122 @@ pub fn file_path(
     Ok((path, meta))
 }
 
+/// Cap how many files a folder zip may include (walk DoS guard).
+pub const ZIP_MAX_FILES: usize = 50_000;
+
+/// Basename used inside a folder zip and for the `.zip` download name.
+pub fn zip_archive_basename(rel: &str) -> String {
+    let trimmed = rel.trim_matches('/');
+    if trimmed.is_empty() {
+        return "drive".into();
+    }
+    let base = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    let cleaned = content_disposition_filename(base);
+    if cleaned == "download" {
+        "folder".into()
+    } else {
+        cleaned
+    }
+}
+
+fn normalize_zip_rel(path: &str) -> String {
+    path.trim().replace('\\', "/").trim_matches('/').to_string()
+}
+
+/// Write a zip of `rel` (a folder) into `writer`.
+///
+/// Paths inside the archive are rooted at the folder name (or `drive/` for the
+/// drive root). Symlinks and Luna internal folders are skipped. `include_rel`
+/// receives each drive-relative path and may exclude entries the caller
+/// cannot browse.
+pub fn write_folder_zip(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    writer: impl std::io::Write + std::io::Seek,
+    mut include_rel: impl FnMut(&str) -> bool,
+) -> Result<usize, FilesError> {
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    let (folder, meta) = resolve_any(conn, drive_id, rel)?;
+    if !meta.is_dir() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a directory",
+        )));
+    }
+
+    let archive_root = zip_archive_basename(rel);
+    let mut zip = ZipWriter::new(writer);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut file_count = 0usize;
+    // (absolute dir, path inside zip, drive-relative dir)
+    let mut stack = vec![(folder, archive_root.clone(), normalize_zip_rel(rel))];
+
+    zip.add_directory(format!("{archive_root}/"), options)
+        .map_err(|e| FilesError::Io(std::io::Error::other(e)))?;
+
+    while let Some((abs_dir, zip_prefix, drive_rel)) = stack.pop() {
+        let read = std::fs::read_dir(&abs_dir).map_err(FilesError::Io)?;
+        for entry in read {
+            let entry = entry.map_err(FilesError::Io)?;
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else {
+                continue;
+            };
+            if is_internal_temp(name) {
+                continue;
+            }
+            let child_rel = if drive_rel.is_empty() {
+                name.to_string()
+            } else {
+                format!("{drive_rel}/{name}")
+            };
+            if !include_rel(&child_rel) {
+                continue;
+            }
+            let meta = std::fs::symlink_metadata(entry.path()).map_err(FilesError::Io)?;
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            let zip_path = format!("{zip_prefix}/{name}");
+            if meta.is_dir() {
+                zip.add_directory(format!("{zip_path}/"), options)
+                    .map_err(|e| FilesError::Io(std::io::Error::other(e)))?;
+                stack.push((entry.path(), zip_path, child_rel));
+                continue;
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            if file_count >= ZIP_MAX_FILES {
+                return Err(FilesError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "folder too large to download as a zip",
+                )));
+            }
+            zip.start_file(&zip_path, options)
+                .map_err(|e| FilesError::Io(std::io::Error::other(e)))?;
+            let mut input = std::fs::File::open(entry.path()).map_err(FilesError::Io)?;
+            let mut buf = vec![0u8; 64 * 1024];
+            loop {
+                let n = input.read(&mut buf).map_err(FilesError::Io)?;
+                if n == 0 {
+                    break;
+                }
+                zip.write_all(&buf[..n]).map_err(FilesError::Io)?;
+            }
+            file_count += 1;
+        }
+    }
+
+    zip.finish()
+        .map_err(|e| FilesError::Io(std::io::Error::other(e)))?;
+    Ok(file_count)
+}
+
 /// Destination directory for a new file.
 pub fn dest_dir(
     conn: &rusqlite::Connection,
@@ -1144,5 +1260,57 @@ mod tests {
         install_temp(&temp, &dest, false).unwrap();
         assert!(!temp.exists());
         assert_eq!(std::fs::read(&dest).unwrap(), b"webm-bytes");
+    }
+
+    #[test]
+    fn folder_zip_includes_nested_files_and_skips_internal() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        std::fs::create_dir_all(root.join("album/day")).unwrap();
+        std::fs::write(root.join("album/day/beach.jpg"), b"photo").unwrap();
+        std::fs::write(root.join("album/note.txt"), b"hi").unwrap();
+        std::fs::create_dir_all(root.join("album/.luna-trash")).unwrap();
+        std::fs::write(root.join("album/.luna-trash/x"), b"no").unwrap();
+
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let count = write_folder_zip(&conn, &id, "album", &mut buf, |_| true).unwrap();
+        assert_eq!(count, 2);
+        let bytes = buf.into_inner();
+        assert!(bytes.starts_with(b"PK"));
+
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+        names.sort();
+        assert!(names.iter().any(|n| n == "album/"));
+        assert!(names.iter().any(|n| n == "album/day/" || n == "album/day"));
+        assert!(names.iter().any(|n| n == "album/day/beach.jpg"));
+        assert!(names.iter().any(|n| n == "album/note.txt"));
+        assert!(!names.iter().any(|n| n.contains(".luna-trash")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn folder_zip_skips_symlinks() {
+        use std::os::unix::fs::symlink;
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        let outside = _dir.path().join("outside");
+        std::fs::create_dir_all(root.join("album")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("album/keep.txt"), b"keep").unwrap();
+        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
+        symlink(&outside, root.join("album/link")).unwrap();
+
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let count = write_folder_zip(&conn, &id, "album", &mut buf, |_| true).unwrap();
+        assert_eq!(count, 1);
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(buf.into_inner())).unwrap();
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(names.iter().any(|n| n == "album/keep.txt"));
+        assert!(!names.iter().any(|n| n.contains("secret") || n.contains("link")));
     }
 }

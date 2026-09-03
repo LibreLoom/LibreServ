@@ -41,6 +41,8 @@ getrandom.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+zip.workspace = true
+tempfile = "3"
 
 [[bin]]
 name = "inject-mock-pssd-exif"
@@ -51,5 +53,4 @@ name = "luna-console"
 path = "src/bin/luna-console.rs"
 
 [dev-dependencies]
-tempfile = "3"
 minisign = "0.7"

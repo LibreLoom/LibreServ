@@ -181,6 +181,31 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
   });
 
+  it("offers download for files and folders in the row toolbar", async () => {
+    stubFilesApi({
+      "": [
+        { name: "album", kind: "dir", size: 0, modified: 0, hidden: false },
+        { name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false },
+      ],
+    });
+    renderFiles();
+    expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    const fileDownload = screen.getByRole("link", { name: "Download photo.jpg" });
+    expect(fileDownload).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=photo.jpg&download=1",
+    );
+    const folderDownload = screen.getByRole("link", { name: "Download album" });
+    expect(folderDownload).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=album&download=1",
+    );
+    expect(screen.getByRole("link", { name: "Download Photos Drive" })).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=&download=1",
+    );
+  });
+
   it("opens a folder from the address bar and keeps the address in sync", async () => {
     stubFilesApi({
       album: [{ name: "vacation", kind: "dir", size: 0, modified: 0, hidden: false }],
