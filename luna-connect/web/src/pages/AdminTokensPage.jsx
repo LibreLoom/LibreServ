@@ -52,10 +52,6 @@ export default function AdminTokensPage() {
   const [revokeBusy, setRevokeBusy] = useState("");
   const [purgeBusy, setPurgeBusy] = useState("");
   const [filter, setFilter] = useState("all");
-  const [supportAccountId, setSupportAccountId] = useState("");
-  const [supportToken, setSupportToken] = useState("");
-  const [supportMintBusy, setSupportMintBusy] = useState(false);
-
   const loadTokens = useCallback(async (all = false) => {
     setListError("");
     setListLoading(true);
@@ -121,62 +117,8 @@ export default function AdminTokensPage() {
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
       <p className="text-muted-foreground mb-8">
-        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or support replacements. The public OS image ships without a token. Full codes are shown only at mint time — after that this table keeps a short hint, status, linked account, and address when set.
+        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or a one-off code for support. The public OS image ships without a token. Full codes are shown only at mint time — after that this table keeps a short hint, status, linked account, and address when set.
       </p>
-
-      <Card className="mb-6" data-testid="device-token-recovery">
-        <CardHeader>
-          <CardTitle>Lost token before setup</CardTitle>
-          <CardDescription>
-            Owners who already finished setup can mint a replacement on their Luna Connect page. Use this admin page when there is no account yet, or the token was lost before first setup. The owner should contact support with their order ID. Paste the replacement on Luna during setup, or add a line to TOKENS on the LUNAASSETS partition of the installer USB.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      <Card className="mb-6" data-testid="mint-for-account">
-        <CardHeader>
-          <CardTitle>Mint for customer account</CardTitle>
-          <CardDescription>
-            Paste a customer account ID from the Accounts page. The token is tracked with that ID in order reference — give the full code to the customer once.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 max-w-lg">
-          <div>
-            <Label htmlFor="support-account-id">Customer account ID</Label>
-            <Input
-              id="support-account-id"
-              value={supportAccountId}
-              onChange={(e) => setSupportAccountId(e.target.value)}
-              placeholder="acct_..."
-            />
-          </div>
-          <Button
-            loading={supportMintBusy}
-            disabled={!supportAccountId.trim()}
-            onClick={async () => {
-              setError("");
-              setSupportMintBusy(true);
-              try {
-                const data = await adminApi("/admin/setup-tokens", {
-                  method: "POST",
-                  body: JSON.stringify({ order_ref: `support:${supportAccountId.trim()}` }),
-                });
-                setSupportToken(data.code || "");
-                await loadTokens(listAll);
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setSupportMintBusy(false);
-              }
-            }}
-          >
-            Mint token
-          </Button>
-          {supportToken && (
-            <p className="font-mono text-xl tracking-widest break-all">{supportToken}</p>
-          )}
-        </CardContent>
-      </Card>
 
       <Card className="mb-6">
         <CardHeader>
