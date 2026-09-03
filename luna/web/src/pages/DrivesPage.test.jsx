@@ -53,6 +53,14 @@ function stubDrivesApi(extra = {}) {
     if (u.endsWith("/drives/detected")) {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/api/v1/connect/status")) {
+      return new Response(JSON.stringify({
+        backup_unlocked: Boolean(extra.backupUnlocked),
+        backup_sources: [],
+        connect_active: Boolean(extra.backupUnlocked),
+        enabled: Boolean(extra.backupUnlocked),
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/summary")) {
       return new Response(JSON.stringify({
         id: "d1",

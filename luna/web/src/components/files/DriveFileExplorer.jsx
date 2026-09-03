@@ -9,6 +9,7 @@ import CreateNameModal from "./CreateNameModal.jsx";
 import NewItemMenu from "./NewItemMenu.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
+import useCanProtect from "../../hooks/useCanProtect.js";
 import ModalCard from "../cards/ModalCard.jsx";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
@@ -219,6 +220,8 @@ export default function DriveFileExplorer({
     queryFn: () => getJson("/api/v1/grants"),
     enabled: !isAdmin,
   });
+  const protectAvailable = useCanProtect();
+  const showProtect = isAdmin && protectAvailable;
   const folderWritable = isAdmin || canWriteOnPath(grants.data, driveId, path);
   const trashVisible = isAdmin || hasWriteOnDrive(grants.data, driveId);
 
@@ -553,7 +556,7 @@ export default function DriveFileExplorer({
                 kind: path ? "folder" : "drive",
               })}
             />
-            {isAdmin && (
+            {showProtect && (
               <ProtectButton
                 label={path || driveLabel || "this folder"}
                 onClick={() => setProtectTarget({ path })}
@@ -572,7 +575,7 @@ export default function DriveFileExplorer({
                   kind: ctx.entry.kind === "dir" ? "folder" : "file",
                 })}
               />
-              {isAdmin && ctx.entry.kind === "dir" && (
+              {showProtect && ctx.entry.kind === "dir" && (
                 <ProtectButton
                   label={ctx.entry.name}
                   onClick={() => setProtectTarget({ path: ctx.fullPath })}

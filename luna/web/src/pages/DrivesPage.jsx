@@ -17,6 +17,7 @@ import CollapsibleSection from "../components/common/CollapsibleSection";
 import ValueDisplay from "../components/common/ValueDisplay";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import useCanProtect from "../hooks/useCanProtect";
 import FileSearch from "../components/files/FileSearch";
 import Spinner from "../components/ui/Spinner.jsx";
 import { InfoHint, TermHint } from "../components/ui/Tooltip";
@@ -368,6 +369,7 @@ export default function DrivesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
+  const protectAvailable = useCanProtect();
   /** Frontend-only fallback mock can be dismissed without calling lunad. */
   const [dismissedMock, setDismissedMock] = useState(false);
   const unknownDrives = withDevMockDetected(detected.data).filter(
@@ -509,7 +511,7 @@ export default function DrivesPage() {
               ejecting={eject.isPending}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
-              onProtect={(d) => setProtectingDrive({ id: d.id, path: "" })}
+              onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
             />
           ))}
         </div>
