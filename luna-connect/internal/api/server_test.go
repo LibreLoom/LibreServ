@@ -108,6 +108,12 @@ func TestSecurityHeaders(t *testing.T) {
 	if !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Fatalf("csp %s", csp)
 	}
+	if !strings.Contains(csp, "https://static.cloudflareinsights.com") {
+		t.Fatalf("csp missing cloudflare insights: %s", csp)
+	}
+	if !strings.Contains(csp, "script-src 'self' https://js.stripe.com https://static.cloudflareinsights.com") {
+		t.Fatalf("csp script-src: %s", csp)
+	}
 }
 
 func TestHealthzSoftDrain(t *testing.T) {

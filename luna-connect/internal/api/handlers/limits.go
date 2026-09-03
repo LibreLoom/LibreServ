@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"context"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"database/sql"
 	"net/http"
 	"strings"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 )
 
 func allowGuess(db *database.DB, key string, max int, windowSec int64) bool {
@@ -15,56 +16,52 @@ func allowGuess(db *database.DB, key string, max int, windowSec int64) bool {
 		return false
 	}
 	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return false
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			_ = tx.Rollback()
 		}
 	}()
 	now := time.Now().Unix()
 	var count, start, last int64
-	err = conn.QueryRowContext(ctx, `SELECT count, start, last FROM guess_attempts WHERE key = ?`, key).Scan(&count, &start, &last)
+	err = tx.QueryRow(`SELECT count, start, last FROM guess_attempts WHERE key = ?`, key).Scan(&count, &start, &last)
 	if err != nil {
-		if _, err := conn.ExecContext(ctx, `INSERT INTO guess_attempts (key, count, start, last) VALUES (?, 1, ?, ?)`, key, now, now); err != nil {
+		if _, err := tx.Exec(`INSERT INTO guess_attempts (key, count, start, last) VALUES (?, 1, ?, ?)`, key, now, now); err != nil {
 			return false
 		}
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return false
 		}
 		committed = true
 		return true
 	}
 	if now-start >= windowSec {
-		if _, err := conn.ExecContext(ctx, `UPDATE guess_attempts SET count = 1, start = ?, last = ? WHERE key = ?`, now, now, key); err != nil {
+		if _, err := tx.Exec(`UPDATE guess_attempts SET count = 1, start = ?, last = ? WHERE key = ?`, now, now, key); err != nil {
 			return false
 		}
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return false
 		}
 		committed = true
 		return true
 	}
 	if count >= int64(max) {
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return false
 		}
 		committed = true
 		return false
 	}
-	res, err := conn.ExecContext(ctx, `UPDATE guess_attempts SET count = count + 1, last = ? WHERE key = ? AND count < ?`, now, key, max)
+	res, err := tx.Exec(`UPDATE guess_attempts SET count = count + 1, last = ? WHERE key = ? AND count < ?`, now, key, max)
 	if err != nil {
 		return false
 	}
 	n, _ := res.RowsAffected()
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if err := tx.Commit(); err != nil {
 		return false
 	}
 	committed = true
@@ -98,56 +95,52 @@ func allowAuthAttempt(db *database.DB, ip, email string, max int, windowSec int6
 	}
 	key := authAttemptKey(ip, email)
 	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return false
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			_ = tx.Rollback()
 		}
 	}()
 	now := time.Now().Unix()
 	var count, start int64
-	err = conn.QueryRowContext(ctx, `SELECT count, start FROM register_attempts WHERE ip = ?`, key).Scan(&count, &start)
+	err = tx.QueryRow(`SELECT count, start FROM register_attempts WHERE ip = ?`, key).Scan(&count, &start)
 	if err != nil {
-		if _, err := conn.ExecContext(ctx, `INSERT INTO register_attempts (ip, count, start) VALUES (?, 1, ?)`, key, now); err != nil {
+		if _, err := tx.Exec(`INSERT INTO register_attempts (ip, count, start) VALUES (?, 1, ?)`, key, now); err != nil {
 			return false
 		}
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return false
 		}
 		committed = true
 		return true
 	}
 	if now-start >= windowSec {
-		if _, err := conn.ExecContext(ctx, `UPDATE register_attempts SET count = 1, start = ? WHERE ip = ?`, now, key); err != nil {
+		if _, err := tx.Exec(`UPDATE register_attempts SET count = 1, start = ? WHERE ip = ?`, now, key); err != nil {
 			return false
 		}
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return false
 		}
 		committed = true
 		return true
 	}
 	if count >= int64(max) {
-		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		if err := tx.Commit(); err != nil {
 			return false
 		}
 		committed = true
 		return false
 	}
-	res, err := conn.ExecContext(ctx, `UPDATE register_attempts SET count = count + 1 WHERE ip = ? AND count < ? AND start = ?`, key, max, start)
+	res, err := tx.Exec(`UPDATE register_attempts SET count = count + 1 WHERE ip = ? AND count < ? AND start = ?`, key, max, start)
 	if err != nil {
 		return false
 	}
 	n, _ := res.RowsAffected()
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if err := tx.Commit(); err != nil {
 		return false
 	}
 	committed = true
@@ -164,6 +157,9 @@ func authBlocked(db *database.DB, ip, email string, max int, windowSec int64) bo
 	var count, start int64
 	err := db.QueryRowContext(ctx, `SELECT count, start FROM register_attempts WHERE ip = ?`, key).Scan(&count, &start)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return false
+		}
 		return false
 	}
 	if time.Now().Unix()-start >= windowSec {
