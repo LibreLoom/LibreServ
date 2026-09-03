@@ -24,6 +24,7 @@ import { EthernetDiagram, PowerPlugDiagram } from "../components/onboarding/Plug
 import { Button } from "../components/ui/button.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
+import { BackupPricingTable } from "../components/BackupPricingTable.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -1204,11 +1205,10 @@ export default function OnboardingPage() {
 
   const renderBackup = () => (
     <StepShell icon={HardDrive} title="Optional cloud backup">
-      <p className="text-sm text-foreground leading-relaxed mb-8 text-pretty">
-        Cloud backup costs $8 per terabyte each month, based on your average storage over the month.
-        Downloads are free up to three times that average; extra download traffic costs $0.01 per GB.
-        The address stays free if you skip this.
+      <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty">
+        Adding your card allows you to backup files from your Luna to the cloud.
       </p>
+      <BackupPricingTable className="mb-6" />
       {stripeLooksConfigured(me) ? (
         <VerifyHumanCard
           account={me}
@@ -1259,10 +1259,13 @@ export default function OnboardingPage() {
           Turn on cloud backup
         </Button>
       )}
+      <p className="text-xs text-muted-foreground text-center mt-6 mb-2">
+        The address stays free if you skip this.
+      </p>
       <Button
         variant="outline"
         size="lg"
-        className="w-full mt-3"
+        className="w-full"
         onClick={async () => {
           setError("");
           try {
