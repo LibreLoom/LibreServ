@@ -57,17 +57,19 @@ describe("AccessAddressesCard", () => {
     ).toBeTruthy();
     expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
     expect(screen.getByDisplayValue("http://192.168.1.20")).toBeTruthy();
+    expect(screen.queryByText(/Type one of these addresses/i)).toBeNull();
+    expect(screen.queryByText(/friendly name/i)).toBeNull();
   });
 
-  it("explains when there is no public address yet", async () => {
+  it("shows a short empty state when there is no public address", async () => {
     renderCard(stubFetch({ connect: { enabled: false } }));
 
-    expect(await screen.findByText(/No public address yet/i)).toBeTruthy();
+    expect(await screen.findByText("None yet")).toBeTruthy();
     expect(screen.queryByDisplayValue(/^https:\/\//)).toBeNull();
     expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
   });
 
-  it("explains a missing network address when the cable is out", async () => {
+  it("shows a short empty state when the cable is out", async () => {
     renderCard(
       stubFetch({
         network: {
@@ -78,9 +80,7 @@ describe("AccessAddressesCard", () => {
       }),
     );
 
-    expect(
-      await screen.findByText(/Plug Luna into your router or modem/i),
-    ).toBeTruthy();
+    expect(await screen.findByText("Not plugged in")).toBeTruthy();
     expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
   });
 });
