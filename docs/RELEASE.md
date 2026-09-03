@@ -17,7 +17,7 @@ for this document’s signing model.
 | Command | `./release.sh` | `./release.sh --luna` |
 | Tag / title | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` |
 | Default CI | `./ci run -profile libreserv` | `./ci run -profile luna` |
-| Assets | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` | `lunad-linux-amd64`, optional `lunad-linux-arm64`, OS cut: `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso`, `luna-desktop-x86_64.flatpak`, `Luna-Desktop-Setup-*-x86_64.exe`, `luna-android.apk`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
+| Assets | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` | `lunad-linux-amd64`, optional `lunad-linux-arm64`, OS cut: `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso.xz`, `luna-desktop-x86_64.flatpak`, `Luna-Desktop-Setup-*-x86_64.exe`, `luna-android.apk`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
 | Public key | [`keys/libreserv.minisign.pub`](../keys/libreserv.minisign.pub) | [`keys/lsluna.minisign.pub`](../keys/lsluna.minisign.pub) |
 | Secret env | `LIBRESERV_RELEASE_MINISIG_PK` + `_PW` | `LSLUNA_RELEASE_MINISIG_PK` + `_PW` |
 | Local secret | `~/.minisign/libreserv.key` | `~/.minisign/lsluna.key` |
@@ -40,10 +40,10 @@ how to recreate a public file from a password-protected secret.
 - **Daemon cut** — ship `lunad-linux-*` (+ checksums). No `luna-os-*`, no ISO.
   Boxes install the binary under `/var/lib/luna/bin/`.
 - **OS cut** — ship `lunad-linux-*`, `luna-os-x86_64.img` (raw A/B slot image),
-  and `luna-rapidinstall-x86_64.iso`. Boxes detect OS need when the release image
-  SHA256 differs from `/var/lib/luna/os-image.sha256` and apply it automatically
-  inside the same Install update (inactive slot + reboot). Factory flash records
-  that hash on `LUNA_DATA`.
+  and `luna-rapidinstall-x86_64.iso.xz` (xz-compressed factory ISO). Boxes detect
+  OS need when the release image SHA256 differs from `/var/lib/luna/os-image.sha256`
+  and apply it automatically inside the same Install update (inactive slot + reboot).
+  Factory flash records that hash on `LUNA_DATA`.
 
 Today `./release.sh --luna` always performs an OS cut.
 
@@ -173,7 +173,8 @@ Use this wording in Luna release **Upgrade Notes**:
 the new `lunad` binary and, when this release includes a newer OS slot image, writes
 it to the inactive slot and reboots.
 
-**Factory install or recovery USB:** Write `luna-rapidinstall-x86_64.iso` to a USB
+**Factory install or recovery USB:** Download `luna-rapidinstall-x86_64.iso.xz`,
+decompress it (`xz -dk luna-rapidinstall-x86_64.iso.xz`), write the ISO to a USB
 stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the
 smallest built-in disk and starts installing after a short countdown — press any key
 during the countdown to choose a different disk.

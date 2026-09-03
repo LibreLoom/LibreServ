@@ -93,7 +93,7 @@ while [ $# -gt 0 ]; do
             echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
             echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
             echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO + Flatpak + Windows + Android"
-            echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso (implied by --luna)"
+            echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso.xz (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
             echo "  --sign-only    Sign SHA256SUMS.txt on an existing release and upload .minisig"
             echo "  --skip-ci      Do not run ./ci (still allowed for pre-releases)"
@@ -543,7 +543,26 @@ build_binaries() {
             rm -rf "$BUILD_DIR"
             exit 1
         fi
+        if ! command -v xz >/dev/null 2>&1; then
+            log_error "xz is required to compress the rapidinstall ISO for release"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        # Ship .iso.xz — raw ISOs are past GitHub's 2 GiB asset cap; xz also
+        # shrinks Forgejo downloads (~2.1 GiB → ~0.8 GiB for current cuts).
+        log_info "Compressing rapidinstall ISO with xz (this can take a few minutes)..."
         cp "$ISO_SRC" "$BUILD_DIR/luna-rapidinstall-x86_64.iso"
+        if ! xz -T0 -6 -f -v "$BUILD_DIR/luna-rapidinstall-x86_64.iso"; then
+            log_error "xz compression of rapidinstall ISO failed"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        if [ ! -f "$BUILD_DIR/luna-rapidinstall-x86_64.iso.xz" ]; then
+            log_error "missing $BUILD_DIR/luna-rapidinstall-x86_64.iso.xz after xz"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        log_info "Rapidinstall ISO compressed: $(du -h "$BUILD_DIR/luna-rapidinstall-x86_64.iso.xz" | cut -f1)"
         LUNAD_MUSL="luna/target/x86_64-unknown-linux-musl/release/lunad"
         if [ ! -x "$LUNAD_MUSL" ]; then
             log_error "missing musl lunad at $LUNAD_MUSL"
@@ -648,7 +667,7 @@ build_binaries() {
 
         log_info "Generating SHA256 checksums..."
         cd "$BUILD_DIR"
-        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso \
+        sha256sum lunad-linux-amd64 luna-os-x86_64.img luna-rapidinstall-x86_64.iso.xz \
             luna-desktop-x86_64.flatpak luna-android.apk \
             "Luna-Desktop-Setup-${WIN_VER}-x86_64.exe" > SHA256SUMS.txt
         cd ..
@@ -790,7 +809,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 - \`lunad-linux-amd64\` — musl daemon binary
 - \`luna-os-x86_64.img\` — A/B slot OS image for OTA
-- \`luna-rapidinstall-x86_64.iso\` — factory USB installer
+- \`luna-rapidinstall-x86_64.iso.xz\` — factory USB installer (xz-compressed ISO)
 - \`luna-desktop-x86_64.flatpak\` — Luna for Linux
 - \`Luna-Desktop-Setup-*-x86_64.exe\` — Luna Desktop (Windows, unsigned test/prerelease installer; SmartScreen may warn)
 - \`luna-android.apk\` — Luna Android photo backup (debug-signed until a release keystore lands)
@@ -800,7 +819,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 **Already running Luna:** Settings → Software updates → Install update. Luna applies the new \`lunad\` binary and, when this release includes a newer OS slot image, writes it to the inactive slot and reboots.
 
-**Factory install or recovery USB:** Write \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
+**Factory install or recovery USB:** Download \`luna-rapidinstall-x86_64.iso.xz\`, decompress it (\`xz -dk luna-rapidinstall-x86_64.iso.xz\`), write the ISO to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
 
 **Luna for Linux:** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
 
@@ -840,8 +859,9 @@ TEMPLATE
 
 <!-- Luna upgrade notes: see docs/RELEASE.md. Rapidinstall does NOT use "install luna".
      In-app: Settings → Software updates → Install update.
-     Factory USB: write ISO to stick, boot (Secure Boot off), countdown auto-installs
-     to smallest built-in disk (press a key during countdown to pick another disk). -->
+     Factory USB: decompress luna-rapidinstall-x86_64.iso.xz, write ISO to stick,
+     boot (Secure Boot off), countdown auto-installs to smallest built-in disk
+     (press a key during countdown to pick another disk). -->
 LUNA_HINT
     fi
     
@@ -988,7 +1008,7 @@ upload_assets() {
         REQUIRED_ASSETS=(
             lunad-linux-amd64
             luna-os-x86_64.img
-            luna-rapidinstall-x86_64.iso
+            luna-rapidinstall-x86_64.iso.xz
             luna-desktop-x86_64.flatpak
             luna-android.apk
             "Luna-Desktop-Setup-${WIN_VER}-x86_64.exe"
