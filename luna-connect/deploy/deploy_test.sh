@@ -79,19 +79,19 @@ run_tests() {
     # shellcheck disable=SC2164
     cd "$repo"
 
-    echo "resolve_deploy_mode on main (default → head)"
-    assert_eq "main default" "head" "$(resolve_deploy_mode "" 0)"
+    echo "resolve_deploy_mode on main (default → latest tag)"
+    assert_eq "main default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0)"
     assert_eq "--head" "head" "$(resolve_deploy_mode "HEAD" 0)"
     assert_eq "--tag explicit" "tag:luna-connect-v0.2.15" "$(resolve_deploy_mode "luna-connect-v0.2.15" 0)"
     assert_eq "--latest-tag" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 1)"
 
     git checkout -q luna-connect-v0.2.15
-    echo "resolve_deploy_mode on detached tag (no flags → error)"
-    assert_fail "detached HEAD refuses" resolve_deploy_mode "" 0
+    echo "resolve_deploy_mode on detached tag (no flags → latest tag)"
+    assert_eq "detached default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0)"
 
     git checkout -q -b feature
-    echo "resolve_deploy_mode on feature branch (no flags → error)"
-    assert_fail "feature branch refuses" resolve_deploy_mode "" 0
+    echo "resolve_deploy_mode on feature branch (no flags → latest tag)"
+    assert_eq "feature default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0)"
     assert_eq "feature --head" "head" "$(resolve_deploy_mode "HEAD" 0)"
     assert_eq "feature --no-pull" "head" "$(resolve_deploy_mode "HEAD" 0)"
 
