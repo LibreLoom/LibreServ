@@ -76,7 +76,7 @@ export default function AdminLogin() {
                     required
                   />
                 </div>
-                <ShakeTarget shake={error}>
+                <ShakeTarget shake={error} loading={loading}>
                   <div>
                     <Label htmlFor="password">Password</Label>
                     <Input
@@ -92,7 +92,7 @@ export default function AdminLogin() {
               </>
             )}
             {needs2FA && (
-              <ShakeTarget shake={error}>
+              <ShakeTarget shake={error} loading={loading}>
                 <div>
                   <Label htmlFor="totp">Authenticator code</Label>
                   <Input

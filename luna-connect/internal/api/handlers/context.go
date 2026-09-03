@@ -81,14 +81,19 @@ type Deps struct {
 func ClientIP(r *http.Request) string {
 	remote := remoteHost(r.RemoteAddr)
 	if trustedProxy(remote) {
+		// Cloudflare sets this to the real client; Caddy on loopback passes it through.
+		// Prefer it over XFF so we do not bucket everyone on the edge/proxy IP.
+		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+			return stripPort(cf)
+		}
+		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+			return stripPort(xri)
+		}
 		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
 			parts := strings.Split(xff, ",")
 			if ip := strings.TrimSpace(parts[0]); ip != "" {
 				return stripPort(ip)
 			}
-		}
-		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
-			return stripPort(xri)
 		}
 	}
 	if remote != "" {
@@ -114,7 +119,8 @@ func stripPort(addr string) string {
 
 func trustedProxy(ip string) bool {
 	parsed := net.ParseIP(strings.Trim(ip, "[]"))
-	return parsed != nil && parsed.IsLoopback()
+	// Loopback (Caddy on the same host) or private (docker/LAN proxy hop).
+	return parsed != nil && (parsed.IsLoopback() || parsed.IsPrivate())
 }
 
 func deviceOnline(lastSeen sql.NullInt64, now int64) bool {
