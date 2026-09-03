@@ -197,8 +197,10 @@ export default function GalleryPage() {
     !search &&
     !place &&
     !albumView;
+  // Favorites empty state must not wait on background indexing (`looking`).
+  // Indexing can stay busy for a while with zero favorites, which used to
+  // leave this tab blank while Library showed "Looking through your drives".
   const noFavorites =
-    !looking &&
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
@@ -355,7 +357,7 @@ export default function GalleryPage() {
       {noFavorites && (
         <EmptyState
           icon={ImageIcon}
-          title="No favorites yet"
+          title="You have no favorites yet :("
           description="Open a photo and tap the heart to save it here."
         />
       )}
@@ -395,6 +397,7 @@ export default function GalleryPage() {
       {activeSegment === "places" && !place && (
         <PlacesMap
           places={places.data || []}
+          loading={places.isLoading}
           onSelect={(p) => {
             setPlace(p);
           }}
