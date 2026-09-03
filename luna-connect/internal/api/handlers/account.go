@@ -36,7 +36,8 @@ func (h AccountHandler) CheckEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !allowAuthAttempt(h.DB, ClientIP(r), email, authAttemptMax, authAttemptWindow) {
+	// Separate from register/login — onboarding calls this before create and must not burn that bucket.
+	if !allowGuess(h.DB, "email-check:"+ClientIP(r), 60, authAttemptWindow) {
 		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
 		return
 	}
@@ -64,15 +65,18 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !allowAuthAttempt(h.DB, ClientIP(r), email, authAttemptMax, authAttemptWindow) {
+	ip := ClientIP(r)
+	if authBlocked(h.DB, ip, email, authAttemptMax, authAttemptWindow) {
 		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
 		return
 	}
 	if !auth.ValidEmail(email) {
+		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
 		JSONError(w, http.StatusBadRequest, "Enter a valid email address.")
 		return
 	}
 	if err := auth.ValidatePassword(req.Password); err != nil {
+		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
 		switch {
 		case errors.Is(err, auth.ErrPasswordTooShort):
 			JSONError(w, http.StatusBadRequest, "Passwords need at least 12 characters.")
@@ -97,6 +101,7 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, stripe_customer_id, has_card, billing_status, email_verified, created_at)
 VALUES (?, ?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), cust, time.Now().Unix())
 	if err != nil {
+		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
 		JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
 		return
 	}
@@ -119,7 +124,8 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !allowAuthAttempt(h.DB, ClientIP(r), email, authAttemptMax, authAttemptWindow) {
+	ip := ClientIP(r)
+	if authBlocked(h.DB, ip, email, authAttemptMax, authAttemptWindow) {
 		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
 		return
 	}
@@ -128,6 +134,7 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.QueryRow(`SELECT id, password_hash, email_verified FROM accounts WHERE email = ?`, email).
 		Scan(&id, &hash, &emailVerified)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
+		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
 		return
 	}
