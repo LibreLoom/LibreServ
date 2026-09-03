@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   Copy,
+  EthernetPort,
   Globe,
   HardDrive,
   Key,
@@ -20,7 +21,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
-import { EthernetDiagram, PowerPlugDiagram } from "../components/onboarding/PlugInDiagrams.jsx";
 import { Button } from "../components/ui/button.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
@@ -1298,13 +1298,13 @@ export default function OnboardingPage() {
         ) cable. We will continue once Luna is online.
       </p>
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <div className="rounded-large-element bg-muted border border-border p-3 text-primary">
-          <PowerPlugDiagram className="mx-auto h-16 w-full text-foreground" />
-          <p className="mt-2 text-xs font-mono text-foreground">Power</p>
+        <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
+          <Plug className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
+          <p className="mt-3 text-xs font-mono text-foreground">Power</p>
         </div>
-        <div className="rounded-large-element bg-muted border border-border p-3 text-primary">
-          <EthernetDiagram className="mx-auto h-16 w-full text-foreground" />
-          <p className="mt-2 text-xs font-mono text-foreground">RJ45 port</p>
+        <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
+          <EthernetPort className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
+          <p className="mt-3 text-xs font-mono text-foreground">RJ45 port</p>
         </div>
       </div>
       <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
