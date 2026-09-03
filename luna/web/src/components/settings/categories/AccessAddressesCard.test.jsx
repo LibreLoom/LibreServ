@@ -38,7 +38,7 @@ function renderCard(fetchImpl) {
 }
 
 describe("AccessAddressesCard", () => {
-  it("splits addresses into everywhere and home network", async () => {
+  it("shows public and home addresses when Connect is configured", async () => {
     renderCard(
       stubFetch({
         connect: {
@@ -48,28 +48,26 @@ describe("AccessAddressesCard", () => {
       }),
     );
 
-    expect(await screen.findByRole("heading", { name: "Where to open Luna" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Everywhere" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
-
     expect(
       await screen.findByDisplayValue("https://kitchen.luna.servers.libreloom.org"),
     ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Everywhere" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
     expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
-    expect(screen.getByDisplayValue("http://192.168.1.20")).toBeTruthy();
-    expect(screen.queryByText(/Type one of these addresses/i)).toBeNull();
-    expect(screen.queryByText(/friendly name/i)).toBeNull();
+    expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
   });
 
-  it("shows a short empty state when there is no public address", async () => {
+  it("omits Everywhere when there is no public address", async () => {
     renderCard(stubFetch({ connect: { enabled: false } }));
 
-    expect(await screen.findByText("None yet")).toBeTruthy();
-    expect(screen.queryByDisplayValue(/^https:\/\//)).toBeNull();
-    expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
+    expect(screen.queryByText(/None yet/i)).toBeNull();
+    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
   });
 
-  it("shows a short empty state when the cable is out", async () => {
+  it("omits the LAN IP when none is available", async () => {
     renderCard(
       stubFetch({
         network: {
@@ -80,7 +78,9 @@ describe("AccessAddressesCard", () => {
       }),
     );
 
-    expect(await screen.findByText("Not plugged in")).toBeTruthy();
-    expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(screen.queryByText(/Waiting for an address/i)).toBeNull();
+    expect(screen.queryByText(/Not plugged in/i)).toBeNull();
+    expect(screen.queryByDisplayValue(/^http:\/\/\d/)).toBeNull();
   });
 });

@@ -99,10 +99,12 @@ describe("AboutCategory", () => {
     expect(deviceValue.className).toMatch(/rounded-pill/);
     expect(screen.queryByText("Software")).toBeNull();
     expect(await screen.findByRole("heading", { name: "Where to open Luna" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Everywhere" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
     expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
     expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
-    expect(screen.getByDisplayValue("http://192.168.1.20")).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
+    expect(screen.queryByText(/None yet/i)).toBeNull();
+    expect(screen.queryByText(/Waiting for an address/i)).toBeNull();
     expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText("Default source")).toBeTruthy();
