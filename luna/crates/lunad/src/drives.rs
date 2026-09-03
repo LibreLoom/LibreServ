@@ -92,9 +92,24 @@ impl DriveManager {
             (target, true)
         };
 
-        let has_marker = luna_core::marker::read_marker(&mount_point)
-            .map(|m| m.is_some())
-            .unwrap_or(false);
+        let marker = luna_core::marker::read_marker(&mount_point).ok().flatten();
+        let has_marker = marker.is_some();
+        // #region agent log
+        if let Some(ref m) = marker {
+            debug_rematch(
+                "D",
+                "drives.rs:inspect",
+                "inspect found .luna marker on detected device",
+                serde_json::json!({
+                    "detected_name": device.name,
+                    "mount_point": mount_point.to_string_lossy(),
+                    "marker_id": m.id,
+                    "marker_label": m.label,
+                    "has_marker": true,
+                }),
+            );
+        }
+        // #endregion
         let summary = scan_top_level(&mount_point);
         // A successful inspect means we could open the mount; treat scan
         // failures (permission on individual entries) as still readable.
@@ -478,26 +493,135 @@ impl DriveManager {
     /// once unplugged they become `missing` so a re-plug can restore Ready.
     /// If a Ready drive's Luna mount is already gone, mark it ejected.
     pub fn reconcile(&self, conn: &Connection, detected: &[DetectedDrive]) -> anyhow::Result<()> {
+        let detected_names: Vec<&str> = detected.iter().map(|d| d.name.as_str()).collect();
+        // #region agent log
+        debug_rematch(
+            "A",
+            "drives.rs:reconcile:entry",
+            "reconcile start",
+            serde_json::json!({
+                "detected_names": detected_names,
+                "detected_count": detected.len(),
+            }),
+        );
+        // #endregion
         for row in db::list_drives(conn)? {
+            // Hypothesis A: match is name-only (kernel node like sdc).
             let present = detected.iter().any(|d| d.name == row.device);
+            // Hypothesis C: marker UUID may exist on a remapped stick but is never used.
+            let marker_matches: Vec<serde_json::Value> = detected
+                .iter()
+                .filter_map(|d| {
+                    let mp = d.mount_point.as_deref()?;
+                    let marker = luna_core::marker::read_marker(Path::new(mp))
+                        .ok()
+                        .flatten()?;
+                    Some(serde_json::json!({
+                        "detected_name": d.name,
+                        "mount_point": mp,
+                        "marker_id": marker.id,
+                        "matches_row_id": marker.id == row.id,
+                    }))
+                })
+                .collect();
+            // #region agent log
+            debug_rematch(
+                "A",
+                "drives.rs:reconcile:row",
+                "name-only present check",
+                serde_json::json!({
+                    "row_id": row.id,
+                    "row_device": row.device,
+                    "row_state": row.state,
+                    "present_by_name": present,
+                    "marker_matches_on_detected": marker_matches,
+                    "would_rematch_by_uuid": marker_matches
+                        .iter()
+                        .any(|m| m.get("matches_row_id") == Some(&serde_json::Value::Bool(true))),
+                }),
+            );
+            // #endregion
             match row.state.as_str() {
                 "as_is" | "readonly" if !present => {
+                    // #region agent log
+                    debug_rematch(
+                        "A",
+                        "drives.rs:reconcile:branch",
+                        "ready→missing (name not in detected)",
+                        serde_json::json!({
+                            "row_id": row.id,
+                            "row_device": row.device,
+                            "new_state": "missing",
+                        }),
+                    );
+                    // #endregion
                     db::set_drive_state(conn, &row.id, "missing")?;
                 }
                 "as_is" | "readonly" if present && self.luna_mount_missing(&row) => {
                     // Mount already gone (prior eject, crash, or forced umount)
                     // but DB still said Ready — keep UI in sync.
+                    // #region agent log
+                    debug_rematch(
+                        "A",
+                        "drives.rs:reconcile:branch",
+                        "ready→ejected (mount gone)",
+                        serde_json::json!({
+                            "row_id": row.id,
+                            "row_device": row.device,
+                            "new_state": "ejected",
+                        }),
+                    );
+                    // #endregion
                     db::set_drive_state(conn, &row.id, "ejected")?;
                 }
                 "ejected" if !present => {
+                    // #region agent log
+                    debug_rematch(
+                        "A",
+                        "drives.rs:reconcile:branch",
+                        "ejected→missing",
+                        serde_json::json!({
+                            "row_id": row.id,
+                            "row_device": row.device,
+                            "new_state": "missing",
+                        }),
+                    );
+                    // #endregion
                     db::set_drive_state(conn, &row.id, "missing")?;
                 }
                 "missing" if present => {
+                    // #region agent log
+                    debug_rematch(
+                        "A",
+                        "drives.rs:reconcile:branch",
+                        "missing→as_is (name match restored)",
+                        serde_json::json!({
+                            "row_id": row.id,
+                            "row_device": row.device,
+                            "new_state": "as_is",
+                        }),
+                    );
+                    // #endregion
                     db::set_drive_state(conn, &row.id, "as_is")?;
                     let _ = self.ensure_mounted(&row);
                 }
                 // ejected + still plugged in → stay ejected until physically removed
-                _ => {}
+                _ => {
+                    // #region agent log
+                    debug_rematch(
+                        "A",
+                        "drives.rs:reconcile:branch",
+                        "no state change (name mismatch leaves missing stuck)",
+                        serde_json::json!({
+                            "row_id": row.id,
+                            "row_device": row.device,
+                            "row_state": row.state,
+                            "present_by_name": present,
+                            "detected_names": detected_names,
+                        }),
+                    );
+                    // #endregion
+                }
             }
         }
         Ok(())
@@ -613,6 +737,41 @@ fn sanitize(name: &str) -> String {
 fn device_path(name: &str) -> String {
     format!("/dev/{name}")
 }
+
+// #region agent log
+/// Temporary DEBUG_REMATCH probe — remove after rematch bug is fixed.
+pub(crate) fn debug_rematch(hypothesis_id: &str, location: &str, message: &str, data: serde_json::Value) {
+    let payload = serde_json::json!({
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0),
+    });
+    eprintln!("DEBUG_REMATCH {payload}");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/opt/cursor/logs/debug.log")
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{payload}");
+    }
+}
+
+/// Alias for API crate path so api/drives.rs can call the same probe.
+pub(crate) fn debug_rematch_api(
+    hypothesis_id: &str,
+    location: &str,
+    message: &str,
+    data: serde_json::Value,
+) {
+    debug_rematch(hypothesis_id, location, message, data);
+}
+// #endregion
 
 #[cfg(test)]
 mod tests {
@@ -973,6 +1132,147 @@ mod tests {
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
         );
+    }
+
+    /// BUG REPRO: USB adopted as `sdc` comes back as `sdd`.
+    ///
+    /// `reconcile` only matches `DetectedDrive.name == row.device`, so the
+    /// known row stays `missing` even when the stick still carries the `.luna`
+    /// marker with the same UUID. The stick then shows under Unknown Drives.
+    ///
+    /// After a rematch-by-marker fix, flip the final assert to `"as_is"` and
+    /// expect `device == "sdd"`.
+    #[test]
+    fn reconcile_stays_missing_when_kernel_name_changes_sdc_to_sdd() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+
+        // Adopt under kernel name sdc; marker lands on Luna mount with row.id.
+        let row = mgr
+            .adopt(&conn, &detected("sdc", None), "General UDisk", false)
+            .unwrap();
+        assert_eq!(row.device, "sdc");
+        assert_eq!(row.state, "as_is");
+        let marker_on_adopt = luna_core::marker::read_marker(Path::new(&row.mount_point))
+            .unwrap()
+            .expect("adopt writes .luna");
+        assert_eq!(marker_on_adopt.id, row.id);
+
+        // #region agent log
+        debug_rematch(
+            "E",
+            "drives.rs:test:sdc_to_sdd",
+            "adopted as sdc",
+            serde_json::json!({
+                "row_id": row.id,
+                "row_device": row.device,
+                "mount_point": row.mount_point,
+                "marker_id": marker_on_adopt.id,
+            }),
+        );
+        // #endregion
+
+        // Unplug → missing.
+        mgr.reconcile(&conn, &[]).unwrap();
+        let after_unplug = db::get_drive(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(after_unplug.state, "missing");
+        assert_eq!(after_unplug.device, "sdc");
+
+        // Replug: same filesystem (marker still at old mount path), new kernel name sdd.
+        // Real USB would remount at a new path; here we expose the existing
+        // marker-bearing root under the new detected name.
+        let replugged = DetectedDrive {
+            name: "sdd".into(),
+            model: "General UDisk".into(),
+            size_bytes: 1000,
+            removable: true,
+            usb: true,
+            mount_point: Some(row.mount_point.clone()),
+            fs_type: Some("ext4".into()),
+            mount_readonly: false,
+        };
+        let marker_on_sdd = luna_core::marker::read_marker(Path::new(&row.mount_point))
+            .unwrap()
+            .expect("marker still on stick");
+        assert_eq!(
+            marker_on_sdd.id, row.id,
+            "UUID is available for rematch but reconcile ignores it"
+        );
+
+        // #region agent log
+        debug_rematch(
+            "C",
+            "drives.rs:test:sdc_to_sdd",
+            "before reconcile with sdd (marker UUID present)",
+            serde_json::json!({
+                "row_id": row.id,
+                "row_device_still": "sdc",
+                "detected_name": "sdd",
+                "marker_id": marker_on_sdd.id,
+                "uuid_available_for_rematch": true,
+            }),
+        );
+        // #endregion
+
+        mgr.reconcile(&conn, &[replugged.clone()]).unwrap();
+        let after = db::get_drive(&conn, &row.id).unwrap().unwrap();
+
+        // #region agent log
+        debug_rematch(
+            "A",
+            "drives.rs:test:sdc_to_sdd",
+            "after reconcile with sdd — expected bug: still missing",
+            serde_json::json!({
+                "row_id": after.id,
+                "row_device": after.device,
+                "row_state": after.state,
+                "detected_name": "sdd",
+                "present_by_name": after.device == "sdd",
+                "bug_confirmed": after.state == "missing" && after.device == "sdc",
+            }),
+        );
+        // #endregion
+
+        // CURRENT BUG: name-only match → stays missing; device never updated.
+        assert_eq!(
+            after.state, "missing",
+            "BUG REPRO: rematch ignores marker UUID when kernel name changes"
+        );
+        assert_eq!(after.device, "sdc");
+
+        // Mirror API filter: missing rows are excluded from known_devices, so
+        // sdd appears under Unknown Drives.
+        let known_devices: std::collections::HashSet<String> = db::list_drives(&conn)
+            .unwrap()
+            .into_iter()
+            .filter(|d| d.state == "as_is" || d.state == "readonly")
+            .map(|d| d.device)
+            .collect();
+        assert!(
+            !known_devices.contains("sdd"),
+            "sdd not in known_devices → UI lists it as Unknown"
+        );
+        assert!(
+            !known_devices.contains("sdc"),
+            "sdc row is missing, so it is also not in known_devices"
+        );
+
+        // #region agent log
+        debug_rematch(
+            "B",
+            "drives.rs:test:sdc_to_sdd",
+            "API known_devices filter simulation",
+            serde_json::json!({
+                "known_devices": known_devices.iter().collect::<Vec<_>>(),
+                "sdd_shows_as_unknown": !known_devices.contains("sdd"),
+            }),
+        );
+        // #endregion
+
+        let _ = replugged;
     }
 
     #[test]

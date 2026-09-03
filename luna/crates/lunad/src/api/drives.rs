@@ -137,6 +137,28 @@ async fn detected(
     let known_devices = with_db(&state.db, |conn| {
         state.drive_manager.reconcile(conn, &drives)?;
         let rows = crate::db::list_drives(conn)?;
+        // #region agent log
+        let all_rows: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "id": d.id,
+                    "device": d.device,
+                    "state": d.state,
+                    "label": d.label,
+                })
+            })
+            .collect();
+        crate::drives::debug_rematch_api(
+            "B",
+            "api/drives.rs:detected",
+            "post-reconcile rows before known_devices filter",
+            serde_json::json!({
+                "rows": all_rows,
+                "detected_names": drives.iter().map(|d| &d.name).collect::<Vec<_>>(),
+            }),
+        );
+        // #endregion
         Ok(rows
             .into_iter()
             .filter(|d| d.state == "as_is" || d.state == "readonly")
@@ -144,6 +166,26 @@ async fn detected(
             .collect::<std::collections::HashSet<_>>())
     })
     .unwrap_or_default();
+    // #region agent log
+    let unknown: Vec<&str> = drives
+        .iter()
+        .filter(|d| {
+            d.is_storage_candidate()
+                && (d.removable || d.usb || d.mount_point.is_some())
+                && !known_devices.contains(&d.name)
+        })
+        .map(|d| d.name.as_str())
+        .collect();
+    crate::drives::debug_rematch_api(
+        "B",
+        "api/drives.rs:detected:filter",
+        "known_devices name filter → unknown list",
+        serde_json::json!({
+            "known_devices": known_devices.iter().collect::<Vec<_>>(),
+            "unknown_detected_names": unknown,
+        }),
+    );
+    // #endregion
     Ok(Json(
         drives
             .into_iter()
