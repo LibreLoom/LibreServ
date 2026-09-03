@@ -1305,8 +1305,8 @@ export default function OnboardingPage() {
         </div>
       </div>
       <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        <span>Waiting for Luna to come online and your address to respond…</span>
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+        <span>Waiting…</span>
       </div>
     </StepShell>
   );
