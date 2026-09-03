@@ -28,7 +28,8 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !allowGuess(h.DB, "admin-login:"+ClientIP(r), 10, 60) {
+	loginKey := "admin-login:" + ClientIP(r)
+	if guessBlocked(h.DB, loginKey, 10, 60) {
 		JSONError(w, http.StatusTooManyRequests, "Too many sign-in tries from this network. Wait a minute, then try again.")
 		return
 	}
@@ -41,6 +42,7 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM admin_accounts WHERE email = ?`,
 		email).Scan(&id, &hash, &name, &totpSecret, &totpEnabled, &isActive)
 	if err == sql.ErrNoRows || auth.VerifyPassword(hash, req.Password) != nil {
+		_ = allowGuess(h.DB, loginKey, 10, 60)
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
 		return
 	}
@@ -62,6 +64,7 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		secretPlain, err := openAdminTOTP(totpSecret.String)
 		if err != nil || !auth.VerifyTOTP(secretPlain, strings.TrimSpace(req.TOTPCode)) {
+			_ = allowGuess(h.DB, loginKey, 10, 60)
 			JSONError(w, http.StatusUnauthorized, "That authenticator code did not match.")
 			return
 		}

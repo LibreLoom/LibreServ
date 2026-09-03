@@ -71,6 +71,23 @@ func allowGuess(db *database.DB, key string, max int, windowSec int64) bool {
 	return n == 1
 }
 
+// guessBlocked reports whether key is at/over max for the window without recording a try.
+func guessBlocked(db *database.DB, key string, max int, windowSec int64) bool {
+	if db == nil || key == "" || max <= 0 {
+		return true
+	}
+	ctx := context.Background()
+	var count, start int64
+	err := db.QueryRowContext(ctx, `SELECT count, start FROM guess_attempts WHERE key = ?`, key).Scan(&count, &start)
+	if err != nil {
+		return false
+	}
+	if time.Now().Unix()-start >= windowSec {
+		return false
+	}
+	return count >= int64(max)
+}
+
 func allowAuthAttempt(db *database.DB, ip, email string, max int, windowSec int64) bool {
 	if db == nil || max <= 0 {
 		return false

@@ -185,6 +185,19 @@ func TestClientIPTrustedProxyOnly(t *testing.T) {
 	if ClientIP(ok) != "198.51.100.20" {
 		t.Fatalf("trusted xff: %s", ClientIP(ok))
 	}
+	cf := httptest.NewRequest(http.MethodGet, "/", nil)
+	cf.RemoteAddr = "127.0.0.1:9"
+	cf.Header.Set("X-Forwarded-For", "198.51.100.20")
+	cf.Header.Set("CF-Connecting-IP", "203.0.113.50")
+	if ClientIP(cf) != "203.0.113.50" {
+		t.Fatalf("cf connecting ip: %s", ClientIP(cf))
+	}
+	priv := httptest.NewRequest(http.MethodGet, "/", nil)
+	priv.RemoteAddr = "10.0.0.2:9"
+	priv.Header.Set("CF-Connecting-IP", "198.51.100.30")
+	if ClientIP(priv) != "198.51.100.30" {
+		t.Fatalf("private proxy: %s", ClientIP(priv))
+	}
 }
 
 func TestOriginAllowed(t *testing.T) {
