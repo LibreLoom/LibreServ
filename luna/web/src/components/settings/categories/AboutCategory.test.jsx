@@ -35,6 +35,16 @@ function stubFetch(sourceBody) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (path.startsWith("/api/v1/network/status")) {
+      return new Response(
+        JSON.stringify({
+          ethernet_connected: true,
+          has_default_route: true,
+          ipv4: ["192.168.1.20"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (path.startsWith("/api/v1/connect/status")) {
       return new Response(JSON.stringify({ enabled: false }), {
         status: 200,
@@ -80,7 +90,7 @@ function renderPage(fetchImpl) {
 }
 
 describe("AboutCategory", () => {
-  it("shows Luna branding, device info, and the update card", async () => {
+  it("shows Luna branding, device info, access addresses, and the update card", async () => {
     renderPage(stubFetch());
     expect(await screen.findByText(/home file box/i)).toBeTruthy();
     const deviceRow = await screen.findByText("This Luna");
@@ -88,10 +98,30 @@ describe("AboutCategory", () => {
     const deviceValue = screen.getByText("Living Room Luna");
     expect(deviceValue.className).toMatch(/rounded-pill/);
     expect(screen.queryByText("Software")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Where to open Luna" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
+    expect(screen.queryByText(/None yet/i)).toBeNull();
+    expect(screen.queryByText(/Waiting for an address/i)).toBeNull();
     expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText("Default source")).toBeTruthy();
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "System Checks" })).toBeTruthy();
+  });
+
+  it("puts System Checks after Advanced on the About page", async () => {
+    renderPage(stubFetch());
+    await screen.findByRole("heading", { name: "System Checks" });
+    const about = document.querySelector("[data-slot='about-category']");
+    expect(about).toBeTruthy();
+    const headings = Array.from(about.querySelectorAll("h2")).map((el) => el.textContent);
+    const advancedIdx = headings.findIndex((t) => /Advanced/i.test(t));
+    const checksIdx = headings.findIndex((t) => /System Checks/i.test(t));
+    expect(advancedIdx).toBeGreaterThanOrEqual(0);
+    expect(checksIdx).toBeGreaterThan(advancedIdx);
   });
 
   it("shows Luna Connect on/off and device token controls in Advanced", async () => {
