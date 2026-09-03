@@ -5,6 +5,7 @@
 //! drives, Connect / device token).
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 pub const BANNER_OK: &str =
     "Luna is running. Open it from a phone or computer on your home internet.";
@@ -15,7 +16,29 @@ pub const ISSUE_FILE: &str = "issue";
 
 /// How long after the last issue write before luna-console warns that lunad
 /// may not be updating the screen.
+///
+/// lunad must rewrite (or touch) `{data_dir}/issue` on every console-help tick,
+/// even when the text is unchanged, so this stays a true liveness check.
 pub const STALE_SECS: u64 = 90;
+
+pub const STALE_NOTE_LINE1: &str =
+    "  Note: this status is not updating. Luna may still be starting,";
+pub const STALE_NOTE_LINE2: &str =
+    "  or the Luna service needs a moment. You can still log in below.";
+
+/// True when an issue file exists but has not been rewritten recently.
+///
+/// Missing file is not stale — luna-console already shows a "starting" banner.
+pub fn is_issue_stale(mtime: Option<SystemTime>) -> bool {
+    let Some(mtime) = mtime else {
+        return false;
+    };
+    match mtime.elapsed() {
+        Ok(elapsed) => elapsed > Duration::from_secs(STALE_SECS),
+        // Clock skew (mtime in the future): treat as fresh.
+        Err(_) => false,
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ConsoleSnapshot {
@@ -258,5 +281,41 @@ mod tests {
         write_issue(dir.path(), &snap).unwrap();
         let body = std::fs::read_to_string(issue_path(dir.path())).unwrap();
         assert!(body.contains("10.0.0.5"));
+    }
+
+    #[test]
+    fn missing_issue_file_is_not_stale() {
+        assert!(!is_issue_stale(None));
+    }
+
+    #[test]
+    fn fresh_mtime_is_not_stale() {
+        assert!(!is_issue_stale(Some(SystemTime::now())));
+    }
+
+    #[test]
+    fn old_mtime_is_stale() {
+        let old = SystemTime::now() - Duration::from_secs(STALE_SECS + 5);
+        assert!(is_issue_stale(Some(old)));
+    }
+
+    #[test]
+    fn write_issue_leaves_fresh_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let snap = ConsoleSnapshot {
+            ipv4: vec!["10.0.0.5".into()],
+            cable_in: true,
+            has_default_route: true,
+            ..Default::default()
+        };
+        write_issue(dir.path(), &snap).unwrap();
+        // Identical rewrite (heartbeat) must keep liveness fresh.
+        write_issue(dir.path(), &snap).unwrap();
+        let mtime = std::fs::metadata(issue_path(dir.path()))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert!(!is_issue_stale(Some(mtime)));
+        assert!(mtime.elapsed().unwrap() < Duration::from_secs(5));
     }
 }
