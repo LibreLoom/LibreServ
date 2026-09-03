@@ -40,6 +40,7 @@ function signingKeysForSave(keyLines, source) {
 export default function UpdateSourceCard({ index = 3 }) {
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
   const source = useQuery({
     queryKey: ["updates-source"],
     queryFn: () => getJson("/api/v1/system/updates/source"),
@@ -57,13 +58,19 @@ export default function UpdateSourceCard({ index = 3 }) {
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
       <div className="px-5 py-4 space-y-4">
-        <CollapsibleSection title="Luna Connect" mono pill defaultOpen>
+        <CollapsibleSection title="Luna Connect" mono pill>
           <div className="space-y-3 mb-1">
             <p className="text-sm text-primary leading-relaxed">
-              Turn Luna Connect on or off and manage the device token for this Luna.
-              Purchased Lunas can use the token that came with the device.
+              Set or remove the Luna Connect device token here.
             </p>
-            <ConnectSetupCodeForm compact />
+            <Button
+              type="button"
+              variant="danger"
+              surface="secondary"
+              onClick={() => setConnectModalOpen(true)}
+            >
+              Change device token
+            </Button>
           </div>
         </CollapsibleSection>
 
@@ -101,6 +108,14 @@ export default function UpdateSourceCard({ index = 3 }) {
           </Button>
         </CollapsibleSection>
       </div>
+
+      <ModalCard
+        open={connectModalOpen}
+        title="Device token"
+        onClose={() => setConnectModalOpen(false)}
+      >
+        <ConnectSetupCodeForm />
+      </ModalCard>
 
       {source.data && (
         <UpdateSourceModal
