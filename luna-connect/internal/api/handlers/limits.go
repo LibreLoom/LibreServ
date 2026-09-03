@@ -88,11 +88,15 @@ func guessBlocked(db *database.DB, key string, max int, windowSec int64) bool {
 	return count >= int64(max)
 }
 
+func authAttemptKey(ip, email string) string {
+	return "auth:" + strings.ToLower(strings.TrimSpace(ip)) + "\x1e" + strings.ToLower(strings.TrimSpace(email))
+}
+
 func allowAuthAttempt(db *database.DB, ip, email string, max int, windowSec int64) bool {
 	if db == nil || max <= 0 {
 		return false
 	}
-	key := strings.ToLower(strings.TrimSpace(ip)) + "\x1e" + strings.ToLower(strings.TrimSpace(email))
+	key := authAttemptKey(ip, email)
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -148,6 +152,24 @@ func allowAuthAttempt(db *database.DB, ip, email string, max int, windowSec int6
 	}
 	committed = true
 	return n == 1
+}
+
+// authBlocked reports whether the IP+email auth bucket is exhausted without recording a try.
+func authBlocked(db *database.DB, ip, email string, max int, windowSec int64) bool {
+	if db == nil || max <= 0 {
+		return true
+	}
+	key := authAttemptKey(ip, email)
+	ctx := context.Background()
+	var count, start int64
+	err := db.QueryRowContext(ctx, `SELECT count, start FROM register_attempts WHERE ip = ?`, key).Scan(&count, &start)
+	if err != nil {
+		return false
+	}
+	if time.Now().Unix()-start >= windowSec {
+		return false
+	}
+	return count >= int64(max)
 }
 
 func cookieSessionID(r *http.Request) string {

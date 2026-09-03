@@ -803,7 +803,7 @@ export default function OnboardingPage() {
         </div>
       </div>
       <form onSubmit={handleAuth} className="w-full text-left">
-        <ShakeTarget shake={error}>
+        <ShakeTarget shake={error} loading={loading}>
           <div
             key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
             className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
@@ -873,7 +873,7 @@ export default function OnboardingPage() {
               }
             }}
           >
-            <ShakeTarget shake={error}>
+            <ShakeTarget shake={error} loading={loading}>
               <div>
                 <label htmlFor="signed-in-email" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
                   Email address
@@ -1070,7 +1070,7 @@ export default function OnboardingPage() {
         <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
           Device code
         </label>
-        <ShakeTarget shake={error}>
+        <ShakeTarget shake={error} loading={loading}>
           <Input
             id="code"
             className="font-mono uppercase tracking-widest"
@@ -1174,7 +1174,7 @@ export default function OnboardingPage() {
           }
         }}
       >
-        <ShakeTarget shake={error}>
+        <ShakeTarget shake={error} loading={loading}>
           <div>
             <label htmlFor="name" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
               Name
