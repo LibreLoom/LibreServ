@@ -429,6 +429,8 @@ impl ConnectService {
             state["tunnel_token"] = t.clone();
         }
         self.save(&state)?;
+        // Domain assignment publishes DNS immediately; start cloudflared now or visitors see 1033.
+        let _ = self.ensure_tunnel();
         Ok(changed)
     }
 
@@ -578,13 +580,24 @@ impl ConnectService {
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
-        let token = self
-            .load()
+        let state = self.load();
+        let token = state
             .get("tunnel_token")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let hostname = state
+            .get("hostname")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if token.is_empty() {
+            if !hostname.is_empty() {
+                // DNS can already point at a Cloudflare Tunnel while Luna has no token → Error 1033.
+                tracing::error!(
+                    hostname,
+                    "Connect assigned a hostname but no tunnel token is on disk — cloudflared cannot start (no service unit; lunad must spawn it)"
+                );
+            }
             return Ok(());
         }
         if token.starts_with("mock-") {
@@ -599,12 +612,18 @@ impl ConnectService {
         self.stop_tunnel();
 
         let bin = Self::cloudflared_bin();
-        tracing::info!(path = %bin.display(), port = self.local_port, "starting cloudflared tunnel");
+        // Token mode: no config.yml and no OpenRC/systemd unit. Bare `cloudflared` will say
+        // "config not found"; lunad must pass --token (and keep the child alive).
+        tracing::info!(
+            path = %bin.display(),
+            port = self.local_port,
+            hostname,
+            "starting cloudflared tunnel (token mode, managed by lunad)"
+        );
 
         let mut child = Command::new(&bin)
-            .args(["tunnel", "--no-autoupdate", "run"])
+            .args(["tunnel", "--no-autoupdate", "run", "--token", &token])
             .env("TUNNEL_TOKEN", &token)
-            .env("CLOUDFLARED_TUNNEL_TOKEN", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -630,6 +649,26 @@ impl ConnectService {
                     }
                 })
                 .ok();
+        }
+
+        // cloudflared exits quickly on bad tokens; surface that instead of leaving DNS on 1033.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                tracing::error!(
+                    ?status,
+                    hostname,
+                    "cloudflared exited immediately after start — tunnel will stay on Error 1033 until this is fixed"
+                );
+                return Err(ConnectError::Other(
+                    "Luna couldn't keep the protected connection running. Try again in a few minutes."
+                        .into(),
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "could not check cloudflared child status");
+            }
         }
 
         *self.active_tunnel_token.lock().unwrap() = Some(token);

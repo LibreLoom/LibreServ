@@ -213,10 +213,11 @@ func regenerateDeviceTunnel(deps Deps, deviceID string) (map[string]any, int, st
 		return nil, 500, "Could not save the secure connection. Try again."
 	}
 	return map[string]any{
-		"device_id":   deviceID,
-		"hostname":    host,
-		"subdomain":   d.Subdomain,
-		"tunnel_id":   tid,
-		"regenerated": true,
+		"device_id":    deviceID,
+		"hostname":     host,
+		"subdomain":    d.Subdomain,
+		"tunnel_id":    tid,
+		"tunnel_token": ttoken,
+		"regenerated":  true,
 	}, 200, ""
 }
