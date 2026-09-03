@@ -6,27 +6,7 @@
     <title>Luna Connect</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" id="favicon" />
     <link rel="preload" href="/fonts/FreeMono.ttf" as="font" type="font/ttf" crossorigin />
-    <script>
-      (function() {
-        try {
-          var t = localStorage.getItem("luna-connect-theme");
-          var isDark = false;
-          if (t === "dark") isDark = true;
-          else if (t === "system" || !t) {
-            if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) isDark = true;
-          }
-          if (isDark) document.documentElement.classList.add("dark");
-        } catch (e) {}
-        try {
-          var f = document.getElementById("favicon");
-          if (f) {
-            f.href = document.documentElement.classList.contains("dark")
-              ? "/favicon-dark.svg"
-              : "/favicon.svg";
-          }
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

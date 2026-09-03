@@ -24,11 +24,11 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		w.Header().Set("Content-Security-Policy", strings.Join([]string{
 			"default-src 'self'",
-			"script-src 'self' https://js.stripe.com",
+			"script-src 'self' https://js.stripe.com https://static.cloudflareinsights.com",
 			"style-src 'self' 'unsafe-inline'",
 			"img-src 'self' data: blob:",
 			"font-src 'self' data:",
-			"connect-src 'self' https://api.stripe.com https://js.stripe.com",
+			"connect-src 'self' https://api.stripe.com https://js.stripe.com https://cloudflareinsights.com https://*.cloudflareinsights.com",
 			"frame-src https://js.stripe.com https://hooks.stripe.com",
 			"frame-ancestors 'none'",
 			"base-uri 'self'",
