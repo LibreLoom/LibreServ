@@ -6,12 +6,13 @@ import ShakeTarget from "../ui/ShakeTarget";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
+const LUNA_CONNECT_HOST = "connect.luna.libreloom.org";
 
 /**
  * Enter or replace the Luna Connect device token.
- * Used during first-run setup and in Settings → About → Advanced.
+ * Used in Settings → About → Advanced (device token modal).
  */
-export default function ConnectSetupCodeForm({ surface = "secondary", compact = false }) {
+export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [error, setError] = useState(null);
@@ -35,18 +36,6 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
       setError(apiErrorMessage(err));
     },
   });
-  const sync = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/sync", {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connect-status"] });
-      setError(null);
-      setSaved(true);
-    },
-    onError: (err) => {
-      setSaved(false);
-      setError(apiErrorMessage(err));
-    },
-  });
   const removeToken = useMutation({
     mutationFn: () => deleteJson("/api/v1/connect/device-token"),
     onSuccess: () => {
@@ -60,129 +49,41 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
       setError(apiErrorMessage(err));
     },
   });
-  const deactivate = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/deactivate", {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connect-status"] });
-      queryClient.invalidateQueries({ queryKey: ["auth-status"] });
-      setError(null);
-      setSaved(false);
-    },
-    onError: (err) => {
-      setError(apiErrorMessage(err));
-    },
-  });
 
   const s = status.data || {};
   const connectActive = Boolean(s.connect_active);
-  const enabled = Boolean(s.enabled);
   const tokenError =
     typeof s.device_token_error === "string" && s.device_token_error.trim()
       ? s.device_token_error
       : null;
-  const linked = enabled && !tokenError;
-  const pendingBind = connectActive && !enabled && !tokenError;
+  const hasToken = connectActive || Boolean(tokenError);
+  const linkClass =
+    surface === "primary"
+      ? "text-accent hover:text-secondary motion-safe:transition-colors underline underline-offset-4"
+      : "text-accent hover:text-primary motion-safe:transition-colors underline underline-offset-4";
   const inputClass =
     surface === "primary"
       ? "w-full min-w-0 rounded-pill bg-secondary text-primary px-4 py-2 font-mono tracking-widest"
       : "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono tracking-widest";
-
-  if (linked) {
-    return (
-      <div className="space-y-3" data-slot="connect-setup-code-form">
-        <p className="text-sm text-primary leading-relaxed">
-          Luna Connect is on
-          {s.hostname || s.domain ? (
-            <>
-              {" "}
-              at <span className="font-mono break-all">{s.hostname || s.domain}</span>
-            </>
-          ) : null}
-          . Configure your subdomain on{" "}
-          <a
-            href={LUNA_CONNECT_URL}
-            className={
-              surface === "primary"
-                ? "text-accent hover:text-secondary motion-safe:transition-colors underline underline-offset-4"
-                : "text-accent hover:text-primary motion-safe:transition-colors underline underline-offset-4"
-            }
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Luna Connect
-          </a>
-          .
-        </p>
-        {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
-        <div className="flex flex-col gap-2">
-          <Button
-            variant="danger"
-            surface={surface === "primary" ? "primary" : "secondary"}
-            fullWidth
-            loading={deactivate.isPending}
-            onClick={() => deactivate.mutate()}
-          >
-            Turn Luna Connect off
-          </Button>
-          <Button
-            variant="outline"
-            surface={surface === "primary" ? "primary" : "secondary"}
-            fullWidth
-            loading={removeToken.isPending}
-            disabled={deactivate.isPending}
-            onClick={() => removeToken.mutate()}
-          >
-            Remove device token
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (pendingBind) {
-    return (
-      <div className="space-y-3" data-slot="connect-setup-code-form">
-        <p className="text-sm text-primary leading-relaxed">
-          Luna has a device token but is not linked to Luna Connect yet. Sync to finish setup, or remove the token to turn Connect off.
-        </p>
-        {error && <p className="text-sm text-error leading-relaxed">{error}</p>}
-        {saved && !error && (
-          <p className="text-sm text-success leading-relaxed">Synced with Luna Connect.</p>
-        )}
-        <div className="flex flex-col gap-2">
-          <Button
-            variant="primary"
-            surface={surface === "primary" ? "primary" : "secondary"}
-            fullWidth
-            loading={sync.isPending}
-            onClick={() => sync.mutate()}
-          >
-            Sync with Luna Connect
-          </Button>
-          <Button
-            variant="danger"
-            surface={surface === "primary" ? "primary" : "secondary"}
-            fullWidth
-            loading={removeToken.isPending}
-            onClick={() => removeToken.mutate()}
-          >
-            Remove device token
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const btnSurface = surface === "primary" ? "primary" : "secondary";
 
   return (
     <div className="space-y-3" data-slot="connect-setup-code-form">
+      <p className="text-sm text-primary leading-relaxed">
+        Paste your device token from{" "}
+        <a
+          href={LUNA_CONNECT_URL}
+          className={linkClass}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {LUNA_CONNECT_HOST}
+        </a>
+        , or remove the saved token to disable Luna Connect.
+      </p>
       {tokenError && (
         <p className="text-sm text-error leading-relaxed" role="alert">
           {tokenError}
-        </p>
-      )}
-      {!compact && !tokenError && (
-        <p className="text-sm text-primary leading-relaxed">
-          Paste your device token from Luna Connect (****-****-****-****-****).
         </p>
       )}
       <div>
@@ -214,7 +115,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
       <div className="flex flex-col gap-2">
         <Button
           variant="primary"
-          surface={surface === "primary" ? "primary" : "secondary"}
+          surface={btnSurface}
           fullWidth
           loading={saveCode.isPending}
           disabled={code.replace(/[-_\s]/g, "").length < 16}
@@ -222,10 +123,10 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
         >
           Save device token
         </Button>
-        {(connectActive || tokenError) && (
+        {hasToken && (
           <Button
-            variant="outline"
-            surface={surface === "primary" ? "primary" : "secondary"}
+            variant="danger"
+            surface={btnSurface}
             fullWidth
             loading={removeToken.isPending}
             disabled={saveCode.isPending}
@@ -242,5 +143,4 @@ export default function ConnectSetupCodeForm({ surface = "secondary", compact = 
 ConnectSetupCodeForm.propTypes = {
   /** Backdrop the form sits on: page bg (`primary`) or card (`secondary`). */
   surface: PropTypes.oneOf(["primary", "secondary"]),
-  compact: PropTypes.bool,
 };
