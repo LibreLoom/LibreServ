@@ -249,7 +249,7 @@ fn read_key(timeout: Duration) -> io::Result<Option<Key>> {
         0x7f | 0x08 => Key::Backspace,
         0x03 => Key::CtrlC,
         0x04 => Key::CtrlD,
-        b if b >= 32 && b < 127 => Key::Char(b as char),
+        b if (32..127).contains(&b) => Key::Char(b as char),
         _ => return Ok(None),
     }))
 }
@@ -257,8 +257,7 @@ fn read_key(timeout: Duration) -> io::Result<Option<Key>> {
 fn exec_login(login_bin: &str, username: &str) -> io::Result<()> {
     // BusyBox / util-linux: `login -- USER` prompts for password.
     let err = Command::new(login_bin).arg("--").arg(username).exec();
-    Err(io::Error::new(
-        io::ErrorKind::Other,
-        format!("exec {login_bin} failed: {err}"),
-    ))
+    Err(io::Error::other(format!(
+        "exec {login_bin} failed: {err}"
+    )))
 }
