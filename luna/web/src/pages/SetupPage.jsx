@@ -380,6 +380,11 @@ FormField.propTypes = {
 };
 
 // ─── STEP: Account ────────────────────────────────────────────────────────────
+// SetupCard already slides the whole account step in. Playing the same
+// slide-in-from-*-pop again on the first field stacked two scales on the
+// name input (and autoFocus hit mid-animation), so it jumped when selected.
+const ACCOUNT_STEP_SLIDE_MS = 300;
+
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
   const needsSetupCode = isPublicLunaHost() && connectActive;
@@ -395,6 +400,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const [fieldError, setFieldError] = useState(null);
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir]   = useState("right");
+  // Only animate field swaps after the user moves between substeps — not on
+  // the initial mount (parent SetupCard already owns that entrance).
+  const authSubAnimatedRef = useRef(false);
+  const fieldInputRef = useRef(null);
 
   const pw       = form.password;
   const confirm  = form.confirm_password;
@@ -467,15 +476,31 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
   const currentAuthField = authFields[authSubStep] || authFields[0];
   const isLastAuthSubStep = authSubStep === authFields.length - 1;
+  const animateAuthSub = authSubAnimatedRef.current;
 
   const goSubNext = () => {
+    authSubAnimatedRef.current = true;
     setAuthSubDir("right");
     setAuthSubStep((s) => Math.min(s + 1, authFields.length - 1));
   };
   const goSubPrev = () => {
+    authSubAnimatedRef.current = true;
     setAuthSubDir("left");
     setAuthSubStep((s) => Math.max(s - 1, 0));
   };
+
+  // Focus after the parent step slide finishes on first paint; on later
+  // substeps focus immediately after the keyed field mounts.
+  useEffect(() => {
+    if (hasAdmin) return undefined;
+    const delay = animateAuthSub ? 0 : ACCOUNT_STEP_SLIDE_MS;
+    const id = window.setTimeout(() => {
+      fieldInputRef.current?.focus?.();
+    }, delay);
+    return () => window.clearTimeout(id);
+    // animateAuthSub is derived from a ref set synchronously before substep updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus when the visible field changes
+  }, [authSubStep, hasAdmin]);
 
   const handleCreateAccount = async () => {
     if (submitting) return;
@@ -597,8 +622,8 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <div
             key={`register-${authSubStep}`}
             className={cn(
-              "animate-in duration-300",
-              authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop",
+              animateAuthSub && "animate-in duration-300",
+              animateAuthSub && (authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
             )}
           >
             <label
@@ -611,6 +636,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             {(currentAuthField.type === "password") ? (
               <div className="relative">
                 <input
+                  ref={fieldInputRef}
                   id={currentAuthField.id}
                   name={currentAuthField.name}
                   type={showPw ? "text" : "password"}
@@ -619,7 +645,6 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                   value={form[currentAuthField.name]}
                   onChange={(e) => setField(currentAuthField.name, e.target.value)}
                   disabled={submitting}
-                  autoFocus
                   className={cn(WIZARD_INPUT_CLASS, "pr-12")}
                 />
                 <button
@@ -633,6 +658,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
               </div>
             ) : (
               <input
+                ref={fieldInputRef}
                 id={currentAuthField.id}
                 name={currentAuthField.name}
                 type={currentAuthField.type}
@@ -641,7 +667,6 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 value={form[currentAuthField.name]}
                 onChange={(e) => setField(currentAuthField.name, e.target.value)}
                 disabled={submitting}
-                autoFocus
                 spellCheck={currentAuthField.name === "setup_secret" ? false : undefined}
                 className={WIZARD_INPUT_CLASS}
                 aria-invalid={currentAuthField.name === "setup_secret" && Boolean(fieldError)}

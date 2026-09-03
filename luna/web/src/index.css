@@ -746,7 +746,9 @@ select:focus:not(:focus-visible) {
     }
     to {
         opacity: 1;
-        transform: translateX(0) scale(1);
+        /* `none`, not identity — same as .pop-in: a held matrix keeps a
+           compositing layer that makes focused inputs inside the slide jump. */
+        transform: none;
     }
 }
 
@@ -757,7 +759,7 @@ select:focus:not(:focus-visible) {
     }
     to {
         opacity: 1;
-        transform: translateX(0) scale(1);
+        transform: none;
     }
 }
 
