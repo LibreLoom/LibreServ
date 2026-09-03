@@ -14,7 +14,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use lunad::console::{is_issue_stale, STALE_NOTE_LINE1, STALE_NOTE_LINE2};
+use lunad::console::{STALE_NOTE_LINE1, STALE_NOTE_LINE2, is_issue_stale};
 
 const DEFAULT_TTY: &str = "/dev/tty1";
 const DEFAULT_ISSUE: &str = "/var/lib/luna/issue";
