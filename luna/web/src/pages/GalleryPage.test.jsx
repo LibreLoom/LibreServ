@@ -176,6 +176,17 @@ describe("GalleryPage", () => {
     expect(window.location.hash).toBe("#places");
   });
 
+  it("shows Places empty state with Card pop-in when there are no geotagged photos", async () => {
+    window.history.replaceState(null, "", "/gallery#places");
+    stubGalleryFetch({ places: [] });
+    renderGallery();
+    expect(await screen.findByText(/No places yet/i)).toBeInTheDocument();
+    const empty = document.querySelector("[data-slot=empty-state]");
+    expect(empty).toBeTruthy();
+    const clip = empty?.closest("[data-slot=card-clip]") || empty?.closest("[data-slot=card]");
+    expect(clip?.className).toMatch(/pop-in/);
+  });
+
   it("updates the hash when a segment is selected", async () => {
     stubGalleryFetch();
     const user = userEvent.setup();
@@ -313,8 +324,39 @@ describe("GalleryPage", () => {
     );
     renderGallery();
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
-    expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/You have no favorites yet/i)).toBeInTheDocument();
     expect(screen.getByText(/tap the heart/i)).toBeInTheDocument();
+  });
+
+  it("shows an empty Favorites state even while gallery indexing is busy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify({ scanning: true, pending: 3, busy: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery?")) {
+          return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    renderGallery();
+    fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
+    expect(await screen.findByText(/You have no favorites yet/i)).toBeInTheDocument();
   });
 
   it("does not offer a manual Look again control", async () => {

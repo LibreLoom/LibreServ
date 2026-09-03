@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, MapPin } from "lucide-react";
 import Supercluster from "supercluster";
 import {
   MapContainer,
@@ -13,6 +13,9 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "../ui/Button.jsx";
+import Card from "../cards/Card.jsx";
+import EmptyState from "../common/EmptyState.jsx";
+import Spinner from "../ui/Spinner.jsx";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -275,28 +278,47 @@ ClusterMarkers.propTypes = {
 };
 
 /** Full-bleed Leaflet Places map with zoom-based photo clustering. */
-export default function PlacesMap({ places, onSelect }) {
+export default function PlacesMap({ places, loading = false, onSelect }) {
   const markers = useMemo(
     () => (places || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)),
     [places],
   );
 
+  if (loading) {
+    return (
+      <div
+        className="flex items-center justify-center gap-3 py-20 text-secondary"
+        role="status"
+        aria-live="polite"
+      >
+        <p className="text-sm font-mono">Loading places…</p>
+        <Spinner size="lg" decorative className="text-secondary" />
+      </div>
+    );
+  }
+
   if (!markers.length) {
     return (
-      <div className="rounded-large-element bg-secondary text-primary p-8 text-center">
-        <p className="font-mono text-sm">No places yet</p>
-        <p className="mt-2 text-sm">
-          When photos include a location from the camera, they show up here on the map.
-        </p>
-      </div>
+      <EmptyState
+        icon={MapPin}
+        title="No places yet"
+        description="When photos include a location from the camera, they show up here on the map."
+      />
     );
   }
 
   /** @type {[number, number]} */
   const center = [markers[0].lat, markers[0].lon];
 
+  // Card owns the pop-in (same clip pattern as EmptyState / other gallery
+  // panels). Keep overflow + fixed height on that clip so Leaflet tiles stay
+  // rounded without fighting the entrance animation.
   return (
-    <div className="overflow-hidden rounded-large-element border-2 border-secondary/30 h-[min(70vh,640px)] bg-secondary text-primary pop-in">
+    <Card
+      noHeightAnim
+      padding={false}
+      className="overflow-hidden border-2 border-secondary/30 h-[min(70vh,640px)]"
+    >
       <MapContainer
         center={center}
         zoom={4}
@@ -310,11 +332,12 @@ export default function PlacesMap({ places, onSelect }) {
         <FitBounds points={markers} />
         <ClusterMarkers markers={markers} onSelect={onSelect} />
       </MapContainer>
-    </div>
+    </Card>
   );
 }
 
 PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
+  loading: PropTypes.bool,
   onSelect: PropTypes.func,
 };
