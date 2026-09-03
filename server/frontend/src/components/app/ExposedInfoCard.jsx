@@ -272,8 +272,7 @@ export function ExposedInfoCard({ info }) {
               </div>
               {field.copyable && !clipboardOk && field.value ? (
                 <p className="text-xs text-primary w-full basis-full mt-1">
-                  Select the value above, then copy it. Automatic copy needs a secure
-                  connection, and this page does not have one yet.
+                  Select the value above, then copy it.
                 </p>
               ) : null}
             </div>
