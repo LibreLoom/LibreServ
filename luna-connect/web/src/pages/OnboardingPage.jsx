@@ -1301,7 +1301,7 @@ export default function OnboardingPage() {
         </div>
         <div className="rounded-large-element bg-muted border border-border p-3 text-primary">
           <EthernetDiagram className="mx-auto h-16 w-full text-foreground" />
-          <p className="mt-2 text-xs font-mono text-foreground">RJ45 cable</p>
+          <p className="mt-2 text-xs font-mono text-foreground">RJ45 port</p>
         </div>
       </div>
       <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
