@@ -228,6 +228,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     size="sm"
                     variant="secondary"
                     surface="primary"
+                    fullWidth
                     loading={createProtect.isPending}
                     disabled={!targetDrive}
                     onClick={() => createProtect.mutate()}
@@ -273,6 +274,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               size="sm"
               variant={cloudOn ? "danger" : "secondary"}
               surface="primary"
+              fullWidth
               loading={saveCloud.isPending}
               onClick={toggleCloud}
             >
