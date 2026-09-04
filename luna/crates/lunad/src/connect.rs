@@ -1140,6 +1140,11 @@ fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
         "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{}",
         cloudflared_arch()
     );
+    tracing::info!(
+        path = %dest.display(),
+        arch = cloudflared_arch(),
+        "downloading cloudflared for Connect tunnel (on-demand install)"
+    );
     let tmp = parent.join("cloudflared.tmp");
     let _ = std::fs::remove_file(&tmp);
 
