@@ -234,12 +234,14 @@ Before ANY UI work:
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git
-- **Push to one forge only.** This repo mirrors across Forgejo (`gt.plainskill.net`), GitHub, and GitLab. Every commit, branch, tag, and delete on one forge is copied to the others.
+- **Push to one forge only.** This repo mirrors across Forgejo (`gt.plainskill.net`), GitHub, and GitLab. Commits and branches on one forge are copied to the others.
+- **Git tags do not sync across platforms.** A tag pushed to GitHub (e.g. `luna-connect-v0.2.28`, `luna-v0.0.26`) will **not** appear on Forgejo or GitLab via the mirror. Hosts that pull Forgejo (e.g. Luna Connect at `/opt/LibreServ`) will not see GitHub-only tags. Push release tags to the forge the consumer actually fetches, or deploy with `deploy.sh --head` / an explicit SHA until that forge has the tag.
 - Agents and local checkouts must use **only** the remote already configured as `origin` (whatever Cursor or the host provisioned). Push once there, then stop.
-- **Do not** push, tag, or delete the same change on a second forge “so it shows up faster.” That races the mirror and can break sync.
-- If Forgejo (or another forge) looks behind after a GitHub push, **wait for the mirror** — do not dual-push to catch it up. Host deploys that pull Forgejo can use `deploy.sh --head` until a tag arrives.
+- **Do not** dual-push the same commit or branch to a second forge “so it shows up faster.” That races the mirror and can break sync. Tags are the exception only when a consumer forge is missing a release tag it needs (see above).
+- If Forgejo (or another forge) looks behind on **branches** after a GitHub push, **wait for the mirror** — do not dual-push commits to catch it up.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
 - Branch naming: `feat/{desc}`, `fix/{desc}`, `docs/{desc}`, `chore/{desc}`
+
 
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
