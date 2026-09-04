@@ -25,10 +25,11 @@ if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
 		LUNA_TARGET=*) LUNA_TARGET="${_tok#LUNA_TARGET=}" ;;
 		LUNA_INSTALL_MEDIA=*) LUNA_INSTALL_MEDIA="${_tok#LUNA_INSTALL_MEDIA=}" ;;
 		LUNA_OVERRIDE_WAIT=*) LUNA_OVERRIDE_WAIT="${_tok#LUNA_OVERRIDE_WAIT=}" ;;
+		LUNA_CONFIRM=*) LUNA_CONFIRM="${_tok#LUNA_CONFIRM=}" ;;
 		LUNA_ROOTFS=*) LUNA_ROOTFS="${_tok#LUNA_ROOTFS=}"; TARBALL="$LUNA_ROOTFS" ;;
 		esac
 	done
-	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_ROOTFS
+	export LUNA_TARGET LUNA_INSTALL_MEDIA LUNA_OVERRIDE_WAIT LUNA_CONFIRM LUNA_ROOTFS
 fi
 
 discover_install_disk() {
@@ -214,6 +215,8 @@ if skip_disk "$TARGET"; then
 	echo "Luna will not install there (USB stick, installer media, or a special eMMC boot chip)." >&2
 	exit 2
 fi
+
+confirm_install "$TARGET"
 
 echo "Erasing $TARGET and installing Luna."
 # Prefer a slot image next to the tarball when the ISO staged one (OS cuts).
