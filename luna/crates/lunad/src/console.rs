@@ -94,22 +94,18 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")
     });
 
-    if !snap.ipv4.is_empty() {
-        if snap.cable_in && !snap.has_default_route {
-            lines.push("  This Luna has an address, but no path to the wider internet.".into());
-            lines.push("  Check the router or modem, then wait a moment.".into());
-        }
+    if !snap.ipv4.is_empty() && snap.cable_in && !snap.has_default_route {
+        lines.push("  This Luna has an address, but no path to the wider internet.".into());
+        lines.push("  Check the router or modem, then wait a moment.".into());
     }
 
     // How to open Luna: Everywhere (when remote is configured), then home LAN.
     let show_remote = !token_problem && snap.connect_hostname.is_some();
     let show_home = !snap.ipv4.is_empty() || show_remote;
-    if show_remote {
-        if let Some(host) = &snap.connect_hostname {
-            lines.push("  Everywhere:".into());
-            lines.push(format!("    {host}"));
-            lines.push(String::new());
-        }
+    if show_remote && let Some(host) = &snap.connect_hostname {
+        lines.push("  Everywhere:".into());
+        lines.push(format!("    {host}"));
+        lines.push(String::new());
     }
     if show_home {
         lines.push("  On your home internet only:".into());
