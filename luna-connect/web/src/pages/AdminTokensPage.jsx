@@ -6,6 +6,7 @@ import { Input } from "../components/ui/input.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
+import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
 
 function downloadTokensFile(tokens) {
@@ -117,13 +118,13 @@ export default function AdminTokensPage() {
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
       <p className="text-muted-foreground mb-8">
-        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or a one-off code for support. The public OS image ships without a token. Full codes are shown only at mint time — after that this table keeps a short hint, status, linked account, and address when set.
+        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or a one-off code for support. The public OS image ships without a token. The table shows a short hint so you can scan the list; use Show full token when you need the whole code (Connect keeps it sealed for newer tokens).
       </p>
 
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Single device token</CardTitle>
-          <CardDescription>Create one token to print in a box or hand to support (****-****-****-****-****). Copy it now — it will not be shown again in full.</CardDescription>
+          <CardDescription>Create one token to print in a box or hand to support (****-****-****-****-****). Copy it now, or find it later with Show full token in the table below.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -263,7 +264,7 @@ export default function AdminTokensPage() {
               <table className="w-full text-sm">
                 <thead className="bg-card border-b border-border">
                   <tr className="text-left font-mono text-xs text-muted-foreground">
-                    <th className="px-3 py-2">Hint</th>
+                    <th className="px-3 py-2">Token</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">Account</th>
@@ -275,7 +276,9 @@ export default function AdminTokensPage() {
                 <tbody>
                   {visible.map((r) => (
                     <tr key={r.id} className="border-b border-border last:border-0 align-top">
-                      <td className="px-3 py-2 font-mono">{r.hint || "—"}</td>
+                      <td className="px-3 py-2">
+                        <TokenReveal hint={r.hint} code={r.code} />
+                      </td>
                       <td className="px-3 py-2">
                         <Badge variant="outline">{kindLabel(r.kind)}</Badge>
                       </td>
