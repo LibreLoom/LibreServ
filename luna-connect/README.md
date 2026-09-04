@@ -71,16 +71,18 @@ sudo bash luna-connect/deploy/setup.sh
 sudo caddy reload --config /etc/caddy/Caddyfile
 
 # later (must be root — systemctl stop/start)
-sudo ./luna-connect/deploy/deploy.sh --head
-# same when already on main:
-# sudo ./luna-connect/deploy/deploy.sh
+# default: newest luna-connect-v* release tag (safe production default)
+sudo ./luna-connect/deploy/deploy.sh
+# same as no flags:
+# sudo ./luna-connect/deploy/deploy.sh --latest-tag
+# tip of origin/main when you intentionally want it:
+# sudo ./luna-connect/deploy/deploy.sh --head
 # sudo ./luna-connect/deploy/deploy.sh --head --force   # one instance already sick
 # build exactly this checkout (no pull):
 # sudo ./luna-connect/deploy/deploy.sh --no-pull
 
-# pinned release (when you need an older tag, not current main):
+# pinned older release (when the latest tag has moved past it):
 # sudo ./luna-connect/deploy/deploy.sh --tag luna-connect-v0.2.17
-# sudo ./luna-connect/deploy/deploy.sh --latest-tag
 ```
 
 Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: PostgreSQL in production (`database.driver` / `database.url` in `/etc/luna-connect/luna-connect-{a,b}.yaml`); SQLite for local dev. Host: `connect.luna.libreloom.org`.
