@@ -12,6 +12,7 @@
 //!   that the OS mounted read-only (iso9660 installer media, or an automount
 //!   left `ro`). Those are remounted read-write — or erased, if the user said so.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -92,9 +93,8 @@ impl DriveManager {
             (target, true)
         };
 
-        let has_marker = luna_core::marker::read_marker(&mount_point)
-            .map(|m| m.is_some())
-            .unwrap_or(false);
+        let marker = luna_core::marker::read_marker(&mount_point).ok().flatten();
+        let has_marker = marker.is_some();
         let summary = scan_top_level(&mount_point);
         // A successful inspect means we could open the mount; treat scan
         // failures (permission on individual entries) as still readable.
@@ -474,15 +474,36 @@ impl DriveManager {
     /// Reconcile the registry with reality.
     ///
     /// Adopted drives that disappeared become `missing`; drives that come back
-    /// become `as_is` again. Ejected drives stay ejected while still plugged in;
+    /// become `as_is` again. Matching is by kernel name first, then by `.luna`
+    /// marker UUID when the stick returns under a new `/dev/sdX` name.
+    /// Ejected drives stay ejected while still plugged in (name or marker);
     /// once unplugged they become `missing` so a re-plug can restore Ready.
     /// If a Ready drive's Luna mount is already gone, mark it ejected.
     pub fn reconcile(&self, conn: &Connection, detected: &[DetectedDrive]) -> anyhow::Result<()> {
+        // Cache marker ids per detected device for this pass so a missing-row
+        // loop does not RO-mount the same stick once per registry entry.
+        let mut marker_cache: HashMap<String, Option<String>> = HashMap::new();
         for row in db::list_drives(conn)? {
-            let present = detected.iter().any(|d| d.name == row.device);
+            let present_by_name = detected.iter().any(|d| d.name == row.device);
+            let marker_match = if present_by_name {
+                None
+            } else {
+                self.find_detected_by_marker(&row.id, detected, &mut marker_cache)
+            };
+            let present = present_by_name || marker_match.is_some();
+            let rematch_name = marker_match.map(|d| d.name.as_str());
             match row.state.as_str() {
                 "as_is" | "readonly" if !present => {
                     db::set_drive_state(conn, &row.id, "missing")?;
+                }
+                "as_is" | "readonly" if rematch_name.is_some() => {
+                    // Kernel rename while still Ready — retarget device, keep state.
+                    let new_name = rematch_name.unwrap();
+                    db::update_drive_placement(conn, &row.id, new_name, None, &row.state)?;
+                    let mut updated = row.clone();
+                    updated.device = new_name.to_string();
+                    let _ = self.dismiss_foreign(new_name);
+                    let _ = self.ensure_mounted(&updated);
                 }
                 "as_is" | "readonly" if present && self.luna_mount_missing(&row) => {
                     // Mount already gone (prior eject, crash, or forced umount)
@@ -492,15 +513,82 @@ impl DriveManager {
                 "ejected" if !present => {
                     db::set_drive_state(conn, &row.id, "missing")?;
                 }
-                "missing" if present => {
-                    db::set_drive_state(conn, &row.id, "as_is")?;
-                    let _ = self.ensure_mounted(&row);
+                "ejected" if rematch_name.is_some() => {
+                    // Still plugged under a new kernel name — stay ejected, track name.
+                    let new_name = rematch_name.unwrap();
+                    db::update_drive_placement(conn, &row.id, new_name, None, "ejected")?;
+                    let _ = self.dismiss_foreign(new_name);
                 }
-                // ejected + still plugged in → stay ejected until physically removed
+                "missing" if present => {
+                    let new_name = rematch_name.unwrap_or(row.device.as_str());
+                    let mut updated = row.clone();
+                    if new_name != row.device {
+                        db::update_drive_placement(conn, &row.id, new_name, None, "as_is")?;
+                        updated.device = new_name.to_string();
+                    } else {
+                        db::set_drive_state(conn, &row.id, "as_is")?;
+                    }
+                    let _ = self.dismiss_foreign(new_name);
+                    let _ = self.ensure_mounted(&updated);
+                }
+                // ejected + still plugged in (same name) → stay ejected
                 _ => {}
             }
         }
         Ok(())
+    }
+
+    /// Find a detected device whose `.luna` marker id matches `row_id`.
+    /// Uses an existing mount when available; otherwise briefly mounts RO at a
+    /// foreign path (read-only — never writes), then unmounts.
+    /// `marker_cache` is keyed by detected device name for one reconcile pass.
+    fn find_detected_by_marker<'a>(
+        &self,
+        row_id: &str,
+        detected: &'a [DetectedDrive],
+        marker_cache: &mut HashMap<String, Option<String>>,
+    ) -> Option<&'a DetectedDrive> {
+        for d in detected {
+            let id = marker_cache
+                .entry(d.name.clone())
+                .or_insert_with(|| self.marker_id_on_detected(d));
+            if id.as_deref() == Some(row_id) {
+                return Some(d);
+            }
+        }
+        None
+    }
+
+    /// Read `.luna` id from a detected device. Mounts RO briefly when unmounted.
+    fn marker_id_on_detected(&self, device: &DetectedDrive) -> Option<String> {
+        if let Some(mp) = device.mount_point.as_deref() {
+            return luna_core::marker::read_marker(Path::new(mp))
+                .ok()
+                .flatten()
+                .map(|m| m.id);
+        }
+        // Unmounted stick: brief RO foreign mount, read marker, tear down.
+        let choice = self.choice_for(device);
+        let target = self.foreign_mount_point(&device.name);
+        if self
+            .mounter
+            .mount_typed(
+                &device_path(&choice.name),
+                &target,
+                true,
+                fs_opt(&choice.fs_type),
+            )
+            .is_err()
+        {
+            return None;
+        }
+        let id = luna_core::marker::read_marker(&target)
+            .ok()
+            .flatten()
+            .map(|m| m.id);
+        let _ = self.mounter.unmount(&target);
+        let _ = std::fs::remove_dir(&target);
+        id
     }
 
     /// True when this row claims a Luna-owned mount that is not live.
@@ -972,6 +1060,172 @@ mod tests {
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
+        );
+    }
+
+    /// USB adopted as `sdc` comes back as `sdd` with the same `.luna` marker.
+    /// Reconcile rematches by marker UUID, updates `device`, and restores Ready
+    /// so the stick is not listed under Unknown Drives.
+    #[test]
+    fn reconcile_rematches_by_marker_when_kernel_name_changes() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+
+        // Adopt under kernel name sdc; marker lands on Luna mount with row.id.
+        let row = mgr
+            .adopt(&conn, &detected("sdc", None), "General UDisk", false)
+            .unwrap();
+        assert_eq!(row.device, "sdc");
+        assert_eq!(row.state, "as_is");
+        let marker_on_adopt = luna_core::marker::read_marker(Path::new(&row.mount_point))
+            .unwrap()
+            .expect("adopt writes .luna");
+        assert_eq!(marker_on_adopt.id, row.id);
+
+        // Unplug → missing.
+        mgr.reconcile(&conn, &[]).unwrap();
+        let after_unplug = db::get_drive(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(after_unplug.state, "missing");
+        assert_eq!(after_unplug.device, "sdc");
+
+        // Replug: same filesystem (marker still at old mount path), new kernel name sdd.
+        // Real USB would remount at a new path; here we expose the existing
+        // marker-bearing root under the new detected name.
+        let replugged = DetectedDrive {
+            name: "sdd".into(),
+            model: "General UDisk".into(),
+            size_bytes: 1000,
+            removable: true,
+            usb: true,
+            mount_point: Some(row.mount_point.clone()),
+            fs_type: Some("ext4".into()),
+            mount_readonly: false,
+        };
+        let marker_on_sdd = luna_core::marker::read_marker(Path::new(&row.mount_point))
+            .unwrap()
+            .expect("marker still on stick");
+        assert_eq!(marker_on_sdd.id, row.id, "UUID is available for rematch");
+
+        mgr.reconcile(&conn, &[replugged]).unwrap();
+        let after = db::get_drive(&conn, &row.id).unwrap().unwrap();
+
+        assert_eq!(after.state, "as_is");
+        assert_eq!(after.device, "sdd");
+
+        // Mirror API filter: as_is rows contribute to known_devices.
+        let known_devices: std::collections::HashSet<String> = db::list_drives(&conn)
+            .unwrap()
+            .into_iter()
+            .filter(|d| d.state == "as_is" || d.state == "readonly")
+            .map(|d| d.device)
+            .collect();
+        assert!(
+            known_devices.contains("sdd"),
+            "sdd in known_devices → UI must not list it as Unknown"
+        );
+        assert!(
+            !known_devices.contains("sdc"),
+            "old sdc name is no longer the registered device"
+        );
+    }
+
+    /// Ejected stick that returns under a new kernel name stays ejected
+    /// (presence via marker) and does not auto-restore to Ready.
+    #[test]
+    fn reconcile_keeps_ejected_when_kernel_name_changes() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+
+        let row = mgr
+            .adopt(&conn, &detected("sdc", None), "Backup Drive", false)
+            .unwrap();
+        let marker_id = row.id.clone();
+        mgr.eject(&conn, &row.id).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "ejected"
+        );
+
+        // Eject cleared the Luna mount; expose the same marker under a probe path
+        // as if the stick were still plugged with a new kernel name.
+        let probe = dir.join("probe_sdd");
+        std::fs::create_dir_all(&probe).unwrap();
+        luna_core::marker::write_marker(
+            &probe,
+            &luna_core::marker::Marker::new(marker_id, "Backup Drive"),
+        )
+        .unwrap();
+        let renamed = DetectedDrive {
+            name: "sdd".into(),
+            model: "Backup Drive".into(),
+            size_bytes: 1000,
+            removable: true,
+            usb: true,
+            mount_point: Some(probe.to_string_lossy().into_owned()),
+            fs_type: Some("ext4".into()),
+            mount_readonly: false,
+        };
+        mgr.reconcile(&conn, &[renamed]).unwrap();
+        let after = db::get_drive(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(
+            after.state, "ejected",
+            "must not auto-restore while still plugged"
+        );
+        assert_eq!(
+            after.device, "sdd",
+            "track the new kernel name while ejected"
+        );
+    }
+
+    /// Unmounted stick (no mount_point) is rematched by briefly mounting RO
+    /// to read `.luna`, then restored RW via ensure_mounted.
+    #[test]
+    fn reconcile_rematches_unmounted_stick_via_ro_marker_probe() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+
+        let row = mgr
+            .adopt(&conn, &detected("sdc", None), "Travel Stick", false)
+            .unwrap();
+        let marker = luna_core::marker::read_marker(Path::new(&row.mount_point))
+            .unwrap()
+            .expect("adopt writes .luna");
+
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
+
+        // Plant marker at foreign/sdd and unmount so MockMounter shadows it;
+        // the RO probe during rematch remounts and restores the marker.
+        let foreign = dir.join("mounts/foreign/sdd");
+        std::fs::create_dir_all(&foreign).unwrap();
+        luna_core::marker::write_marker(
+            &foreign,
+            &luna_core::marker::Marker::new(marker.id.clone(), "Travel Stick"),
+        )
+        .unwrap();
+        mounter.mount("/dev/sdd", &foreign, true).unwrap();
+        mounter.unmount(&foreign).unwrap();
+
+        mgr.reconcile(&conn, &[detected("sdd", None)]).unwrap();
+        let after = db::get_drive(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(after.state, "as_is");
+        assert_eq!(after.device, "sdd");
+        // Foreign probe must not leave an orphan mount.
+        assert!(
+            !mounter.is_mounted(&foreign),
+            "RO foreign probe must unmount after reading marker"
         );
     }
 

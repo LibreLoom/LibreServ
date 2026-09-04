@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, FolderInput, Pencil, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, Pencil, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
@@ -9,6 +9,7 @@ import CreateNameModal from "./CreateNameModal.jsx";
 import NewItemMenu from "./NewItemMenu.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
+import useCanProtect from "../../hooks/useCanProtect.js";
 import ModalCard from "../cards/ModalCard.jsx";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
@@ -30,12 +31,46 @@ import {
 import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
-import { folderHref as defaultFolderHref, fmtSize, joinPath, pathBasename } from "../../lib/paths.js";
+import {
+  downloadHref,
+  folderHref as defaultFolderHref,
+  fmtSize,
+  joinPath,
+  pathBasename,
+} from "../../lib/paths.js";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
 /** Parallel uploads — enough for multi-select without saturating the link. */
 const UPLOAD_PARALLEL = 2;
+
+/**
+ * Icon button that downloads a file or folder (folders arrive as a zip).
+ * @param {{ driveId: string, path: string, label: string }} props
+ */
+function DownloadButton({ driveId, path, label }) {
+  return (
+    <Tooltip content="Download">
+      <Button
+        variant="ghost"
+        surface="secondary"
+        size="iconSm"
+        asChild
+        aria-label={`Download ${label}`}
+      >
+        <a href={downloadHref(driveId, path)}>
+          <Download size={14} />
+        </a>
+      </Button>
+    </Tooltip>
+  );
+}
+
+DownloadButton.propTypes = {
+  driveId: PropTypes.string.isRequired,
+  path: PropTypes.string.isRequired,
+  label: PropTypes.string.isRequired,
+};
 
 /**
  * @typedef {{
@@ -219,6 +254,8 @@ export default function DriveFileExplorer({
     queryFn: () => getJson("/api/v1/grants"),
     enabled: !isAdmin,
   });
+  const protectAvailable = useCanProtect();
+  const showProtect = isAdmin && protectAvailable;
   const folderWritable = isAdmin || canWriteOnPath(grants.data, driveId, path);
   const trashVisible = isAdmin || hasWriteOnDrive(grants.data, driveId);
 
@@ -553,7 +590,12 @@ export default function DriveFileExplorer({
                 kind: path ? "folder" : "drive",
               })}
             />
-            {isAdmin && (
+            <DownloadButton
+              driveId={driveId}
+              path={path}
+              label={path || driveLabel || "this folder"}
+            />
+            {showProtect && (
               <ProtectButton
                 label={path || driveLabel || "this folder"}
                 onClick={() => setProtectTarget({ path })}
@@ -572,12 +614,17 @@ export default function DriveFileExplorer({
                   kind: ctx.entry.kind === "dir" ? "folder" : "file",
                 })}
               />
-              {isAdmin && ctx.entry.kind === "dir" && (
+              {showProtect && ctx.entry.kind === "dir" && (
                 <ProtectButton
                   label={ctx.entry.name}
                   onClick={() => setProtectTarget({ path: ctx.fullPath })}
                 />
               )}
+              <DownloadButton
+                driveId={driveId}
+                path={ctx.fullPath}
+                label={ctx.entry.name}
+              />
               <Tooltip content="Copy">
                 <Button
                   variant="ghost"

@@ -28,13 +28,27 @@ function stubFetch({
   setup = { name: "Luna", setup_completed: false, current_step: "welcome", step_data: {} },
   hasAdmin = false,
   connectActive = false,
+  connect = /** @type {Record<string, unknown>} */ ({}),
+  me = null,
 } = {}) {
   return vi.fn(async (url, init) => {
     const u = String(url);
     const method = (init?.method || "GET").toUpperCase();
-    if (u.includes("/auth/me")) return jsonResponse({}, 401);
+    if (u.includes("/auth/me")) {
+      if (me) return jsonResponse(me);
+      return jsonResponse({}, 401);
+    }
     if (u.includes("/auth/status")) {
       return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive });
+    }
+    if (u.includes("/api/v1/connect/status")) {
+      return jsonResponse({
+        connect_active: connectActive,
+        enabled: Boolean(connect.hostname || connect.domain),
+        hostname: null,
+        domain: null,
+        ...connect,
+      });
     }
     if (u.includes("/api/v1/setup/preflight")) return jsonResponse(healthyPreflight());
     if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
@@ -94,7 +108,8 @@ describe("SetupPage", () => {
     expect(screen.getByText(/get Luna set up for you/i)).toBeTruthy();
     expect(screen.queryByText("luna.local")).toBeNull();
     expect(screen.queryByText("192.168.1.20")).toBeNull();
-    expect(screen.queryByText(/current address on the screen/i)).toBeNull();
+    expect(screen.queryByText(/On your home internet only/i)).toBeNull();
+    expect(screen.queryByText(/Everywhere/i)).toBeNull();
     expect(screen.queryByText("http://luna")).toBeNull();
     expect(screen.queryByText("http://169.254.42.42")).toBeNull();
     expect(screen.queryByText(/Luna Setup/i)).toBeNull();
@@ -139,6 +154,47 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
     expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
     expect(screen.getByLabelText(/What's your name/i)).toBeTruthy();
+  });
+
+  it("does not attach a substep slide/pop class to the name field on first account paint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    const input = await screen.findByLabelText(/What's your name/i);
+    // SetupCard may still slide the step; the field group inside the form must
+    // not also play slide-in-from-*-pop on first paint (that double-pop jumped
+    // when the name input was focused).
+    const form = input.closest("form");
+    expect(form).toBeTruthy();
+    expect(form.querySelectorAll("[class*='slide-in-from']").length).toBe(0);
+  });
+
+  it("slides the username field in after continuing from the name substep", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    const username = await screen.findByLabelText(/Pick a username/i);
+    const form = username.closest("form");
+    expect(form.querySelector("[class*='slide-in-from']")).toBeTruthy();
   });
 
   it("asks for the first eight characters when remote setup is locked", async () => {

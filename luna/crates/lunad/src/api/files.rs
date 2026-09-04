@@ -153,6 +153,141 @@ async fn content(
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
     check_access(&state, &user, &id, &rel, false)?;
+    let (_path, meta) =
+        with_db(&state, |conn| files::resolve_any(conn, &id, &rel)).map_err(map_files_err)?;
+    if meta.is_dir() {
+        if query.download.as_deref() != Some("1") {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That's a folder. Use Download to save it as a zip file.",
+            ));
+        }
+        return serve_folder_zip(state, user, id, rel).await;
+    }
+    if !meta.is_file() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can only download files and folders.",
+        ));
+    }
+    serve_file_content(state, id, rel, query.download.as_deref(), headers).await
+}
+
+async fn serve_folder_zip(
+    state: AppState,
+    user: crate::auth::CurrentUser,
+    id: String,
+    rel: String,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let archive_base = files::zip_archive_basename(&rel);
+    let zip_name = format!("{archive_base}.zip");
+    let is_admin = user.role == "admin";
+    let tmp = tempfile::NamedTempFile::new().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't prepare that folder download. Try again.",
+        )
+    })?;
+    let tmp_path = tmp.path().to_path_buf();
+
+    let build_result = tokio::task::spawn_blocking({
+        let state = state.clone();
+        let id = id.clone();
+        let rel = rel.clone();
+        let user = user.clone();
+        let tmp_path = tmp_path.clone();
+        move || {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&tmp_path)
+                .map_err(files::FilesError::Io)?;
+            let conn = state.db.lock().map_err(|_| files::FilesError::UnknownDrive)?;
+            files::write_folder_zip(&conn, &id, &rel, &mut file, |child| {
+                is_admin || crate::auth::can_browse_path(&user, &conn, &id, child)
+            })
+        }
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't prepare that folder download. Try again.",
+        )
+    })?;
+
+    match build_result {
+        Ok(_) => {}
+        Err(files::FilesError::Io(ref io))
+            if io.kind() == std::io::ErrorKind::InvalidInput
+                && io.to_string().contains("folder too large") =>
+        {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That folder has too many files to download as one zip. Download smaller folders instead.",
+            ));
+        }
+        Err(other) => return Err(map_files_err(other)),
+    }
+
+    let async_file = tokio::fs::File::open(&tmp_path).await.map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't prepare that folder download. Try again.",
+        )
+    })?;
+    let len = async_file
+        .metadata()
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let stream = ReaderStream::new(async_file);
+    // Keep the temp file alive until the response body finishes streaming.
+    let body = Body::from_stream(ZipBody {
+        stream,
+        _keep: tmp,
+    });
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_LENGTH, len.to_string())
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!(
+                "attachment; filename=\"{}\"",
+                files::content_disposition_filename(&zip_name)
+            ),
+        )
+        .body(body)
+        .unwrap())
+}
+
+struct ZipBody {
+    stream: ReaderStream<tokio::fs::File>,
+    _keep: tempfile::NamedTempFile,
+}
+
+impl futures_util::Stream for ZipBody {
+    type Item = Result<bytes::Bytes, std::io::Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::pin::Pin::new(&mut self.stream).poll_next(cx)
+    }
+}
+
+async fn serve_file_content(
+    state: AppState,
+    id: String,
+    rel: String,
+    download: Option<&str>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<Value>)> {
     let (path, meta) =
         with_db(&state, |conn| files::file_path(conn, &id, &rel)).map_err(map_files_err)?;
     let total = meta.len();
@@ -236,12 +371,11 @@ async fn content(
         ));
     }
     let mime = mime_guess::from_path(&name).first_or_octet_stream();
-    let disposition =
-        if query.download.as_deref() == Some("1") || !files::inline_safe(mime.as_ref()) {
-            "attachment"
-        } else {
-            "inline"
-        };
+    let disposition = if download == Some("1") || !files::inline_safe(mime.as_ref()) {
+        "attachment"
+    } else {
+        "inline"
+    };
 
     let mut builder = Response::builder()
         .status(status)
@@ -1241,5 +1375,107 @@ mod http_tests {
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         let res = call(&app, http).await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn folder_download_returns_zip() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("album")).unwrap();
+        std::fs::write(mount.path().join("album/beach.jpg"), b"photo").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let admin_login = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&admin_login);
+        let cookie = cookie_header(&session, &csrf);
+
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri("/api/v1/drives/photos/files/content?path=album&download=1")
+            .header("cookie", &cookie)
+            .header("x-csrf-token", &csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/zip")
+        );
+        let disposition = res
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(disposition.contains("album.zip"), "{disposition}");
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert!(body.as_ref().starts_with(b"PK"));
+    }
+
+    #[tokio::test]
+    async fn folder_without_download_flag_is_rejected() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("album")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let admin_login = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&admin_login);
+        let cookie = cookie_header(&session, &csrf);
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri("/api/v1/drives/photos/files/content?path=album")
+            .header("cookie", &cookie)
+            .header("x-csrf-token", &csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }

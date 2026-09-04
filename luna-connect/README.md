@@ -5,8 +5,10 @@ Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 Bind is **offline on the website**: you enter the permanent device code
 (`****-****-****-****-****`), pick a name, and optionally turn on cloud backup.
 Luna then pulls `GET /api/v1/status` on boot and every 5 minutes (Bearer = full
-device code). **200** applies tunnel/domain/backup; **403** means unbound and
-Luna clears remote access.
+device code). **200** applies tunnel/domain/backup; **JSON 403** means unbound and
+Luna clears remote access. A **Cloudflare managed-challenge 403** (HTML / 
+`cf-mitigated: challenge`) is **not** an unbind — Luna keeps `connect.json` and
+shows a sticky reachability error until Connect returns real JSON again.
 
 Routes: `/onboarding` (official) and `/diyonboarding` (bring-your-own, $1 mint).
 `/register` redirects to `/diyonboarding`.
@@ -16,6 +18,29 @@ The public address is free: `https://{name}.luna.servers.libreloom.org`.
 Cloud backups are an off-site copy of chosen folders or whole drives — not version history. They cost **$8 per terabyte each month** (Stripe metered at **$0.008 per GB-month** on the **month’s average** storage — Backblaze B2–style, not a last-day snapshot). Downloads are free up to **3× average storage**; overage is **$0.01 per GB**. Billed after you add a payment card here. Luna uploads during idle time. When Admin → Connections has an enabled Backblaze B2 provider, each Luna gets its own private B2 bucket; otherwise objects stay on this server’s disk.
 
 Backup to the cloud is planned as the only paid product. The address never requires a card.
+
+## Cloudflare / Bot Fight Mode (ops — required for device API)
+
+Luna devices call `https://connect.luna.libreloom.org/api/v1/*` with a Bearer
+device token. They cannot solve browser JavaScript challenges.
+
+**Bot Fight Mode cannot be skipped** via WAF custom rules (Cloudflare docs). If
+Bot Fight Mode (or Super Bot Fight Mode treating automated clients as challenges)
+is on for this zone, status pulls get HTML `403` with `cf-mitigated: challenge`
+("Just a moment...") instead of JSON. Luna will no longer wipe local bind state
+for that, but **tunnel tokens still will not refresh** until the challenge stops.
+
+Production must do one of:
+
+1. **Turn off Bot Fight Mode** on the zone that fronts `connect.luna.libreloom.org`, or
+2. Use **Super Bot Fight Mode** with **Definitely Automated = Allow** (especially
+   for the API), and/or
+3. Add **Skip** rules for `/api/v1/*` under Super Bot Fight Mode (not classic Bot Fight Mode).
+
+Without that Cloudflare dashboard change, devices cannot pull tunnel tokens even
+with a correct Luna code fix. Reproduce locally with
+`luna/scripts/mock-connect-cf-challenge.py` and
+`luna/scripts/repro-cf-challenge-403.sh`.
 
 ## Device codes
 

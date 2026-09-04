@@ -35,6 +35,16 @@ function stubFetch(sourceBody) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (path.startsWith("/api/v1/network/status")) {
+      return new Response(
+        JSON.stringify({
+          ethernet_connected: true,
+          has_default_route: true,
+          ipv4: ["192.168.1.20"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (path.startsWith("/api/v1/connect/status")) {
       return new Response(JSON.stringify({ enabled: false }), {
         status: 200,
@@ -80,7 +90,7 @@ function renderPage(fetchImpl) {
 }
 
 describe("AboutCategory", () => {
-  it("shows Luna branding, device info, and the update card", async () => {
+  it("shows Luna branding, device info, access addresses, and the update card", async () => {
     renderPage(stubFetch());
     expect(await screen.findByText(/home file box/i)).toBeTruthy();
     const deviceRow = await screen.findByText("This Luna");
@@ -88,22 +98,63 @@ describe("AboutCategory", () => {
     const deviceValue = screen.getByText("Living Room Luna");
     expect(deviceValue.className).toMatch(/rounded-pill/);
     expect(screen.queryByText("Software")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Where to open Luna" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
+    expect(screen.queryByText(/None yet/i)).toBeNull();
+    expect(screen.queryByText(/Waiting for an address/i)).toBeNull();
     expect(await screen.findByRole("heading", { name: "System Updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText("Default source")).toBeTruthy();
     expect(screen.getByText("LibreLoom/LibreServ")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "System Checks" })).toBeTruthy();
   });
 
-  it("shows Luna Connect on/off and device token controls in Advanced", async () => {
+  it("puts System Checks after Advanced on the About page", async () => {
+    renderPage(stubFetch());
+    await screen.findByRole("heading", { name: "System Checks" });
+    const about = document.querySelector("[data-slot='about-category']");
+    expect(about).toBeTruthy();
+    const headings = Array.from(about.querySelectorAll("h2")).map((el) => el.textContent);
+    const advancedIdx = headings.findIndex((t) => /Advanced/i.test(t));
+    const checksIdx = headings.findIndex((t) => /System Checks/i.test(t));
+    expect(advancedIdx).toBeGreaterThanOrEqual(0);
+    expect(checksIdx).toBeGreaterThan(advancedIdx);
+  });
+
+  it("keeps Luna Connect closed and opens a device-token modal from Advanced", async () => {
+    const user = userEvent.setup();
     renderPage(stubFetch());
     await screen.findByText("Default source");
 
-    expect(await screen.findByLabelText("Device token from Luna Connect")).toBeTruthy();
+    expect(screen.getByText("Set or remove the Luna Connect device token here.")).toBeTruthy();
+    expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Save device token/i })).toBeNull();
+
+    const lunaConnectToggle = screen.getByRole("button", { name: /^Luna Connect$/i });
+    expect(lunaConnectToggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(lunaConnectToggle);
+    expect(lunaConnectToggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(screen.getByRole("button", { name: /Change device token/i }));
+
+    expect(
+      await screen.findByText(/Paste your device token from/i),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "connect.luna.libreloom.org" })).toHaveAttribute(
+      "href",
+      "https://connect.luna.libreloom.org",
+    );
+    expect(screen.getByLabelText("Device token from Luna Connect")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Save device token/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).toBeNull();
   });
 
-  it("shows turn-off controls in Advanced when Connect is linked", async () => {
+  it("offers remove in the device-token modal when Connect is active", async () => {
+    const user = userEvent.setup();
     const baseFetch = stubFetch();
     const fetchImpl = vi.fn(async (path, options) => {
       if (path.startsWith("/api/v1/connect/status")) {
@@ -121,9 +172,12 @@ describe("AboutCategory", () => {
     renderPage(fetchImpl);
     await screen.findByText("Default source");
 
-    expect(await screen.findByRole("button", { name: /Turn Luna Connect off/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Remove device token/i })).toBeTruthy();
-    expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^Luna Connect$/i }));
+    await user.click(screen.getByRole("button", { name: /Change device token/i }));
+
+    expect(await screen.findByRole("button", { name: /Remove device token/i })).toBeTruthy();
+    expect(screen.getByLabelText("Device token from Luna Connect")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).toBeNull();
   });
 
   it("flags a custom source when keys differ from the built-in key", async () => {

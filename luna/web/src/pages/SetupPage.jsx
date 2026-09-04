@@ -1,8 +1,7 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowRight, Cable, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson, setSetupToken, clearSetupToken, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
@@ -20,6 +19,7 @@ import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import useLabelErrorState from "../hooks/useLabelErrorState";
 import PreflightStep from "../components/setup/PreflightStep.jsx";
+import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -74,6 +74,9 @@ function SetupCard({ children, className = "", header = null }) {
         <div
           key={tKey}
           className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+          // backwards (not both): drop the transform after the slide so focused
+          // inputs inside the card don't jump on a leftover compositing layer.
+          style={{ animationFillMode: "backwards" }}
         >
           {children}
         </div>
@@ -148,42 +151,6 @@ function LogoMark({ size = 64 }) {
   );
 }
 LogoMark.propTypes = { size: PropTypes.number };
-
-/** Where to find Luna after install. Phone stays on home internet. */
-function DiscoveryPaths({ name = "Luna" }) {
-  const netStatus = useQuery({
-    queryKey: ["network-status"],
-    queryFn: () => getJson("/api/v1/network/status"),
-    refetchInterval: 3000,
-    retry: false,
-  });
-  const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
-  const label = name || "Luna";
-  return (
-    <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left">
-      <p className="text-xs text-secondary mb-3">
-        Stay on your home internet. You can find {label} at:
-      </p>
-      <ul className="space-y-2.5 text-xs">
-        <li className="flex items-center gap-2.5">
-          <Cable size={14} className="text-secondary shrink-0" />
-          <span className="font-mono text-secondary shrink-0">luna.local</span>
-          <span className="text-secondary">— if your phone finds it</span>
-        </li>
-        {ipv4.map((ip) => (
-          <li key={ip} className="flex items-center gap-2.5">
-            <Check size={14} className="text-secondary shrink-0" />
-            <span className="font-mono text-secondary shrink-0">{ip}</span>
-            <span className="text-secondary">— current address on the screen</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-DiscoveryPaths.propTypes = {
-  name: PropTypes.string,
-};
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
 // Content-only: SetupPage renders the persistent shell (SetupShell + SetupCard
@@ -380,6 +347,11 @@ FormField.propTypes = {
 };
 
 // ─── STEP: Account ────────────────────────────────────────────────────────────
+// SetupCard already slides the whole account step in. Playing the same
+// slide-in-from-*-pop again on the first field stacked two scales on the
+// name input (and autoFocus hit mid-animation), so it jumped when selected.
+const ACCOUNT_STEP_SLIDE_MS = 300;
+
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
   const needsSetupCode = isPublicLunaHost() && connectActive;
@@ -395,6 +367,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const [fieldError, setFieldError] = useState(null);
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir]   = useState("right");
+  // Only animate field swaps after the user moves between substeps — not on
+  // the initial mount (parent SetupCard already owns that entrance).
+  const authSubAnimatedRef = useRef(false);
+  const fieldInputRef = useRef(null);
 
   const pw       = form.password;
   const confirm  = form.confirm_password;
@@ -467,15 +443,31 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
   const currentAuthField = authFields[authSubStep] || authFields[0];
   const isLastAuthSubStep = authSubStep === authFields.length - 1;
+  const animateAuthSub = authSubAnimatedRef.current;
 
   const goSubNext = () => {
+    authSubAnimatedRef.current = true;
     setAuthSubDir("right");
     setAuthSubStep((s) => Math.min(s + 1, authFields.length - 1));
   };
   const goSubPrev = () => {
+    authSubAnimatedRef.current = true;
     setAuthSubDir("left");
     setAuthSubStep((s) => Math.max(s - 1, 0));
   };
+
+  // Focus after the parent step slide finishes on first paint; on later
+  // substeps focus immediately after the keyed field mounts.
+  useEffect(() => {
+    if (hasAdmin) return undefined;
+    const delay = animateAuthSub ? 0 : ACCOUNT_STEP_SLIDE_MS;
+    const id = window.setTimeout(() => {
+      fieldInputRef.current?.focus?.();
+    }, delay);
+    return () => window.clearTimeout(id);
+    // animateAuthSub is derived from a ref set synchronously before substep updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus when the visible field changes
+  }, [authSubStep, hasAdmin]);
 
   const handleCreateAccount = async () => {
     if (submitting) return;
@@ -597,9 +589,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <div
             key={`register-${authSubStep}`}
             className={cn(
-              "animate-in duration-300",
-              authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop",
+              animateAuthSub && "animate-in duration-300",
+              animateAuthSub && (authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
             )}
+            style={animateAuthSub ? { animationFillMode: "backwards" } : undefined}
           >
             <label
               htmlFor={currentAuthField.id}
@@ -611,6 +604,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             {(currentAuthField.type === "password") ? (
               <div className="relative">
                 <input
+                  ref={fieldInputRef}
                   id={currentAuthField.id}
                   name={currentAuthField.name}
                   type={showPw ? "text" : "password"}
@@ -619,7 +613,6 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                   value={form[currentAuthField.name]}
                   onChange={(e) => setField(currentAuthField.name, e.target.value)}
                   disabled={submitting}
-                  autoFocus
                   className={cn(WIZARD_INPUT_CLASS, "pr-12")}
                 />
                 <button
@@ -633,6 +626,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
               </div>
             ) : (
               <input
+                ref={fieldInputRef}
                 id={currentAuthField.id}
                 name={currentAuthField.name}
                 type={currentAuthField.type}
@@ -641,7 +635,6 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 value={form[currentAuthField.name]}
                 onChange={(e) => setField(currentAuthField.name, e.target.value)}
                 disabled={submitting}
-                autoFocus
                 spellCheck={currentAuthField.name === "setup_secret" ? false : undefined}
                 className={WIZARD_INPUT_CLASS}
                 aria-invalid={currentAuthField.name === "setup_secret" && Boolean(fieldError)}
@@ -834,7 +827,7 @@ function DoneStep({ name, onGoDrives }) {
         </p>
 
         {/* Discovery paths — where to find Luna after setup */}
-        <DiscoveryPaths name={label} />
+        <DiscoveryPaths />
 
         <div className="mt-8 animate-in fade-in duration-300 delay-400">
           <Button

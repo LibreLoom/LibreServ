@@ -136,8 +136,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
           </div>
           {!clipboardOk && revealed && displayKey ? (
             <p className="text-xs text-secondary">
-              Select the key above, then copy it. Automatic copy needs a secure
-              connection, and this page does not have one yet.
+              Select the key above, then copy it.
             </p>
           ) : null}
         </div>

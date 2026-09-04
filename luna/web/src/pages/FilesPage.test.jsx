@@ -18,7 +18,18 @@ function stubFilesApi(byPath) {
     const u = String(url);
     const method = (init.method || "GET").toUpperCase();
     if (u.endsWith("/drives")) {
-      return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(byPath.__drives || [
+        { id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" },
+        { id: "d2", label: "Spare Drive", state: "as_is", fs_type: "ext4", device: "sdy", mount_point: "/y" },
+      ]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/api/v1/connect/status")) {
+      return new Response(JSON.stringify({
+        backup_unlocked: Boolean(byPath.__backupUnlocked),
+        backup_sources: byPath.__backupSources || [],
+        connect_active: Boolean(byPath.__backupUnlocked),
+        enabled: Boolean(byPath.__backupUnlocked),
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
       return new Response(JSON.stringify({
@@ -141,6 +152,58 @@ describe("FilesPage", () => {
     expect(await screen.findByText(/album/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sharing for album" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Protect album" })).toBeInTheDocument();
+  });
+
+  it("hides Protect with one drive and no cloud backup", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __drives: [
+        { id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" },
+      ],
+      __backupUnlocked: false,
+    });
+    renderFiles();
+    expect(await screen.findByText(/album/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Protect album" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Protect Photos Drive" })).not.toBeInTheDocument();
+  });
+
+  it("shows Protect with one drive when cloud backup is connected", async () => {
+    stubFilesApi({
+      "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
+      __drives: [
+        { id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" },
+      ],
+      __backupUnlocked: true,
+    });
+    renderFiles();
+    expect(await screen.findByRole("button", { name: "Protect album" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
+  });
+
+  it("offers download for files and folders in the row toolbar", async () => {
+    stubFilesApi({
+      "": [
+        { name: "album", kind: "dir", size: 0, modified: 0, hidden: false },
+        { name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false },
+      ],
+    });
+    renderFiles();
+    expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
+    const fileDownload = screen.getByRole("link", { name: "Download photo.jpg" });
+    expect(fileDownload).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=photo.jpg&download=1",
+    );
+    const folderDownload = screen.getByRole("link", { name: "Download album" });
+    expect(folderDownload).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=album&download=1",
+    );
+    expect(screen.getByRole("link", { name: "Download Photos Drive" })).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=&download=1",
+    );
   });
 
   it("opens a folder from the address bar and keeps the address in sync", async () => {

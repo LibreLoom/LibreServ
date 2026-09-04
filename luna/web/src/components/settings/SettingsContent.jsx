@@ -1,6 +1,5 @@
 import { cn } from "@/lib/utils";
 import AppearanceCategory from "./categories/AppearanceCategory.jsx";
-import NetworkCategory from "./categories/NetworkCategory.jsx";
 import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";
 import AccessCategory from "./categories/AccessCategory.jsx";
@@ -8,7 +7,6 @@ import AboutCategory from "./categories/AboutCategory.jsx";
 
 const CATEGORY_TITLES = {
   appearance: "Appearance",
-  network: "Local Network",
   external_services: "External Services",
   devices: "Devices",
   security: "Security",
@@ -17,7 +15,6 @@ const CATEGORY_TITLES = {
 
 const CATEGORY_COMPONENTS = {
   appearance: AppearanceCategory,
-  network: NetworkCategory,
   external_services: ExternalServicesCategory,
   devices: DevicesCategory,
   security: AccessCategory,

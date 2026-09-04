@@ -1,6 +1,7 @@
 //! Live HDMI status screen + getty-shaped login for Luna OS tty1.
 //!
-//! lunad writes `{LUNA_DATA_DIR}/issue`. This binary redraws when that file
+//! lunad writes `{LUNA_DATA_DIR}/issue` on every console-help tick (including
+//! when the text is unchanged). This binary redraws when the painted screen
 //! changes, then hands a username to `/bin/login`.
 
 use std::fs::{self, File, OpenOptions};
@@ -13,10 +14,11 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+use lunad::console::{STALE_NOTE_LINE1, STALE_NOTE_LINE2, is_issue_stale};
+
 const DEFAULT_TTY: &str = "/dev/tty1";
 const DEFAULT_ISSUE: &str = "/var/lib/luna/issue";
 const DEFAULT_LOGIN: &str = "/bin/login";
-const STALE_SECS: u64 = 90;
 const POLL_MS: u64 = 250;
 
 fn main() {
@@ -44,20 +46,16 @@ fn run() -> io::Result<()> {
 
     let mut username = String::new();
     let mut last_paint = String::new();
-    let mut last_mtime = None;
 
     loop {
         let (body, mtime) = read_issue(&issue_path);
-        let stale = is_stale(mtime);
-        let screen = compose_screen(&body, stale, &username);
+        let screen = compose_screen(&body, is_issue_stale(mtime), &username);
 
-        if screen != last_paint || mtime != last_mtime {
-            // Avoid fighting mid-edit only when the banner itself changed.
-            if username.is_empty() || body_changed(&last_paint, &screen) {
-                paint(&screen)?;
-                last_paint = screen;
-                last_mtime = mtime;
-            }
+        // Repaint only when the visible screen changes. lunad heartbeats the
+        // issue file mtime every few seconds; that must not flicker the VT.
+        if screen != last_paint {
+            paint(&screen)?;
+            last_paint = screen;
         }
 
         match read_key(Duration::from_millis(POLL_MS))? {
@@ -67,19 +65,17 @@ fn run() -> io::Result<()> {
                     username.push(c);
                     // Echo grows on the same line; full repaint keeps layout stable.
                     let (body, mtime) = read_issue(&issue_path);
-                    let screen = compose_screen(&body, is_stale(mtime), &username);
+                    let screen = compose_screen(&body, is_issue_stale(mtime), &username);
                     paint(&screen)?;
                     last_paint = screen;
-                    last_mtime = mtime;
                 }
             }
             Some(Key::Backspace) => {
                 username.pop();
                 let (body, mtime) = read_issue(&issue_path);
-                let screen = compose_screen(&body, is_stale(mtime), &username);
+                let screen = compose_screen(&body, is_issue_stale(mtime), &username);
                 paint(&screen)?;
                 last_paint = screen;
-                last_mtime = mtime;
             }
             Some(Key::Enter) => {
                 let name = username.trim().to_string();
@@ -96,10 +92,9 @@ fn run() -> io::Result<()> {
             Some(Key::CtrlC) | Some(Key::CtrlD) => {
                 username.clear();
                 let (body, mtime) = read_issue(&issue_path);
-                let screen = compose_screen(&body, is_stale(mtime), &username);
+                let screen = compose_screen(&body, is_issue_stale(mtime), &username);
                 paint(&screen)?;
                 last_paint = screen;
-                last_mtime = mtime;
             }
         }
     }
@@ -169,16 +164,6 @@ fn read_issue(path: &Path) -> (String, Option<SystemTime>) {
     (body, mtime)
 }
 
-fn is_stale(mtime: Option<SystemTime>) -> bool {
-    let Some(mtime) = mtime else {
-        return true;
-    };
-    match mtime.elapsed() {
-        Ok(elapsed) => elapsed > Duration::from_secs(STALE_SECS),
-        Err(_) => false,
-    }
-}
-
 fn compose_screen(body: &str, stale: bool, username: &str) -> String {
     let mut out = String::new();
     out.push_str(body);
@@ -186,20 +171,14 @@ fn compose_screen(body: &str, stale: bool, username: &str) -> String {
         out.push('\n');
     }
     if stale {
-        out.push_str("  Note: this status is not updating. Luna may still be starting,\n");
-        out.push_str("  or the Luna service needs a moment. You can still log in below.\n\n");
+        out.push_str(STALE_NOTE_LINE1);
+        out.push('\n');
+        out.push_str(STALE_NOTE_LINE2);
+        out.push_str("\n\n");
     }
     out.push_str("login: ");
     out.push_str(username);
     out
-}
-
-fn body_changed(prev_screen: &str, next_screen: &str) -> bool {
-    // Strip the login line for comparison.
-    fn banner(s: &str) -> &str {
-        s.rsplit_once("login: ").map(|(b, _)| b).unwrap_or(s)
-    }
-    banner(prev_screen) != banner(next_screen)
 }
 
 fn paint(screen: &str) -> io::Result<()> {
@@ -258,4 +237,34 @@ fn exec_login(login_bin: &str, username: &str) -> io::Result<()> {
     // BusyBox / util-linux: `login -- USER` prompts for password.
     let err = Command::new(login_bin).arg("--").arg(username).exec();
     Err(io::Error::other(format!("exec {login_bin} failed: {err}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lunad::console::STALE_SECS;
+
+    #[test]
+    fn compose_omits_stale_note_when_fresh() {
+        let screen = compose_screen("hello\n", false, "");
+        assert!(screen.contains("hello"));
+        assert!(!screen.contains("not updating"));
+        assert!(screen.ends_with("login: "));
+    }
+
+    #[test]
+    fn compose_includes_stale_note_when_stale() {
+        let screen = compose_screen("hello\n", true, "root");
+        assert!(screen.contains("not updating"));
+        assert!(screen.contains(STALE_NOTE_LINE1.trim()));
+        assert!(screen.ends_with("login: root"));
+    }
+
+    #[test]
+    fn shared_stale_helper_matches_threshold() {
+        assert!(!is_issue_stale(None));
+        assert!(!is_issue_stale(Some(SystemTime::now())));
+        let old = SystemTime::now() - Duration::from_secs(STALE_SECS + 1);
+        assert!(is_issue_stale(Some(old)));
+    }
 }

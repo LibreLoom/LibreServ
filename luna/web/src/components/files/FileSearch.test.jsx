@@ -134,7 +134,11 @@ describe("FileSearch", () => {
     });
     const open = await screen.findByRole("link", { name: /Open album/i });
     expect(open).toHaveAttribute("href", "/drives/d1?path=album");
-    expect(screen.queryByRole("link", { name: /Download album/i })).not.toBeInTheDocument();
+    const download = screen.getByRole("link", { name: /Download album/i });
+    expect(download).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=album&download=1",
+    );
   });
 
   it("confirms trash from a search hit", async () => {

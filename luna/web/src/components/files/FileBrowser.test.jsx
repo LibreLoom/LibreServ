@@ -57,6 +57,10 @@ describe("FileBrowser", () => {
       "href",
       expect.stringContaining("readme.txt"),
     );
+    expect(screen.getByRole("link", { name: /Download album/i })).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=album&download=1",
+    );
   });
 
   it("navigates into a folder and back up", async () => {

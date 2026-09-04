@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
-import { Copy, Check, ChevronDown, ChevronUp, ExternalLink, KeyRound, RefreshCw, Shield, Trash2, Users } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Shield, Trash2, Users } from "lucide-react";
 
 function formatWhen(unix) {
   if (!unix) return "—";
@@ -240,10 +240,7 @@ export default function AdminAccountsPage() {
   const [detailError, setDetailError] = useState("");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [mintedCode, setMintedCode] = useState("");
-  const [mintBusy, setMintBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const loadAccounts = useCallback(() => {
     setError("");
@@ -271,40 +268,10 @@ export default function AdminAccountsPage() {
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
-      setMintedCode("");
       return;
     }
-    setMintedCode("");
     loadDetail();
   }, [selectedId, loadDetail]);
-
-  const mintReplacement = async () => {
-    if (!selectedId) return;
-    setMintBusy(true);
-    setDetailError("");
-    try {
-      const data = await adminApi("/admin/setup-tokens", {
-        method: "POST",
-        body: JSON.stringify({ order_ref: `support:${selectedId}` }),
-      });
-      setMintedCode(data.code || "");
-    } catch (err) {
-      setDetailError(err.message);
-    } finally {
-      setMintBusy(false);
-    }
-  };
-
-  const copyCode = async () => {
-    if (!mintedCode) return;
-    try {
-      await navigator.clipboard.writeText(mintedCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setDetailError("Could not copy to clipboard.");
-    }
-  };
 
   const deleteAccount = async () => {
     if (!selectedId || !detail) return;
@@ -419,28 +386,6 @@ export default function AdminAccountsPage() {
                     )}
                   </section>
 
-                  <section>
-                    <h3 className="font-mono text-sm mb-2 flex items-center gap-2">
-                      <KeyRound className="h-4 w-4" /> Replacement device token
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      Mint a new token for support. The customer enters it on Luna during setup or in Settings → About → Advanced.
-                    </p>
-                    <Button loading={mintBusy} onClick={mintReplacement}>
-                      Mint replacement token
-                    </Button>
-                    {mintedCode && (
-                      <div className="rounded-large-element border border-success/30 p-4 mt-4 space-y-3">
-                        <p className="text-sm text-muted-foreground">Shown once — copy it now.</p>
-                        <div className="flex items-center gap-2">
-                          <code className="font-mono text-sm flex-1 break-all tracking-widest">{mintedCode}</code>
-                          <Button variant="outline" size="sm" onClick={copyCode}>
-                            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </section>
 
                   <section className="rounded-large-element border border-error/30 bg-error/10 p-4">
                     <h3 className="font-mono text-sm mb-2 flex items-center gap-2 text-error">

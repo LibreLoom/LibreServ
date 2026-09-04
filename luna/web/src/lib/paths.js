@@ -25,7 +25,7 @@ export function fmtSize(bytes) {
   return `${(n / 1000 / 1000 / 1000).toFixed(1)} GB`;
 }
 
-/** Download URL for a file on a drive. */
+/** Download URL for a file or folder on a drive (folders arrive as a zip). */
 export function downloadHref(driveId, filePath) {
   return `/api/v1/drives/${driveId}/files/content?path=${encodeURIComponent(filePath)}&download=1`;
 }

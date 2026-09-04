@@ -5,6 +5,7 @@
 //! drives, Connect / device token).
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 pub const BANNER_OK: &str =
     "Luna is running. Open it from a phone or computer on your home internet.";
@@ -15,7 +16,29 @@ pub const ISSUE_FILE: &str = "issue";
 
 /// How long after the last issue write before luna-console warns that lunad
 /// may not be updating the screen.
+///
+/// lunad must rewrite (or touch) `{data_dir}/issue` on every console-help tick,
+/// even when the text is unchanged, so this stays a true liveness check.
 pub const STALE_SECS: u64 = 90;
+
+pub const STALE_NOTE_LINE1: &str =
+    "  Note: this status is not updating. Luna may still be starting,";
+pub const STALE_NOTE_LINE2: &str =
+    "  or the Luna service needs a moment. You can still log in below.";
+
+/// True when an issue file exists but has not been rewritten recently.
+///
+/// Missing file is not stale — luna-console already shows a "starting" banner.
+pub fn is_issue_stale(mtime: Option<SystemTime>) -> bool {
+    let Some(mtime) = mtime else {
+        return false;
+    };
+    match mtime.elapsed() {
+        Ok(elapsed) => elapsed > Duration::from_secs(STALE_SECS),
+        // Clock skew (mtime in the future): treat as fresh.
+        Err(_) => false,
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ConsoleSnapshot {
@@ -67,21 +90,34 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  Plug the included RJ45 (ethernet) cable from Luna".into());
         lines.push("  into a LAN port on your router or modem.".into());
     }
+    let token_problem = snap.problems.iter().any(|p| {
+        p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")
+    });
+
     if !snap.ipv4.is_empty() {
         if snap.cable_in && !snap.has_default_route {
             lines.push("  This Luna has an address, but no path to the wider internet.".into());
             lines.push("  Check the router or modem, then wait a moment.".into());
         }
-        lines.push("  On your phone or laptop (stay on home internet):".into());
-        for ip in &snap.ipv4 {
-            lines.push(format!("    http://{ip}"));
-        }
-        lines.push("    luna.local  — if your phone finds it".into());
     }
 
-    let token_problem = snap.problems.iter().any(|p| {
-        p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")
-    });
+    // How to open Luna: Everywhere (when remote is configured), then home LAN.
+    let show_remote = !token_problem && snap.connect_hostname.is_some();
+    let show_home = !snap.ipv4.is_empty() || show_remote;
+    if show_remote {
+        if let Some(host) = &snap.connect_hostname {
+            lines.push("  Everywhere:".into());
+            lines.push(format!("    {host}"));
+            lines.push(String::new());
+        }
+    }
+    if show_home {
+        lines.push("  On your home internet only:".into());
+        lines.push("    luna.local".into());
+        for ip in &snap.ipv4 {
+            lines.push(format!("    {ip}"));
+        }
+    }
 
     if !token_problem
         && snap.unclaimed
@@ -91,11 +127,6 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  Device code (purchased from LibreLoom):".into());
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
-    }
-    if !token_problem && let Some(host) = &snap.connect_hostname {
-        lines.push(String::new());
-        lines.push("  Away from home:".into());
-        lines.push(format!("    https://{host}"));
     }
 
     lines.push(String::new());
@@ -197,8 +228,29 @@ mod tests {
         assert!(text.contains("almost full"));
         assert!(text.contains("Drive Photos"));
         let problem_at = text.find("What's wrong:").unwrap();
-        let open_at = text.find("On your phone").unwrap();
+        let open_at = text.find("On your home internet only:").unwrap();
         assert!(problem_at < open_at);
+    }
+
+    #[test]
+    fn remote_hostname_listed_under_everywhere() {
+        let text = help_text(&ConsoleSnapshot {
+            ipv4: vec!["192.168.1.20".into()],
+            cable_in: true,
+            has_default_route: true,
+            connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
+            ..Default::default()
+        });
+        let everywhere_at = text.find("Everywhere:").unwrap();
+        let home_at = text.find("On your home internet only:").unwrap();
+        let host_at = text.find("photos.luna.servers.libreloom.org").unwrap();
+        let local_at = text.find("luna.local").unwrap();
+        assert!(everywhere_at < host_at);
+        assert!(host_at < home_at);
+        assert!(home_at < local_at);
+        assert!(!text.contains("Away from home"));
+        assert!(!text.contains("https://"));
+        assert!(!text.contains("http://"));
     }
 
     #[test]
@@ -258,5 +310,41 @@ mod tests {
         write_issue(dir.path(), &snap).unwrap();
         let body = std::fs::read_to_string(issue_path(dir.path())).unwrap();
         assert!(body.contains("10.0.0.5"));
+    }
+
+    #[test]
+    fn missing_issue_file_is_not_stale() {
+        assert!(!is_issue_stale(None));
+    }
+
+    #[test]
+    fn fresh_mtime_is_not_stale() {
+        assert!(!is_issue_stale(Some(SystemTime::now())));
+    }
+
+    #[test]
+    fn old_mtime_is_stale() {
+        let old = SystemTime::now() - Duration::from_secs(STALE_SECS + 5);
+        assert!(is_issue_stale(Some(old)));
+    }
+
+    #[test]
+    fn write_issue_leaves_fresh_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let snap = ConsoleSnapshot {
+            ipv4: vec!["10.0.0.5".into()],
+            cable_in: true,
+            has_default_route: true,
+            ..Default::default()
+        };
+        write_issue(dir.path(), &snap).unwrap();
+        // Identical rewrite (heartbeat) must keep liveness fresh.
+        write_issue(dir.path(), &snap).unwrap();
+        let mtime = std::fs::metadata(issue_path(dir.path()))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert!(!is_issue_stale(Some(mtime)));
+        assert!(mtime.elapsed().unwrap() < Duration::from_secs(5));
     }
 }

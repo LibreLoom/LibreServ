@@ -46,8 +46,7 @@ export default function CopyableValue({
     return (
       <div className={cn("space-y-2", className)} data-slot="copyable-value">
         <p className={cn("text-sm", hintClass)}>
-          Select the text below, then copy it. Automatic copy needs a secure
-          connection, and this page does not have one yet.
+          Select the text below, then copy it.
         </p>
         {multiline ? (
           <textarea
