@@ -88,6 +88,9 @@ async fn main() -> anyhow::Result<()> {
 
                 loop {
                     let _ = connect.poll_status();
+                    // Supervisor: if Connect poll failed/flapped but local tunnel credentials exist,
+                    // keep (re)starting cloudflared so DNS does not stick on Error 1033.
+                    connect.ensure_tunnel_if_needed();
                     let setup_open = db
                         .lock()
                         .map(|conn| lunad::auth::setup_wizard_open_conn(&conn))

@@ -294,7 +294,15 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sub == dev.Subdomain {
-		JSON(w, http.StatusOK, map[string]any{"hostname": domainname.Hostname(sub, config.C.Server.PublicZone)})
+		out := map[string]any{"hostname": domainname.Hostname(sub, config.C.Server.PublicZone), "subdomain": sub}
+		var sealed string
+		_ = h.DB.QueryRow(`SELECT COALESCE(tunnel_token,'') FROM devices WHERE id = ?`, dev.ID).Scan(&sealed)
+		if sealed != "" {
+			if tok, err := security.OpenString(sealed); err == nil && tok != "" {
+				out["tunnel_token"] = tok
+			}
+		}
+		JSON(w, http.StatusOK, out)
 		return
 	}
 	var exists int
