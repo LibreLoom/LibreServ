@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -20,6 +21,11 @@ type TunnelProviderType string
 
 const (
 	TunnelProviderCloudflare TunnelProviderType = "cloudflare"
+
+	// cloudflaredRelease pins on-demand installs (avoid mutable latest tags).
+	// Bump deliberately when Cloudflare publishes a release LibreServ should take.
+	cloudflaredRelease  = "2026.8.3"
+	minCloudflaredBytes = 1024
 )
 
 // TunnelStatus is the public status of the tunnel service: a summary of all
@@ -412,29 +418,72 @@ func (c *cloudflareProvider) Install(ctx context.Context) error {
 		arch = "amd64"
 	}
 
-	downloadURL := fmt.Sprintf("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-%s", arch)
-	c.logger.Info("Downloading cloudflared...", "arch", arch)
+	// Pin the release tag so a compromised latest redirect cannot swap the binary.
+	downloadURL := fmt.Sprintf(
+		"https://github.com/cloudflare/cloudflared/releases/download/%s/cloudflared-linux-%s",
+		cloudflaredRelease, arch,
+	)
+	dest := c.cloudflaredPath()
+	tmp := dest + ".tmp"
+	_ = os.Remove(tmp)
+	c.logger.Info("Downloading cloudflared...", "arch", arch, "release", cloudflaredRelease)
 
+	var downloaded bool
 	if _, err := exec.LookPath("curl"); err == nil {
-		cmd := exec.CommandContext(ctx, "curl", "-L", "-o", c.cloudflaredPath(), downloadURL)
+		// HTTPS only; follow redirects (GitHub release assets) but refuse cleartext.
+		cmd := exec.CommandContext(ctx, "curl", "-fsS", "--proto", "=https", "--tlsv1.2", "-L", "-o", tmp, downloadURL)
 		if output, err := cmd.CombinedOutput(); err != nil {
+			_ = os.Remove(tmp)
 			return fmt.Errorf("download cloudflared: %w (%s)", err, string(output))
 		}
+		downloaded = true
 	} else if _, err := exec.LookPath("wget"); err == nil {
-		cmd := exec.CommandContext(ctx, "wget", "-O", c.cloudflaredPath(), downloadURL)
+		cmd := exec.CommandContext(ctx, "wget", "-q", "--https-only", "-O", tmp, downloadURL)
 		if output, err := cmd.CombinedOutput(); err != nil {
+			_ = os.Remove(tmp)
 			return fmt.Errorf("download cloudflared: %w (%s)", err, string(output))
 		}
-	} else {
+		downloaded = true
+	}
+	if !downloaded {
 		return fmt.Errorf("neither curl nor wget available to download cloudflared")
 	}
 
-	if err := os.Chmod(c.cloudflaredPath(), 0755); err != nil {
-		return fmt.Errorf("chmod cloudflared: %w", err)
+	info, err := os.Stat(tmp)
+	if err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("stat downloaded cloudflared: %w", err)
+	}
+	if info.Size() < minCloudflaredBytes || !cloudflaredDownloadIsELF(tmp) {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("downloaded cloudflared failed integrity checks")
 	}
 
-	c.logger.Info("cloudflared installed successfully")
+	if err := os.Chmod(tmp, 0755); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("chmod cloudflared: %w", err)
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("install cloudflared: %w", err)
+	}
+
+	c.logger.Info("cloudflared installed successfully", "release", cloudflaredRelease)
 	return nil
+}
+
+// cloudflaredDownloadIsELF reports whether path starts with Linux ELF magic.
+func cloudflaredDownloadIsELF(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var magic [4]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		return false
+	}
+	return magic == [4]byte{0x7f, 'E', 'L', 'F'}
 }
 
 func (c *cloudflareProvider) Status() TunnelStatus {
