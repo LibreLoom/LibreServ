@@ -202,7 +202,10 @@ async fn serve_folder_zip(
                 .truncate(true)
                 .open(&tmp_path)
                 .map_err(files::FilesError::Io)?;
-            let conn = state.db.lock().map_err(|_| files::FilesError::UnknownDrive)?;
+            let conn = state
+                .db
+                .lock()
+                .map_err(|_| files::FilesError::UnknownDrive)?;
             files::write_folder_zip(&conn, &id, &rel, &mut file, |child| {
                 is_admin || crate::auth::can_browse_path(&user, &conn, &id, child)
             })
@@ -236,17 +239,10 @@ async fn serve_folder_zip(
             "Luna couldn't prepare that folder download. Try again.",
         )
     })?;
-    let len = async_file
-        .metadata()
-        .await
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let len = async_file.metadata().await.map(|m| m.len()).unwrap_or(0);
     let stream = ReaderStream::new(async_file);
     // Keep the temp file alive until the response body finishes streaming.
-    let body = Body::from_stream(ZipBody {
-        stream,
-        _keep: tmp,
-    });
+    let body = Body::from_stream(ZipBody { stream, _keep: tmp });
 
     Ok(Response::builder()
         .status(StatusCode::OK)

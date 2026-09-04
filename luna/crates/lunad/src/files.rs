@@ -1265,7 +1265,8 @@ mod tests {
     #[test]
     fn folder_zip_includes_nested_files_and_skips_internal() {
         let (_dir, conn, id) = drive_dir();
-        let root = std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        let root =
+            std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
         std::fs::create_dir_all(root.join("album/day")).unwrap();
         std::fs::write(root.join("album/day/beach.jpg"), b"photo").unwrap();
         std::fs::write(root.join("album/note.txt"), b"hi").unwrap();
@@ -1295,7 +1296,8 @@ mod tests {
     fn folder_zip_skips_symlinks() {
         use std::os::unix::fs::symlink;
         let (_dir, conn, id) = drive_dir();
-        let root = std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        let root =
+            std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
         let outside = _dir.path().join("outside");
         std::fs::create_dir_all(root.join("album")).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
@@ -1311,6 +1313,10 @@ mod tests {
             .map(|i| archive.by_index(i).unwrap().name().to_string())
             .collect();
         assert!(names.iter().any(|n| n == "album/keep.txt"));
-        assert!(!names.iter().any(|n| n.contains("secret") || n.contains("link")));
+        assert!(
+            !names
+                .iter()
+                .any(|n| n.contains("secret") || n.contains("link"))
+        );
     }
 }
