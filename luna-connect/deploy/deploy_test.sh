@@ -96,6 +96,14 @@ run_tests() {
     assert_eq "feature --no-pull" "head" "$(resolve_deploy_mode "HEAD" 0)"
 
     git checkout -q main
+    echo "v3" >>README.md
+    git add README.md
+    git commit -q -m "main ahead of latest tag"
+    echo "resolve_deploy_mode when main is ahead of latest tag"
+    # Warnings must not pollute the machine-readable stdout line.
+    assert_eq "main ahead default" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 0 2>/dev/null)"
+    assert_eq "main ahead --latest-tag" "tag:luna-connect-v0.2.17" "$(resolve_deploy_mode "" 1 2>/dev/null)"
+
     echo "sync_head_checkout --head checks out main"
     git checkout -q -b other
     sync_head_checkout 0 1 ""

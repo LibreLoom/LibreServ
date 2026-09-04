@@ -126,8 +126,9 @@ resolve_deploy_mode() {
         fi
     fi
     if [ "$main_ahead" -eq 1 ]; then
-        log_warn "main is ahead of latest tag ${latest} — deploying the tagged release on purpose."
-        log_warn "To deploy tip of main instead: sudo ./luna-connect/deploy/deploy.sh --head"
+        # Warnings must go to stderr — stdout is the machine-readable mode line.
+        log_warn "main is ahead of latest tag ${latest} — deploying the tagged release on purpose." >&2
+        log_warn "To deploy tip of main instead: sudo ./luna-connect/deploy/deploy.sh --head" >&2
     fi
     echo "tag:${latest}"
     return 0
@@ -565,10 +566,9 @@ main() {
         fi
     fi
 
-    local resolved mode tag_name
-    if ! resolved="$(resolve_deploy_mode "$ref" "$want_latest_tag")"; then
-        resolved=""
-    fi
+    local resolved mode tag_name resolve_rc=0
+    # Keep stdout even when resolve_deploy_mode returns non-zero (error:no-tags).
+    resolved="$(resolve_deploy_mode "$ref" "$want_latest_tag")" || resolve_rc=$?
 
     case "$resolved" in
         head)
@@ -588,13 +588,15 @@ main() {
             announce_deploy_target "$mode" "$tag_name"
             ;;
         error:no-tags)
-            log_error "No luna-connect-v* tags. Create one: git tag luna-connect-v0.1.0 && git push --tags"
+            log_error "No luna-connect-v* tags after fetching from origin."
+            log_info "Create one: git tag luna-connect-v0.1.0 && git push --tags"
             log_info "Or deploy tip of main: sudo ./luna-connect/deploy/deploy.sh --head"
             log_info "Or deploy this checkout: sudo ./luna-connect/deploy/deploy.sh --no-pull"
             exit 1
             ;;
         *)
-            log_error "Could not resolve deploy ref."
+            log_error "Could not resolve deploy ref (got: ${resolved:-<empty>}, rc=${resolve_rc})."
+            log_info "Try: sudo ./luna-connect/deploy/deploy.sh --head"
             exit 1
             ;;
     esac
