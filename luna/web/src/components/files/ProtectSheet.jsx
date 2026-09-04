@@ -57,7 +57,7 @@ export function ProtectButton({ label, onClick }) {
 }
 
 /**
- * Keep a second copy of a folder (or whole drive) on another Luna drive
+ * Keep copies of a folder (or whole drive) on other Luna drives
  * and/or in the cloud (Luna Connect). Not sharing — admins only.
  */
 export default function ProtectSheet({ driveId, path = "", onClose, open = true }) {
@@ -80,6 +80,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     (p) => p.source_drive === driveId && pathKey(p.source_path) === objectPath,
   );
   const driveList = drives.data || [];
+  const usedTargetIds = new Set(matchingProtections.map((p) => p.target_drive));
+  const availableTargets = driveList.filter((d) => d.id !== driveId && !usedTargetIds.has(d.id));
   const tooFewDrives = driveList.length < 2;
   const thisDrive = driveList.find((d) => d.id === driveId);
   const mountPoint = thisDrive?.mount_point || "";
@@ -151,7 +153,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       title={
         <span className="inline-flex items-center gap-2">
           Protect
-          <InfoHint content="Keeps a second copy on another drive plugged into Luna, and/or a cloud backup through Luna Connect. If one copy fails, you still have the files." />
+          <InfoHint content="Keeps copies on other drives plugged into Luna, and/or a cloud backup through Luna Connect. If one copy fails, you still have the files." />
         </span>
       }
       onClose={onClose}
@@ -159,7 +161,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
       <p className="text-primary text-sm mb-5">
-        Luna can keep a second copy of this {thingLabel} so you still have it if something goes wrong.
+        Luna can keep copies of this {thingLabel} on other drives, and in the cloud, so you still have it if something goes wrong.
       </p>
 
       <div className="space-y-3">
@@ -168,7 +170,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             <HardDrive size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-secondary text-sm font-semibold">On another drive</h3>
+                <h3 className="text-secondary text-sm font-semibold">On other drives</h3>
                 {driveProtected && (
                   <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
                     On
@@ -176,13 +178,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 )}
               </div>
               <p className="text-secondary text-sm">
-                Copies this {thingLabel} onto another drive plugged into Luna.
+                Copies this {thingLabel} onto other drives plugged into Luna.
               </p>
             </div>
           </div>
 
           {tooFewDrives ? (
-            <p className="text-secondary text-sm">Needs a second drive.</p>
+            <p className="text-secondary text-sm">Needs another drive.</p>
           ) : (
             <>
               {matchingProtections.map((p) => (
@@ -216,11 +218,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   </div>
                 </div>
               ))}
-              {matchingProtections.length === 0 && (
+              {availableTargets.length > 0 && (
                 <div className="space-y-3">
                   <ShakeTarget shake={error}>
                     <Dropdown
-                      options={driveList.filter((d) => d.id !== driveId).map((d) => ({ value: d.id, label: d.label }))}
+                      options={availableTargets.map((d) => ({ value: d.id, label: d.label }))}
                       value={targetDrive}
                       onChange={setTargetDrive}
                       placeholder="Copy onto"
@@ -237,7 +239,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     disabled={!targetDrive}
                     onClick={() => createProtect.mutate()}
                   >
-                    Protect
+                    {matchingProtections.length > 0 ? "Add another copy" : "Protect"}
                   </Button>
                 </div>
               )}

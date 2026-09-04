@@ -104,7 +104,7 @@ describe("ProtectSheet", () => {
     });
     renderSheet();
     expect(await screen.findByRole("heading", { name: /Protect/ })).toBeInTheDocument();
-    expect(screen.getByText(/On another drive/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Protect" })).toBeInTheDocument();
     const copyOnto = screen.getByRole("button", { name: "Copy onto" });
     // Dropdown sits on the inverted option panel (bg-primary), so it uses the card surface.
@@ -121,9 +121,60 @@ describe("ProtectSheet", () => {
       connect: { backup_unlocked: false, backup_sources: [] },
     });
     renderSheet();
-    expect(await screen.findByText(/Needs a second drive/i)).toBeInTheDocument();
-    expect(screen.getByText(/In the cloud/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Needs another drive/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /In the cloud/i })).toBeInTheDocument();
     expect(screen.getByText(/Add a card at connect\.luna\.libreloom\.org/i)).toBeInTheDocument();
+  });
+
+  it("lets an admin add copies onto more than one other drive", async () => {
+    stubProtectApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+        { id: "d3", label: "Archive", mount_point: "/mnt/archive" },
+      ],
+      protections: [
+        {
+          id: "p1",
+          source_drive: "d1",
+          source_path: "photos",
+          target_drive: "d2",
+          last_run: 1_700_000_000,
+        },
+      ],
+      connect: { backup_unlocked: false, backup_sources: [] },
+    });
+    renderSheet();
+    expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add another copy" })).toBeInTheDocument();
+    const copyOnto = screen.getByRole("button", { name: "Copy onto" });
+    expect(copyOnto).toBeInTheDocument();
+    // Already used Backup must not appear as an option.
+    await userEvent.click(copyOnto);
+    expect(screen.queryByRole("option", { name: "Backup" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Archive" })).toBeInTheDocument();
+  });
+
+  it("hides the add form when every other drive already has a copy", async () => {
+    stubProtectApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      protections: [
+        {
+          id: "p1",
+          source_drive: "d1",
+          source_path: "photos",
+          target_drive: "d2",
+          last_run: 0,
+        },
+      ],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Copy on Backup/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add another copy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy onto" })).not.toBeInTheDocument();
   });
 
   it("lets an admin start cloud backup when unlocked", async () => {
