@@ -15,7 +15,12 @@ function stubProtectApi({
   protections = [],
   connect = { backup_unlocked: false, backup_sources: [] },
   onBackupSources,
-} = {}) {
+} = /** @type {{
+  drives?: any[],
+  protections?: any[],
+  connect?: { backup_unlocked: boolean, backup_sources: any[] },
+  onBackupSources?: (sources: unknown) => void,
+}} */ ({})) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init) => {

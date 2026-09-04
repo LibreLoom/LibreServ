@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccessAddressesCard from "./AccessAddressesCard";
 
-function stubFetch({ network, connect } = {}) {
+function stubFetch({ network, connect } = /** @type {{ network?: object, connect?: object }} */ ({})) {
   return vi.fn(async (path) => {
     if (String(path).includes("/network/status")) {
       return new Response(
