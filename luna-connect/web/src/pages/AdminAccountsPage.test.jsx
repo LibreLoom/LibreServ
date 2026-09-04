@@ -47,6 +47,8 @@ const adminApiMock = vi.fn(async (path, opts) => {
       created_at: 1700000000,
       last_seen_at: 1700000000,
       online: true,
+      hint: "…1234",
+      code: "AAAA-BBBB-CCCC-DDDD-EEEE",
     };
   }
   if (path === "/admin/devices/dev_1/regenerate-tunnel") {
@@ -108,6 +110,9 @@ describe("AdminAccountsPage", () => {
     expect(await screen.findByTestId("luna-detail-dev_1")).toBeTruthy();
     expect(await screen.findByText("tnl_test")).toBeTruthy();
     expect(adminApiMock).toHaveBeenCalledWith("/admin/devices/dev_1");
+    expect(screen.getByText("…1234")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
+    expect(screen.getByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
   });
 
   it("calls regenerate tunnel API after confirm", async () => {

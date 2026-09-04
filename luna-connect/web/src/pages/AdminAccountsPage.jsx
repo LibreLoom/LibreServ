@@ -4,6 +4,7 @@ import { Badge, DeviceTokenStatusBadge, StatusBadge } from "../components/ui/bad
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
+import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
 import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Shield, Trash2, Users } from "lucide-react";
 
@@ -196,6 +197,17 @@ function LinkedLunaRow({ device, onRefresh }) {
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Last seen</dt>
                 <dd className="font-mono">{formatWhen(detail.last_seen_at)}</dd>
+              </div>
+              <div className="flex justify-between gap-4 items-start">
+                <dt className="text-muted-foreground shrink-0 pt-1">Device token</dt>
+                <dd className="text-right max-w-[min(100%,20rem)]">
+                  <TokenReveal
+                    hint={detail.hint || device.hint}
+                    code={detail.code}
+                    label="token"
+                    compact
+                  />
+                </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Status</dt>

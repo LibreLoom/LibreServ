@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func (h AdminConsoleHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
@@ -64,18 +65,19 @@ func (h AdminConsoleHandler) SetDeviceDomain(w http.ResponseWriter, r *http.Requ
 }
 
 func (h AdminConsoleHandler) loadDeviceDetail(deviceID string) (map[string]any, error) {
-	var id, name, sub, tunnelID, hint, kind, orderRef string
+	var id, name, sub, tunnelID, hint, kind, orderRef, sealed string
 	var accountID sql.NullString
 	var accountEmail sql.NullString
 	var lastSeen, created int64
 	var revoked int
 	err := h.DB.QueryRow(`
 SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''),
-  d.kind, COALESCE(d.order_ref, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.last_seen_at, 0), d.revoked, d.created_at
+  d.kind, COALESCE(d.order_ref, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.last_seen_at, 0), d.revoked, d.created_at,
+  COALESCE(d.code_sealed, '')
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
 WHERE d.id = ?`, deviceID).
-		Scan(&id, &name, &sub, &tunnelID, &hint, &kind, &orderRef, &accountID, &accountEmail, &lastSeen, &revoked, &created)
+		Scan(&id, &name, &sub, &tunnelID, &hint, &kind, &orderRef, &accountID, &accountEmail, &lastSeen, &revoked, &created, &sealed)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +105,7 @@ WHERE d.id = ?`, deviceID).
 	online := lastSeen > 0 && now-lastSeen <= OnlineWithinSec
 	hasTunnel := tunnelID != ""
 
-	return map[string]any{
+	out := map[string]any{
 		"id":              id,
 		"name":            name,
 		"subdomain":       sub,
@@ -121,7 +123,14 @@ WHERE d.id = ?`, deviceID).
 		"online":          online,
 		"revoked":         revoked != 0,
 		"created_at":      created,
-	}, nil
+	}
+	if sealed != "" {
+		if code, err := security.OpenString(sealed); err == nil && code != "" {
+			out["code"] = code
+			out["setup_prefix"] = security.SetupPrefix(code)
+		}
+	}
+	return out, nil
 }
 
 func deviceListFields(id, name, sub, tunnelID, hint, kind, orderRef string, lastSeen, created int64, revoked int, zone string, now int64) map[string]any {

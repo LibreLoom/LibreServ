@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,6 +183,14 @@ VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 	}
 	if body["online"] != true {
 		t.Fatalf("online: %v", body["online"])
+	}
+	code, _ := body["code"].(string)
+	if code == "" || !strings.Contains(code, "-") {
+		t.Fatalf("expected sealed device code in admin detail, got %v", body["code"])
+	}
+	hint, _ := body["hint"].(string)
+	if hint == "" {
+		t.Fatalf("expected hint, got %v", body["hint"])
 	}
 }
 

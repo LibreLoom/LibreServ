@@ -17,7 +17,6 @@ func TestAdminStatsAndDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = code
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 
@@ -42,5 +41,18 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 	h.SetupTokens(rec2, httptest.NewRequest(http.MethodGet, "/admin/setup-tokens", nil))
 	if rec2.Code != 200 {
 		t.Fatalf("tokens %d %s", rec2.Code, rec2.Body.String())
+	}
+	var tokBody map[string]any
+	_ = json.Unmarshal(rec2.Body.Bytes(), &tokBody)
+	tokens, _ := tokBody["tokens"].([]any)
+	if len(tokens) < 1 {
+		t.Fatalf("expected tokens, got %v", tokBody)
+	}
+	row, _ := tokens[0].(map[string]any)
+	if row["code"] != code {
+		t.Fatalf("list should return full sealed code for reveal UI, got %v want %v", row["code"], code)
+	}
+	if row["hint"] == nil || row["hint"] == "" {
+		t.Fatalf("expected hint on list row: %v", row)
 	}
 }
