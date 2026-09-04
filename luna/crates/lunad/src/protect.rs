@@ -44,6 +44,15 @@ pub fn create(
     if source_drive == target_drive {
         anyhow::bail!("Choose a different drive for the protected copy.");
     }
+    let source_path = source_path.trim_matches('/');
+    let already = db::list_protections(conn)?.into_iter().any(|p| {
+        p.source_drive == source_drive
+            && p.source_path.trim_matches('/') == source_path
+            && p.target_drive == target_drive
+    });
+    if already {
+        anyhow::bail!("This folder is already copying onto that drive.");
+    }
     let (_src, src_meta) = files::resolve_any(conn, source_drive, source_path)?;
     if !src_meta.is_dir() {
         anyhow::bail!("Protect a folder, not a single file.");
@@ -235,6 +244,45 @@ mod tests {
         assert!(is_protected_store(".lunaprotected/drv-a/family"));
         assert!(!is_protected_store("family"));
         assert!(!is_protected_store(".luna-trash"));
+    }
+
+    #[test]
+    fn allows_copies_onto_multiple_target_drives() {
+        let (dir, conn) = setup();
+        let c_root = dir.path().join("C");
+        std::fs::create_dir_all(&c_root).unwrap();
+        db::upsert_drive(
+            &conn,
+            "c",
+            "C",
+            "as_is",
+            "ext4",
+            "c",
+            c_root.to_str().unwrap(),
+        )
+        .unwrap();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+
+        let first = create(&conn, "a", "family", "b").unwrap();
+        let second = create(&conn, "a", "family", "c").unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(first.target_drive, "b");
+        assert_eq!(second.target_drive, "c");
+        assert_eq!(db::list_protections(&conn).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn refuses_duplicate_target_drive() {
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        create(&conn, "a", "family", "b").unwrap();
+        let err = create(&conn, "a", "family", "b").unwrap_err().to_string();
+        assert!(
+            err.contains("already copying onto that drive"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

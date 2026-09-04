@@ -1,11 +1,12 @@
 /* eslint-disable react-refresh/only-export-components -- helpers + ProtectButton shared with explorers/tests */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield } from "lucide-react";
+import { Cloud, HardDrive, Shield } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
+import Pill from "../common/Pill";
 import ShakeTarget from "../ui/ShakeTarget";
 import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
@@ -56,7 +57,7 @@ export function ProtectButton({ label, onClick }) {
 }
 
 /**
- * Keep a second copy of a folder (or whole drive) on another Luna drive
+ * Keep copies of a folder (or whole drive) on other Luna drives
  * and/or in the cloud (Luna Connect). Not sharing — admins only.
  */
 export default function ProtectSheet({ driveId, path = "", onClose, open = true }) {
@@ -79,12 +80,15 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     (p) => p.source_drive === driveId && pathKey(p.source_path) === objectPath,
   );
   const driveList = drives.data || [];
+  const usedTargetIds = new Set(matchingProtections.map((p) => p.target_drive));
+  const availableTargets = driveList.filter((d) => d.id !== driveId && !usedTargetIds.has(d.id));
   const tooFewDrives = driveList.length < 2;
   const thisDrive = driveList.find((d) => d.id === driveId);
   const mountPoint = thisDrive?.mount_point || "";
   const targetKey = { driveId, objectPath, mountPoint };
   const cloudOn = matchesCloudSource(connect.data?.backup_sources, targetKey);
   const cloudUnlocked = Boolean(connect.data?.backup_unlocked);
+  const driveProtected = matchingProtections.length > 0;
 
   const createProtect = useMutation({
     mutationFn: () =>
@@ -149,98 +153,143 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       title={
         <span className="inline-flex items-center gap-2">
           Protect
-          <InfoHint content="Keeps a second copy on another drive plugged into Luna, and/or a cloud backup through Luna Connect. If one copy fails, you still have the files." />
+          <InfoHint content="Keeps copies on other drives plugged into Luna, and/or a cloud backup through Luna Connect. If one copy fails, you still have the files." />
         </span>
       }
       onClose={onClose}
     >
       {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
-      <div className="space-y-5">
-        <p className="text-primary text-sm">
-          Luna can keep a second copy of this {thingLabel} so you still have it if something goes wrong.
-        </p>
+      <p className="text-primary text-sm mb-5">
+        Luna can keep copies of this {thingLabel} on other drives, and in the cloud, so you still have it if something goes wrong.
+      </p>
 
-        <section className="space-y-2">
-          <h3 className="text-primary font-mono text-sm">On another drive</h3>
-          <p className="text-primary text-sm">
-            Copies this {thingLabel} onto another drive plugged into Luna.
-          </p>
+      <div className="space-y-3">
+        <section className="rounded-large-element bg-primary text-secondary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
+          <div className="flex items-start gap-3">
+            <HardDrive size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-secondary text-sm font-semibold">On other drives</h3>
+                {driveProtected && (
+                  <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
+                    On
+                  </Pill>
+                )}
+              </div>
+              <p className="text-secondary text-sm">
+                Copies this {thingLabel} onto other drives plugged into Luna.
+              </p>
+            </div>
+          </div>
+
           {tooFewDrives ? (
-            <p className="text-primary text-sm">Needs a second drive.</p>
+            <p className="text-secondary text-sm">Needs another drive.</p>
           ) : (
             <>
               {matchingProtections.map((p) => (
-                <div key={p.id} className="rounded-large-element border border-primary/20 p-3 space-y-2">
+                <div
+                  key={p.id}
+                  className="rounded-large-element bg-secondary text-primary p-3 space-y-3"
+                >
                   <p className="text-primary text-xs">
                     Copy on {driveName(p.target_drive)}
                     {p.last_run ? ` · ${new Date(p.last_run * 1000).toLocaleString()}` : ""}
                   </p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" loading={runProtect.isPending} onClick={() => runProtect.mutate(p.id)}>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      surface="secondary"
+                      loading={runProtect.isPending}
+                      onClick={() => runProtect.mutate(p.id)}
+                    >
                       Refresh now
                     </Button>
-                    <Button size="sm" variant="danger" loading={stopProtect.isPending} onClick={() => stopProtect.mutate(p.id)}>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      surface="secondary"
+                      loading={stopProtect.isPending}
+                      onClick={() => stopProtect.mutate(p.id)}
+                    >
                       Stop
                     </Button>
                   </div>
                 </div>
               ))}
-              {matchingProtections.length === 0 && (
-                <>
+              {availableTargets.length > 0 && (
+                <div className="space-y-3">
                   <ShakeTarget shake={error}>
                     <Dropdown
-                      options={driveList.filter((d) => d.id !== driveId).map((d) => ({ value: d.id, label: d.label }))}
+                      options={availableTargets.map((d) => ({ value: d.id, label: d.label }))}
                       value={targetDrive}
                       onChange={setTargetDrive}
                       placeholder="Copy onto"
                       fullWidth
-                      bg="primary"
+                      bg="secondary"
                     />
                   </ShakeTarget>
                   <Button
                     size="sm"
-                    variant="primary"
+                    variant="secondary"
+                    surface="primary"
+                    fullWidth
                     loading={createProtect.isPending}
                     disabled={!targetDrive}
                     onClick={() => createProtect.mutate()}
                   >
-                    Protect
+                    {matchingProtections.length > 0 ? "Add another copy" : "Protect"}
                   </Button>
-                </>
+                </div>
               )}
             </>
           )}
         </section>
 
-        <section className="space-y-2">
-          <h3 className="text-primary font-mono text-sm inline-flex items-center gap-2">
-            In the cloud
-            <InfoHint
-              label="What cloud backup means"
-              content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
-            />
-          </h3>
-          {cloudUnlocked ? (
-            <>
-              <p className="text-primary text-sm">
-                {cloudOn
-                  ? `Luna is copying this ${thingLabel} to the cloud when idle.`
-                  : `Copy the latest files from this ${thingLabel} off-site when Luna is idle.`}
-              </p>
-              <Button
-                size="sm"
-                variant={cloudOn ? "danger" : "primary"}
-                loading={saveCloud.isPending}
-                onClick={toggleCloud}
-              >
-                {cloudOn ? "Stop cloud backup" : "Copy to cloud"}
-              </Button>
-            </>
-          ) : (
-            <p className="text-primary text-sm">
-              Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
-            </p>
+        <section className="rounded-large-element bg-primary text-secondary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
+          <div className="flex items-start gap-3">
+            <Cloud size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">
+                  In the cloud
+                  <InfoHint
+                    label="What cloud backup means"
+                    content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
+                  />
+                </h3>
+                {cloudOn && (
+                  <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
+                    On
+                  </Pill>
+                )}
+              </div>
+              {cloudUnlocked ? (
+                <p className="text-secondary text-sm">
+                  {cloudOn
+                    ? `Luna is copying this ${thingLabel} to the cloud when idle.`
+                    : `Copy the latest files from this ${thingLabel} off-site when Luna is idle.`}
+                </p>
+              ) : (
+                <p className="text-secondary text-sm">
+                  Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {cloudUnlocked && (
+            <Button
+              size="sm"
+              variant={cloudOn ? "danger" : "secondary"}
+              surface="primary"
+              fullWidth
+              loading={saveCloud.isPending}
+              onClick={toggleCloud}
+            >
+              {cloudOn ? "Stop cloud backup" : "Copy to cloud"}
+            </Button>
           )}
         </section>
       </div>
