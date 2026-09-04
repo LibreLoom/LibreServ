@@ -167,9 +167,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
           <div className="flex items-start gap-3">
             <HardDrive size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
             <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center justify-between gap-3">
                 <h3 className="text-secondary text-sm font-semibold">On another drive</h3>
-                {driveProtected && <Pill variant="success">On</Pill>}
+                {driveProtected && (
+                  <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
+                    On
+                  </Pill>
+                )}
               </div>
               <p className="text-secondary text-sm">
                 Copies this {thingLabel} onto another drive plugged into Luna.
@@ -184,9 +188,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               {matchingProtections.map((p) => (
                 <div
                   key={p.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-large-element bg-secondary text-primary p-3"
+                  className="rounded-large-element bg-secondary text-primary p-3 space-y-3"
                 >
-                  <p className="text-primary text-xs min-w-0">
+                  <p className="text-primary text-xs">
                     Copy on {driveName(p.target_drive)}
                     {p.last_run ? ` · ${new Date(p.last_run * 1000).toLocaleString()}` : ""}
                   </p>
@@ -245,15 +249,19 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
           <div className="flex items-start gap-3">
             <Cloud size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
             <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">
                   In the cloud
                   <InfoHint
                     label="What cloud backup means"
                     content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
                   />
                 </h3>
-                {cloudOn && <Pill variant="success">On</Pill>}
+                {cloudOn && (
+                  <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
+                    On
+                  </Pill>
+                )}
               </div>
               {cloudUnlocked ? (
                 <p className="text-secondary text-sm">
