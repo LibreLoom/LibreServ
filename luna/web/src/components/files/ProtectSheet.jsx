@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- helpers + ProtectButton shared with explorers/tests */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shield } from "lucide-react";
