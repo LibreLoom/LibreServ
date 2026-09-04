@@ -4,7 +4,8 @@
 Modes (set MOCK_MODE env, or switch via POST /_debug/mode):
   challenge  — HTTP 403 HTML + cf-mitigated: challenge  (Cloudflare managed JS challenge)
   unbound    — HTTP 403 application/json {"error":"unbound"}  (real Connect unbind)
-  bound      — HTTP 200 with hostname + tunnel_token
+  bound      — HTTP 200 with hostname + mock- tunnel_token (lunad skips real cloudflared)
+  bound_spawn — HTTP 200 with hostname + non-mock token (forces ensure_tunnel spawn path)
   401        — HTTP 401 JSON (rejected device token)
 
 Default mode: challenge
@@ -44,6 +45,16 @@ BOUND_JSON = {
     "hostname": "repro.luna.servers.libreloom.org",
     "subdomain": "repro",
     "tunnel_token": "mock-repro-tunnel-token",
+    "backup_unlocked": False,
+    "paired": True,
+    "bound": True,
+}
+
+# Non-mock token so lunad takes the real cloudflared spawn path (for 1033/spawn debugging).
+BOUND_SPAWN_JSON = {
+    "hostname": "repro.luna.servers.libreloom.org",
+    "subdomain": "repro",
+    "tunnel_token": "eyJhbGciOiJDEBUG_TUNNEL_TOKEN_FOR_SPAWN_PATH",
     "backup_unlocked": False,
     "paired": True,
     "bound": True,

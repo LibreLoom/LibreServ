@@ -116,7 +116,22 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		if d.Sealed != "" {
 			if tok, err := security.OpenString(d.Sealed); err == nil {
 				out["tunnel_token"] = tok
+			} else {
+				// #region agent log
+				agentDbg("A", "domain_ops.go:applyDeviceDomain", "same subdomain but sealed token decrypt failed — no regenerate", map[string]any{
+					"device_id": deviceID,
+					"subdomain": sub,
+					"err":       err.Error(),
+				})
+				// #endregion
 			}
+		} else {
+			// #region agent log
+			agentDbg("A", "domain_ops.go:applyDeviceDomain", "same subdomain but sealed token empty — no regenerate", map[string]any{
+				"device_id": deviceID,
+				"subdomain": sub,
+			})
+			// #endregion
 		}
 		return out, 200, ""
 	}
@@ -140,11 +155,37 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 
 	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+sub)
 	if err != nil {
+		// #region agent log
+		agentDbg("A", "domain_ops.go:applyDeviceDomain", "CreateTunnel failed", map[string]any{
+			"device_id": deviceID,
+			"subdomain": sub,
+			"err":       err.Error(),
+		})
+		// #endregion
 		return nil, 502, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
+	// #region agent log
+	agentDbg("A", "domain_ops.go:applyDeviceDomain", "CreateTunnel ok", map[string]any{
+		"device_id":  deviceID,
+		"subdomain":  sub,
+		"tunnel_id":  tid,
+		"token_len":  len(ttoken),
+		"token_empty": ttoken == "",
+		"port":       port,
+	})
+	// #endregion
 	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		// #region agent log
+		agentDbg("F", "domain_ops.go:applyDeviceDomain", "ConfigureIngress failed", map[string]any{
+			"device_id": deviceID,
+			"tunnel_id": tid,
+			"host":      host,
+			"port":      port,
+			"err":       err.Error(),
+		})
+		// #endregion
 		return nil, 502, "Could not set up the address. Try again."
 	}
 	if err := deps.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
@@ -191,9 +232,24 @@ func regenerateDeviceTunnel(deps Deps, deviceID string) (map[string]any, int, st
 
 	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+d.Subdomain)
 	if err != nil {
+		// #region agent log
+		agentDbg("A", "domain_ops.go:regenerateDeviceTunnel", "CreateTunnel failed", map[string]any{
+			"device_id": deviceID,
+			"err":       err.Error(),
+		})
+		// #endregion
 		return nil, 502, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
+	// #region agent log
+	agentDbg("A", "domain_ops.go:regenerateDeviceTunnel", "CreateTunnel ok", map[string]any{
+		"device_id":   deviceID,
+		"tunnel_id":   tid,
+		"token_len":   len(ttoken),
+		"token_empty": ttoken == "",
+		"port":        d.Port,
+	})
+	// #endregion
 	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(d.Port)); err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		return nil, 502, "Could not set up the secure connection. Try again."
