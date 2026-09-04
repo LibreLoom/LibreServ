@@ -210,11 +210,18 @@ impl ConnectService {
             .get("hostname")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let token = state
+            .get("tunnel_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        // Real tunnels: only a live child counts. The persisted tunnel_active flag is for
+        // mock tokens in tests/dev — trusting it for real tokens falsely reports "up".
         let tunnel_active = self.tunnel_running()
-            || state
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+            || (token.starts_with("mock-")
+                && state
+                    .get("tunnel_active")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false));
         ConnectStatus {
             connect_active: true,
             enabled,

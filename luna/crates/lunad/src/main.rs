@@ -103,6 +103,11 @@ async fn main() -> anyhow::Result<()> {
                         }
                         std::thread::sleep(Duration::from_secs(1));
                         waited += 1;
+                        // Re-check during long steady-state sleeps (300s). Otherwise a dead
+                        // cloudflared child is not noticed until the next Connect poll.
+                        if waited % 5 == 0 {
+                            connect.ensure_tunnel_if_needed();
+                        }
                     }
                 }
             })
