@@ -107,8 +107,9 @@ describe("ProtectSheet", () => {
     expect(screen.getByText(/On another drive/i)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Protect" })).toBeInTheDocument();
     const copyOnto = screen.getByRole("button", { name: "Copy onto" });
-    expect(copyOnto.className).toMatch(/bg-primary/);
-    expect(copyOnto.className).toMatch(/text-secondary/);
+    // Dropdown sits on the inverted option panel (bg-primary), so it uses the card surface.
+    expect(copyOnto.className).toMatch(/bg-secondary/);
+    expect(copyOnto.className).toMatch(/text-primary/);
     expect(screen.queryByRole("button", { name: "New link" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
   });
