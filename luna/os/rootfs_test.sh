@@ -71,6 +71,10 @@ assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 assert_file_has "$BUILD" 'cloudflared' \
 	"rootfs must ship cloudflared so Luna Connect tunnels can start"
+assert_file_has "$BUILD" 'keeping baked cloudflared' \
+	"rootfs must skip latest refresh when a good baked cloudflared already exists"
+assert_file_has "$BUILD" 'lunad can also install on demand' \
+	"rootfs comment must note lunad on-demand install to data_dir/bin"
 assert_file_has "$BUILD" 'PATH=/usr/local/sbin:/usr/local/bin' \
 	"lunad OpenRC service must include /usr/local/bin in PATH for cloudflared"
 assert_file_has "$BUILD" 'tty1::respawn:/usr/local/bin/luna-console' \

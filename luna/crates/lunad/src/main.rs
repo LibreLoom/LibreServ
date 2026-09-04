@@ -88,6 +88,9 @@ async fn main() -> anyhow::Result<()> {
 
                 loop {
                     let _ = connect.poll_status();
+                    // Supervisor: if Connect poll failed/flapped but local tunnel credentials exist,
+                    // keep (re)starting cloudflared so DNS does not stick on Error 1033.
+                    connect.ensure_tunnel_if_needed();
                     let setup_open = db
                         .lock()
                         .map(|conn| lunad::auth::setup_wizard_open_conn(&conn))
@@ -100,6 +103,11 @@ async fn main() -> anyhow::Result<()> {
                         }
                         std::thread::sleep(Duration::from_secs(1));
                         waited += 1;
+                        // Re-check during long steady-state sleeps (300s). Otherwise a dead
+                        // cloudflared child is not noticed until the next Connect poll.
+                        if waited % 5 == 0 {
+                            connect.ensure_tunnel_if_needed();
+                        }
                     }
                 }
             })
@@ -128,7 +136,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(err) = st.connect_unreachable.clone() {
                         problems.push(err);
                     }
-                    if st.connect_active
+                    if let Some(err) = st.tunnel_error.clone() {
+                        problems.push(err);
+                    } else if st.connect_active
                         && st.enabled
                         && st.hostname.is_some()
                         && !st.tunnel_active

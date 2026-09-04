@@ -273,4 +273,62 @@ func TestSetDomainSkipsWhenSubdomainAlreadySet(t *testing.T) {
 	if body["hostname"] != "photos.luna.servers.libreloom.org" {
 		t.Fatalf("hostname: %v", body["hostname"])
 	}
+	tok, _ := body["tunnel_token"].(string)
+	if tok == "" {
+		t.Fatal("same-subdomain SetDomain must return tunnel_token when sealed token opens")
+	}
+}
+
+func TestDeviceDomainSameSubdomainReturnsTunnelToken(t *testing.T) {
+	d := testDeps(t)
+	acctH := AccountHandler{Deps: d}
+	devH := DeviceHandler{Deps: d}
+	cookie := registerAccount(t, acctH, "domain-same@b.co")
+	verifyEmailFor(t, acctH, "domain-same@b.co")
+
+	_, code := mintDevice(t, d, "official")
+	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
+	bindReq.AddCookie(cookie)
+	if rec := withVerifiedAccount(acctH, devH.Bind, bindReq); rec.Code != http.StatusOK {
+		t.Fatalf("bind %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Device Domain first call: provisions (or no-ops if already set via SetDomain).
+	// Use account SetDomain to create tunnel credentials first.
+	devID := ""
+	_ = d.DB.QueryRow(`SELECT id FROM devices WHERE account_id IS NOT NULL LIMIT 1`).Scan(&devID)
+	setReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"yaya"}`))
+	setReq.AddCookie(cookie)
+	setReq = withChiParam(setReq, "deviceID", devID)
+	setRec := withVerifiedAccount(acctH, devH.SetDomain, setReq)
+	if setRec.Code != http.StatusCreated && setRec.Code != http.StatusOK {
+		t.Fatalf("set domain %d %s", setRec.Code, setRec.Body.String())
+	}
+	var first map[string]any
+	_ = json.Unmarshal(setRec.Body.Bytes(), &first)
+	wantTok, _ := first["tunnel_token"].(string)
+	if wantTok == "" {
+		t.Fatal("expected tunnel_token from SetDomain")
+	}
+
+	// Device.Domain same-subdomain early return must include tunnel_token.
+	domReq := httptest.NewRequest(http.MethodPost, "/api/v1/domain", bytes.NewBufferString(`{"subdomain":"yaya"}`))
+	domReq.Header.Set("Authorization", "Bearer "+code)
+	domRec := httptest.NewRecorder()
+	devH.DeviceAuth(http.HandlerFunc(devH.Domain)).ServeHTTP(domRec, domReq)
+	if domRec.Code != http.StatusOK {
+		t.Fatalf("device domain same-sub %d %s", domRec.Code, domRec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(domRec.Body.Bytes(), &body)
+	if body["hostname"] != "yaya.luna.servers.libreloom.org" {
+		t.Fatalf("hostname: %v", body["hostname"])
+	}
+	gotTok, _ := body["tunnel_token"].(string)
+	if gotTok == "" {
+		t.Fatal("Device.Domain same-subdomain early return omitted tunnel_token")
+	}
+	if gotTok != wantTok {
+		t.Fatalf("tunnel_token mismatch: got %q want %q", gotTok, wantTok)
+	}
 }

@@ -26,8 +26,15 @@ pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not va
 pub const CONNECT_UNREACHABLE_MSG: &str = "Luna Connect could not be reached. Check this Luna's internet connection. Luna will keep trying.";
 /// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
 pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked this Luna's connection check with a network challenge (a check meant for web browsers, not devices). The secure tunnel may not start until that challenge is turned off for machine requests. Luna will keep trying.";
+/// cloudflared is missing and Luna could not download it.
+pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the tunnel helper. Check this Luna's internet connection. Luna will keep trying.";
+/// cloudflared was found (or installed) but would not stay running.
+pub const TUNNEL_START_FAILED_MSG: &str = "Luna could not start the secure tunnel. Luna will keep trying.";
+/// Hostname is set but Connect has not given Luna a tunnel secret yet.
+pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a tunnel secret yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
+const MIN_CLOUDFLARED_BYTES: u64 = 1024;
 
 /// TODO: We need to add remote access options for non-connect users.
 
@@ -66,6 +73,9 @@ pub struct ConnectStatus {
     /// Sticky when Connect could not be reached while a device token is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_unreachable: Option<String>,
+    /// Sticky when the secure tunnel helper is missing or will not start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tunnel_error: Option<String>,
     pub backup_sources: Vec<Value>,
 }
 
@@ -81,6 +91,8 @@ pub struct ConnectService {
     rejected_token: Mutex<bool>,
     /// Sticky user-facing reachability/challenge message while a device token is present.
     connect_unreachable: Mutex<Option<&'static str>>,
+    /// Sticky user-facing tunnel helper / start failure while Connect expects a tunnel.
+    tunnel_error: Mutex<Option<String>>,
     local_port: u16,
 }
 
@@ -101,6 +113,7 @@ impl ConnectService {
             active_tunnel_token: Arc::new(Mutex::new(None)),
             rejected_token: Mutex::new(false),
             connect_unreachable: Mutex::new(None),
+            tunnel_error: Mutex::new(None),
             local_port: 8090,
         }
     }
@@ -121,6 +134,7 @@ impl ConnectService {
         let mut status = self.status_inner();
         let token_error = self.device_token_error();
         let unreachable = self.connect_unreachable_message();
+        let tunnel_err = self.tunnel_error_message();
         if token_error.is_some() {
             status.enabled = false;
             status.paired = false;
@@ -133,6 +147,7 @@ impl ConnectService {
         }
         status.device_token_error = token_error;
         status.connect_unreachable = unreachable;
+        status.tunnel_error = tunnel_err;
         if !reveal_secrets {
             status.setup_code = None;
             status.backup_sources = Vec::new();
@@ -173,6 +188,7 @@ impl ConnectService {
             setup_code: None,
             device_token_error: None,
             connect_unreachable: None,
+            tunnel_error: None,
             backup_sources: Vec::new(),
         }
     }
@@ -194,11 +210,18 @@ impl ConnectService {
             .get("hostname")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let token = state
+            .get("tunnel_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        // Real tunnels: only a live child counts. The persisted tunnel_active flag is for
+        // mock tokens in tests/dev — trusting it for real tokens falsely reports "up".
         let tunnel_active = self.tunnel_running()
-            || state
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+            || (token.starts_with("mock-")
+                && state
+                    .get("tunnel_active")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false));
         ConnectStatus {
             connect_active: true,
             enabled,
@@ -219,6 +242,7 @@ impl ConnectService {
             setup_code: self.display_setup_code(enabled),
             device_token_error: None,
             connect_unreachable: None,
+            tunnel_error: None,
             backup_sources: state
                 .get("backup_sources")
                 .and_then(|v| v.as_array())
@@ -260,6 +284,7 @@ impl ConnectService {
         let _ = std::fs::remove_file(&self.legacy_token_path);
         self.set_rejected_token(false);
         self.clear_connect_unreachable();
+        self.clear_tunnel_error();
         Ok(())
     }
 
@@ -405,9 +430,23 @@ impl ConnectService {
         let _ = self.ensure_tunnel();
     }
 
+    /// Restart cloudflared when Connect already assigned a hostname/token but the child is down.
+    /// Safe to call after a failed status poll — does not clear claim state.
+    pub fn ensure_tunnel_if_needed(&self) {
+        if self.expects_tunnel_connector() && !self.tunnel_ready() {
+            tracing::info!(
+                "ensuring cloudflared despite Connect poll failure (local tunnel credentials present)"
+            );
+            let _ = self.ensure_tunnel();
+        }
+    }
+
     /// Pull Connect status with the permanent device token. Call on boot and on the poll loop.
     /// Returns true when bound (200). On authentic JSON 403 unbound, clears local claim state but
     /// keeps the token file. Cloudflare/HTML gateway challenges keep the claim and set a sticky error.
+    ///
+    /// On GatewayChallenge / Unreachable / other transport errors, still calls `ensure_tunnel`
+    /// when local credentials exist so a Connect flap cannot leave DNS on Error 1033 forever.
     pub fn poll_status(&self) -> bool {
         if !self.has_valid_device_code() {
             return false;
@@ -458,18 +497,40 @@ impl ConnectService {
             }
             Err(ConnectError::GatewayChallenge) => {
                 self.set_connect_unreachable(CONNECT_CHALLENGED_MSG);
+                if self.expects_tunnel_connector() {
+                    tracing::info!(
+                        "ensuring cloudflared despite Connect gateway challenge (local tunnel credentials present)"
+                    );
+                    let _ = self.ensure_tunnel();
+                }
                 false
             }
             Err(ConnectError::Unreachable) => {
                 self.set_connect_unreachable(CONNECT_UNREACHABLE_MSG);
+                if self.expects_tunnel_connector() {
+                    tracing::info!(
+                        "ensuring cloudflared despite Connect unreachable (local tunnel credentials present)"
+                    );
+                    let _ = self.ensure_tunnel();
+                }
                 false
             }
-            Err(_) => false,
+            Err(err) => {
+                if self.expects_tunnel_connector() {
+                    tracing::info!(
+                        error = %err,
+                        "ensuring cloudflared despite Connect poll error (local tunnel credentials present)"
+                    );
+                    let _ = self.ensure_tunnel();
+                }
+                false
+            }
         }
     }
 
     fn clear_claim_keep_code(&self) {
         self.stop_tunnel();
+        self.clear_tunnel_error();
         let _ = std::fs::remove_file(&self.state_path);
     }
 
@@ -508,6 +569,7 @@ impl ConnectService {
         let _ = std::fs::remove_file(&self.legacy_token_path);
         self.set_rejected_token(false);
         self.clear_connect_unreachable();
+        self.clear_tunnel_error();
         Ok(())
     }
 
@@ -669,6 +731,33 @@ impl ConnectService {
             .unwrap_or_else(|e| e.into_inner()) = None;
     }
 
+    fn tunnel_error_message(&self) -> Option<String> {
+        if self.device_token_error().is_some() {
+            return None;
+        }
+        if !self.has_valid_device_code() {
+            return None;
+        }
+        self.tunnel_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn set_tunnel_error(&self, msg: impl Into<String>) {
+        *self
+            .tunnel_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(msg.into());
+    }
+
+    fn clear_tunnel_error(&self) {
+        *self
+            .tunnel_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
         let token = self.token()?;
         let url = format!(
@@ -724,25 +813,30 @@ impl ConnectService {
                 // DNS can already point at a Cloudflare Tunnel while Luna has no token → Error 1033.
                 tracing::error!(
                     hostname,
-                    "Connect assigned a hostname but no tunnel token is on disk — cloudflared cannot start (no service unit; lunad must spawn it)"
+                    "Connect assigned a hostname but no tunnel token is on disk — cloudflared cannot start"
                 );
+                self.set_tunnel_error(TUNNEL_TOKEN_MISSING_MSG);
             }
             return Ok(());
         }
         if token.starts_with("mock-") {
+            self.clear_tunnel_error();
             let mut state = self.load();
             state["tunnel_active"] = json!(true);
             return self.save(&state);
         }
 
         if self.tunnel_running_with_token(&token) {
+            self.clear_tunnel_error();
             return Ok(());
         }
         self.stop_tunnel();
 
-        let bin = Self::cloudflared_bin();
-        // Token mode: no config.yml and no OpenRC/systemd unit. Bare `cloudflared` will say
-        // "config not found"; lunad must pass --token (and keep the child alive).
+        let bin = self.resolve_or_install_cloudflared()?;
+
+        // Token mode: no config.yml and no OpenRC/systemd unit.
+        // Pass --token on argv for maximum cloudflared compatibility (older builds), and also
+        // TUNNEL_TOKEN / CLOUDFLARED_TUNNEL_TOKEN so we align with LibreServ and cover env-only paths.
         tracing::info!(
             path = %bin.display(),
             port = self.local_port,
@@ -753,16 +847,15 @@ impl ConnectService {
         let mut child = Command::new(&bin)
             .args(["tunnel", "--no-autoupdate", "run", "--token", &token])
             .env("TUNNEL_TOKEN", &token)
+            .env("CLOUDFLARED_TUNNEL_TOKEN", &token)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| {
                 tracing::error!(path = %bin.display(), error = %e, "cloudflared spawn failed");
-                ConnectError::Other(
-                    "Luna couldn't start the protected connection. Try again in a few minutes."
-                        .into(),
-                )
+                self.set_tunnel_error(TUNNEL_START_FAILED_MSG);
+                ConnectError::Other(TUNNEL_START_FAILED_MSG.into())
             })?;
 
         if let Some(stderr) = child.stderr.take() {
@@ -772,9 +865,10 @@ impl ConnectService {
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().map_while(Result::ok) {
                         let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            tracing::warn!(target: "cloudflared", "{trimmed}");
+                        if trimmed.is_empty() {
+                            continue;
                         }
+                        tracing::warn!(target: "cloudflared", "{trimmed}");
                     }
                 })
                 .ok();
@@ -789,10 +883,8 @@ impl ConnectService {
                     hostname,
                     "cloudflared exited immediately after start — tunnel will stay on Error 1033 until this is fixed"
                 );
-                return Err(ConnectError::Other(
-                    "Luna couldn't keep the protected connection running. Try again in a few minutes."
-                        .into(),
-                ));
+                self.set_tunnel_error(TUNNEL_START_FAILED_MSG);
+                return Err(ConnectError::Other(TUNNEL_START_FAILED_MSG.into()));
             }
             Ok(None) => {}
             Err(e) => {
@@ -800,9 +892,35 @@ impl ConnectService {
             }
         }
 
+        self.clear_tunnel_error();
         *self.active_tunnel_token.lock().unwrap() = Some(token);
         *self.child.lock().unwrap() = Some(child);
         Ok(())
+    }
+
+    /// Resolve a runnable cloudflared, installing into `{data_dir}/bin` when needed.
+    fn resolve_or_install_cloudflared(&self) -> Result<PathBuf, ConnectError> {
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        for candidate in cloudflared_candidate_paths(&local) {
+            if cloudflared_looks_runnable(&candidate) {
+                return Ok(candidate);
+            }
+        }
+        if let Err(e) = install_cloudflared_to(&local) {
+            tracing::error!(error = %e, path = %local.display(), "cloudflared install failed");
+            self.set_tunnel_error(TUNNEL_HELPER_MISSING_MSG);
+            return Err(ConnectError::Other(TUNNEL_HELPER_MISSING_MSG.into()));
+        }
+        if cloudflared_looks_runnable(&local) {
+            return Ok(local);
+        }
+        self.set_tunnel_error(TUNNEL_HELPER_MISSING_MSG);
+        Err(ConnectError::Other(TUNNEL_HELPER_MISSING_MSG.into()))
     }
 
     fn tunnel_running_with_token(&self, token: &str) -> bool {
@@ -813,7 +931,12 @@ impl ConnectService {
                     let active = self.active_tunnel_token.lock().unwrap();
                     return active.as_deref() == Some(token);
                 }
-                _ => *g = None,
+                Ok(Some(_)) => {
+                    *g = None;
+                }
+                Err(_) => {
+                    *g = None;
+                }
             }
         }
         false
@@ -877,23 +1000,6 @@ impl ConnectService {
         }
         serde_json::from_str(&body)
             .map_err(|_| ConnectError::Other("Connect sent a reply Luna couldn't read.".into()))
-    }
-
-    /// Resolve cloudflared: Luna OS ships it in /usr/local/bin, but OpenRC service PATH
-    /// often omits that directory.
-    fn cloudflared_bin() -> PathBuf {
-        const CANDIDATES: &[&str] = &[
-            "/usr/local/bin/cloudflared",
-            "/usr/bin/cloudflared",
-            "/sbin/cloudflared",
-        ];
-        for candidate in CANDIDATES {
-            let path = Path::new(candidate);
-            if path.is_file() {
-                return path.to_path_buf();
-            }
-        }
-        PathBuf::from("cloudflared")
     }
 
     fn tunnel_running(&self) -> bool {
@@ -1035,6 +1141,89 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
         ureq::Error::StatusCode(409) => ConnectError::Conflict,
         _ => ConnectError::Unreachable,
     }
+}
+
+fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/usr/local/bin/cloudflared"),
+        PathBuf::from("/usr/bin/cloudflared"),
+        PathBuf::from("/sbin/cloudflared"),
+        data_bin.to_path_buf(),
+    ]
+}
+
+fn cloudflared_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" | "arm64" => "arm64",
+        _ => "amd64",
+    }
+}
+
+/// True when `path` exists, is large enough to be a real binary, and `--version` exits 0.
+fn cloudflared_looks_runnable(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() < MIN_CLOUDFLARED_BYTES {
+        return false;
+    }
+    Command::new(path)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
+    let Some(parent) = dest.parent() else {
+        return Err("invalid cloudflared install path".into());
+    };
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let url = format!(
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{}",
+        cloudflared_arch()
+    );
+    tracing::info!(
+        path = %dest.display(),
+        arch = cloudflared_arch(),
+        "downloading cloudflared for Connect tunnel (on-demand install)"
+    );
+    let tmp = parent.join("cloudflared.tmp");
+    let _ = std::fs::remove_file(&tmp);
+
+    let downloaded = if Command::new("curl")
+        .args(["-fsSL", "-o"])
+        .arg(&tmp)
+        .arg(&url)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        true
+    } else {
+        Command::new("wget")
+            .args(["-q", "-O"])
+            .arg(&tmp)
+            .arg(&url)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !downloaded {
+        let _ = std::fs::remove_file(&tmp);
+        return Err("could not download cloudflared (curl/wget failed)".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, dest).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Classify an HTTP 403 from Connect or a fronting gateway.
@@ -1281,13 +1470,90 @@ mod tests {
     }
 
     #[test]
-    fn cloudflared_bin_prefers_usr_local() {
-        if Path::new("/usr/local/bin/cloudflared").is_file() {
-            assert_eq!(
-                ConnectService::cloudflared_bin(),
-                PathBuf::from("/usr/local/bin/cloudflared")
-            );
+    fn cloudflared_looks_runnable_rejects_tiny_or_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope");
+        assert!(!cloudflared_looks_runnable(&missing));
+
+        let tiny = dir.path().join("tiny");
+        std::fs::write(&tiny, b"x").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tiny, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        assert!(!cloudflared_looks_runnable(&tiny));
+    }
+
+    #[test]
+    fn cloudflared_looks_runnable_accepts_version_script() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("cloudflared");
+        // Pad past MIN_CLOUDFLARED_BYTES and answer --version successfully.
+        let mut body = String::from("#!/bin/sh\necho cloudflared version fake\nexit 0\n");
+        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
+            body.push('#');
+        }
+        std::fs::write(&fake, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(cloudflared_looks_runnable(&fake));
+    }
+
+    #[test]
+    fn resolve_prefers_existing_runnable_system_bin() {
+        let system = Path::new("/usr/local/bin/cloudflared");
+        if !cloudflared_looks_runnable(system) {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let resolved = service.resolve_or_install_cloudflared().unwrap();
+        assert_eq!(resolved, system);
+    }
+
+    #[test]
+    fn ensure_tunnel_hostname_without_token_sets_sticky_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "missing-token.luna.servers.libreloom.org",
+                "subdomain": "missing-token",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        assert!(service.ensure_tunnel().is_ok());
+        assert_eq!(
+            service.status().tunnel_error.as_deref(),
+            Some(TUNNEL_TOKEN_MISSING_MSG)
+        );
+    }
+
+    #[test]
+    fn tunnel_error_messages_are_plain_language() {
+        for msg in [
+            TUNNEL_HELPER_MISSING_MSG,
+            TUNNEL_START_FAILED_MSG,
+            TUNNEL_TOKEN_MISSING_MSG,
+        ] {
+            assert!(msg.contains("keep trying"), "{msg}");
+            assert!(!msg.contains("cloudflared"), "{msg}");
+            assert!(!msg.contains("1033"), "{msg}");
+        }
+    }
+
+    #[test]
+    fn candidate_paths_end_with_data_dir_bin() {
+        let local = PathBuf::from("/tmp/luna-data/bin/cloudflared");
+        let paths = cloudflared_candidate_paths(&local);
+        assert_eq!(paths[0], PathBuf::from("/usr/local/bin/cloudflared"));
+        assert_eq!(paths.last().unwrap(), &local);
     }
 
     #[test]
@@ -1474,7 +1740,7 @@ mod tests {
     }
 
     #[test]
-    fn poll_403_cf_challenge_keeps_claim_and_sets_sticky() {
+    fn poll_403_cf_challenge_keeps_claim_and_ensures_tunnel() {
         let html = "<!DOCTYPE html><html><head><title>Just a moment...</title></head>\
             <body class=\"cf-browser-verification\">Just a moment...\
             <script src=\"https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page\"></script>\
@@ -1489,6 +1755,14 @@ mod tests {
         let service = ConnectService::new(dir.path(), Some(url));
         service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         seed_claim(&service);
+        assert!(
+            !service
+                .load()
+                .get("tunnel_active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "seed must not mark tunnel active before ensure"
+        );
         assert!(!service.poll_status());
         assert!(
             service.state_path.is_file(),
@@ -1505,10 +1779,19 @@ mod tests {
             state.get("tunnel_token").and_then(|v| v.as_str()),
             Some("mock-preexisting-tunnel-token")
         );
+        assert!(
+            state
+                .get("tunnel_active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "challenge poll must still call ensure_tunnel for local mock token"
+        );
+        assert!(service.tunnel_ready());
+        assert!(st.tunnel_active);
     }
 
     #[test]
-    fn poll_403_non_json_gateway_keeps_claim_as_unreachable() {
+    fn poll_403_non_json_gateway_keeps_claim_and_ensures_tunnel() {
         let url = serve_raw(403, "text/plain", "blocked by gateway", &[]);
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some(url));
@@ -1520,6 +1803,73 @@ mod tests {
             service.status().connect_unreachable.as_deref(),
             Some(CONNECT_UNREACHABLE_MSG)
         );
+        assert!(
+            service
+                .load()
+                .get("tunnel_active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "unreachable poll must still call ensure_tunnel for local mock token"
+        );
+        assert!(service.tunnel_ready());
+    }
+
+    #[test]
+    fn poll_401_does_not_ensure_tunnel_after_invalid_token() {
+        let url = serve_once(401, "{}");
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        seed_claim(&service);
+        assert!(!service.poll_status());
+        assert!(
+            !service
+                .load()
+                .get("tunnel_active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "invalid token must stop_tunnel and must not ensure"
+        );
+    }
+
+    #[test]
+    fn ensure_tunnel_if_needed_starts_when_not_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        // Hostname without token: expects connector, not ready.
+        service
+            .save(&json!({
+                "hostname": "waiting.luna.servers.libreloom.org",
+                "subdomain": "waiting",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        assert!(!service.tunnel_ready());
+        service.ensure_tunnel_if_needed();
+        assert_eq!(
+            service.status().tunnel_error.as_deref(),
+            Some(TUNNEL_TOKEN_MISSING_MSG)
+        );
+
+        // With mock token: ensure marks ready/active.
+        service
+            .save(&json!({
+                "hostname": "waiting.luna.servers.libreloom.org",
+                "subdomain": "waiting",
+                "tunnel_token": "mock-supervisor-token",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        // mock- tokens report tunnel_ready immediately; clear that by using ensure_tunnel_if_needed
+        // only when not ready — so call ensure_tunnel directly to arm mock active, then verify
+        // ensure_tunnel_if_needed is a no-op when already ready.
+        assert!(service.tunnel_ready());
+        service.ensure_tunnel_if_needed();
+        let _ = service.ensure_tunnel();
+        assert!(service.status().tunnel_active);
     }
 
     #[test]

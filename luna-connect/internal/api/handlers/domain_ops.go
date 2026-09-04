@@ -114,7 +114,7 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		host := domainname.Hostname(sub, config.C.Server.PublicZone)
 		out := map[string]any{"hostname": host, "subdomain": sub, "device_id": deviceID}
 		if d.Sealed != "" {
-			if tok, err := security.OpenString(d.Sealed); err == nil {
+			if tok, err := security.OpenString(d.Sealed); err == nil && tok != "" {
 				out["tunnel_token"] = tok
 			}
 		}

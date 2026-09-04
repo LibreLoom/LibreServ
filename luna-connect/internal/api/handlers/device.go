@@ -232,6 +232,20 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 					slog.Error("device status: tunnel regenerate failed",
 						"device_id", dev.ID, "status", st, "msg", msg)
 				}
+			} else if opened == "" {
+				slog.Error("device status: tunnel token decrypted empty; regenerating tunnel",
+					"device_id", dev.ID, "subdomain", sub.String)
+				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+					if t, ok := healed["tunnel_token"].(string); ok {
+						tok = t
+					}
+					if tid, ok := healed["tunnel_id"].(string); ok {
+						out["tunnel_id"] = tid
+					}
+				} else {
+					slog.Error("device status: tunnel regenerate failed",
+						"device_id", dev.ID, "status", st, "msg", msg)
+				}
 			} else {
 				tok = opened
 			}
@@ -280,7 +294,15 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sub == dev.Subdomain {
-		JSON(w, http.StatusOK, map[string]any{"hostname": domainname.Hostname(sub, config.C.Server.PublicZone)})
+		out := map[string]any{"hostname": domainname.Hostname(sub, config.C.Server.PublicZone), "subdomain": sub}
+		var sealed string
+		_ = h.DB.QueryRow(`SELECT COALESCE(tunnel_token,'') FROM devices WHERE id = ?`, dev.ID).Scan(&sealed)
+		if sealed != "" {
+			if tok, err := security.OpenString(sealed); err == nil && tok != "" {
+				out["tunnel_token"] = tok
+			}
+		}
+		JSON(w, http.StatusOK, out)
 		return
 	}
 	var exists int
