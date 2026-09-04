@@ -145,6 +145,9 @@ class Handler(BaseHTTPRequestHandler):
         if mode == "bound":
             self._send_json(200, BOUND_JSON)
             return
+        if mode == "bound_spawn":
+            self._send_json(200, BOUND_SPAWN_JSON)
+            return
 
         self._send_json(500, {"error": f"unknown mode: {mode}"})
 
@@ -158,8 +161,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "bad json"})
                 return
             mode = str(payload.get("mode", "")).strip().lower()
-            if mode not in {"challenge", "unbound", "bound", "401"}:
-                self._send_json(400, {"error": "mode must be challenge|unbound|bound|401"})
+            if mode not in {"challenge", "unbound", "bound", "bound_spawn", "401"}:
+                self._send_json(400, {"error": "mode must be challenge|unbound|bound|bound_spawn|401"})
                 return
             set_mode(mode)
             print(f"[mock-connect] mode switched -> {mode}")

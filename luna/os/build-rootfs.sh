@@ -430,18 +430,29 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     fi
 '
 
-# Cloudflare tunnel helper (remote access). Bake it so Luna OS does not need
-# apk repos or a first-boot GitHub download when claimed.
+# Cloudflare tunnel helper (remote access). Prefer the pinned bake above when it
+# already looks complete — never clobber a good binary with a partial "latest"
+# download. lunad can also install on demand to {data_dir}/bin/cloudflared.
 CF_ARCH=amd64
 case "$ARCH" in
     aarch64|arm64) CF_ARCH=arm64 ;;
 esac
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$ROOTFS/usr/local/bin/cloudflared" \
-        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" \
-        || echo "warning: could not download cloudflared (lunad will fetch on demand)" >&2
-    if [ -f "$ROOTFS/usr/local/bin/cloudflared" ]; then
-        chmod 0755 "$ROOTFS/usr/local/bin/cloudflared"
+_cf_baked="$ROOTFS/usr/local/bin/cloudflared"
+_cf_size=0
+if [ -f "$_cf_baked" ]; then
+    _cf_size=$(wc -c < "$_cf_baked" 2>/dev/null || echo 0)
+fi
+if [ -f "$_cf_baked" ] && [ "$_cf_size" -gt 1024 ]; then
+    echo "keeping baked cloudflared ($_cf_size bytes); skip latest refresh"
+elif command -v curl >/dev/null 2>&1; then
+    _cf_tmp=$(mktemp)
+    if curl -fsSL -o "$_cf_tmp" \
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"; then
+        mv "$_cf_tmp" "$_cf_baked"
+        chmod 0755 "$_cf_baked"
+    else
+        rm -f "$_cf_tmp"
+        echo "warning: could not download cloudflared (lunad can also install on demand to data_dir/bin)" >&2
     fi
 fi
 

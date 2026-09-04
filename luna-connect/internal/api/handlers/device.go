@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -17,25 +16,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
-
-// #region agent log
-func agentDbg(hypothesisID, location, message string, data map[string]any) {
-	payload := map[string]any{
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	raw, _ := json.Marshal(payload)
-	slog.Info("agent_dbg", "hypothesisId", hypothesisID, "location", location, "message", message, "data", data)
-	if f, err := os.OpenFile("/opt/cursor/logs/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		_, _ = f.Write(append(raw, '\n'))
-		_ = f.Close()
-	}
-}
-
-// #endregion
 
 type DeviceHandler struct {
 	Deps
@@ -221,20 +201,8 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 
 	var sealed sql.NullString
 	var sub sql.NullString
-	scanErr := h.DB.QueryRow(`SELECT subdomain, tunnel_token, tunnel_id FROM devices WHERE id = ?`, dev.ID).
+	_ = h.DB.QueryRow(`SELECT subdomain, tunnel_token, tunnel_id FROM devices WHERE id = ?`, dev.ID).
 		Scan(&sub, &sealed, &dev.TunnelID)
-	// #region agent log
-	agentDbg("A", "device.go:Status", "status DB scan", map[string]any{
-		"device_id":       dev.ID,
-		"scan_err":        fmtErr(scanErr),
-		"sub_valid":       sub.Valid,
-		"sub":             nullStr(sub),
-		"sealed_valid":    sealed.Valid,
-		"sealed_len":      len(nullStr(sealed)),
-		"tunnel_id":       dev.TunnelID,
-		"local_port_hdr":  r.Header.Get("X-Luna-Local-Port"),
-	})
-	// #endregion
 
 	out := map[string]any{
 		"device_id":       dev.ID,
@@ -253,13 +221,6 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 				// Hostname/DNS can exist while Luna has no usable token → Cloudflare Error 1033.
 				slog.Error("device status: tunnel token decrypt failed; regenerating tunnel",
 					"device_id", dev.ID, "subdomain", sub.String, "err", err)
-				// #region agent log
-				agentDbg("A", "device.go:Status", "sealed token decrypt failed — regenerating", map[string]any{
-					"device_id": dev.ID,
-					"subdomain": sub.String,
-					"err":       err.Error(),
-				})
-				// #endregion
 				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
 					if t, ok := healed["tunnel_token"].(string); ok {
 						tok = t
@@ -267,21 +228,23 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 					if tid, ok := healed["tunnel_id"].(string); ok {
 						out["tunnel_id"] = tid
 					}
-					// #region agent log
-					agentDbg("A", "device.go:Status", "regenerate after decrypt failure ok", map[string]any{
-						"token_len": len(tok),
-						"tunnel_id": out["tunnel_id"],
-					})
-					// #endregion
 				} else {
 					slog.Error("device status: tunnel regenerate failed",
 						"device_id", dev.ID, "status", st, "msg", msg)
-					// #region agent log
-					agentDbg("A", "device.go:Status", "regenerate after decrypt failure FAILED", map[string]any{
-						"status": st,
-						"msg":    msg,
-					})
-					// #endregion
+				}
+			} else if opened == "" {
+				slog.Error("device status: tunnel token decrypted empty; regenerating tunnel",
+					"device_id", dev.ID, "subdomain", sub.String)
+				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+					if t, ok := healed["tunnel_token"].(string); ok {
+						tok = t
+					}
+					if tid, ok := healed["tunnel_id"].(string); ok {
+						out["tunnel_id"] = tid
+					}
+				} else {
+					slog.Error("device status: tunnel regenerate failed",
+						"device_id", dev.ID, "status", st, "msg", msg)
 				}
 			} else {
 				tok = opened
@@ -289,12 +252,6 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		} else {
 			slog.Error("device status: hostname set but tunnel token missing; regenerating tunnel",
 				"device_id", dev.ID, "subdomain", sub.String)
-			// #region agent log
-			agentDbg("A", "device.go:Status", "hostname set but sealed token missing — regenerating", map[string]any{
-				"device_id": dev.ID,
-				"subdomain": sub.String,
-			})
-			// #endregion
 			if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
 				if t, ok := healed["tunnel_token"].(string); ok {
 					tok = t
@@ -302,21 +259,9 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 				if tid, ok := healed["tunnel_id"].(string); ok {
 					out["tunnel_id"] = tid
 				}
-				// #region agent log
-				agentDbg("A", "device.go:Status", "regenerate after missing token ok", map[string]any{
-					"token_len": len(tok),
-					"tunnel_id": out["tunnel_id"],
-				})
-				// #endregion
 			} else {
 				slog.Error("device status: tunnel regenerate failed",
 					"device_id", dev.ID, "status", st, "msg", msg)
-				// #region agent log
-				agentDbg("A", "device.go:Status", "regenerate after missing token FAILED", map[string]any{
-					"status": st,
-					"msg":    msg,
-				})
-				// #endregion
 			}
 		}
 		if tok != "" {
@@ -324,31 +269,8 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		} else {
 			out["tunnel_token_missing"] = true
 		}
-		// #region agent log
-		agentDbg("A", "device.go:Status", "status response tunnel fields", map[string]any{
-			"hostname":              out["hostname"],
-			"has_tunnel_token":      tok != "",
-			"tunnel_token_len":      len(tok),
-			"tunnel_token_missing":  tok == "",
-			"tunnel_id":             out["tunnel_id"],
-		})
-		// #endregion
 	}
 	JSON(w, http.StatusOK, out)
-}
-
-func fmtErr(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
-func nullStr(v sql.NullString) string {
-	if !v.Valid {
-		return ""
-	}
-	return v.String
 }
 
 func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
@@ -372,12 +294,6 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sub == dev.Subdomain {
-		// #region agent log
-		agentDbg("A", "device.go:Domain", "same subdomain early return — no tunnel_token in response", map[string]any{
-			"subdomain": sub,
-			"device_id": dev.ID,
-		})
-		// #endregion
 		JSON(w, http.StatusOK, map[string]any{"hostname": domainname.Hostname(sub, config.C.Server.PublicZone)})
 		return
 	}

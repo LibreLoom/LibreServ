@@ -128,7 +128,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(err) = st.connect_unreachable.clone() {
                         problems.push(err);
                     }
-                    if st.connect_active
+                    if let Some(err) = st.tunnel_error.clone() {
+                        problems.push(err);
+                    } else if st.connect_active
                         && st.enabled
                         && st.hostname.is_some()
                         && !st.tunnel_active

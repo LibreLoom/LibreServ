@@ -61,7 +61,40 @@ func (c *TunnelClient) CreateTunnel(accountID, apiToken, name string) (*TunnelCr
 		}
 		return nil, fmt.Errorf("could not create the protected connection")
 	}
-	return &TunnelCredentials{TunnelID: resp.Result.ID, Token: resp.Result.Token}, nil
+	token := resp.Result.Token
+	if token == "" && resp.Result.ID != "" {
+		fetched, err := c.fetchTunnelToken(accountID, apiToken, resp.Result.ID)
+		if err != nil {
+			return nil, err
+		}
+		token = fetched
+	}
+	if token == "" {
+		return nil, fmt.Errorf("could not create the protected connection: tunnel secret was empty")
+	}
+	return &TunnelCredentials{TunnelID: resp.Result.ID, Token: token}, nil
+}
+
+func (c *TunnelClient) fetchTunnelToken(accountID, apiToken, tunnelID string) (string, error) {
+	url := fmt.Sprintf("%s/accounts/%s/cfd_tunnel/%s/token", c.api(), accountID, tunnelID)
+	headers := map[string]string{"Authorization": "Bearer " + apiToken}
+	var resp struct {
+		Success bool   `json:"success"`
+		Result  string `json:"result"`
+		Errors  []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := doJSON(c.HTTP, http.MethodGet, url, headers, nil, &resp); err != nil {
+		return "", fmt.Errorf("could not fetch the tunnel secret: %w", err)
+	}
+	if !resp.Success {
+		if len(resp.Errors) > 0 {
+			return "", fmt.Errorf("could not fetch the tunnel secret: %s", resp.Errors[0].Message)
+		}
+		return "", fmt.Errorf("could not fetch the tunnel secret")
+	}
+	return resp.Result, nil
 }
 
 func (c *TunnelClient) ConfigureIngress(accountID, apiToken, tunnelID, hostname, serviceURL string) error {
