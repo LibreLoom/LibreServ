@@ -398,7 +398,7 @@ export default function FileBrowser({
         </Tooltip>,
       );
     }
-    if (enableDownload && ctx.entry.kind === "file") {
+    if (enableDownload && (ctx.entry.kind === "file" || ctx.entry.kind === "dir")) {
       actions.push(
         <Tooltip key="download" content="Download">
           <Button
@@ -644,6 +644,17 @@ export default function FileBrowser({
                     }}
                   >
                     Sharing
+                  </Button>
+                ) : null}
+                {selectedCount === 1 && enableDownload ? (
+                  <Button
+                    variant="outline"
+                    surface="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    asChild
+                  >
+                    <a href={downloadHref(driveId, selectedPaths[0])}>Download</a>
                   </Button>
                 ) : null}
                 {onCopy ? (

@@ -226,19 +226,17 @@ export default function FileSearch() {
                           <FolderOpen size={14} />
                         </Link>
                       </Button>
-                      {!isDir && (
-                        <Button
-                          variant="ghost"
-                          surface="secondary"
-                          size="iconSm"
-                          asChild
-                          aria-label={`Download ${item.name}`}
-                        >
-                          <a href={downloadHref(item)}>
-                            <Download size={14} />
-                          </a>
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        surface="secondary"
+                        size="iconSm"
+                        asChild
+                        aria-label={`Download ${item.name}`}
+                      >
+                        <a href={downloadHref(item)}>
+                          <Download size={14} />
+                        </a>
+                      </Button>
                       <AccessButton
                         label={item.name}
                         surface="secondary"
