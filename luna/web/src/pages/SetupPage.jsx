@@ -48,6 +48,52 @@ function SetupShell({ children }) {
 }
 SetupShell.propTypes = { children: PropTypes.node.isRequired };
 
+// One-shot slide-in wrapper. Chrome can replay CSS animations on :focus / style
+// recalculation while animation-name is still set, so we drop the animate-in /
+// slide-in-from-*-pop classes after the entrance finishes. Remount via `key`
+// (step or substep) to play again on the next transition.
+const ONE_SHOT_SLIDE_MS = 300;
+
+function OneShotSlide({ children, className = "", direction = "right", enabled = true }) {
+  const [done, setDone] = useState(false);
+  const animating = enabled && !done;
+
+  // Timeout fallback matches ModalCard: animationend can be skipped (reduced
+  // motion, jsdom) and must not leave animation-name live permanently.
+  useEffect(() => {
+    if (!animating) return undefined;
+    const id = window.setTimeout(() => setDone(true), ONE_SHOT_SLIDE_MS);
+    return () => window.clearTimeout(id);
+  }, [animating]);
+
+  return (
+    <div
+      data-slot="one-shot-slide"
+      className={cn(
+        className,
+        animating && "animate-in duration-300",
+        animating && (direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
+      )}
+      // backwards (not both): drop the transform after the slide so focused
+      // inputs inside don't jump on a leftover compositing layer.
+      style={animating ? { animationFillMode: "backwards" } : undefined}
+      onAnimationEnd={(event) => {
+        // Ignore bubbled animationend from children (fade-ins, etc.).
+        if (event.target !== event.currentTarget) return;
+        setDone(true);
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+OneShotSlide.propTypes = {
+  children:  PropTypes.node.isRequired,
+  className: PropTypes.string,
+  direction: PropTypes.oneOf(["left", "right"]),
+  enabled:   PropTypes.bool,
+};
+
 // ─── Card surface (bg-secondary = inverted, high contrast) ───────────────────
 // All step content lives on this card. Text inside uses text-primary (inverted).
 // Wraps content in an animated-height container so the card resizes smoothly
@@ -70,15 +116,9 @@ function SetupCard({ children, className = "", header = null }) {
     >
       <div ref={innerRef} className="px-10 py-10">
         {header}
-        <div
-          key={tKey}
-          className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          // backwards (not both): drop the transform after the slide so focused
-          // inputs inside the card don't jump on a leftover compositing layer.
-          style={{ animationFillMode: "backwards" }}
-        >
+        <OneShotSlide key={tKey} className={className} direction={direction}>
           {children}
-        </div>
+        </OneShotSlide>
       </div>
     </div>
   );
@@ -257,7 +297,7 @@ FormField.propTypes = {
 // SetupCard already slides the whole account step in. Playing the same
 // slide-in-from-*-pop again on the first field stacked two scales on the
 // name input (and autoFocus hit mid-animation), so it jumped when selected.
-const ACCOUNT_STEP_SLIDE_MS = 300;
+// Wait for OneShotSlide's entrance (ONE_SHOT_SLIDE_MS) before focusing.
 
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
@@ -367,7 +407,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   // substeps focus immediately after the keyed field mounts.
   useEffect(() => {
     if (hasAdmin) return undefined;
-    const delay = animateAuthSub ? 0 : ACCOUNT_STEP_SLIDE_MS;
+    const delay = animateAuthSub ? 0 : ONE_SHOT_SLIDE_MS;
     const id = window.setTimeout(() => {
       fieldInputRef.current?.focus?.();
     }, delay);
@@ -493,13 +533,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
       <form onSubmit={handleSubSubmit} className="text-left">
         <ShakeTarget shake={fieldError}>
-          <div
+          <OneShotSlide
             key={`register-${authSubStep}`}
-            className={cn(
-              animateAuthSub && "animate-in duration-300",
-              animateAuthSub && (authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
-            )}
-            style={animateAuthSub ? { animationFillMode: "backwards" } : undefined}
+            enabled={animateAuthSub}
+            direction={authSubDir}
           >
             <label
               htmlFor={currentAuthField.id}
@@ -577,7 +614,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 Passwords don&rsquo;t match
               </p>
             )}
-          </div>
+          </OneShotSlide>
         </ShakeTarget>
 
         {fieldError && (
