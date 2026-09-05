@@ -111,18 +111,22 @@ describe("DrivesPage", () => {
     stubDrivesApi();
     renderPage();
     expect(await screen.findByText("64GB PSSD")).toBeInTheDocument();
-    expect(screen.getByText(/64 GB · found on sdmock/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Look inside/i })).toBeInTheDocument();
+    expect(screen.getByText(/64 GB · USB · exFAT/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
+    expect(screen.getByText(/Click "Add drive" to begin adding the drive/i)).toBeInTheDocument();
+    expect(screen.getByText(/You'll see the contents of the drive before adding it/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Nothing new plugged in/i)).not.toBeInTheDocument();
   });
 
-  it("previews folder and file names when looking inside the mock PSSD", async () => {
+  it("previews folder and file names when adding the mock PSSD", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
     stubDrivesApi();
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     expect(await screen.findByText(/3 folders and 12 files/i)).toBeInTheDocument();
     expect(screen.getByText("Documents")).toBeInTheDocument();
     expect(screen.getByText("Photos")).toBeInTheDocument();
@@ -130,7 +134,7 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /Add this drive/i })).toBeInTheDocument();
   });
 
-  it("keeps Look-inside loading copy short while inspect is pending", async () => {
+  it("keeps Add-drive loading copy short while inspect is pending", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     /** @type {() => void} */
     let finishInspect = () => {};
@@ -161,11 +165,11 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     expect(await screen.findByRole("status")).toHaveTextContent(/^Looking…$/);
     expect(screen.queryByText(/read-only mode/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/changes nothing until you add it/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /What looking inside does/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /What happens when you add a drive/i })).toBeInTheDocument();
     finishInspect();
     expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
   });
@@ -176,7 +180,7 @@ describe("DrivesPage", () => {
     stubDrivesApi();
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     const note = await screen.findByText(/marker file/i);
     const row = note.closest("div");
     expect(row?.querySelector(".text-accent")).toBeTruthy();
@@ -186,7 +190,7 @@ describe("DrivesPage", () => {
     expect(input.className).not.toMatch(/focus:ring/);
   });
 
-  it("animates Look-inside out when Add this drive succeeds", async () => {
+  it("animates Add-drive modal out when Add this drive succeeds", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     const { waitFor } = await import("@testing-library/react");
     window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
@@ -203,7 +207,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     await user.click(await screen.findByRole("button", { name: /Add this drive/i }));
     await waitFor(() => {
       expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
@@ -223,7 +227,7 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
   });
 
-  it("puts Ignore for now in the header and Look inside in the body", async () => {
+  it("shows useful drive details and Add drive without an Ignore action", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives/detected")) {
@@ -236,9 +240,10 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    const ignore = await screen.findByRole("button", { name: /Ignore for now/i });
-    const look = screen.getByRole("button", { name: /Look inside/i });
-    expect(ignore.compareDocumentPosition(look) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await screen.findByText(/8 GB · USB · FAT/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/found on/i)).not.toBeInTheDocument();
   });
 
   it("shows a member the highest shared folder plus a write exception", async () => {
@@ -424,7 +429,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     expect(await screen.findByText(/12 folders and 7 files/i)).toBeInTheDocument();
     expect(screen.getByText("EFI")).toBeInTheDocument();
     expect(screen.getByText("boot")).toBeInTheDocument();
@@ -463,7 +468,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     expect(await screen.findByText(/1 folder and 2 files/i)).toBeInTheDocument();
     expect(screen.queryByText(/1 folders/i)).not.toBeInTheDocument();
     expect(screen.getByText("Photos")).toBeInTheDocument();
@@ -543,7 +548,7 @@ describe("DrivesPage", () => {
     expect(screen.queryByRole("heading", { name: /Browse Photos Drive/i })).not.toBeInTheDocument();
   });
 
-  it("shows singular grammar and named entries when looking inside", async () => {
+  it("shows singular grammar and named entries when adding a drive", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({
       fetch: (u) => {
@@ -570,7 +575,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     expect(await screen.findByText(/We found 1 folder and 1 file on this drive/i)).toBeInTheDocument();
     expect(screen.getByText("On this drive")).toBeInTheDocument();
     expect(screen.getByText("Photos")).toBeInTheDocument();
@@ -604,7 +609,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     const hint = await screen.findByText((_content, el) =>
       el?.tagName === "P" &&
       /Showing names at the root of the drive/i.test(el.textContent || ""),
