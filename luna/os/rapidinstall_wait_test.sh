@@ -144,6 +144,56 @@ assert_ok "rapidinstall must source console.sh" \
 	grep -q 'lib/console.sh' "$HERE/rapidinstall.sh"
 assert_ok "rapidinstall must call wait_override_key" \
 	grep -q 'wait_override_key' "$HERE/rapidinstall.sh"
+assert_ok "rapidinstall must require INSTALL confirmation" \
+	grep -q 'confirm_install' "$HERE/rapidinstall.sh"
+assert_ok "confirm helper must shut down on wrong input" \
+	grep -q 'poweroff' "$HERE/lib/console.sh"
+
+# Behavioral: INSTALL continues; anything else poweroffs; LUNA_CONFIRM skips prompt.
+_bindir="$(mktemp -d)"
+cat >"$_bindir/poweroff" <<'EOF'
+#!/bin/sh
+echo "POWEROFF:$*" >&2
+exit 99
+EOF
+chmod +x "$_bindir/poweroff"
+# Prefer our stub over /sbin/poweroff.
+PATH="$_bindir:$PATH"
+# shellcheck disable=SC1091
+. "$HERE/lib/console.sh"
+# Avoid hanging on drain_stdin timeouts in this harness.
+drain_stdin() { :; }
+console_sane() { :; }
+
+_rc=0
+printf 'INSTALL\n' | confirm_install /dev/vda >/dev/null 2>&1 || _rc=$?
+assert_eq "confirm_install must accept INSTALL" "$_rc" "0"
+
+_rc=0
+_err="$(printf 'install\n' | (confirm_install /dev/vda) 2>&1 >/dev/null)" || _rc=$?
+assert_eq "confirm_install must reject lowercase install via poweroff" "$_rc" "99"
+case "$_err" in
+*POWEROFF*) ;;
+*)
+	echo "FAIL confirm_install reject path must call poweroff (err=$_err)" >&2
+	fail=$((fail + 1))
+	;;
+esac
+
+_rc=0
+_err="$(printf 'YES\n' | (confirm_install /dev/vda) 2>&1 >/dev/null)" || _rc=$?
+assert_eq "confirm_install must reject YES via poweroff" "$_rc" "99"
+
+_rc=0
+_err="$(printf '\n' | (confirm_install /dev/vda) 2>&1 >/dev/null)" || _rc=$?
+assert_eq "confirm_install must reject empty Enter via poweroff" "$_rc" "99"
+
+_rc=0
+LUNA_CONFIRM=INSTALL confirm_install /dev/vda </dev/null >/dev/null 2>&1 || _rc=$?
+assert_eq "LUNA_CONFIRM=INSTALL must skip the typed prompt" "$_rc" "0"
+
+rm -rf "$_bindir"
+
 assert_ok "console wait must use timeout --foreground" \
 	grep -q 'timeout --foreground' "$HERE/lib/console.sh"
 assert_ok "rapidinstall must not skip wait on [ -t 0 ]" \
