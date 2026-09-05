@@ -191,6 +191,26 @@ describe("postJson / postForm / putBinary / deleteJson", () => {
       message: "This page expired. Refresh Luna and try again.",
     });
   });
+
+  it("propagates machine-readable error codes from JSON bodies", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      /** @type {any} */ (
+        new Response(
+          JSON.stringify({
+            error: "Enter the first eight characters of your device token (****-****).",
+            code: "setup_token_required",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        )
+      ),
+    );
+
+    await expect(postJson("/api/v1/setup", {})).rejects.toMatchObject({
+      status: 403,
+      code: "setup_token_required",
+      message: "Enter the first eight characters of your device token (****-****).",
+    });
+  });
 });
 
 describe("apiErrorMessage", () => {
