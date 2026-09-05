@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Heart, Coffee, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircle } from "lucide-react";
+import { Heart, Coffee, Globe, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import SettingsCard from "../SettingsCard";
@@ -161,6 +161,18 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
             LibreServ is a self-hosted application management platform that
             allows you to easily deploy and manage self-hosted applications.
           </p>
+          <div className="mt-4">
+            <Button asChild variant="outline" surface="secondary">
+              <a
+                href="https://libreloom.org"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Globe size={16} aria-hidden="true" />
+                Visit libreloom.org
+              </a>
+            </Button>
+          </div>
           <div className="mt-4 pt-4 border-t border-primary/10">
             <div className="flex items-center gap-2 text-sm text-accent">
               <Heart size={14} className="text-error" />

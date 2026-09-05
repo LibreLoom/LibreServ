@@ -263,7 +263,7 @@ export default function ModalCard({
               data-slot="dialog-close"
               onClick={handleClose}
               className={cn(
-                "absolute top-5 right-5 p-2 rounded-pill text-primary",
+                "absolute top-5 right-5 p-2 rounded-pill text-primary cursor-pointer",
                 "motion-safe:transition-all hover:bg-primary hover:text-secondary",
                 "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
                 "focus-visible:ring-offset-secondary no-focus-outline"

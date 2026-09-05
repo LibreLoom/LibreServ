@@ -102,7 +102,7 @@ export default function LayeredCard({
             "flex items-center gap-1 whitespace-nowrap rounded-large-element text-primary",
             compact ? "px-3 pt-1 pb-2 text-xs" : "px-4 pt-1 pb-2 text-sm",
             mono && "font-mono",
-            "enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50",
+            "cursor-pointer enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
           )}
         >
           {btnIcon} {actionLabel}

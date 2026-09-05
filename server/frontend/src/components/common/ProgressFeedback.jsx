@@ -137,7 +137,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
     <div className="space-y-3">
       <button
         onClick={() => setDetailsOpen((open) => !open)}
-        className="inline-flex items-center gap-1 text-sm text-accent hover:text-secondary/80 transition-colors font-mono"
+        className="inline-flex items-center gap-1 text-sm text-accent hover:text-secondary/80 transition-colors font-mono cursor-pointer"
         aria-expanded={detailsOpen}
       >
         <ChevronDown
@@ -155,7 +155,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
             <p className="font-mono text-sm text-secondary">Output</p>
             <button
               onClick={onCopy}
-              className="flex items-center gap-1 text-xs text-accent hover:text-secondary/80 transition-colors"
+              className="flex items-center gap-1 text-xs text-accent hover:text-secondary/80 transition-colors cursor-pointer"
             >
               {copied ? (
                 <>

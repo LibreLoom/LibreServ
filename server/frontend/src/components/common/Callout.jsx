@@ -96,7 +96,7 @@ export default function Callout({
             type="button"
             onClick={onDismiss}
             className={cn(
-              "shrink-0 hover:bg-primary/20 rounded-pill p-1.5 motion-safe:transition-colors",
+              "shrink-0 cursor-pointer hover:bg-primary/20 rounded-pill p-1.5 motion-safe:transition-colors",
               "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline",
               textClass
             )}

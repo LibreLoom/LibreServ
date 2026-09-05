@@ -83,7 +83,7 @@ export default function SaveStatusIndicator({
       {config.showRetry && onRetry && (
         <button
           onClick={onRetry}
-          className="ml-1 link-accent"
+          className="ml-1 link-accent cursor-pointer"
         >
           Retry
         </button>

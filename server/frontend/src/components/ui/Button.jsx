@@ -65,7 +65,7 @@ function Slot({ children, ...props }) {
 }
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all enabled:active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed",
+  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all enabled:active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
   {
     variants: {
       variant: {

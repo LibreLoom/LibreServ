@@ -30,7 +30,7 @@ export default function CollapsibleSection({
         type="button"
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-1.5 motion-safe:transition-all w-full",
+          "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",
           sizeClass,
           pill ? "text-primary font-medium py-2 px-3" : "text-inherit py-1",

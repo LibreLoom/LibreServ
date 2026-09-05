@@ -104,7 +104,7 @@ export default function LayeredPill({
               aria-label={actionAriaLabel}
               className={cn(
                 segmentBase,
-                "enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50",
+                "cursor-pointer enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
               {btnIcon} {actionLabel}
