@@ -422,11 +422,12 @@ fn plain_adopt_error(err: &anyhow::Error) -> String {
         || lower.contains("os error 28")
     {
         "This drive is full, so Luna couldn't put its sticker file on it. Free some space and try again.".into()
-    } else if lower.contains("read-only")
+    } else if lower.contains("format it before")
+        || lower.contains("read-only")
         || lower.contains("os error 30")
-        || lower.contains("will not accept new files")
-        || lower.contains("lock switch")
     {
+        crate::drives::NEEDS_FORMAT_MESSAGE.into()
+    } else if lower.contains("will not accept new files") || lower.contains("lock switch") {
         crate::drives::WRITE_REJECTED_MESSAGE.into()
     } else if lower.contains("could not mark") {
         "Luna couldn't put its sticker file on this drive. Unplug it, plug it back in, and try again.".into()
@@ -499,7 +500,7 @@ mod tests {
             "Luna could not mark this drive as its own. could not write the marker: Read-only file system (os error 30)"
         );
         let plain = super::plain_adopt_error(&raw);
-        assert_eq!(plain, crate::drives::WRITE_REJECTED_MESSAGE);
+        assert_eq!(plain, crate::drives::NEEDS_FORMAT_MESSAGE);
         assert!(!plain.contains("os error"));
         assert!(!plain.contains("cannot be changed"));
     }
