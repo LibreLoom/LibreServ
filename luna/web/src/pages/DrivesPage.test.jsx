@@ -522,6 +522,33 @@ describe("DrivesPage", () => {
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
   });
 
+  it("explains that an unplugged remove leaves the marker on the drive", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "General UDisk", state: "missing", fs_type: "exfat", device: "sda",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) =>
+        node?.tagName === "P"
+          && Boolean(
+            node.textContent?.includes("marker file will stay on the drive")
+              && node.textContent?.includes("currently unplugged"),
+          ),
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("offers Browse files linking to the full files page", async () => {
     stubDrivesApi({
       fetch: (u) => {
