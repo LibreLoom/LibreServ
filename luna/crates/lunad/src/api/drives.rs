@@ -304,7 +304,12 @@ async fn drive_health(
             )
         })?;
         let drive = crate::db::get_drive(&conn, &id)
-            .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't update this drive. Try again."))?
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't update this drive. Try again.",
+                )
+            })?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
         drive.device
     };
@@ -332,7 +337,12 @@ async fn drive_summary(
             )
         })?;
         let drive = crate::db::get_drive(&conn, &id)
-            .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't update this drive. Try again."))?
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't update this drive. Try again.",
+                )
+            })?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
         if !crate::auth::has_drive_access(&user, &conn, &id) {
             return Err(json_error(

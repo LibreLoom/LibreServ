@@ -85,7 +85,9 @@ async fn remove(
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
     match err {
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage users."),
+        AuthError::Forbidden => {
+            json_error(StatusCode::FORBIDDEN, "Only an Admin can manage users.")
+        }
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }

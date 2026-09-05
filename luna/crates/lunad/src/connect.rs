@@ -32,8 +32,7 @@ pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote 
 pub const TUNNEL_START_FAILED_MSG: &str =
     "Luna could not start remote access. Luna will keep trying.";
 /// Hostname is set but Connect has not given Luna a tunnel secret yet.
-pub const TUNNEL_TOKEN_MISSING_MSG: &str =
-    "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
+pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 const MIN_CLOUDFLARED_BYTES: u64 = 1024;
@@ -994,8 +993,12 @@ impl ConnectService {
         if !(200..300).contains(&status) {
             return Err(ConnectError::Unreachable);
         }
-        serde_json::from_str(&body)
-            .map_err(|_| ConnectError::Other("Luna Connect answered, but Luna could not use the reply. Luna will try again.".into()))
+        serde_json::from_str(&body).map_err(|_| {
+            ConnectError::Other(
+                "Luna Connect answered, but Luna could not use the reply. Luna will try again."
+                    .into(),
+            )
+        })
     }
 
     fn tunnel_running(&self) -> bool {
@@ -1096,8 +1099,12 @@ impl ConnectService {
         if !(200..300).contains(&status) {
             return Err(map_transport_error(ureq::Error::StatusCode(status)));
         }
-        serde_json::from_str(&body_text)
-            .map_err(|_| ConnectError::Other("Luna Connect answered, but Luna could not use the reply. Luna will try again.".into()))
+        serde_json::from_str(&body_text).map_err(|_| {
+            ConnectError::Other(
+                "Luna Connect answered, but Luna could not use the reply. Luna will try again."
+                    .into(),
+            )
+        })
     }
 
     fn load(&self) -> Value {

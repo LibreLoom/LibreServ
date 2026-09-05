@@ -185,7 +185,9 @@ fn normalize_permission(permission: &str) -> Result<&str, (StatusCode, Json<Valu
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
     match err {
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage access."),
+        AuthError::Forbidden => {
+            json_error(StatusCode::FORBIDDEN, "Only an Admin can manage access.")
+        }
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }

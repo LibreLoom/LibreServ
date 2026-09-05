@@ -252,7 +252,9 @@ fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {
         ),
         AuthError::PasswordPolicy(msg) => json_error(StatusCode::BAD_REQUEST, &msg),
         AuthError::Taken => json_error(StatusCode::CONFLICT, "That username is already taken."),
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage accounts."),
+        AuthError::Forbidden => {
+            json_error(StatusCode::FORBIDDEN, "Only an Admin can manage accounts.")
+        }
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }

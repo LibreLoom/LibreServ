@@ -302,13 +302,12 @@ async fn save_setup(
             "Luna couldn't save setup progress.",
         )
     })?;
-    crate::db::set_meta(&conn, SETUP_KEY, &raw)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save setup progress.",
-            )
-        })?;
+    crate::db::set_meta(&conn, SETUP_KEY, &raw).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save setup progress.",
+        )
+    })?;
     enrich_setup(&mut setup, &state, &addr, &headers);
     Ok(Json(setup))
 }
