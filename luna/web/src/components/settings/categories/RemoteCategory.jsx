@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Globe2 } from "lucide-react";
+import { ChevronRight, Globe2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import CopyableValue from "../../ui/CopyableValue";
+import Button from "../../ui/Button";
 import Pill from "../../common/Pill";
+import { TermHint } from "../../ui/Tooltip";
 import SettingsCard from "../SettingsCard";
 import { getJson } from "../../../lib/api";
 
@@ -16,37 +19,96 @@ export default function RemoteCategory() {
   const s = status.data || { enabled: false };
   const host = s.hostname || s.domain || "";
   const address = host ? (host.includes("://") ? host : `https://${host}`) : "";
+  const tokenError = s.device_token_error || "";
+  const unreachable = s.connect_unreachable || "";
+  const panelError = tokenError || unreachable;
+  const isOn = Boolean(s.enabled);
 
   return (
     <div className="space-y-5">
       <SettingsCard
         icon={Globe2}
         title="Luna Connect"
-        headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}
+        headerActions={
+          isOn ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>
+        }
       >
-        <div className="space-y-3 px-4 pb-4">
-          {s.enabled && address ? (
-            <>
-              <p className="text-primary text-sm">Your Luna address:</p>
+        <div className="space-y-4 px-4 pb-4">
+          <div
+            className="bg-primary text-secondary rounded-large-element px-4 py-4 space-y-2 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
+            aria-labelledby="luna-connect-public-address-label"
+          >
+            <p
+              id="luna-connect-public-address-label"
+              className="font-mono text-xs uppercase tracking-widest text-secondary"
+            >
+              Public address
+            </p>
+
+            {panelError ? (
+              <div
+                className="rounded-large-element border-2 border-error/30 bg-error/20 px-3 py-3 space-y-2"
+                role="alert"
+              >
+                <p className="text-sm text-error leading-relaxed">{panelError}</p>
+                {tokenError ? (
+                  <Button variant="outline" surface="primary" size="sm" asChild>
+                    <Link to="/settings#about">Change the device token in About → Advanced</Link>
+                  </Button>
+                ) : null}
+              </div>
+            ) : address ? (
               <CopyableValue
                 value={address}
                 copyLabel="Copy address"
                 ariaLabel="Luna Connect address"
+                surface="primary"
               />
-            </>
+            ) : (
+              <div className="space-y-1">
+                <p className="font-mono text-lg leading-snug text-secondary">
+                  No public address yet
+                </p>
+                <p className="font-mono text-sm text-secondary break-all">
+                  <TermHint
+                    content="The short name you pick on Luna Connect becomes the first part of this address — for example kitchen in kitchen.luna.servers.libreloom.org."
+                    surface="primary"
+                  >
+                    yourname
+                  </TermHint>
+                  .luna.servers.libreloom.org
+                </p>
+              </div>
+            )}
+          </div>
+
+          {!isOn && !panelError ? (
+            <p className="text-primary text-sm leading-relaxed motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+              Pick a name on Luna Connect. Luna shows the address here once it is ready. You can
+              also add cloud backup there.
+            </p>
           ) : null}
-          <p className="text-primary text-sm leading-relaxed">
-            Pick your Luna address and turn on cloud backup at{" "}
-            <a
-              href={LUNA_CONNECT_URL}
-              className="text-accent hover:text-primary motion-safe:transition-colors underline underline-offset-4"
-              target="_blank"
-              rel="noopener noreferrer"
+
+          {isOn ? (
+            <Button variant="outline" fullWidth asChild className="justify-between">
+              <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
+                <span>Manage on Luna Connect</span>
+                <ChevronRight size={16} aria-hidden="true" />
+              </a>
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              fullWidth
+              asChild
+              className="justify-between motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
             >
-              Luna Connect
-            </a>
-            .
-          </p>
+              <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
+                <span>Open Luna Connect</span>
+                <ChevronRight size={16} aria-hidden="true" />
+              </a>
+            </Button>
+          )}
         </div>
       </SettingsCard>
     </div>
