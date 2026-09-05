@@ -40,7 +40,7 @@ export default function RemoteCategory() {
           >
             <p
               id="luna-connect-public-address-label"
-              className="font-mono text-xs uppercase tracking-widest text-accent"
+              className="font-mono text-xs uppercase tracking-widest text-secondary"
             >
               Public address
             </p>
