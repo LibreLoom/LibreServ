@@ -133,7 +133,10 @@ impl LoginView {
                             sign_in.set_sensitive(true);
                             sign_in.set_label("Sign in");
                             match result {
-                                Ok(info) => on_signed_in(info),
+                                Ok(info) => {
+                                    let _ = luna_desktop::autostart::init_default();
+                                    on_signed_in(info);
+                                }
                                 Err(e) => {
                                     status.set_text(&e);
                                     status.set_visible(true);

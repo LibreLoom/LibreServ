@@ -20,7 +20,14 @@ vi.mock("react-leaflet", () => {
         {children}
       </div>
     ),
-    TileLayer: () => null,
+    TileLayer: (props) => (
+      <div
+        data-testid="tile-layer"
+        data-referrer-policy={props.referrerPolicy}
+        data-attribution={props.attribution}
+        data-url={props.url}
+      />
+    ),
     CircleMarker: ({ children }) => <div>{children}</div>,
     Popup: ({ children }) => <div>{children}</div>,
     Tooltip: ({ children }) => <div>{children}</div>,
@@ -88,5 +95,17 @@ describe("PlacesMap", () => {
     expect(screen.getByTestId("map-container")).toBeInTheDocument();
     const card = document.querySelector("[data-slot=card]");
     expect(card?.className).toMatch(/pop-in/);
+  });
+
+  it("configures TileLayer with strict-origin-when-cross-origin referrerPolicy", () => {
+    render(
+      <PlacesMap
+        places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
+        onSelect={vi.fn()}
+      />,
+    );
+    const tileLayer = screen.getByTestId("tile-layer");
+    expect(tileLayer).toBeInTheDocument();
+    expect(tileLayer).toHaveAttribute("data-referrer-policy", "strict-origin-when-cross-origin");
   });
 });

@@ -98,7 +98,7 @@ function Card({
       ref={outerRef}
       data-slot="card-clip"
       className={cn(
-        "overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
+        "overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
         !hasCustomRadius && "rounded-large-element",
         surfaceClasses,
         animationClass,

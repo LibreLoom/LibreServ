@@ -161,7 +161,7 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
         JobError::Symlink => json_error(StatusCode::BAD_REQUEST, "Luna can't copy links yet."),
         JobError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
-            "Luna doesn't know one of these drives.",
+            "Luna doesn't know one of these drives. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
         ),
         JobError::Files(crate::files::FilesError::Path(_)) => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that path.")

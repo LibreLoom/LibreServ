@@ -64,6 +64,10 @@ pub fn run() -> glib::ExitCode {
                 win.present();
                 return;
             }
+            // Ensure start on boot is enabled by default unless explicitly disabled.
+            if let Err(e) = luna_desktop::autostart::init_default() {
+                eprintln!("luna-desktop: couldn't initialize start on boot default: {e}");
+            }
             let win = build_ui(app, state.clone());
             *window_slot.borrow_mut() = Some(win.clone());
 

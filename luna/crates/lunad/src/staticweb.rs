@@ -45,7 +45,7 @@ pub fn handle(path: &str) -> Response<Body> {
         .header(header::CACHE_CONTROL, cache)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::X_FRAME_OPTIONS, "DENY")
-        .header(header::REFERRER_POLICY, "no-referrer")
+        .header(header::REFERRER_POLICY, "strict-origin-when-cross-origin")
         .body(Body::from(file.contents()))
         .unwrap()
 }
@@ -57,7 +57,7 @@ fn html(file: &'static include_dir::File<'static>) -> Response<Body> {
         .header(header::CACHE_CONTROL, "no-cache")
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::X_FRAME_OPTIONS, "DENY")
-        .header(header::REFERRER_POLICY, "no-referrer")
+        .header(header::REFERRER_POLICY, "strict-origin-when-cross-origin")
         .body(Body::from(file.contents()))
         .unwrap()
 }
@@ -75,6 +75,14 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .starts_with("text/html")
+        );
+        assert_eq!(
+            res.headers()
+                .get("referrer-policy")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "strict-origin-when-cross-origin"
         );
     }
 }

@@ -78,9 +78,10 @@ impl StatusPage {
                             .unwrap_or_default();
                         let jobs = luna_desktop::backup::load_jobs();
                         let pairs = luna_desktop::sync::load_pairs();
-                        (backups, syncs, jobs, pairs)
+                        let drives = luna_desktop::list_drives(&state).unwrap_or_default();
+                        (backups, syncs, jobs, pairs, drives.is_empty())
                     },
-                    move |(backups, syncs, jobs, pairs)| {
+                    move |(backups, syncs, jobs, pairs, no_drives)| {
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
@@ -90,16 +91,31 @@ impl StatusPage {
                             let Some(p) = backups.get(&job.id) else {
                                 continue;
                             };
-                            // In progress: actively copying a file right now.
-                            if !p.running || p.current.is_empty() {
-                                continue;
-                            }
-                            any = true;
                             let name = if job.name.is_empty() {
                                 "Backup"
                             } else {
                                 job.name.as_str()
                             };
+                            if !p.error.is_empty() {
+                                any = true;
+                                let error_text = plain_status_error(&p.error);
+                                let row = adw::ActionRow::builder()
+                                    .title(name)
+                                    .subtitle(&error_text)
+                                    .build();
+                                row.set_title_lines(1);
+                                row.set_subtitle_lines(2);
+                                let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+                                icon.set_icon_size(gtk::IconSize::Normal);
+                                row.add_prefix(&icon);
+                                list.append(&row);
+                                continue;
+                            }
+                            // In progress: actively copying a file right now.
+                            if !p.running || p.current.is_empty() {
+                                continue;
+                            }
+                            any = true;
                             let file = if p.current.is_empty() {
                                 "Copying files…".to_string()
                             } else {
@@ -126,10 +142,6 @@ impl StatusPage {
                             let Some(p) = syncs.get(&pair.id) else {
                                 continue;
                             };
-                            if !p.running || p.phase != "Syncing" || p.current.is_empty() {
-                                continue;
-                            }
-                            any = true;
                             let name = if pair.remote_path.trim_matches('/').is_empty() {
                                 std::path::Path::new(&pair.local_path)
                                     .file_name()
@@ -139,6 +151,25 @@ impl StatusPage {
                             } else {
                                 leaf(&pair.remote_path)
                             };
+                            if !p.error.is_empty() {
+                                any = true;
+                                let error_text = plain_status_error(&p.error);
+                                let row = adw::ActionRow::builder()
+                                    .title(name)
+                                    .subtitle(&error_text)
+                                    .build();
+                                row.set_title_lines(1);
+                                row.set_subtitle_lines(2);
+                                let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+                                icon.set_icon_size(gtk::IconSize::Normal);
+                                row.add_prefix(&icon);
+                                list.append(&row);
+                                continue;
+                            }
+                            if !p.running || p.phase != "Syncing" || p.current.is_empty() {
+                                continue;
+                            }
+                            any = true;
                             let row = adw::ActionRow::builder()
                                 .title(name)
                                 .subtitle(&short_name(&p.current))
@@ -154,6 +185,21 @@ impl StatusPage {
                             icon.set_icon_size(gtk::IconSize::Normal);
                             row.add_prefix(&icon);
                             list.append(&row);
+                        }
+
+                        if !any {
+                            if no_drives {
+                                empty.set_title("No drives found");
+                                empty.set_description(Some(
+                                    "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                                ));
+                                empty.set_icon_name(Some("dialog-warning-symbolic"));
+                            } else {
+                                empty.set_title("Everything is up to date.");
+                                empty
+                                    .set_description(Some("Nothing is waiting to copy right now."));
+                                empty.set_icon_name(Some("emblem-ok-symbolic"));
+                            }
                         }
 
                         empty.set_visible(!any);
@@ -195,5 +241,20 @@ fn short_name(path: &str) -> String {
         format!("{}…", &name[..45])
     } else {
         name.to_string()
+    }
+}
+
+fn plain_status_error(raw: &str) -> String {
+    let t = raw.trim();
+    if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
+        "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".to_string()
+    } else if t == "unauthorized" {
+        "Your sign-in expired. Sign out and sign in again.".to_string()
+    } else if t.contains("connection") || t.contains("timed out") || t.contains("Connection") {
+        "Couldn't reach Luna. Check that it's on and try again.".to_string()
+    } else if !t.is_empty() {
+        t.to_string()
+    } else {
+        "Something went wrong. Try editing it and saving again.".to_string()
     }
 }

@@ -264,8 +264,8 @@ export default function ModalCard({
         aria-busy={loading || undefined}
         aria-labelledby={titleId}
         className={cn(
-          "w-full overflow-hidden rounded-large-element",
-          "transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
+          "w-full overflow-hidden rounded-large-element bg-secondary text-primary",
+          "transition-[height,max-width,max-height,width] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
           widthClasses,
           maxHeightClasses
         )}
@@ -281,7 +281,7 @@ export default function ModalCard({
         <div
           data-slot="dialog-scroller"
           className={cn(
-            "h-full max-h-full",
+            "h-full max-h-full overscroll-contain",
             scrollReady && !isClosing ? "overflow-y-auto" : "overflow-hidden",
           )}
           onAnimationEnd={handlePopInEnd}

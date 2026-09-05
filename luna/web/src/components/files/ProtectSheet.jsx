@@ -10,6 +10,7 @@ import Pill from "../common/Pill";
 import ShakeTarget from "../ui/ShakeTarget";
 import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
 function pathKey(value) {
   return value || "";
@@ -64,7 +65,10 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [targetDrive, setTargetDrive] = useState("");
+  const [pendingCloudIntent, setPendingCloudIntent] = useState(null);
   const objectPath = pathKey(path);
+
+  const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const protections = useQuery({
@@ -89,6 +93,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const cloudOn = matchesCloudSource(connect.data?.backup_sources, targetKey);
   const cloudUnlocked = Boolean(connect.data?.backup_unlocked);
   const driveProtected = matchingProtections.length > 0;
+
+  // Reset pending intent if target state has been reflected in connect.data
+  if (pendingCloudIntent !== null && cloudOn === pendingCloudIntent) {
+    setPendingCloudIntent(null);
+  }
 
   const createProtect = useMutation({
     mutationFn: () =>
@@ -115,19 +124,32 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   });
 
   const saveCloud = useMutation({
-    mutationFn: (sources) => postJson("/api/v1/connect/backup-sources", { sources }),
+    mutationFn: async (sources) => {
+      const res = await postJson("/api/v1/connect/backup-sources", { sources });
+      await queryClient.refetchQueries({ queryKey: ["connect-status"] });
+      return res;
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       setError(null);
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => {
+      setPendingCloudIntent(null);
+      setError(apiErrorMessage(err));
+    },
+    onSettled: () => {
+      setPendingCloudIntent(null);
+    },
   });
+
+  const isCloudLoading =
+    saveCloud.isPending || (pendingCloudIntent !== null && cloudOn !== pendingCloudIntent);
 
   function driveName(id) {
     return driveList.find((d) => d.id === id)?.label || id;
   }
 
   function toggleCloud() {
+    if (isCloudLoading) return;
     const current = connect.data?.backup_sources || [];
     const nextSource = buildCloudSource(targetKey);
     if (!nextSource.path && nextSource.kind === "folder") {
@@ -142,6 +164,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     } else {
       next = [...current, nextSource];
     }
+    setPendingCloudIntent(!cloudOn);
     saveCloud.mutate(next);
   }
 
@@ -247,50 +270,57 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
           )}
         </section>
 
-        <section className="rounded-large-element bg-primary text-secondary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
-          <div className="flex items-start gap-3">
-            <Cloud size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">
-                  In the cloud
-                  <InfoHint
-                    label="What cloud backup means"
-                    content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
-                  />
-                </h3>
-                {cloudOn && (
-                  <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
-                    On
-                  </Pill>
+        <section
+          ref={cloudOuterRef}
+          className="overflow-hidden rounded-large-element bg-primary text-secondary transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+          style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+        >
+          <div ref={cloudInnerRef} className="p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <Cloud size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">
+                    In the cloud
+                    <InfoHint
+                      label="What cloud backup means"
+                      content="An off-site copy of the latest files, stored with Luna Connect. It is not a history of old versions. Cloud backup costs $8 per terabyte each month."
+                    />
+                  </h3>
+                  {cloudOn && (
+                    <Pill variant="success" className="shrink-0 px-2 py-0.5 leading-none">
+                      On
+                    </Pill>
+                  )}
+                </div>
+                {cloudUnlocked ? (
+                  <p className="text-secondary text-sm">
+                    {cloudOn
+                      ? `Luna is copying this ${thingLabel} to the cloud when idle.`
+                      : `Copy the latest files from this ${thingLabel} off-site when Luna is idle.`}
+                  </p>
+                ) : (
+                  <p className="text-secondary text-sm">
+                    Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
+                  </p>
                 )}
               </div>
-              {cloudUnlocked ? (
-                <p className="text-secondary text-sm">
-                  {cloudOn
-                    ? `Luna is copying this ${thingLabel} to the cloud when idle.`
-                    : `Copy the latest files from this ${thingLabel} off-site when Luna is idle.`}
-                </p>
-              ) : (
-                <p className="text-secondary text-sm">
-                  Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
-                </p>
-              )}
             </div>
-          </div>
 
-          {cloudUnlocked && (
-            <Button
-              size="sm"
-              variant={cloudOn ? "danger" : "secondary"}
-              surface="primary"
-              fullWidth
-              loading={saveCloud.isPending}
-              onClick={toggleCloud}
-            >
-              {cloudOn ? "Stop cloud backup" : "Copy to cloud"}
-            </Button>
-          )}
+            {cloudUnlocked && (
+              <Button
+                size="sm"
+                variant={cloudOn ? "danger" : "secondary"}
+                surface="primary"
+                fullWidth
+                loading={isCloudLoading}
+                disabled={isCloudLoading}
+                onClick={toggleCloud}
+              >
+                {cloudOn ? "Stop cloud backup" : "Copy to cloud"}
+              </Button>
+            )}
+          </div>
         </section>
       </div>
     </ModalCard>

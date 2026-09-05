@@ -237,9 +237,10 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
             StatusCode::BAD_REQUEST,
             "That chunk doesn't fit this upload.",
         ),
-        UploadError::Files(crate::files::FilesError::UnknownDrive) => {
-            json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive.")
-        }
+        UploadError::Files(crate::files::FilesError::UnknownDrive) => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+        ),
         UploadError::Files(crate::files::FilesError::Path(_)) => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that destination.")
         }

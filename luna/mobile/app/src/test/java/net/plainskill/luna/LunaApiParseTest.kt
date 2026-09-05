@@ -59,4 +59,10 @@ class LunaApiParseTest {
         assertEquals("", LunaApi.parentPath(""))
         assertEquals("a/b", LunaApi.parentPath("/a/b/c/"))
     }
+
+    @Test
+    fun parseDrivesEmptyReturnsEmptyList() {
+        val drives = LunaApi.parseDrives("[]")
+        assertEquals(0, drives.size)
+    }
 }

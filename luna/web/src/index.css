@@ -413,6 +413,23 @@ select:focus:not(:focus-visible) {
     will-change: transform, opacity;
 }
 
+/* Cascading photo grid entrance — subtle lift + scale */
+@keyframes cascade-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.animate-cascade-in {
+    animation: cascade-in 280ms var(--motion-easing-emphasized-decelerate) backwards;
+    will-change: transform, opacity;
+}
+
 /* Material Design 3 Indeterminate Linear Progress Animations */
 @keyframes md-indeterminate-bar-1 {
     0% {
@@ -838,7 +855,8 @@ select:focus:not(:focus-visible) {
     .animate-alert-enter,
     .animate-nav-slide-in,
     .animate-card-stagger,
-    .animate-pill-gauge-fill {
+    .animate-pill-gauge-fill,
+    .animate-cascade-in {
         animation: none !important;
         opacity: 1;
         transform: none;

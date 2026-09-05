@@ -33,6 +33,9 @@ pub struct DetectedDrive {
 impl DetectedDrive {
     pub fn is_storage_candidate(&self) -> bool {
         let n = self.name.as_str();
+        if n.starts_with("sdmock") {
+            return true;
+        }
         (n.starts_with("sd") || n.starts_with("hd") || n.starts_with("vd") || n.starts_with("nvme"))
             && !n
                 .chars()

@@ -61,7 +61,7 @@ describe("FileViewer image preview", () => {
     expect(screen.queryByRole("status", { name: "Loading" })).not.toBeInTheDocument();
   });
 
-  it("toggles full view and back", async () => {
+  it("toggles full view and back via the exit button", async () => {
     render(
       <FileViewer
         open
@@ -77,10 +77,105 @@ describe("FileViewer image preview", () => {
 
     const expand = screen.getByRole("button", { name: "Full view" });
     fireEvent.click(expand);
-    expect(screen.getByRole("button", { name: "Normal size" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Normal size" }));
+    const exitBtn = screen.getByRole("button", { name: "Exit full view" });
+    expect(exitBtn).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Normal size" })).not.toBeInTheDocument();
+
+    fireEvent.click(exitBtn);
+    expect(screen.queryByRole("button", { name: "Exit full view" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Full view" })).toBeInTheDocument();
+  });
+
+  it("returns from full view to normal view on Escape without closing modal", async () => {
+    const onClose = vi.fn();
+    render(
+      <FileViewer
+        open
+        driveId="drive-1"
+        path="/Photos/vacation.jpg"
+        onClose={onClose}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Full view" }));
+    expect(screen.getByRole("button", { name: "Exit full view" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Exit full view" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Full view" })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("manages focus when entering and exiting full view", async () => {
+    render(
+      <FileViewer
+        open
+        driveId="drive-1"
+        path="/Photos/vacation.jpg"
+        onClose={() => {}}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const fullViewBtn = screen.getByRole("button", { name: "Full view" });
+    fireEvent.click(fullViewBtn);
+
+    const exitBtn = screen.getByRole("button", { name: "Exit full view" });
+    expect(document.activeElement).toBe(exitBtn);
+
+    fireEvent.click(exitBtn);
+    expect(document.activeElement).toBe(fullViewBtn);
+  });
+
+  it("closes the modal when Escape is pressed in normal view", async () => {
+    const onClose = vi.fn();
+    render(
+      <FileViewer
+        open
+        driveId="drive-1"
+        path="/Photos/vacation.jpg"
+        onClose={onClose}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it("supports full view for videos", async () => {
+    render(
+      <FileViewer
+        open
+        driveId="drive-1"
+        path="/Videos/clip.mp4"
+        onClose={() => {}}
+      />,
+    );
+
+    const fullViewBtn = screen.getByRole("button", { name: "Full view" });
+    fireEvent.click(fullViewBtn);
+
+    expect(screen.getByRole("button", { name: "Exit full view" })).toBeInTheDocument();
+    // Video in full view
+    const video = document.querySelector('video[src="/api/v1/drives/drive-1/files/content?path=%2FVideos%2Fclip.mp4"]');
+    expect(video).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Exit full view" }));
+    expect(screen.queryByRole("button", { name: "Exit full view" })).not.toBeInTheDocument();
   });
 
   it("shows an error message when the photo fails to load", async () => {

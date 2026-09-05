@@ -832,9 +832,10 @@ fn with_db<T>(
 
 fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
     match err {
-        FilesError::UnknownDrive => {
-            json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive.")
-        }
+        FilesError::UnknownDrive => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+        ),
         FilesError::Path(
             luna_core::path::PathError::Absolute | luna_core::path::PathError::Escape,
         ) => json_error(StatusCode::BAD_REQUEST, "Luna can't open that path."),
@@ -850,7 +851,7 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read this drive. Make sure it's connected and try again.",
+            "Luna couldn't read this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
         ),
     }
 }

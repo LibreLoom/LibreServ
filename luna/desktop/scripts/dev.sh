@@ -6,6 +6,13 @@
 #   - GTK Inspector via GTK_DEBUG=interactive
 set -euo pipefail
 
+if [ -z "${DISTROBOX_ENTERED:-}" ] && ! pkg-config --exists gtk4 libadwaita-1 2>/dev/null; then
+  if command -v distrobox >/dev/null 2>&1 && distrobox list 2>/dev/null | grep -q ' dev '; then
+    export DISTROBOX_ENTERED=1
+    exec distrobox enter dev -- "$0" "$@"
+  fi
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -34,7 +41,6 @@ echo "    Save a file under desktop/src to rebuild and restart."
 echo "    Ctrl-C stops the watcher."
 
 exec cargo watch \
-  --clear \
   -w src \
   -w Cargo.toml \
   -x run

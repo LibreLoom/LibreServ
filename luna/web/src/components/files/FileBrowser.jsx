@@ -593,7 +593,12 @@ export default function FileBrowser({
 
       {listing.isError && (
         <p className="text-error text-sm mb-3" role="alert">
-          {String(listing.error?.message || "Luna couldn't open this folder. Try again.")}
+          {String(
+            listing.error?.message?.toLowerCase().includes("drive") ||
+            (listing.error && "status" in listing.error && listing.error.status === 404)
+              ? "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              : (listing.error?.message || "Luna couldn't open this folder. Try again.")
+          )}
         </p>
       )}
 

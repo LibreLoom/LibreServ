@@ -389,4 +389,27 @@ describe("GalleryPage", () => {
     expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Look again/i })).not.toBeInTheDocument();
   });
+
+  it("renders Add to album modal with an outline Cancel button that closes the modal", async () => {
+    stubGalleryFetch();
+    renderGallery();
+    const photo = await screen.findByLabelText("one.jpg");
+    fireEvent.click(photo);
+
+    const addToAlbumBtn = await screen.findByRole("button", { name: /Add to album/i });
+    fireEvent.click(addToAlbumBtn);
+
+    expect(await screen.findByRole("heading", { name: "Add to album" })).toBeInTheDocument();
+    expect(screen.getByText("Create an album first, then add photos to it.")).toBeInTheDocument();
+
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    expect(cancelBtn).toBeInTheDocument();
+    expect(cancelBtn.className).toContain("border-2");
+    expect(cancelBtn.className).toContain("border-primary");
+
+    fireEvent.click(cancelBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Add to album" })).not.toBeInTheDocument();
+    });
+  });
 });

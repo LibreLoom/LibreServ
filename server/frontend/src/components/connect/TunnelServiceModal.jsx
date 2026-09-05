@@ -122,7 +122,7 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
             try {
               await updateConnectService("tunnel", useConnect ? "connected" : "byo", csrfToken);
               if (onSaved) await onSaved();
-              close();
+              close?.();
             } catch (e) {
               const msg = e?.message || "Something went wrong while saving. Please try again.";
               setError(msg);

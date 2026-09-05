@@ -33,6 +33,9 @@ pub fn plain_connect_error(err: &ureq::Error) -> String {
             "That username or password didn't work. Check them and try again.".into()
         }
         ureq::Error::StatusCode(403) => "You don't have permission to do that on Luna.".into(),
+        ureq::Error::StatusCode(404) => {
+            "Luna couldn't find this drive or file. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into()
+        }
         ureq::Error::StatusCode(409) => {
             "A file with this name is already here. Rename it or choose another.".into()
         }
@@ -242,6 +245,11 @@ pub fn list_files(
     }
     if resp.status() == 403 {
         return Err("You don't have permission to view this folder.".into());
+    }
+    if resp.status() == 404 {
+        return Err(
+            "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into(),
+        );
     }
     if !resp.status().is_success() {
         return Err("Luna couldn't open that folder. Try again.".into());

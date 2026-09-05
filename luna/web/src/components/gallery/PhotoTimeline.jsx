@@ -30,10 +30,11 @@ export default function PhotoTimeline({
   const sentinel = useRef(null);
   const groups = useMemo(() => {
     const map = new Map();
+    let index = 0;
     for (const photo of photos) {
       const key = dayKey(photo.taken_at);
       if (!map.has(key)) map.set(key, { key, label: dayLabel(photo.taken_at), items: [] });
-      map.get(key).items.push(photo);
+      map.get(key).items.push({ photo, index: index++ });
     }
     return [...map.values()];
   }, [photos]);
@@ -62,10 +63,11 @@ export default function PhotoTimeline({
             {group.label}
           </h2>
           <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-            {group.items.map((photo) => (
+            {group.items.map(({ photo, index }) => (
               <PhotoThumb
                 key={`${photo.drive_id}/${photo.path}`}
                 photo={photo}
+                index={index}
                 onClick={onOpen}
               />
             ))}

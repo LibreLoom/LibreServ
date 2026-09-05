@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 
 /**
- * useAnimatedHeight - smooth height transitions for cards with changing content.
+ * useAnimatedHeight - smooth height transitions for cards and modals with changing content.
  *
  * CSS `transition` cannot animate `height: auto`. This hook measures the inner
  * content with ResizeObserver and sets an explicit pixel height on the outer
@@ -22,6 +22,11 @@ export function useAnimatedHeight(enabled = true) {
     let cancelled = false;
     /** @type {ResizeObserver | null} */
     let ro = null;
+    /** @type {number | null} */
+    let resizeRaf = null;
+
+    /** @type {HTMLElement | null} */
+    let outerAtBind = null;
 
     const applyHeight = () => {
       const outer = outerRef.current;
@@ -29,7 +34,24 @@ export function useAnimatedHeight(enabled = true) {
       if (!outer || !inner) return;
       const { marginTop, marginBottom } = getComputedStyle(inner);
       const margins = (parseFloat(marginTop) || 0) + (parseFloat(marginBottom) || 0);
-      outer.style.height = `${inner.offsetHeight + margins}px`;
+      const contentHeight = Math.ceil(
+        Math.max(inner.offsetHeight || 0, inner.getBoundingClientRect?.().height || 0)
+      );
+      let targetHeight = contentHeight + margins;
+
+      // When outer has a CSS max-height (e.g. modal calc(95vh - 4rem)), cap the inline
+      // height to avoid dead-zone delay when animating down from large content.
+      const computedMax = parseFloat(getComputedStyle(outer).maxHeight);
+      if (!isNaN(computedMax) && computedMax > 0) {
+        targetHeight = Math.min(targetHeight, Math.ceil(computedMax));
+      }
+
+      outer.style.height = `${targetHeight}px`;
+    };
+
+    const onWindowResize = () => {
+      if (resizeRaf != null) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(applyHeight);
     };
 
     const bind = () => {
@@ -40,9 +62,13 @@ export function useAnimatedHeight(enabled = true) {
         requestAnimationFrame(bind);
         return;
       }
+      outerAtBind = outer;
       applyHeight();
-      ro = new ResizeObserver(applyHeight);
-      ro.observe(inner);
+      if (typeof ResizeObserver !== "undefined") {
+        ro = new ResizeObserver(applyHeight);
+        ro.observe(inner);
+      }
+      window.addEventListener("resize", onWindowResize);
     };
 
     bind();
@@ -50,9 +76,12 @@ export function useAnimatedHeight(enabled = true) {
     return () => {
       cancelled = true;
       ro?.disconnect();
-      if (outerRef.current) outerRef.current.style.height = "";
+      window.removeEventListener("resize", onWindowResize);
+      if (resizeRaf != null) cancelAnimationFrame(resizeRaf);
+      if (outerAtBind) outerAtBind.style.height = "";
     };
   }, [enabled]);
 
   return { outerRef, innerRef };
 }
+

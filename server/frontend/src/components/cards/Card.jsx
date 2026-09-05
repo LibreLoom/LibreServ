@@ -78,7 +78,7 @@ function Card({
   return (
     <div
       ref={outerRef}
-      className="overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <As

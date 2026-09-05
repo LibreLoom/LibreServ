@@ -101,14 +101,16 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
     let Some(saved) = session::load() else {
         return RestoreOutcome::NoSession;
     };
-    match luna::list_drives(&saved.base_url, &saved.token) {
-        Ok(_) => {
+    match luna::auth_me(&saved.base_url, &saved.token) {
+        Ok((username, _)) => {
+            let mut session_data = saved.clone();
+            session_data.username = username.clone();
             if let Ok(mut slot) = state.session.lock() {
-                *slot = Some(saved.clone());
+                *slot = Some(session_data);
             }
             RestoreOutcome::Restored(SessionInfo {
                 base_url: saved.base_url,
-                username: saved.username,
+                username,
             })
         }
         Err(e) if luna::is_auth_failure(&e) => {
@@ -119,7 +121,17 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
             }
             RestoreOutcome::AuthFailed { base_url }
         }
-        Err(e) => RestoreOutcome::Failed(e),
+        Err(_) => {
+            // Non-auth failure (e.g. offline, connection error, drive issue):
+            // preserve the saved session so the user is NOT kicked back to the login page.
+            if let Ok(mut slot) = state.session.lock() {
+                *slot = Some(saved.clone());
+            }
+            RestoreOutcome::Restored(SessionInfo {
+                base_url: saved.base_url,
+                username: saved.username,
+            })
+        }
     }
 }
 
@@ -133,8 +145,6 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
         return Err("Paste an access token from Luna → Settings → Apps and access tokens.".into());
     }
     let (username, _) = luna::auth_me(&base_url, &token)?;
-    // Confirm the token can see drives (same check restore_session uses).
-    luna::list_drives(&base_url, &token)?;
     let data = session::SessionData {
         base_url: base_url.clone(),
         username: username.clone(),
@@ -450,7 +460,16 @@ mod tests {
                 let mut s = stream;
                 let n = s.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let (code, body) = if req.contains("/api/v1/drives") {
+                let (code, body) = if req.contains("/api/v1/auth/me") {
+                    (
+                        status,
+                        if status == 200 {
+                            r#"{"id":"u1","username":"max","role":"admin"}"#.to_string()
+                        } else {
+                            "null".to_string()
+                        },
+                    )
+                } else if req.contains("/api/v1/drives") {
                     (status, "[]".to_string())
                 } else {
                     (404, "{}".to_string())
@@ -512,6 +531,38 @@ mod tests {
 
         let state = AppState::default();
         let outcome = restore_session(&state);
+        assert_eq!(
+            outcome,
+            RestoreOutcome::Restored(SessionInfo {
+                base_url: base.clone(),
+                username: "max".into(),
+            })
+        );
+        assert!(session::load().is_some());
+
+        stop.store(true, Ordering::Relaxed);
+        drop(handle);
+        unsafe { std::env::remove_var("LUNA_DESKTOP_DATA") };
+    }
+
+    #[test]
+    fn restore_session_does_not_kick_to_login_on_non_auth_failure() {
+        let _g = test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
+
+        // Mock server returns 500 (internal error, e.g. drive or database failure, NOT 401)
+        let (base, handle, stop) = spawn_drives_server(500);
+        session::save(&session::SessionData {
+            base_url: base.clone(),
+            username: "max".into(),
+            token: "saved-token".into(),
+        })
+        .unwrap();
+
+        let state = AppState::default();
+        let outcome = restore_session(&state);
+        // Must restore session, not kick to login or auth_failed!
         assert_eq!(
             outcome,
             RestoreOutcome::Restored(SessionInfo {

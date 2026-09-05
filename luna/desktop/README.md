@@ -13,7 +13,7 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
    Desktop creates a child folder there and keeps both sides in sync. If both
    sides change the same file, both copies are kept with a clear conflict name.
-4. **Settings** — optional start on boot (XDG autostart on Linux).
+4. **Settings** — start on boot (enabled by default; XDG autostart on Linux).
 
 ## Distribution
 
@@ -89,4 +89,4 @@ cd desktop && cargo test
 ```
 
 Fake Luna HTTP coverage includes login, drive list, folder list, and mkdir.
-Autostart writes an XDG `.desktop` file under `$XDG_CONFIG_HOME/autostart`.
+Autostart writes an XDG `.desktop` file under `$XDG_CONFIG_HOME/autostart` (enabled by default on first run).

@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   File as FileIcon,
   Folder,
+  HardDrive,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -163,7 +164,35 @@ export default function FilesPage() {
         <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
       )}
 
-      {!inTrash && drive && (
+      {!drives.isLoading && !drive && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Drive not found"
+          description="Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+          action={
+            <Button size="sm" variant="primary" asChild>
+              <Link to="/drives">Go to Drives</Link>
+            </Button>
+          }
+        />
+      )}
+
+      {!inTrash && drive && drive.state === "missing" && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Drive unplugged"
+          description="This drive is unplugged. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+          action={
+            <Button size="sm" variant="primary" asChild>
+              <Link to="/drives">Go to Drives</Link>
+            </Button>
+          }
+        />
+      )}
+
+      {!inTrash && drive && drive.state !== "missing" && (
         <DriveFileExplorer
           driveId={id}
           driveLabel={drive.label}

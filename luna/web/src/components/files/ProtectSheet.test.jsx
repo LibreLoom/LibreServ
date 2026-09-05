@@ -221,4 +221,157 @@ describe("ProtectSheet", () => {
     await user.click(btn);
     expect(saved).toEqual([{ kind: "drive", drive_id: "d2" }]);
   });
+
+  it("keeps button in loading and disabled state while enabling cloud backup until status refetches", async () => {
+    const user = userEvent.setup();
+    let resolveBackupSources;
+    const backupSourcesPromise = new Promise((resolve) => {
+      resolveBackupSources = resolve;
+    });
+
+    const connectStatus = { backup_unlocked: true, backup_sources: [] };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init) => {
+        const u = typeof url === "string" ? url : url?.url || String(url);
+        if (u.includes("/auth/me") || u.includes("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/setup")) {
+          return new Response(JSON.stringify({ setup_completed: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/api/v1/drives")) {
+          return new Response(JSON.stringify([{ id: "d1", label: "Main", mount_point: "/mnt/main" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/api/v1/protections")) {
+          return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/api/v1/connect/status")) {
+          return new Response(JSON.stringify(connectStatus), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/api/v1/connect/backup-sources") && init?.method === "POST") {
+          await backupSourcesPromise;
+          const body = JSON.parse(init.body || "{}");
+          connectStatus.backup_sources = body.sources;
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 500 });
+      }),
+    );
+
+    renderSheet();
+    const btn = await screen.findByRole("button", { name: "Copy to cloud" });
+    expect(btn).not.toBeDisabled();
+
+    await user.click(btn);
+
+    // While in-flight, the button is loading and disabled
+    expect(btn).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Copy to cloud/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Copy to cloud/i })).toHaveAttribute("aria-busy", "true");
+
+    // Complete the POST and refetch
+    resolveBackupSources?.();
+
+    // Now the button transitions to "Stop cloud backup" and is enabled
+    const stopBtn = await screen.findByRole("button", { name: "Stop cloud backup" });
+    expect(stopBtn).toBeInTheDocument();
+    expect(stopBtn).not.toBeDisabled();
+    expect(stopBtn).not.toHaveAttribute("aria-busy");
+    expect(screen.getByText("On")).toBeInTheDocument();
+  });
+
+  it("keeps button in loading and disabled state while stopping cloud backup until status refetches", async () => {
+    const user = userEvent.setup();
+    let resolveBackupSources;
+    const backupSourcesPromise = new Promise((resolve) => {
+      resolveBackupSources = resolve;
+    });
+
+    const connectStatus = {
+      backup_unlocked: true,
+      backup_sources: [{ kind: "folder", path: "/mnt/main/photos" }],
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init) => {
+        const u = typeof url === "string" ? url : url?.url || String(url);
+        if (u.includes("/auth/me") || u.includes("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/setup")) {
+          return new Response(JSON.stringify({ setup_completed: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/api/v1/drives")) {
+          return new Response(JSON.stringify([{ id: "d1", label: "Main", mount_point: "/mnt/main" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/api/v1/protections")) {
+          return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/api/v1/connect/status")) {
+          return new Response(JSON.stringify(connectStatus), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/api/v1/connect/backup-sources") && init?.method === "POST") {
+          await backupSourcesPromise;
+          const body = JSON.parse(init.body || "{}");
+          connectStatus.backup_sources = body.sources;
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 500 });
+      }),
+    );
+
+    renderSheet();
+    const btn = await screen.findByRole("button", { name: "Stop cloud backup" });
+    expect(btn).not.toBeDisabled();
+
+    await user.click(btn);
+
+    // While in-flight, the button is loading and disabled
+    expect(btn).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Stop cloud backup/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Stop cloud backup/i })).toHaveAttribute("aria-busy", "true");
+
+    // Complete the POST and refetch
+    resolveBackupSources?.();
+
+    // Now the button transitions to "Copy to cloud" and is enabled
+    const copyBtn = await screen.findByRole("button", { name: "Copy to cloud" });
+    expect(copyBtn).toBeInTheDocument();
+    expect(copyBtn).not.toBeDisabled();
+    expect(copyBtn).not.toHaveAttribute("aria-busy");
+    expect(screen.queryByText("On")).not.toBeInTheDocument();
+  });
 });

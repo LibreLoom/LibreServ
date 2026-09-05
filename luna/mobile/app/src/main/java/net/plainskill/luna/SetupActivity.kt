@@ -75,7 +75,13 @@ class SetupActivity : AppCompatActivity() {
         grantButton = findViewById(R.id.grantButton)
 
         driveContinue.isEnabled = false
-        driveContinue.setOnClickListener { openFolderPicker() }
+        driveContinue.setOnClickListener {
+            if (drives.isEmpty()) {
+                loadDrives()
+            } else {
+                openFolderPicker()
+            }
+        }
         grantButton.setOnClickListener { startGrant() }
         findViewById<TextView>(R.id.setupSignOut).setOnClickListener { signOut() }
         findViewById<TextView>(R.id.permSignOut).setOnClickListener { signOut() }
@@ -120,14 +126,20 @@ class SetupActivity : AppCompatActivity() {
                     bindDriveRows()
                     if (list.isEmpty()) {
                         driveStatus.text = getString(R.string.no_drives)
+                        driveContinue.text = "Check again"
+                        driveContinue.isEnabled = true
                     } else {
                         driveStatus.text = getString(R.string.tap_a_drive)
+                        driveContinue.text = getString(R.string.continue_label)
+                        driveContinue.isEnabled = selected != null
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
                     driveStatus.text = LunaApi.describeError(e)
+                    driveContinue.text = "Check again"
+                    driveContinue.isEnabled = true
                 }
             }
         }
@@ -144,7 +156,13 @@ class SetupActivity : AppCompatActivity() {
             row.isChecked = selected?.id == drive.id
             driveList.addView(row)
         }
-        driveContinue.isEnabled = selected != null
+        if (drives.isEmpty()) {
+            driveContinue.text = "Check again"
+            driveContinue.isEnabled = true
+        } else {
+            driveContinue.text = getString(R.string.continue_label)
+            driveContinue.isEnabled = selected != null
+        }
         driveList.setOnCheckedChangeListener { group, checkedId ->
             val row = group.findViewById<RadioButton>(checkedId) ?: return@setOnCheckedChangeListener
             selected = drives.firstOrNull { it.id == row.tag }

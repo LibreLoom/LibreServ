@@ -131,4 +131,50 @@ describe("useAnimatedHeight", () => {
     expect(observeCount).toBe(2);
     expect(getByTestId("outer").style.height).toBe("50px");
   });
+
+  it("clamps outer height to CSS max-height when content exceeds it", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        /** @param {ResizeObserverCallback} cb */
+        constructor(cb) {
+          this.cb = cb;
+        }
+        observe() {
+          this.cb([], this);
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+
+    function MaxHeightProbe({ innerHeight = 500, maxHeight = "300px" }) {
+      const { outerRef, innerRef } = useAnimatedHeight();
+      const heightRef = useRef(innerHeight);
+      heightRef.current = innerHeight;
+      return (
+        <div ref={outerRef} data-testid="outer" style={{ maxHeight }}>
+          <div
+            data-testid="inner"
+            ref={(node) => {
+              innerRef.current = node;
+              if (node) {
+                Object.defineProperty(node, "offsetHeight", {
+                  configurable: true,
+                  get: () => heightRef.current,
+                });
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    const { getByTestId } = render(<MaxHeightProbe innerHeight={500} maxHeight="300px" />);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
+    expect(getByTestId("outer").style.height).toBe("300px");
+  });
 });
+

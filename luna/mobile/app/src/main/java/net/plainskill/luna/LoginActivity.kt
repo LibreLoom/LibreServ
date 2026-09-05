@@ -123,21 +123,10 @@ class LoginActivity : AppCompatActivity() {
         thread {
             try {
                 val user = LunaApi.authMe(url, accessToken)
-                val drives = LunaApi.listDrives(url, accessToken)
-                if (drives.isEmpty()) {
-                    runOnUiThread {
-                        if (isFinishing) return@runOnUiThread
-                        status.text =
-                            "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then sign in again."
-                        signIn.isEnabled = true
-                        scanQr.isEnabled = true
-                    }
-                    return@thread
-                }
                 BackupPrefs.saveSession(this, url, accessToken, user.username)
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
-                    startActivity(Intent(this, SetupActivity::class.java))
+                    startActivity(Intent(this, if (BackupPrefs.setupComplete(this)) ShellActivity::class.java else SetupActivity::class.java))
                     finish()
                 }
             } catch (e: Exception) {

@@ -65,7 +65,7 @@ object LunaApi {
         if (result.code !in 200..299) {
             throw ApiException(
                 result.code,
-                "Luna couldn't list your drives. Check that this phone can reach Luna, then try again. If it keeps failing, open Luna in a browser and add a drive first.",
+                "Luna couldn't list your drives. Check that this phone can reach Luna, then try again. If it keeps failing, ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
             )
         }
         return parseDrives(String(result.body, Charsets.UTF_8))
@@ -76,12 +76,16 @@ object LunaApi {
         if (drives.isEmpty()) {
             throw ApiException(
                 404,
-                "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then try again.",
+                "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
             )
         }
         if (!preferredId.isNullOrBlank()) {
             val match = drives.firstOrNull { it.id == preferredId }
             if (match != null) return match.id
+            throw ApiException(
+                404,
+                "The drive you picked is no longer on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+            )
         }
         return drives[0].id
     }

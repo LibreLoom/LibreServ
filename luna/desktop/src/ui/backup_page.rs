@@ -23,7 +23,7 @@ impl BackupPage {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let blurb = gtk::Label::new(Some(
-            "Copy folders from this computer onto Luna. One-way — changes on Luna do not come back.",
+            "Copy folders from this computer onto Luna. This is a one-way backup, so changes you make on Luna will not affect the files on this computer.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
@@ -139,9 +139,10 @@ fn make_refresh(
                     .lock()
                     .map(|m| m.clone())
                     .unwrap_or_default();
-                (jobs, progress)
+                let drives = luna_desktop::list_drives(&state).unwrap_or_default();
+                (jobs, progress, drives.is_empty())
             },
-            move |(jobs, progress)| {
+            move |(jobs, progress, no_drives)| {
                 while let Some(row) = list.row_at_index(0) {
                     list.remove(&row);
                 }
@@ -162,6 +163,13 @@ fn make_refresh(
                     list.append(&row);
                 }
                 let is_empty = list.row_at_index(0).is_none();
+                if is_empty {
+                    if no_drives {
+                        empty.set_text("No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.");
+                    } else {
+                        empty.set_text("No backups yet. Create one to copy folders onto Luna.");
+                    }
+                }
                 empty.set_visible(is_empty);
                 list.set_visible(!is_empty);
             },
@@ -267,6 +275,9 @@ fn plain_error(raw: &str) -> String {
     let t = raw.trim();
     if t.is_empty() {
         return "Something went wrong with this backup. Try editing it and saving again.".into();
+    }
+    if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
+        return "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into();
     }
     // Prefer already-plain messages from the backend; soften a few raw leftovers.
     if t == "unauthorized" {

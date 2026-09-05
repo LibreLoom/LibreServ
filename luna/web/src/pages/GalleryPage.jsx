@@ -316,7 +316,7 @@ export default function GalleryPage() {
         <EmptyState
           icon={PlugZap}
           title="No drives yet"
-          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos."
+          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
           action={
             <Button variant="primary" asChild>
               <Link to="/drives">Go to Drives</Link>
@@ -543,9 +543,11 @@ export default function GalleryPage() {
                   {album.name}
                 </Button>
               ))}
-              <Button variant="ghost" onClick={close}>
-                Cancel
-              </Button>
+              <div className="pt-2 flex justify-end">
+                <Button variant="outline" surface="secondary" onClick={close}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </ModalCard>

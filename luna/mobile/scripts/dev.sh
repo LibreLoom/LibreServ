@@ -16,9 +16,14 @@ DEVICE_URL="${LUNA_MOBILE_URL:-}"
 REPAIR="${LUNA_MOBILE_REPAIR:-0}"
 DEBOUNCE_MS="${LUNA_MOBILE_DEBOUNCE_MS:-400}"
 
-if [ -z "${ANDROID_HOME:-}" ] && [ -d /usr/local/android-sdk ]; then
-  export ANDROID_HOME=/usr/local/android-sdk
-  export ANDROID_SDK_ROOT=/usr/local/android-sdk
+if [ -z "${ANDROID_HOME:-}" ]; then
+  if [ -d "${HOME}/Android/Sdk" ]; then
+    export ANDROID_HOME="${HOME}/Android/Sdk"
+    export ANDROID_SDK_ROOT="${HOME}/Android/Sdk"
+  elif [ -d /usr/local/android-sdk ]; then
+    export ANDROID_HOME=/usr/local/android-sdk
+    export ANDROID_SDK_ROOT=/usr/local/android-sdk
+  fi
 fi
 if [ -n "${ANDROID_HOME:-}" ]; then
   export PATH="${ANDROID_HOME}/platform-tools:${PATH}"
@@ -82,11 +87,11 @@ install_and_launch() {
 
   if [ "$REPAIR" = "1" ] || [ "$mode" = "pair" ]; then
     echo "    Pairing via $DEVICE_URL"
-    adb shell am start -a android.intent.action.VIEW -d "$PAIR_URI" "${APP_ID}/${ACTIVITY}" >/dev/null
+    adb shell am start -a android.intent.action.VIEW -d "'$PAIR_URI'" -n "${APP_ID}/${ACTIVITY}" >/dev/null
   else
     # Session usually survives reinstall; bring the app forward.
     adb shell am start -n "${APP_ID}/${ACTIVITY}" >/dev/null \
-      || adb shell am start -a android.intent.action.VIEW -d "$PAIR_URI" "${APP_ID}/${ACTIVITY}" >/dev/null
+      || adb shell am start -a android.intent.action.VIEW -d "'$PAIR_URI'" -n "${APP_ID}/${ACTIVITY}" >/dev/null
   fi
   echo "==> Ready. Save under app/src to rebuild."
 }
@@ -103,7 +108,12 @@ echo "    Ctrl-C stops the watcher."
 install_and_launch pair
 REPAIR=0
 
-watch_paths=(app/src app/build.gradle.kts build.gradle.kts settings.gradle.kts)
+candidate_paths=(app/src app/build.gradle.kts build.gradle.kts settings.gradle.kts)
+watch_paths=()
+for p in "${candidate_paths[@]}"; do
+  [ -e "$p" ] && watch_paths+=("$p")
+done
+
 if command -v inotifywait >/dev/null 2>&1; then
   while true; do
     inotifywait -r -e modify,create,delete,move \
@@ -120,7 +130,7 @@ if command -v inotifywait >/dev/null 2>&1; then
 else
   echo "==> inotifywait not found; falling back to 2s mtime polling"
   stamp() {
-    find app/src app/build.gradle.kts build.gradle.kts settings.gradle.kts \
+    find "${watch_paths[@]}" \
       -type f -printf '%T@ %p\n' 2>/dev/null | sort | sha256sum | awk '{print $1}'
   }
   prev="$(stamp)"

@@ -133,7 +133,7 @@ export default function FolderPickerModal({
               )}
             />
           ) : (
-            <p className="text-primary text-sm">No drives available.</p>
+            <p className="text-primary text-sm">No drives available. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.</p>
           )}
 
           <div className="mt-4 flex flex-wrap gap-3">

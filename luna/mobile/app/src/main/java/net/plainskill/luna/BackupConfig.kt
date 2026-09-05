@@ -107,13 +107,13 @@ object BackupConfig {
             if (drives.isEmpty()) {
                 return Result(
                     false,
-                    "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then pick it here again.",
+                    "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
                 )
             }
             val drive = drives.firstOrNull { it.id == driveId }
                 ?: return Result(
                     false,
-                    "The drive you picked is no longer on Luna. Pick another drive, then pick the folder again.",
+                    "The drive you picked is no longer on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
                 )
             LunaApi.listFiles(baseUrl, token, driveId, folder)
             LunaApi.probeWrite(baseUrl, token, driveId, folder)
