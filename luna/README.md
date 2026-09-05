@@ -20,3 +20,15 @@ make build      # build lunad (debug)
 make test       # cargo test + web tests
 make run        # build and run on :8090
 ```
+
+## Companion rapid-dev (desktop + mobile)
+
+```sh
+make companion-dev   # prints the three-terminal recipe
+make daemon-dev      # lunad with cargo-watch on :8090
+make desktop-dev     # GTK app: cargo-watch + auto sign-in
+make mobile-dev      # Android: installDebug + relaunch on save (needs adb)
+```
+
+See `desktop/README.md` and `mobile/README.md` for env vars and details.
+

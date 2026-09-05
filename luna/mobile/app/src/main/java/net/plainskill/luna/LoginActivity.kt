@@ -79,7 +79,13 @@ class LoginActivity : AppCompatActivity() {
         val pairing = PairingQr.decode(data) ?: return
         baseUrl.setText(pairing.url)
         token.setText(pairing.token)
-        status.text = "Address and access token filled in. Tap Sign in."
+        // Rapid-dev: luna://pair from `make mobile-dev` auto-signs in on debug builds.
+        if (BuildConfig.DEBUG) {
+            status.text = "Signing in (dev)…"
+            attemptSignIn()
+        } else {
+            status.text = "Address and access token filled in. Tap Sign in."
+        }
     }
 
     private fun requestCameraAndScan() {
