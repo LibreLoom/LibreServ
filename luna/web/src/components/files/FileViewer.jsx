@@ -48,7 +48,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
       setError(null);
       try {
         const res = await apiFetch(contentHref(driveId, path));
-        if (!res.ok) throw new Error(`Could not open (${res.status})`);
+        if (!res.ok) throw new Error("Luna couldn't open this file.");
         const body = await res.text();
         if (!cancelled) {
           setText(body);

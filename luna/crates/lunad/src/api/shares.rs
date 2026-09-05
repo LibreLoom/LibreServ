@@ -430,13 +430,13 @@ fn generate_token() -> String {
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
     match err {
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an admin can do that."),
+        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage shared links."),
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that. Try again.",
+            "Luna couldn't update shared links. Try again.",
         ),
     }
 }

@@ -25,15 +25,15 @@ pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not va
 /// Connect was unreachable on the last status pull (sticky while token is present).
 pub const CONNECT_UNREACHABLE_MSG: &str = "Luna Connect could not be reached. Check this Luna's internet connection. Luna will keep trying.";
 /// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
-pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked this Luna's connection check with a network challenge (a check meant for web browsers, not devices). The secure tunnel may not start until that challenge is turned off for machine requests. Luna will keep trying.";
+pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked a connection check. Remote access may not work until this is fixed on the Connect side. Luna will keep trying.";
 /// cloudflared is missing and Luna could not download it.
-pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the tunnel helper. Check this Luna's internet connection. Luna will keep trying.";
+pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote access helper. Check this Luna's internet connection. Luna will keep trying.";
 /// cloudflared was found (or installed) but would not stay running.
 pub const TUNNEL_START_FAILED_MSG: &str =
-    "Luna could not start the secure tunnel. Luna will keep trying.";
+    "Luna could not start remote access. Luna will keep trying.";
 /// Hostname is set but Connect has not given Luna a tunnel secret yet.
 pub const TUNNEL_TOKEN_MISSING_MSG: &str =
-    "A remote address is set, but Luna does not have a tunnel secret yet. Luna will keep trying.";
+    "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 const MIN_CLOUDFLARED_BYTES: u64 = 1024;
@@ -995,7 +995,7 @@ impl ConnectService {
             return Err(ConnectError::Unreachable);
         }
         serde_json::from_str(&body)
-            .map_err(|_| ConnectError::Other("Connect sent a reply Luna couldn't read.".into()))
+            .map_err(|_| ConnectError::Other("Luna Connect answered, but Luna could not use the reply. Luna will try again.".into()))
     }
 
     fn tunnel_running(&self) -> bool {
@@ -1097,7 +1097,7 @@ impl ConnectService {
             return Err(map_transport_error(ureq::Error::StatusCode(status)));
         }
         serde_json::from_str(&body_text)
-            .map_err(|_| ConnectError::Other("Connect sent a reply Luna couldn't read.".into()))
+            .map_err(|_| ConnectError::Other("Luna Connect answered, but Luna could not use the reply. Luna will try again.".into()))
     }
 
     fn load(&self) -> Value {

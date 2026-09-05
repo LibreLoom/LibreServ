@@ -90,7 +90,7 @@ export default function PublicSharePage() {
           setListing(null);
         }
       } catch {
-        if (alive) setError("Couldn't reach Luna. Check that you're on the same network, or that remote access is on.");
+        if (alive) setError("Couldn't reach Luna. If you're away from home, turn on Luna Connect in Settings → Remote. Otherwise check you're on the same Wi‑Fi as Luna.");
       } finally {
         if (alive) setLoading(false);
       }

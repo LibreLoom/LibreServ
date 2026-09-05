@@ -57,7 +57,7 @@ func opaquePathID(id string) bool {
 func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())
 	if !ok || !dev.AccountID.Valid {
-		JSONError(w, http.StatusForbidden, "Pair this Luna at connect.luna.libreloom.org and add a payment card first.")
+		JSONError(w, http.StatusForbidden, "Link this Luna at connect.luna.libreloom.org and add a payment card first.")
 		return
 	}
 	if !backupUnlocked(h.Deps, dev.AccountID.String) {
@@ -66,7 +66,7 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 	rel := objectPath(r)
 	if rel == "" {
-		JSONError(w, http.StatusBadRequest, "Missing file path.")
+		JSONError(w, http.StatusBadRequest, "Cloud backup did not receive a file path. Try the backup again from Luna.")
 		return
 	}
 	maxObj := config.C.Backup.MaxObjectBytes
@@ -98,7 +98,7 @@ func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusServiceUnavailable, "Cloud backup storage is not ready yet. Contact support and we will finish setting it up.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "Could not save that file.")
+		JSONError(w, http.StatusBadRequest, "Cloud backup could not save that file. Check your connection and try again.")
 		return
 	}
 	sum := hex.EncodeToString(hasher.Sum(nil))
@@ -143,7 +143,7 @@ func accountBackupCap(h Deps, accountID string) int64 {
 func (h BackupHandler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())
 	if !ok || !dev.AccountID.Valid {
-		JSONError(w, http.StatusForbidden, "Pair this Luna first.")
+		JSONError(w, http.StatusForbidden, "Link this Luna to your account first.")
 		return
 	}
 	rel := objectPath(r)

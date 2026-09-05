@@ -240,7 +240,7 @@ function SetupCodeStep({ onCodeVerified }) {
         Your device token
       </h1>
       <p className="text-primary text-base leading-relaxed mb-10 max-w-[22rem]">
-        From a phone or another computer, Luna asks for the first eight characters of your device token (****-****). Find them on the card that came with Luna, or on the Luna Connect page.
+        From a phone or another computer, Luna asks for the first eight characters of your device token (****-****). Find them on the card in your Luna box, or on the Luna Connect page.
       </p>
       <div className="w-full mb-6">
         <ShakeTarget shake={error}>
@@ -439,11 +439,11 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   if (needsSetupCode) {
     authFields.push({
       id: "setup_secret",
-      question: "Your device code",
-      hint: "Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login.",
+      question: "Your device token",
+      hint: "Paste the device token from connect.luna.libreloom.org after you named this Luna. It confirms you finished setup there, so nobody else on the internet can create this first login.",
       name: "setup_secret",
       type: "text",
-      placeholder: "Paste the code from Luna Connect",
+      placeholder: "Paste from Luna Connect",
       autoComplete: "off",
       valid: setupSecretOk,
     });

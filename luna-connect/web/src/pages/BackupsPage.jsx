@@ -47,7 +47,7 @@ function EmptyStorageState({ paired }) {
       <p className="text-sm leading-relaxed max-w-md mx-auto">
         {paired
           ? "On Luna, choose folders or a whole drive to back up."
-          : "Pair a Luna, then choose folders or a whole drive to back up."}
+          : "Link a Luna first, then on Luna choose folders or a whole drive to back up."}
       </p>
     </div>
   );
@@ -200,7 +200,7 @@ export function BackupsTab({ me, objects, note, paired, onRefresh, setError, err
 
   const unpairedNote = !paired && objects.length > 0 ? (
     <p className="text-sm leading-relaxed rounded-large-element border border-warning/30 bg-warning/20 text-foreground px-4 py-3">
-      These are copies from a Luna that is no longer paired. The monthly bill stays until you turn payment off.
+      These files are from a Luna that is no longer linked to this account. The monthly bill stays until you turn payment off.
     </p>
   ) : null;
 

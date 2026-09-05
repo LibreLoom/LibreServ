@@ -62,7 +62,7 @@ async fn register(
         if user.role != "admin" {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Only an admin can do that.",
+                "Only an Admin can manage accounts.",
             ));
         }
     } else if let Err(msg) = first_user_on_public_host(&state, &headers, &body) {
@@ -228,13 +228,13 @@ fn first_user_on_public_host(
     }
     let Some(want) = state.connect.first_user_secret() else {
         return Err(
-            "Open this Luna from the address on its screen first. If you opened it from the internet, paste the one-time setup code from the Luna Connect page into the setup field.".into(),
+            "Open this Luna from the address on its screen first. If you opened it from the internet, paste the device token from Luna Connect into the setup field.".into(),
         );
     };
     let offered = body.setup_secret.clone().unwrap_or_default();
     if offered != want {
         return Err(
-            "This address is on the internet. Paste the one-time setup code from Luna Connect into the setup field, or open Luna from the address on its screen instead.".into(),
+            "This address is on the internet. Paste the device token from Luna Connect into the setup field, or open Luna from the address on its screen instead.".into(),
         );
     }
     Ok(())
@@ -252,13 +252,13 @@ fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {
         ),
         AuthError::PasswordPolicy(msg) => json_error(StatusCode::BAD_REQUEST, &msg),
         AuthError::Taken => json_error(StatusCode::CONFLICT, "That username is already taken."),
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an admin can do that."),
+        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage accounts."),
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that. Try again.",
+            "Luna couldn't sign you in. Try again.",
         ),
     }
 }

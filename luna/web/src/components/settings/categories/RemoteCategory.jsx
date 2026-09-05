@@ -36,7 +36,7 @@ export default function RemoteCategory() {
             </>
           ) : null}
           <p className="text-primary text-sm leading-relaxed">
-            Configure your subdomain &amp; add cloud backup on{" "}
+            Pick your Luna address and turn on cloud backup at{" "}
             <a
               href={LUNA_CONNECT_URL}
               className="text-accent hover:text-primary motion-safe:transition-colors underline underline-offset-4"

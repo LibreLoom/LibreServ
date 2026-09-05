@@ -233,7 +233,7 @@ WHERE 1=1`
 	}
 	rows, err := h.DB.Query(query, args...)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not list device codes.")
+		JSONError(w, http.StatusInternalServerError, "Could not list device tokens.")
 		return
 	}
 	defer rows.Close()
@@ -244,7 +244,7 @@ WHERE 1=1`
 		var accountID sql.NullString
 		var created int64
 		if err := rows.Scan(&id, &kind, &status, &hint, &accountID, &email, &subdomain, &orderRef, &created, &sealed); err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not list device codes.")
+			JSONError(w, http.StatusInternalServerError, "Could not list device tokens.")
 			return
 		}
 		acctID := ""
@@ -300,15 +300,15 @@ func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Req
 	var revoked int
 	err := h.DB.QueryRow(`SELECT account_id, revoked FROM devices WHERE id = ?`, id).Scan(&account, &revoked)
 	if err == sql.ErrNoRows {
-		JSONError(w, http.StatusNotFound, "That device code was not found.")
+		JSONError(w, http.StatusNotFound, "That device token was not found.")
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not revoke that device code. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not revoke that device token. Try again.")
 		return
 	}
 	if revoked != 0 {
-		JSONError(w, http.StatusConflict, "That device code is already revoked.")
+		JSONError(w, http.StatusConflict, "That device token is already revoked.")
 		return
 	}
 	if account.Valid && account.String != "" {
@@ -317,7 +317,7 @@ func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Req
 	}
 	_, err = h.DB.Exec(`UPDATE devices SET revoked = 1 WHERE id = ?`, id)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not revoke that device code. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not revoke that device token. Try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "revoked"})
@@ -331,10 +331,10 @@ func (h AdminConsoleHandler) PurgeSetupToken(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := purgeDeviceToken(h.Deps, id); err == sql.ErrNoRows {
-		JSONError(w, http.StatusNotFound, "That device code was not found.")
+		JSONError(w, http.StatusNotFound, "That device token was not found.")
 		return
 	} else if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not purge that device code. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not purge that device token. Try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "purged": true})

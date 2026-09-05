@@ -379,13 +379,13 @@ func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request)
 	if sealed == "" {
 		JSON(w, http.StatusOK, map[string]any{
 			"code_hint": hint,
-			"message":   "The full device code is on your quick-start card. We only keep a short hint here for older records.",
+			"message":   "The full device token is on your quick-start card. We only keep a short hint here for older records.",
 		})
 		return
 	}
 	code, err := security.OpenString(sealed)
 	if err != nil || code == "" {
-		JSONError(w, http.StatusInternalServerError, "Could not read the device code. Contact support.")
+		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Contact support.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"code": code, "code_hint": hint})

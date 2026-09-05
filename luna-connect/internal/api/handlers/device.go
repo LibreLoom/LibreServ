@@ -33,7 +33,7 @@ func (h DeviceHandler) Available(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusGone, "Luna no longer creates a remote address by itself. Open connect.luna.libreloom.org, type the device code, and pick a name there.")
+	JSONError(w, http.StatusGone, "Luna no longer creates a remote address by itself. Open connect.luna.libreloom.org, enter your device token, and pick a name there.")
 }
 
 // Bind attaches an unbound permanent device to the signed-in account (offline).
@@ -49,7 +49,7 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	norm := security.NormalizeToken(req.Code)
 	if norm == "" || !security.IsOfficialShape(norm) {
-		JSONError(w, http.StatusBadRequest, "Type the full device code (****-****-****-****-****).")
+		JSONError(w, http.StatusBadRequest, "Type the full device token (****-****-****-****-****).")
 		return
 	}
 	if !allowGuess(h.DB, clientKeyIP(r), 8, 15*60) {
@@ -73,11 +73,11 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.QueryRow(`SELECT id, account_id, revoked FROM devices WHERE code_hash = ?`, hash).
 		Scan(&id, &account, &revoked)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "That device code is wrong or unknown. Check the code that came with your Luna, or the code from this website.")
+		JSONError(w, http.StatusBadRequest, "That device token is wrong or unknown. Check the token that came with your Luna, or the token from this website.")
 		return
 	}
 	if revoked != 0 {
-		JSONError(w, http.StatusBadRequest, "That device code was revoked. Contact support if this is your Luna.")
+		JSONError(w, http.StatusBadRequest, "That device token was revoked. Contact support if this is your Luna.")
 		return
 	}
 	if account.Valid && account.String != "" {
@@ -177,11 +177,11 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
 		return
 	}
 	if !dev.AccountID.Valid || dev.AccountID.String == "" {
-		JSONError(w, http.StatusForbidden, "unbound")
+		JSONError(w, http.StatusForbidden, "This Luna is not linked to a Luna Connect account yet. Finish setup at connect.luna.libreloom.org.")
 		return
 	}
 	now := time.Now().Unix()
@@ -277,11 +277,11 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 	providers.RefreshCloudflare()
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
 		return
 	}
 	if !dev.AccountID.Valid {
-		JSONError(w, http.StatusForbidden, "unbound")
+		JSONError(w, http.StatusForbidden, "This Luna is not linked to a Luna Connect account yet. Finish setup at connect.luna.libreloom.org.")
 		return
 	}
 	var req struct {
@@ -336,7 +336,7 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 
 func (h DeviceHandler) FirstUserUsed(w http.ResponseWriter, r *http.Request) {
 	if _, ok := DeviceFrom(r.Context()); !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -346,7 +346,7 @@ func (h DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {
 	// Luna-local deactivate: same as unbind if bound; never delete the permanent code row.
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
 		return
 	}
 	if dev.AccountID.Valid && dev.AccountID.String != "" {
@@ -360,7 +360,7 @@ func (h DeviceHandler) DeviceAuth(next http.Handler) http.Handler {
 		tok := security.BearerToken(r.Header.Get("Authorization"))
 		norm := security.NormalizeToken(tok)
 		if norm == "" {
-			JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+			JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
 			return
 		}
 		var d Device
@@ -370,7 +370,7 @@ func (h DeviceHandler) DeviceAuth(next http.Handler) http.Handler {
 		err := h.DB.QueryRow(`SELECT id, account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(name,''), code_hash, kind, revoked FROM devices WHERE code_hash = ?`,
 			security.HashToken(norm)).Scan(&d.ID, &account, &sub, &tunnelID, &name, &d.CodeHash, &d.Kind, &revoked)
 		if err != nil || revoked != 0 {
-			JSONError(w, http.StatusUnauthorized, "This Luna is not signed in to Connect.")
+			JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
 			return
 		}
 		d.AccountID = account

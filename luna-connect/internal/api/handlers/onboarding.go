@@ -87,7 +87,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Create a Luna Connect account first.")
 		return
 	}
-	okMsg := "A dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."
+	okMsg := "A one-time $1 charge checks that your card works. It counts toward cloud backup if you turn that on."
 	var existing string
 	err := h.DB.QueryRow(`SELECT payment_intent_id FROM oss_payments WHERE account_id = ? AND status = 'succeeded'`, acct.ID).Scan(&existing)
 	if err == nil && existing != "" {
@@ -126,7 +126,7 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "We could not take the dollar to confirm this is a real person. Check the card and try again.")
+		JSONError(w, http.StatusBadRequest, "The $1 card check failed. Check the card and try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
@@ -148,17 +148,17 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 	var payStatus string
 	if err := h.DB.QueryRow(`SELECT status FROM oss_payments WHERE account_id = ?`, acct.ID).Scan(&payStatus); err != nil || payStatus != "succeeded" {
 		if !billing.DevBypass() {
-			JSONError(w, http.StatusForbidden, "Confirm you are a real person with the one-dollar check first.")
+			JSONError(w, http.StatusForbidden, "Add and confirm your card with the $1 check first.")
 			return
 		}
 	}
 	if !allowGuess(h.DB, "diy-mint:"+acct.ID, 5, 3600) {
-		JSONError(w, http.StatusTooManyRequests, "Too many device codes on this account. Wait an hour, then try again.")
+		JSONError(w, http.StatusTooManyRequests, "Too many device tokens on this account. Wait an hour, then try again.")
 		return
 	}
 	id, code, err := insertPermanentDevice(h.DB, "diy", security.OfficialDeviceToken(), "")
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not make a device code. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'diy-code' WHERE id = ?`, acct.ID)
@@ -189,7 +189,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < req.Count; i++ {
 		id, code, err := insertPermanentDevice(h.DB, "official", security.OfficialDeviceToken(), req.OrderRef)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not mint a device code. Try again.")
+			JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
 			return
 		}
 		out = append(out, minted{ID: id, Code: code})
@@ -221,7 +221,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 	for i := 0; i < req.Count; i++ {
 		_, code, err := insertPermanentDevice(h.DB, "official", security.OfficialDeviceToken(), req.OrderRef)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not mint device codes. Try again.")
+			JSONError(w, http.StatusInternalServerError, "Could not create device tokens. Try again.")
 			return
 		}
 		lines = append(lines, code)
@@ -230,7 +230,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		"filename": "TOKENS",
 		"tokens":   lines,
 		"count":    len(lines),
-		"message":  "One device code per line. First eight characters unlock phone setup; full code binds Connect.",
+		"message":  "One device token per line. First eight characters unlock phone setup; full token links Luna Connect.",
 	})
 }
 

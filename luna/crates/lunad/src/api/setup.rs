@@ -128,7 +128,7 @@ async fn validate_code(
     if !state.connect.matches_setup_prefix(&body.code) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "That setup code doesn't match. Check the first eight characters (****-****) on your device card or Luna Connect page.",
+            "That device token prefix doesn't match. Check the first eight characters (****-****) on your device card or Luna Connect page.",
         ));
     }
     Ok(Json(json!({ "ok": true })))
@@ -210,11 +210,16 @@ async fn get_setup(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna is updating its file list. Wait a moment and try again.",
         )
     })?;
     let mut setup = crate::db::get_meta(&conn, SETUP_KEY)
-        .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't load setup progress. Try again.",
+            )
+        })?
         .and_then(|raw| serde_json::from_str::<SetupState>(&raw).ok())
         .unwrap_or_default();
     enrich_setup(&mut setup, &state, &addr, &headers);
@@ -240,7 +245,7 @@ async fn save_setup(
         if user.role != "admin" {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Only an admin can change setup.",
+                "Only an Admin can change setup.",
             ));
         }
     }
@@ -248,11 +253,16 @@ async fn save_setup(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna is updating its file list. Wait a moment and try again.",
         )
     })?;
     let mut setup = crate::db::get_meta(&conn, SETUP_KEY)
-        .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't load setup progress. Try again.",
+            )
+        })?
         .and_then(|raw| serde_json::from_str::<SetupState>(&raw).ok())
         .unwrap_or_default();
 
@@ -270,7 +280,7 @@ async fn save_setup(
         if !VALID_STEPS.contains(&step.as_str()) {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
-                format!("That setup step isn't valid: {step}"),
+                "Setup couldn't continue from here. Refresh and start again.",
             ));
         }
         setup.current_step = step;
@@ -293,7 +303,12 @@ async fn save_setup(
         )
     })?;
     crate::db::set_meta(&conn, SETUP_KEY, &raw)
-        .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save setup progress.",
+            )
+        })?;
     enrich_setup(&mut setup, &state, &addr, &headers);
     Ok(Json(setup))
 }

@@ -70,7 +70,7 @@ async fn create(
     if admin.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage access.",
         ));
     }
     let permission = normalize_permission(&body.permission)?;
@@ -101,7 +101,7 @@ async fn update(
     if admin.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage access.",
         ));
     }
     let permission = normalize_permission(&body.permission)?;
@@ -129,7 +129,7 @@ async fn remove(
     if admin.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage access.",
         ));
     }
     let conn = state
@@ -178,20 +178,20 @@ fn normalize_permission(permission: &str) -> Result<&str, (StatusCode, Json<Valu
     } else {
         Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Access is either read or read + write.",
+            "Choose Read or Read + Write.",
         ))
     }
 }
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
     match err {
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an admin can do that."),
+        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage access."),
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that. Try again.",
+            "Luna couldn't update access. Try again.",
         ),
     }
 }

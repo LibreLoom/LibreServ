@@ -72,7 +72,7 @@ func (h AccountHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Token) == "" {
-		JSONError(w, http.StatusBadRequest, "verification token required")
+		JSONError(w, http.StatusBadRequest, "Open the verification link from your email, or request a new one.")
 		return
 	}
 
@@ -89,7 +89,7 @@ func (h AccountHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := h.DB.ExecContext(r.Context(),
 		`UPDATE accounts SET email_verified = 1 WHERE id = ?`, accountID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not verify email")
+		JSONError(w, http.StatusInternalServerError, "Could not verify your email. Request a new link and try again.")
 		return
 	}
 	_, _ = h.DB.ExecContext(r.Context(),
@@ -128,7 +128,7 @@ func (h AccountHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 
 	token, err := h.createEmailVerificationToken(r.Context(), acct.ID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not generate verification email")
+		JSONError(w, http.StatusInternalServerError, "Could not send the verification email. Try again in a few minutes.")
 		return
 	}
 	if err := h.sendVerificationEmailSync(acct.Email, token, req.Source); err != nil {
@@ -152,7 +152,7 @@ func (h AccountHandler) GetVerificationStatus(w http.ResponseWriter, r *http.Req
 	err := h.DB.QueryRowContext(r.Context(),
 		`SELECT email_verified FROM accounts WHERE id = ?`, acct.ID).Scan(&verified)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not find account")
+		JSONError(w, http.StatusInternalServerError, "Could not load your account. Sign in again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"email_verified": verified == 1})
@@ -165,7 +165,7 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request")
+		JSONError(w, http.StatusBadRequest, "That request was incomplete. Try again.")
 		return
 	}
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
@@ -187,7 +187,7 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		`SELECT email, email_verified FROM accounts WHERE id = ?`, acct.ID).
 		Scan(&currentEmail, &verified)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not find account")
+		JSONError(w, http.StatusInternalServerError, "Could not load your account. Sign in again.")
 		return
 	}
 	if verified == 1 {
@@ -211,19 +211,19 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "An account with this email already exists. Try signing in instead.")
 		return
 	} else if err != sql.ErrNoRows {
-		JSONError(w, http.StatusInternalServerError, "could not update email")
+		JSONError(w, http.StatusInternalServerError, "Could not update your email address. Try again.")
 		return
 	}
 
 	if _, err := h.DB.ExecContext(r.Context(),
 		`UPDATE accounts SET email = ? WHERE id = ?`, req.Email, acct.ID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not update email")
+		JSONError(w, http.StatusInternalServerError, "Could not update your email address. Try again.")
 		return
 	}
 
 	token, err := h.createEmailVerificationToken(r.Context(), acct.ID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not generate verification email")
+		JSONError(w, http.StatusInternalServerError, "Could not send the verification email. Try again in a few minutes.")
 		return
 	}
 	if err := h.sendVerificationEmailSync(req.Email, token, req.Source); err != nil {

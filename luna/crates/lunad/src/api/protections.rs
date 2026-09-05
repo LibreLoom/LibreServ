@@ -29,7 +29,7 @@ async fn list(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can manage protected folders.",
+            "Only an Admin can manage protected folders.",
         ));
     }
     let conn = state.db.lock().map_err(|_| {
@@ -101,7 +101,7 @@ async fn remove(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can manage protected folders.",
+            "Only an Admin can manage protected folders.",
         ));
     }
     let conn = state.db.lock().map_err(|_| {
@@ -127,7 +127,7 @@ async fn run(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can run a protection now.",
+            "Only an Admin can run a protection now.",
         ));
     }
     let db = state.db.clone();

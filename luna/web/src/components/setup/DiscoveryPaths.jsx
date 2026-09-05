@@ -58,7 +58,7 @@ export default function DiscoveryPaths({ name }) {
       </h3>
       {remoteHost ? (
         <div>
-          <p className="text-xs text-secondary mb-2">Everywhere:</p>
+          <p className="text-xs text-secondary mb-2">From anywhere (when Luna Connect is on):</p>
           <a
             href={asHttpsUrl(remoteHost)}
             target="_blank"
@@ -70,7 +70,7 @@ export default function DiscoveryPaths({ name }) {
         </div>
       ) : null}
       <div>
-        <p className="text-xs text-secondary mb-2">On your home internet only:</p>
+        <p className="text-xs text-secondary mb-2">On your home network only:</p>
         <ul className="space-y-1.5 text-xs font-mono text-secondary">
           <li>
             <a

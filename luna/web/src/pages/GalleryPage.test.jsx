@@ -131,7 +131,7 @@ describe("GalleryPage", () => {
       }),
     );
     renderGallery();
-    expect(await screen.findByText(/No drives to look in/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No drives yet/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Search photos/i)).not.toBeInTheDocument();
@@ -324,7 +324,7 @@ describe("GalleryPage", () => {
     );
     renderGallery();
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
-    expect(await screen.findByText(/You have no favorites yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
     expect(screen.getByText(/tap the heart/i)).toBeInTheDocument();
   });
 
@@ -356,7 +356,7 @@ describe("GalleryPage", () => {
     );
     renderGallery();
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
-    expect(await screen.findByText(/You have no favorites yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
   });
 
   it("does not offer a manual Look again control", async () => {

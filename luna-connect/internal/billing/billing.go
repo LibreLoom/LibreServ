@@ -132,7 +132,7 @@ func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string
 			Enabled:        stripe.Bool(true),
 			AllowRedirects: stripe.String("never"),
 		},
-		Description: stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud backup if you turn it on."),
+		Description: stripe.String("Luna Connect: a one-time $1 charge checks that your card works. It counts toward cloud backup if you turn that on."),
 	}
 	pi, err := paymentintent.New(params)
 	if err != nil {

@@ -3,84 +3,98 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DiscoveryPaths from "./DiscoveryPaths";
 
-vi.mock("../../lib/api", () => ({
-  getDiscoveryPaths: vi.fn(),
-}));
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
 
-vi.mock("../../hooks/useDeviceName", () => ({
-  useDeviceName: () => ({ deviceName: "luna-test", isLoading: false }),
-}));
-
-import { getDiscoveryPaths } from "../../lib/api";
-
-function renderWithClient(ui) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+function stubFetch({ network = {}, connect = /** @type {Record<string, unknown>} */ ({}) } = {}) {
+  return vi.fn(async (url) => {
+    const u = String(url);
+    if (u.includes("/api/v1/connect/status")) {
+      return jsonResponse({
+        connect_active: Boolean(connect.hostname || connect.domain),
+        enabled: Boolean(connect.hostname || connect.domain),
+        hostname: null,
+        domain: null,
+        ...connect,
+      });
+    }
+    if (u.includes("/network/status")) {
+      return jsonResponse({
+        ethernet_connected: true,
+        has_default_route: true,
+        ipv4: [],
+        ...network,
+      });
+    }
+    return jsonResponse({ error: "not found" }, 404);
   });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+function renderPaths() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <DiscoveryPaths />
+    </QueryClientProvider>,
+  );
 }
 
 describe("DiscoveryPaths", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it("shows loading state while fetching", () => {
-    getDiscoveryPaths.mockReturnValue(new Promise(() => {}));
-    renderWithClient(<DiscoveryPaths />);
-    expect(screen.getByText(/Looking up ways to reach this Luna/i)).toBeInTheDocument();
-  });
-
-  it("shows addresses when paths are available", async () => {
-    getDiscoveryPaths.mockResolvedValue({
-      paths: [
-        { type: "mdns", url: "http://luna.local", label: "Local network (mDNS)" },
-        { type: "lan", url: "http://192.168.1.50", label: "Local network (IP)" },
-      ],
-    });
-    renderWithClient(<DiscoveryPaths />);
-    expect(await screen.findByText("Access luna-test here:")).toBeInTheDocument();
-    expect(screen.getByText("Local network (mDNS)")).toBeInTheDocument();
-    expect(screen.getByText("Local network (IP)")).toBeInTheDocument();
-    expect(screen.getByText("http://luna.local")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "http://luna.local" })).toHaveAttribute(
-      "href",
-      "http://luna.local",
+  it("shows remote access above home addresses when configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ipv4: ["192.168.1.118"] },
+        connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true },
+      }),
     );
-    expect(screen.getByRole("link", { name: "http://192.168.1.50" })).toHaveAttribute(
-      "href",
-      "http://192.168.1.50",
+    renderPaths();
+    expect(await screen.findByText("From anywhere (when Luna Connect is on):")).toBeTruthy();
+    const remoteLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
+    expect(remoteLink.getAttribute("href")).toBe("https://kitchen.luna.servers.libreloom.org");
+    expect(remoteLink.getAttribute("target")).toBe("_blank");
+    expect(screen.getByText("On your home network only:")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
+    expect(screen.getByRole("link", { name: "192.168.1.118" })).toHaveAttribute("href", "http://192.168.1.118");
+    expect(screen.queryByText(/if your phone finds it/i)).toBeNull();
+    expect(screen.queryByText(/current address on the screen/i)).toBeNull();
+    expect(screen.queryByText(/Stay on your home internet/i)).toBeNull();
+  });
+
+  it("hides remote access when it is not configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ipv4: ["192.168.1.20"] },
+      }),
     );
+    renderPaths();
+    expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
+    expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
+    expect(screen.getByText("On your home network only:")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
   });
 
-  it("includes a cloud path when present", async () => {
-    getDiscoveryPaths.mockResolvedValue({
-      paths: [
-        { type: "mdns", url: "http://luna.local", label: "Local network (mDNS)" },
-        { type: "cloud", url: "https://my-luna.luna.servers.libreloom.org", label: "From anywhere (cloud)" },
-      ],
-    });
-    renderWithClient(<DiscoveryPaths />);
-    expect(await screen.findByText("From anywhere (cloud)")).toBeInTheDocument();
-    expect(screen.getByText("https://my-luna.luna.servers.libreloom.org")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "https://my-luna.luna.servers.libreloom.org" }),
-    ).toHaveAttribute("href", "https://my-luna.luna.servers.libreloom.org");
-  });
-
-  it("shows empty state when no paths", async () => {
-    getDiscoveryPaths.mockResolvedValue({ paths: [] });
-    renderWithClient(<DiscoveryPaths />);
-    expect(
-      await screen.findByText(/No network addresses yet/i),
-    ).toBeInTheDocument();
-  });
-
-  it("shows empty state on error", async () => {
-    getDiscoveryPaths.mockRejectedValue(new Error("network"));
-    renderWithClient(<DiscoveryPaths />);
-    expect(
-      await screen.findByText(/No network addresses yet/i),
-    ).toBeInTheDocument();
+  it("hides remote access when the device token was rejected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ipv4: ["192.168.1.20"] },
+        connect: {
+          hostname: "kitchen.luna.servers.libreloom.org",
+          enabled: false,
+          device_token_error: "Connect did not accept this device token.",
+        },
+      }),
+    );
+    renderPaths();
+    expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
+    expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
+    expect(screen.queryByRole("link", { name: "kitchen.luna.servers.libreloom.org" })).toBeNull();
   });
 });

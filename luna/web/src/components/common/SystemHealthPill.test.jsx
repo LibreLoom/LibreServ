@@ -40,7 +40,7 @@ describe("SystemHealthPill", () => {
       error: null,
     }));
     renderPill();
-    expect(screen.getByText("All systems healthy")).toBeInTheDocument();
+    expect(screen.getByText("Everything looks good")).toBeInTheDocument();
   });
 
   it("shows an issue count when checks fail", () => {

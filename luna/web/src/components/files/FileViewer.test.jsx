@@ -99,7 +99,7 @@ describe("FileViewer image preview", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText(/Could not load this photo/i)).toBeInTheDocument();
+    expect(screen.getByText(/Luna couldn't show this photo/i)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });

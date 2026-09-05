@@ -101,7 +101,7 @@ export async function getJsonAllowErrorStatus(path, options = {}) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new ApiError(res.status, "Luna sent a response this page couldn't read. Try again.");
+    throw new ApiError(res.status, "Luna answered, but this page could not show the result. Refresh and try again.");
   }
 }
 
@@ -189,7 +189,7 @@ export function putBinaryProgress(path, body, options = {}) {
         try {
           resolve(JSON.parse(text));
         } catch {
-          reject(new ApiError(xhr.status, "Luna sent a response this page couldn't read. Try again."));
+          reject(new ApiError(xhr.status, "Luna answered, but this page could not show the result. Refresh and try again."));
         }
         return;
       }
@@ -266,7 +266,7 @@ export function postFormProgress(path, formData, options = {}) {
         try {
           resolve(JSON.parse(text));
         } catch {
-          reject(new ApiError(xhr.status, "Luna sent a response this page couldn't read. Try again."));
+          reject(new ApiError(xhr.status, "Luna answered, but this page could not show the result. Refresh and try again."));
         }
         return;
       }
@@ -316,7 +316,7 @@ export async function deleteJson(path, options = {}) {
 }
 
 /** Plain-language message from a failed request (never "Error: ..." / raw NetworkError). */
-export function apiErrorMessage(err, fallback = "Luna couldn't complete that request. Try again.") {
+export function apiErrorMessage(err, fallback = "Something went wrong. Try again.") {
   if (!err) return fallback;
   if (err instanceof ApiError && err.message) {
     if (err.status === 0 || isNetworkFailureMessage(err.message)) {
@@ -352,7 +352,7 @@ async function request(path, options = {}) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new ApiError(res.status, "Luna sent a response this page couldn't read. Try again.");
+    throw new ApiError(res.status, "Luna answered, but this page could not show the result. Refresh and try again.");
   }
 }
 

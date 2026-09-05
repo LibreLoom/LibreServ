@@ -911,11 +911,11 @@ export default function OnboardingPage() {
             ? shouldSkipCodeEntry(me)
               ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
               : me?.human_verified
-                ? "You are already signed in. Continue to get a device code for this Luna. We will not charge another dollar."
-                : "You are already signed in. Next we confirm you are a real person, then give you a device code for this Luna."
+                ? "You are already signed in. Continue to get a device token for this Luna. You already paid the $1 card check—we won't charge it again."
+                : "You are already signed in. Next we verify your card with a $1 check, then give you a device token for this Luna."
             : shouldSkipCodeEntry(me)
               ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
-              : "You are already signed in. Continue to link this Luna with its device code."}
+              : "You are already signed in. Continue to link this Luna with its device token."}
         </p>
         <p className="font-mono text-sm text-card-foreground mb-8 break-all">{me?.email}</p>
         <Button
@@ -1048,9 +1048,9 @@ export default function OnboardingPage() {
   };
 
   const renderCode = () => (
-    <StepShell icon={Key} title="Enter the device code">
+    <StepShell icon={Key} title="Enter your device token">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        The code on your quick-start card (****-****-****-****-****).
+        Enter the device token from the card in your Luna box (five groups like ****-****-****-****-****).
       </p>
       <form
         className="space-y-5 text-left"
@@ -1069,7 +1069,7 @@ export default function OnboardingPage() {
         }}
       >
         <label htmlFor="code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-          Device code
+          Device token
         </label>
         <ShakeTarget shake={error} loading={loading}>
           <Input
@@ -1092,18 +1092,16 @@ export default function OnboardingPage() {
   );
 
   const renderDiyCode = () => (
-    <StepShell icon={Key} title="Your device code">
+    <StepShell icon={Key} title="Your device token">
       <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
       <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
-        During Luna OS install, after the disk is written, the installer asks for your device code on the screen connected to Luna. Paste this
-        full code (****-****-****-****-****), or press Enter to skip. The first eight characters (****-****) let you finish setup from your
-        phone on your home network.
+        When you install Luna on your device, paste this full token when the installer asks. The first eight characters (****-****) unlock setup from your phone while you are on your home Wi‑Fi.
       </p>
       <p className="text-sm text-muted-foreground mb-4 leading-relaxed text-pretty">
-        If you skipped the code during install, on Luna go to Settings → About → Advanced, open Device token, paste this code, and tap Save.
+        If you skipped it during install, on Luna go to Settings → About → Advanced, open Device token, paste this token, and tap Save.
       </p>
       <p className="text-sm text-muted-foreground mb-8 leading-relaxed text-pretty">
-        When you continue, we link this code to your account. Luna picks up the link when it is online.
+        When you continue, we link this token to your account. Luna picks up the link when it comes online.
       </p>
       <div className="flex flex-col gap-3">
         <Button size="lg" className="w-full" variant="outline" onClick={() => handleCopy("diy", diyCode)}>
@@ -1113,7 +1111,7 @@ export default function OnboardingPage() {
             </>
           ) : (
             <>
-              <Copy className="w-4 h-4" /> Copy code
+              <Copy className="w-4 h-4" /> Copy token
             </>
           )}
         </Button>
@@ -1159,7 +1157,7 @@ export default function OnboardingPage() {
               if (id) setDeviceId(id);
             }
             if (!id) {
-              setError("We could not find a linked Luna yet. Go back and enter the device code again.");
+              setError("We could not find a linked Luna yet. Go back and enter the device token again.");
               return;
             }
             const created = await api(`/api/v1/devices/${id}/domain`, {
@@ -1276,7 +1274,7 @@ export default function OnboardingPage() {
           await goToFinish();
         }}
       >
-        Nah.
+        Skip for now
       </Button>
     </StepShell>
   );
@@ -1318,10 +1316,10 @@ export default function OnboardingPage() {
   );
 
   const renderDone = () => (
-    <StepShell icon={Check} title="Complete setup on Luna">
+    <StepShell icon={Check} title="You're connected">
       <div className="space-y-6 text-left">
         <p className="text-sm text-foreground leading-relaxed text-pretty">
-          The initial connection is complete, and your Luna can now be accessed over the internet.
+          Luna is linked to your account. Open it at the address below when you are away from home.
         </p>
         <div>
           <p className="text-sm text-foreground mb-2">Go here to continue setup directly on your Luna.</p>
@@ -1360,9 +1358,9 @@ export default function OnboardingPage() {
   else if (step === "verify") body = renderVerify();
   else if (step === "card") {
     body = (
-      <StepShell icon={User} title="Confirm this is a real person">
+      <StepShell icon={User} title="Verify your card">
         <p className="text-sm text-foreground mb-6 leading-relaxed">
-          A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on.
+          We charge $1 once to confirm your card works. That dollar applies to cloud backup if you turn it on later.
         </p>
         <VerifyHumanCard
           account={me}
