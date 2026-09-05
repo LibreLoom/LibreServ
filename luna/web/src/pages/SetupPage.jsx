@@ -389,7 +389,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "display_name",
       question: "What's your name?",
-      hint: "Shown on this Luna when you sign in. You can skip this and use your username instead.",
+      hint: "Shown on this Luna when you sign in. You can skip this if you like.",
       name: "display_name",
       type: "text",
       placeholder: "e.g. Alex",
