@@ -1318,9 +1318,16 @@ export default function OnboardingPage() {
           The initial connection is complete, and your Luna can now be accessed over the internet.
         </p>
         <div>
-          <p className="text-sm text-foreground mb-2">Go to</p>
+          <p className="text-sm text-foreground mb-2">Go here to continue setup directly on your Luna.</p>
           <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
-            <p className="font-mono text-sm break-all flex-1 text-foreground">{hostname}</p>
+            <a
+              href={hostname.startsWith("http") ? hostname : `https://${hostname}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-sm break-all flex-1 min-w-0 text-foreground underline hover:no-underline motion-safe:transition-colors"
+            >
+              {hostname}
+            </a>
             <Button variant="ghost" size="icon" onClick={() => handleCopy("host", hostname)} aria-label="Copy address">
               {copied === "host" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </Button>
