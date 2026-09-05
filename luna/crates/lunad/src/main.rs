@@ -181,13 +181,10 @@ async fn main() -> anyhow::Result<()> {
                             for drive in drives {
                                 match drive.state.as_str() {
                                     "readonly" => problems.push(format!(
-                                        "Drive \"{}\" can be read but not written. Check the cable or try another port.",
+                                        "Drive \"{}\" can be read but not written. This is usually the filesystem, or a write-lock switch on the stick.",
                                         drive.label
                                     )),
-                                    "missing" => problems.push(format!(
-                                        "Drive \"{}\" is missing. Plug it back in.",
-                                        drive.label
-                                    )),
+                                    // Unplugged is normal — not an HDMI-console problem.
                                     _ => {}
                                 }
                             }

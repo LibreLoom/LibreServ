@@ -208,8 +208,10 @@ describe("DashboardPage", () => {
     });
     renderPage();
     expect(
-      await screen.findByText(/This drive is unplugged/i),
+      await screen.findByText(/Unplugged\. Plug it back in when you want/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Needs a look/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open Drives/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/GB free/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });

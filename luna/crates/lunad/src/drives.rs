@@ -425,12 +425,17 @@ impl DriveManager {
     /// forget the DB row. Files on the drive are left alone.
     ///
     /// If Luna already ejected (unmounted) the drive, this remounts it long
-    /// enough to delete the sticker. If the drive is unplugged, Remove fails
-    /// and the DB row is left alone so the sticker is never silently skipped.
+    /// enough to delete the sticker. If the drive is unplugged (`missing`),
+    /// Luna forgets the registry row and leaves the on-disk sticker alone —
+    /// it cannot reach the stick to delete `.luna`.
     pub fn remove(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
+        if drive.state == "missing" {
+            db::delete_drive_cascade(conn, id)?;
+            return Ok(());
+        }
         let (root, remounted) = self.mount_for_remove(&drive)?;
         remove_marker(&root).map_err(|e| {
             if remounted {
@@ -523,16 +528,42 @@ impl DriveManager {
     /// Check every adopted drive is still writable. Drives that fail a safe
     /// create/write/sync/delete probe transition to `readonly` — never failed
     /// — because reads usually still work and the UI can explain calmly.
+    ///
+    /// Before marking readonly, try a remount read-write: Linux often flips a
+    /// mount to `ro` after a transient filesystem error (`errors=remount-ro`),
+    /// which would otherwise leave a healthy stick stuck read-only forever.
+    /// Readonly drives that pass the probe again are restored to `as_is`.
     pub fn health_check(&self, conn: &Connection) -> anyhow::Result<()> {
         for drive in db::list_drives(conn)? {
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
+            if drive.mount_point.is_empty() {
                 continue;
             }
-            if probe_writable(std::path::Path::new(&drive.mount_point)).is_err() {
-                db::set_drive_state(conn, &drive.id, "readonly")?;
+            if drive.state != "as_is" && drive.state != "readonly" {
+                continue;
+            }
+            let root = std::path::Path::new(&drive.mount_point);
+            if !self.mounter.is_mounted(root) {
+                continue;
+            }
+            let writable = self.ensure_writable_mount(root);
+            match (drive.state.as_str(), writable) {
+                ("as_is", false) => db::set_drive_state(conn, &drive.id, "readonly")?,
+                ("readonly", true) => db::set_drive_state(conn, &drive.id, "as_is")?,
+                _ => {}
             }
         }
         Ok(())
+    }
+
+    /// Probe writes; if that fails, remount RW once and probe again.
+    fn ensure_writable_mount(&self, root: &Path) -> bool {
+        if probe_writable(root).is_ok() {
+            return true;
+        }
+        if self.mounter.remount(root, false).is_err() {
+            return false;
+        }
+        probe_writable(root).is_ok()
     }
 
     /// Reconcile the registry with reality.
@@ -1384,6 +1415,47 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&row.mount_point, perms).unwrap();
         }
+    }
+
+    #[test]
+    fn health_check_restores_writable_drive_from_readonly() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        db::set_drive_state(&conn, &row.id, "readonly").unwrap();
+        mgr.health_check(&conn).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "as_is"
+        );
+    }
+
+    #[test]
+    fn remove_unplugged_forgets_db_row_without_marker() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        let marker = PathBuf::from(&row.mount_point).join(".luna");
+        assert!(marker.is_file());
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
+        mgr.remove(&conn, &row.id).unwrap();
+        assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
+        // Sticker would remain on a real unplugged stick; mock still has the dir.
+        assert!(marker.is_file());
     }
 
     #[test]
