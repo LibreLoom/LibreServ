@@ -213,7 +213,11 @@ export default function ModalCard({
       ? "max-h-[95vh]"
       : mobileFullscreen
         ? "max-h-[100dvh] sm:max-h-[calc(95vh-4rem)]"
-        : "max-h-full sm:max-h-[calc(95vh-4rem)]";
+        // Absolute viewport cap on mobile — not max-h-full. Percentage max-height
+        // resolves against dialog-content's animated style.height, so the scroller
+        // cannot grow past the previous frame and ResizeObserver never fires
+        // (spinner → form stays stuck). 2rem matches overlay p-4.
+        : "max-h-[calc(100dvh-2rem)] sm:max-h-[calc(95vh-4rem)]";
 
   const mobileFsClasses = mobileFullscreen
     ? "p-0 sm:p-4 [&>div>div>div]:rounded-none sm:[&>div>div>div]:rounded-large-element"

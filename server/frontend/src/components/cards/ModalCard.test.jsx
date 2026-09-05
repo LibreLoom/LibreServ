@@ -212,4 +212,19 @@ describe("ModalCard", () => {
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("uses an absolute mobile max-height so the scroller can grow past the previous frame", () => {
+    render(
+      <ModalCard title="Height grow" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    // Percentage max-h-full would resolve against dialog-content's animated
+    // height and freeze ResizeObserver when content grows (spinner → form).
+    expect(scroller).toHaveClass("max-h-[calc(100dvh-2rem)]");
+    expect(scroller).not.toHaveClass("max-h-full");
+    expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]");
+  });
 });
