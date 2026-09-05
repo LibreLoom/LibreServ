@@ -389,7 +389,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "display_name",
       question: "What's your name?",
-      hint: "Shown on this Luna when you sign in. You can skip this and use your username instead.",
+      hint: "Shown on this Luna when you sign in. You can skip this if you like.",
       name: "display_name",
       type: "text",
       placeholder: "e.g. Alex",
@@ -559,7 +559,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
               You&apos;re creating the initial admin account. This account can access every file on Luna.
             </p>
             <p className="text-primary text-sm leading-relaxed font-sans">
-              Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders if you wish.
+              Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders.
             </p>
           </div>
         )}
