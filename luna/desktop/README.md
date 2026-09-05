@@ -40,8 +40,9 @@ sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 Two terminals:
 
 ```sh
-# Terminal A — Luna API (once)
-cd luna && make dev-daemon          # http://127.0.0.1:8090
+# Terminal A — Luna API (restarts on Rust save)
+cd luna && make daemon-dev          # http://127.0.0.1:8090
+# (or: make dev-daemon for a one-shot process without cargo-watch)
 
 # Terminal B — Desktop app (watch + inspector + auto sign-in)
 cd luna && make desktop-dev

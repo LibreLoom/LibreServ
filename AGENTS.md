@@ -245,6 +245,7 @@ Before ANY UI work:
 
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
+- **Luna companion rapid-dev:** from `luna/`, `make companion-dev` prints the recipe. `make daemon-dev` (cargo-watch lunad), `make desktop-dev` (GTK cargo-watch + auto sign-in), `make mobile-dev` (Android `installDebug` + relaunch on save; needs `adb`). See `luna/desktop/README.md` and `luna/mobile/README.md`.
 - `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
 
 ---
