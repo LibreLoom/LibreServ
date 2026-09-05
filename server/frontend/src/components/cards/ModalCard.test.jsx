@@ -212,4 +212,20 @@ describe("ModalCard", () => {
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("measures height from dialog-measure, not the max-height scroller", () => {
+    render(
+      <ModalCard title="Measure" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    const measure = dialog.querySelector("[data-slot=dialog-measure]");
+    expect(scroller).toBeTruthy();
+    expect(measure).toBeTruthy();
+    expect(scroller?.contains(measure)).toBe(true);
+    expect(measure).not.toBe(scroller);
+    expect(dialog.className).toMatch(/transition-\[height\]/);
+  });
 });
