@@ -92,10 +92,9 @@ class ShellActivity : AppCompatActivity() {
             return
         }
         pendingPage = page
+        applyPendingPage()
         if (drawer.isDrawerOpen(GravityCompat.START)) {
             drawer.closeDrawer(GravityCompat.START)
-        } else {
-            applyPendingPage()
         }
     }
 
