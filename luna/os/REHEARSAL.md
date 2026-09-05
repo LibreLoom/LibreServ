@@ -17,7 +17,8 @@ support call later.
 - [ ] Factory stick: mount `LUNAASSETS`, put official device tokens in `TOKENS` (one per line); each flash peels the first line
 - [ ] PC boots the USB (BIOS or UEFI; Secure Boot off)
 - [ ] Installer shows built-in storage (`/dev/sda`, `/dev/nvme0n1`, or `/dev/mmcblk0`)
-- [ ] Waited 5s (or pressed a number to pick another disk); installer finished; USB removed; reboot from internal disk
+- [ ] Waited 5s (or pressed a number to pick another disk); typed INSTALL and pressed Enter; installer finished; USB removed; reboot from internal disk
+- [ ] Typed something other than INSTALL after disk selection → machine shut down (did not erase)
 - [ ] `e2fsck -f` on the Luna root partition (`…p3` / `sda3`) is clean if checked afterwards
 
 ## 2. First boot
@@ -31,7 +32,7 @@ support call later.
 - [ ] Admin account created; name saved; wizard completes to drives
 
 ## 4. Storage safety
-- [ ] Unrecognized FAT32 drive → "Look inside" is read-only, contents listed
+- [ ] Unrecognized FAT32 drive → "Add drive" preview is read-only, contents listed
 - [ ] Adoption writes exactly one `.luna` file; nothing else changed (diff the drive before/after)
 - [ ] Eject says safe to remove; replug returns the drive
 

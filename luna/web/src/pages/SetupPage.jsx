@@ -33,6 +33,14 @@ const STEP = {
   DONE:       "done",
 };
 
+/** Remote setup unlock: machine code from lunad, or resilient message match. */
+function isSetupTokenUnlockError(err) {
+  if (!(err instanceof ApiError) || err.status !== 403) return false;
+  if (err.code === "setup_token_required") return true;
+  // Live + legacy lunad copy: device token / first eight / older "setup code".
+  return /device token|first eight|setup code|Remote setup/i.test(err.message || "");
+}
+
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
 // Same constant as LibreServ's SetupPage so the two wizards read identically.
@@ -186,7 +194,7 @@ WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
 };
 
-// ─── STEP: Setup code (remote unlock) ─────────────────────────────────────────
+// ─── STEP: Setup token prefix (remote unlock) ─────────────────────────────────
 function SetupCodeStep({ onCodeVerified }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -215,7 +223,7 @@ function SetupCodeStep({ onCodeVerified }) {
         err instanceof ApiError && err.status === 429
           ? "Too many tries. Wait a minute and try again."
           : err?.message ||
-            "That code doesn't match. Check the first eight characters on your device card.";
+            "That token doesn't match. Check the first eight characters on your device card.";
       setError(msg);
       clearSetupToken();
     } finally {
@@ -389,7 +397,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "display_name",
       question: "What's your name?",
-      hint: "Shown on this Luna when you sign in. You can skip this and use your username instead.",
+      hint: "Shown on this Luna when you sign in. You can skip this if you like.",
       name: "display_name",
       type: "text",
       placeholder: "e.g. Alex",
@@ -559,7 +567,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
               You&apos;re creating the initial admin account. This account can access every file on Luna.
             </p>
             <p className="text-primary text-sm leading-relaxed font-sans">
-              Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders if you wish.
+              Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders.
             </p>
           </div>
         )}
@@ -827,7 +835,7 @@ function DoneStep({ name, onGoDrives }) {
         </p>
 
         {/* Discovery paths — where to find Luna after setup */}
-        <DiscoveryPaths />
+        <DiscoveryPaths name={label} />
 
         <div className="mt-8 animate-in fade-in duration-300 delay-400">
           <Button
@@ -942,11 +950,7 @@ export default function SetupPage() {
         }
         setStep(next);
       } catch (err) {
-        if (
-          err instanceof ApiError &&
-          err.status === 403 &&
-          /setup code|Remote setup/i.test(err.message || "")
-        ) {
+        if (isSetupTokenUnlockError(err)) {
           clearSetupToken();
           if (alive) setStep(STEP.SETUP_CODE);
           return;
@@ -998,11 +1002,7 @@ export default function SetupPage() {
     try {
       await saveProgress(nextStep, data);
     } catch (err) {
-      const isSetupCodeError =
-        err instanceof ApiError &&
-        err.status === 403 &&
-        /setup code|Remote setup/i.test(err.message || "");
-      if (isSetupCodeError) {
+      if (isSetupTokenUnlockError(err)) {
         clearSetupToken();
         setStep(STEP.SETUP_CODE);
         savingRef.current = false;

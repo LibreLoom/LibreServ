@@ -125,14 +125,14 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
     expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
-    expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
+    expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /^About$/i }));
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
     expect(screen.getByText(/Luna only installs updates when you tell it to/i)).toBeTruthy();
   });
 
-  it("splits Devices into Mobile App and Desktop App cards", async () => {
+  it("splits Devices into Mobile App and Luna Desktop cards", async () => {
     stubFetch("admin");
     const user = userEvent.setup();
     renderPage();
@@ -141,14 +141,15 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: /^Devices$/i }));
     expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Mobile App" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: "Desktop App" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Luna Desktop" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Desktop App" })).toBeNull();
     expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
     expect(
       screen.getByText("Back up your photos from your phone onto your Luna."),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Backup folders onto your Luna and access your Luna's files directly from your computer.",
+        /Backup folders onto your Luna and access your Luna's files directly from your computer\. On Linux, the same download also works on Linux phones\./,
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/copies new photos from the phone/i)).toBeNull();
@@ -166,7 +167,7 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
-    expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
+    expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
 

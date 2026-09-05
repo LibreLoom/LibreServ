@@ -35,7 +35,7 @@ function pluralCount(n, one, many) {
 }
 
 /**
- * Plain-language count line for Look-inside (singular/plural).
+ * Plain-language count line for the add-drive preview (singular/plural).
  * @param {number} folders
  * @param {number} files
  * @param {number} [unreadable]
@@ -117,6 +117,21 @@ function prettyFsType(fs) {
     iso9660: "ISO disc image",
   };
   return names[key] || fs;
+}
+
+/**
+ * Useful one-line details for an unrecognized drive card.
+ * Capacity + USB (when known) + filesystem — not kernel names like "sdmock".
+ * @param {{ size_bytes?: number, usb?: boolean, removable?: boolean, fs_type?: string | null }} drive
+ */
+function detectedDriveMeta(drive) {
+  const parts = [];
+  const size = sizeLabel(drive.size_bytes);
+  if (size) parts.push(size);
+  if (drive.usb || drive.removable) parts.push("USB");
+  const fs = prettyFsType(drive.fs_type);
+  if (fs) parts.push(fs);
+  return parts.length > 0 ? parts.join(" · ") : "A new drive";
 }
 
 /**
@@ -239,21 +254,20 @@ function AdoptedDriveDetails({ drive }) {
   );
 }
 
-function DetectedCard({ drive, onOpen, onIgnore }) {
+function DetectedCard({ drive, onOpen }) {
   return (
-    <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`} headerActions={
-      <Button size="sm" variant="ghost" onClick={() => onIgnore(drive)}>
-        Ignore for now
-      </Button>
-    }>
+    <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`}>
       <p className="text-primary text-sm">
-        {sizeLabel(drive.size_bytes) || "A new drive"} · found on {drive.name}
+        {detectedDriveMeta(drive)}
       </p>
       <p className="text-primary text-sm mt-2">
-        Look inside first. Luna will not change anything until you add it.
+        Click &quot;Add drive&quot; to begin adding the drive.
+      </p>
+      <p className="text-primary text-sm mt-2">
+        You&apos;ll see the contents of the drive before adding it. Luna does not touch the contents until you confirm you want to add the drive.
       </p>
       <div className="mt-3">
-        <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Look inside</Button>
+        <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Add drive</Button>
       </div>
     </Card>
   );
@@ -329,7 +343,9 @@ function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Plug it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
   if (drive.state === "failed") return "This drive ran into a problem.";
-  if (drive.state === "readonly") return "Read only — Luna cannot save here.";
+  if (drive.state === "readonly") {
+    return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
+  }
   return null;
 }
 
@@ -337,7 +353,7 @@ function plainDriveState(state) {
   if (state === "as_is") return "Ready";
   if (state === "readonly") {
     return (
-      <TermHint content="Luna can open files on this drive but cannot save changes here.">
+      <TermHint content="Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.">
         Read only
       </TermHint>
     );
@@ -370,11 +386,7 @@ export default function DrivesPage() {
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
   const protectAvailable = useCanProtect();
-  /** Frontend-only fallback mock can be dismissed without calling lunad. */
-  const [dismissedMock, setDismissedMock] = useState(false);
-  const unknownDrives = withDevMockDetected(detected.data).filter(
-    (d) => !(dismissedMock && d.name === "sdmock" && !detected.data?.some((real) => real.name === "sdmock")),
-  );
+  const unknownDrives = withDevMockDetected(detected.data);
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
@@ -401,18 +413,6 @@ export default function DrivesPage() {
       // InspectModal closes via ModalCard's animated close (not an instant unmount).
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
-      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
-    },
-  });
-
-  const dismiss = useMutation({
-    mutationFn: (/** @type {any} */ drive) =>
-      postJson(`/api/v1/drives/${drive.name}/dismiss`, {}),
-    onSuccess: (_data, drive) => {
-      if (drive && !detected.data?.some((real) => real.name === drive.name)) {
-        setDismissedMock(true);
-        return;
-      }
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
   });
@@ -520,7 +520,7 @@ export default function DrivesPage() {
       {isAdmin && (
         <>
           <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
-            Unknown Drives
+            Unrecognized Drives
           </h2>
           <div className="grid gap-5 md:grid-cols-2">
             {unknownDrives.map((drive) => (
@@ -533,7 +533,6 @@ export default function DrivesPage() {
                   setInspectFor(d);
                   inspect.mutate(d);
                 }}
-                onIgnore={(d) => dismiss.mutate(d)}
               />
             ))}
           </div>
@@ -566,9 +565,22 @@ export default function DrivesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              Luna will stop managing <span className="font-mono">{removeTarget?.label}</span>.
-              Your files stay on the drive. Luna only removes its tiny{" "}
-              <span className="font-mono">.luna</span> sticker file.
+              {removeTarget?.state === "missing" ? (
+                <>
+                  Luna will stop managing{" "}
+                  <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
+                  <span className="font-mono">.luna</span> marker file will stay on the
+                  drive since it is currently unplugged. Your files stay exactly where
+                  they are.
+                </>
+              ) : (
+                <>
+                  Luna will stop managing{" "}
+                  <span className="font-mono">{removeTarget?.label}</span>. Your files
+                  stay on the drive. Luna only removes its tiny{" "}
+                  <span className="font-mono">.luna</span> sticker file.
+                </>
+              )}
             </p>
             <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
@@ -627,7 +639,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
   const blockedReason = result && !canUse
     ? (!result.readable
       ? "Luna could not read this drive. Make sure it is plugged in firmly and try again."
-      : "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, look inside and choose Erase and add.")
+      : "This drive will not accept new files right now. Usually that means a filesystem issue, or a write-lock switch on the stick. Check the lock switch, then try again.")
     : null;
 
   return (
@@ -636,10 +648,10 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
       onClose={onClose}
       title={
         <span className="inline-flex items-center gap-2 flex-wrap">
-          {`Look inside ${shownDrive.model || shownDrive.name}`}
+          {`Add ${shownDrive.model || shownDrive.name}`}
           <InfoHint
-            label="What looking inside does"
-            content="Luna only reads the drive. Nothing is changed until you add it."
+            label="What happens when you add a drive"
+            content="Luna shows what's on the drive first. Nothing is changed until you confirm."
           />
         </span>
       }
@@ -649,7 +661,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
       {!result && !error && (
         <div className="flex items-center gap-3 text-primary" role="status">
           <Spinner size="sm" decorative className="text-primary shrink-0" />
-          <p className="text-sm">Looking…</p>
+          <p className="text-sm">Checking the drive…</p>
         </div>
       )}
 
@@ -711,10 +723,9 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
             <div className="mt-4 flex items-center gap-3">
               <TriangleAlert size={18} className="text-warning shrink-0" />
               <p className="text-primary text-xs">
-                This USB still has the Luna installer on it. That kind of disk
-                cannot be changed. Luna can erase it and set it up for your
-                photos and files. Everything currently on it will be deleted,
-                including the installer.
+                If you have moved any files you want to keep off this drive,
+                choose Erase and add this drive. That deletes everything on it
+                so Luna can use it for your photos and files.
               </p>
             </div>
           ) : blockedReason ? (

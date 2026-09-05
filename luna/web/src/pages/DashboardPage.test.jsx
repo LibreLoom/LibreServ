@@ -155,7 +155,9 @@ describe("DashboardPage", () => {
     });
     renderPage();
     expect(await screen.findByText(/New drive plugged in/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Look inside/i })).toHaveAttribute("href", "/drives");
+    expect(screen.getByRole("link", { name: /^Add drive$/i })).toHaveAttribute("href", "/drives");
+    expect(screen.getByText(/Open Drives to add it/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Look inside/i })).not.toBeInTheDocument();
   });
 
   it("loads network status for a household member, not only an admin", async () => {
@@ -208,8 +210,10 @@ describe("DashboardPage", () => {
     });
     renderPage();
     expect(
-      await screen.findByText(/This drive is unplugged/i),
+      await screen.findByText(/Unplugged\. Plug it back in when you want/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Needs a look/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open Drives/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/GB free/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });

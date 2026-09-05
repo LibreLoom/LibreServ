@@ -215,7 +215,7 @@ mod tests {
             has_default_route: true,
             problems: vec![
                 "System disk is almost full. Free some space, then wait.".into(),
-                "Drive Photos cannot be written. Check the cable.".into(),
+                "Drive Photos cannot be written. Check the filesystem or the write-lock switch.".into(),
             ],
             ..Default::default()
         });

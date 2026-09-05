@@ -59,7 +59,7 @@ export function withCsrfHeaders(method, headers = {}) {
 export async function apiFetch(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const headers = withCsrfHeaders(method, options.headers || {});
-  // Remote setup unlock (first ****-**** of the permanent device code).
+  // Remote setup unlock (first ****-**** of the permanent device token).
   if (
     path.startsWith("/api/v1/setup") ||
     path.startsWith("/api/v1/auth/register")
@@ -336,13 +336,15 @@ async function request(path, options = {}) {
   const res = await apiFetch(path, { ...options, headers });
   if (!res.ok) {
     let message = "";
+    let code = null;
     try {
       const data = await res.json();
       message = data.error || "";
+      if (typeof data.code === "string" && data.code) code = data.code;
     } catch {
       // fall through to status text
     }
-    throw new ApiError(res.status, message || `Request failed (${res.status})`);
+    throw new ApiError(res.status, message || `Request failed (${res.status})`, code);
   }
   // Some DELETE handlers return an empty body; treat that as success.
   const text = await res.text();
@@ -363,9 +365,15 @@ export function getDrives() {
 }
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  /**
+   * @param {number} status
+   * @param {string} [message]
+   * @param {string | null} [code] Stable machine-readable error code from the API body.
+   */
+  constructor(status, message, code = null) {
     super(message || `Request failed (${status})`);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }

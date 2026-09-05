@@ -71,7 +71,7 @@ export function withDevMockDetected(drives) {
   return [mockUnknownPssd()];
 }
 
-/** Fake Look-inside result so the adopt modal is reviewable without lunad. */
+/** Fake Add-drive inspect result so the adopt modal is reviewable without lunad. */
 export function mockInspectResult() {
   return {
     device: MOCK_UNKNOWN_PSSD_NAME,

@@ -197,7 +197,7 @@ describe("SetupPage", () => {
     expect(form.querySelector("[class*='slide-in-from']")).toBeTruthy();
   });
 
-  it("asks for the first eight characters when remote setup is locked", async () => {
+  it("asks for the device token prefix when remote setup is locked", async () => {
     const fetchMock = vi.fn(async (url, init) => {
       const u = String(url);
       const method = (init?.method || "GET").toUpperCase();
@@ -208,7 +208,10 @@ describe("SetupPage", () => {
       }
       if (u.includes("/api/v1/setup")) {
         return jsonResponse(
-          { error: "This setup step needs a setup code. Enter the first eight characters (****-****) from your device code, or open setup from a device on your home network." },
+          {
+            error: "Enter the first eight characters of your device token (****-****).",
+            code: "setup_token_required",
+          },
           403,
         );
       }
@@ -220,6 +223,29 @@ describe("SetupPage", () => {
     fireEvent.change(screen.getByLabelText(/Device token/i), { target: { value: "ABCDEFGH" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     expect(await screen.findByRole("heading", { name: "Welcome." })).toBeTruthy();
+  });
+
+  it("routes remote unlock to SetupCodeStep even when an admin already exists", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("/auth/me")) return jsonResponse({}, 401);
+      if (u.includes("/auth/status")) return jsonResponse({ has_admin: true });
+      if (u.includes("/api/v1/setup")) {
+        return jsonResponse(
+          {
+            error: "Enter the first eight characters of your device token (****-****).",
+            code: "setup_token_required",
+          },
+          403,
+        );
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSetup();
+    expect(await screen.findByRole("heading", { name: /Your device token/i })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Create your account/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Sign in/i })).toBeNull();
   });
 
   it("asks for the Luna Connect setup code on a public hostname when Connect is active", async () => {
