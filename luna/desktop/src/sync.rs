@@ -181,6 +181,8 @@ pub fn start_pair(
                 set_error(&thread_progress, &pair_id, "");
                 set_phase(&thread_progress, &pair_id, "Up to date");
             }
+            // Always clear the in-flight name so Status drops finished/failed rows.
+            clear_current(&thread_progress, &pair_id);
             set_phase(&thread_progress, &pair_id, "Waiting");
             // Wait for local changes or the next remote poll.
             let deadline = std::time::Instant::now() + REMOTE_POLL_INTERVAL;
@@ -244,18 +246,28 @@ fn clear_current(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str)
     }
 }
 
-fn bump(
-    progress: &Arc<Mutex<HashMap<String, SyncProgress>>>,
-    id: &str,
-    up: bool,
-    conflict: bool,
-    current: &str,
-) {
+/// Mark which file is actively transferring so Status can show it.
+fn set_current(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str, current: &str) {
     if let Ok(mut map) = progress.lock()
         && let Some(p) = map.get_mut(id)
     {
         p.phase = "Syncing".to_string();
         p.current = current.to_string();
+    }
+}
+
+/// Count a finished transfer and clear `current` so the Status row drops.
+fn bump(
+    progress: &Arc<Mutex<HashMap<String, SyncProgress>>>,
+    id: &str,
+    up: bool,
+    conflict: bool,
+) {
+    if let Ok(mut map) = progress.lock()
+        && let Some(p) = map.get_mut(id)
+    {
+        p.phase = "Syncing".to_string();
+        p.current.clear();
         if conflict {
             p.conflicts += 1;
         } else if up {
@@ -341,23 +353,24 @@ fn sync_once(
                 let local_changed = *size != prev.size || *lm != prev.local_mtime;
                 let remote_changed = re.size != prev.size || re.modified != prev.remote_mtime;
                 if local_changed && remote_changed {
-                    // Conflict: keep both.
+                    // Conflict: keep both. Never overwrite the canonical remote path.
                     let conflict_name = conflict_path(path, "this computer");
                     let _ = std::fs::rename(path, &conflict_name);
                     let dest = local_root.join(&rel);
                     let remote_abs = join_remote(&remote.path, &rel);
+                    set_current(progress, pair_id, &rel);
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
-                    bump(progress, pair_id, false, true, &rel);
-                    // Upload the conflict copy under a conflict name on Luna too.
+                    // Upload the conflict copy under a new name on Luna (create, not overwrite).
                     let remote_conflict =
                         format!("{} (conflict from this computer)", strip_ext_name(&rel));
-                    // Keep local conflict file; upload original content already renamed.
+                    set_current(progress, pair_id, &remote_conflict);
                     let _ = luna::upload_file(
                         base_url,
                         token,
                         remote,
                         &conflict_name,
                         &format!("{remote_conflict}{}", ext_of(&rel)),
+                        false,
                     );
                     let lm = std::fs::metadata(&dest)
                         .map(|m| mtime_secs(&m))
@@ -370,8 +383,10 @@ fn sync_once(
                             remote_mtime: re.modified,
                         },
                     );
+                    bump(progress, pair_id, false, true);
                 } else if local_changed {
-                    luna::upload_file(base_url, token, remote, path, &rel)?;
+                    set_current(progress, pair_id, &rel);
+                    luna::upload_file(base_url, token, remote, path, &rel, true)?;
                     // Refresh remote mtime via re-list would be ideal; store local as authority.
                     ledger.map.insert(
                         rel.clone(),
@@ -381,8 +396,9 @@ fn sync_once(
                             remote_mtime: *lm,
                         },
                     );
-                    bump(progress, pair_id, true, false, &rel);
+                    bump(progress, pair_id, true, false);
                 } else if remote_changed {
+                    set_current(progress, pair_id, &rel);
                     let dest = local_root.join(&rel);
                     let remote_abs = join_remote(&remote.path, &rel);
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
@@ -396,7 +412,7 @@ fn sync_once(
                             remote_mtime: re.modified,
                         },
                     );
-                    bump(progress, pair_id, false, false, &rel);
+                    bump(progress, pair_id, false, false);
                 }
             }
             (Some((path, size, lm)), Some(re), None) => {
@@ -411,7 +427,8 @@ fn sync_once(
                         },
                     );
                 } else if *lm >= re.modified {
-                    luna::upload_file(base_url, token, remote, path, &rel)?;
+                    set_current(progress, pair_id, &rel);
+                    luna::upload_file(base_url, token, remote, path, &rel, true)?;
                     ledger.map.insert(
                         rel.clone(),
                         LedgerEntry {
@@ -420,8 +437,9 @@ fn sync_once(
                             remote_mtime: *lm,
                         },
                     );
-                    bump(progress, pair_id, true, false, &rel);
+                    bump(progress, pair_id, true, false);
                 } else {
+                    set_current(progress, pair_id, &rel);
                     let dest = local_root.join(&rel);
                     let remote_abs = join_remote(&remote.path, &rel);
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
@@ -435,20 +453,22 @@ fn sync_once(
                             remote_mtime: re.modified,
                         },
                     );
-                    bump(progress, pair_id, false, false, &rel);
+                    bump(progress, pair_id, false, false);
                 }
             }
             (Some((path, size, lm)), None, Some(_)) => {
                 // Remote deleted → delete local
+                set_current(progress, pair_id, &rel);
                 let _ = std::fs::remove_file(path);
                 ledger.map.remove(&rel);
-                bump(progress, pair_id, false, false, &rel);
+                bump(progress, pair_id, false, false);
                 let _ = size;
                 let _ = lm;
             }
             (Some((path, size, lm)), None, None) => {
                 // New local file
-                luna::upload_file(base_url, token, remote, path, &rel)?;
+                set_current(progress, pair_id, &rel);
+                luna::upload_file(base_url, token, remote, path, &rel, false)?;
                 ledger.map.insert(
                     rel.clone(),
                     LedgerEntry {
@@ -457,17 +477,20 @@ fn sync_once(
                         remote_mtime: *lm,
                     },
                 );
-                bump(progress, pair_id, true, false, &rel);
+                bump(progress, pair_id, true, false);
             }
             (None, Some(re), Some(_)) => {
                 // Local deleted → delete remote
+                set_current(progress, pair_id, &rel);
                 let remote_abs = join_remote(&remote.path, &rel);
                 luna::delete_path(base_url, token, &remote.drive_id, &remote_abs)?;
                 ledger.map.remove(&rel);
+                bump(progress, pair_id, false, false);
                 let _ = re;
             }
             (None, Some(re), None) => {
                 // New remote file
+                set_current(progress, pair_id, &rel);
                 let dest = local_root.join(&rel);
                 let remote_abs = join_remote(&remote.path, &rel);
                 luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
@@ -481,7 +504,7 @@ fn sync_once(
                         remote_mtime: re.modified,
                     },
                 );
-                bump(progress, pair_id, false, false, &rel);
+                bump(progress, pair_id, false, false);
             }
             (None, None, Some(_)) => {
                 ledger.map.remove(&rel);

@@ -411,7 +411,8 @@ fn upload_one(
         return Err("file still writing".into());
     }
     set_current(progress, job_id, &rel_str, "");
-    match luna::upload_file(base_url, token, dest, path, &rel_str) {
+    // Backup always places the file at this path (create or replace).
+    match luna::upload_file(base_url, token, dest, path, &rel_str, true) {
         Ok(()) => {
             let mut l = ledger.lock().unwrap();
             l.record(&rel_str, size, mtime);
@@ -420,7 +421,15 @@ fn upload_one(
             Ok(())
         }
         Err(e) => {
-            set_current(progress, job_id, &rel_str, &e);
+            // Keep the error for Sync/Backup icons, but clear `current` so Status
+            // does not keep showing a finished/failed file forever.
+            if let Ok(mut map) = progress.lock()
+                && let Some(p) = map.get_mut(job_id)
+            {
+                p.error = e.clone();
+                p.current.clear();
+                p.phase = "Watching".to_string();
+            }
             Err(e)
         }
     }
