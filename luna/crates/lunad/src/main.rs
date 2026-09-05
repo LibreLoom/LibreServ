@@ -179,13 +179,12 @@ async fn main() -> anyhow::Result<()> {
 
                         if let Ok(drives) = lunad::db::list_drives(&conn) {
                             for drive in drives {
-                                match drive.state.as_str() {
-                                    "readonly" => problems.push(format!(
+                                // Unplugged is normal — not an HDMI-console problem.
+                                if drive.state.as_str() == "readonly" {
+                                    problems.push(format!(
                                         "Drive \"{}\" can be read but not written. This is usually the filesystem, or a write-lock switch on the stick.",
                                         drive.label
-                                    )),
-                                    // Unplugged is normal — not an HDMI-console problem.
-                                    _ => {}
+                                    ));
                                 }
                             }
                         }
