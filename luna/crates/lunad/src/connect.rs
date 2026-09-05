@@ -29,9 +29,11 @@ pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked this Luna's conne
 /// cloudflared is missing and Luna could not download it.
 pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the tunnel helper. Check this Luna's internet connection. Luna will keep trying.";
 /// cloudflared was found (or installed) but would not stay running.
-pub const TUNNEL_START_FAILED_MSG: &str = "Luna could not start the secure tunnel. Luna will keep trying.";
+pub const TUNNEL_START_FAILED_MSG: &str =
+    "Luna could not start the secure tunnel. Luna will keep trying.";
 /// Hostname is set but Connect has not given Luna a tunnel secret yet.
-pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a tunnel secret yet. Luna will keep trying.";
+pub const TUNNEL_TOKEN_MISSING_MSG: &str =
+    "A remote address is set, but Luna does not have a tunnel secret yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 const MIN_CLOUDFLARED_BYTES: u64 = 1024;
@@ -745,17 +747,11 @@ impl ConnectService {
     }
 
     fn set_tunnel_error(&self, msg: impl Into<String>) {
-        *self
-            .tunnel_error
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(msg.into());
+        *self.tunnel_error.lock().unwrap_or_else(|e| e.into_inner()) = Some(msg.into());
     }
 
     fn clear_tunnel_error(&self) {
-        *self
-            .tunnel_error
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self.tunnel_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
