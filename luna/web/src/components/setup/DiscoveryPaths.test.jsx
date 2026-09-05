@@ -54,8 +54,8 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths({ name: "Kitchen" });
-    expect(await screen.findByText("Access Kitchen here:")).toBeTruthy();
-    expect(screen.getByText("Everywhere:")).toBeTruthy();
+    expect(await screen.findByText("Everywhere:")).toBeTruthy();
+    expect(screen.getByText("Access Kitchen here:")).toBeTruthy();
     expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByText("On your home internet only:")).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
@@ -73,8 +73,8 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths();
-    expect(await screen.findByText("Access Luna here:")).toBeTruthy();
-    expect(screen.getByText("192.168.1.20")).toBeTruthy();
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Luna here:")).toBeTruthy();
   });
 
   it("falls back to Luna when name is blank", async () => {
@@ -85,7 +85,8 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths({ name: "   " });
-    expect(await screen.findByText("Access Luna here:")).toBeTruthy();
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Luna here:")).toBeTruthy();
   });
 
   it("hides Everywhere when remote access is not configured", async () => {
@@ -96,8 +97,8 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths({ name: "Studio" });
-    expect(await screen.findByText("Access Studio here:")).toBeTruthy();
-    expect(screen.getByText("192.168.1.20")).toBeTruthy();
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Studio here:")).toBeTruthy();
     expect(screen.queryByText("Everywhere:")).toBeNull();
     expect(screen.getByText("On your home internet only:")).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
@@ -116,8 +117,8 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths({ name: "Kitchen" });
-    expect(await screen.findByText("Access Kitchen here:")).toBeTruthy();
-    expect(screen.getByText("192.168.1.20")).toBeTruthy();
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Kitchen here:")).toBeTruthy();
     expect(screen.queryByText("Everywhere:")).toBeNull();
     expect(screen.queryByText("kitchen.luna.servers.libreloom.org")).toBeNull();
   });
