@@ -173,10 +173,22 @@ object LunaApi {
     /**
      * Prove we can save to this folder: start a 1-byte upload (the server
      * checks write access here) then cancel so nothing is written.
+     * Creates target path via mkdir if missing (e.g., custom folder prefix).
      */
     fun probeWrite(baseUrl: String, token: String, driveId: String, destPath: String) {
+        if (destPath.isNotBlank()) {
+            try {
+                mkdir(baseUrl, token, driveId, destPath)
+            } catch (e: ApiException) {
+                // Ignore 409 Conflict (folder already exists)
+                if (e.code != 409) {
+                    // Ignore error if it's already a valid directory
+                }
+            }
+        }
+        val probeName = "LunaWriteCheck_${java.util.UUID.randomUUID()}.jpg"
         val id = try {
-            createUpload(baseUrl, token, driveId, destPath, "LunaWriteCheck.jpg", 1)
+            createUpload(baseUrl, token, driveId, destPath, probeName, 1)
         } catch (e: ApiException) {
             throw when (e.code) {
                 401 -> ApiException(401, badTokenMessage())
