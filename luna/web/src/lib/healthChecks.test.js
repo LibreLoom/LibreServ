@@ -12,6 +12,6 @@ describe("healthChecks", () => {
       displayLabel("drive_d1_smart", {
         details: { drive_label: "Family photos" },
       }),
-    ).toBe("Family photos — health report");
+    ).toBe("Family photos — hard drive wear");
   });
 });

@@ -1,7 +1,7 @@
-//! SMART drive health via `smartctl`.
+//! SMART drive health via `smartctl` — only for traditional spinning hard drives.
 //!
-//! smartctl is optional: when the binary is missing or the drive doesn't
-//! support SMART, Luna reports `available: false` instead of failing.
+//! USB sticks, SSDs, and NVMe drives are ignored: wear reporting isn't useful
+//! for Luna's users on those media, so we don't run checks or show messages.
 
 use serde::Serialize;
 use std::process::Command;
@@ -16,7 +16,60 @@ pub struct DriveHealth {
     pub reallocated_sectors: Option<u64>,
 }
 
+/// True when this block device is a rotational hard drive worth a SMART read.
+pub fn applicable(device: &str) -> bool {
+    let disk = disk_name(device);
+    if disk.is_empty() {
+        return false;
+    }
+    if disk.starts_with("nvme") || disk.starts_with("mmcblk") || disk.starts_with("loop") {
+        return false;
+    }
+    rotational(&disk)
+}
+
+fn disk_name(device: &str) -> String {
+    let name = device.trim().strip_prefix("/dev/").unwrap_or(device.trim());
+    parent_disk(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Strip partition suffixes: `sda1` → `sda`, `nvme0n1p2` → `nvme0n1`.
+fn parent_disk(name: &str) -> Option<String> {
+    let mut end = name.len();
+    while end > 0 && name.as_bytes()[end - 1].is_ascii_digit() {
+        end -= 1;
+    }
+    if end == name.len() {
+        return None;
+    }
+    let mut core = &name[..end];
+    if let Some(stripped) = core.strip_suffix('p') {
+        core = stripped;
+    }
+    if core.is_empty() {
+        None
+    } else {
+        Some(core.to_string())
+    }
+}
+
+fn rotational(disk: &str) -> bool {
+    std::fs::read_to_string(format!("/sys/block/{disk}/queue/rotational"))
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false)
+}
+
 pub fn read(device: &str) -> DriveHealth {
+    if !applicable(device) {
+        return DriveHealth {
+            available: false,
+            overall: "unknown".into(),
+            model: None,
+            serial: None,
+            temperature_c: None,
+            reallocated_sectors: None,
+        };
+    }
     let mut health = DriveHealth {
         available: false,
         overall: "unknown".into(),
@@ -83,6 +136,23 @@ fn smart_raw(line: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_name_strips_partitions() {
+        assert_eq!(disk_name("sda1"), "sda");
+        assert_eq!(disk_name("/dev/sdb2"), "sdb");
+        assert_eq!(disk_name("nvme0n1p2"), "nvme0n1");
+    }
+
+    #[test]
+    fn applicable_ignores_empty_nvme_and_mmc() {
+        assert!(!applicable(""));
+        assert!(!applicable("nvme0n1"));
+        assert!(!applicable("nvme0n1p2"));
+        assert!(!applicable("mmcblk0"));
+        assert!(!applicable("mmcblk0p1"));
+        assert!(!applicable("loop0"));
+    }
 
     #[test]
     fn parses_smartctl_output() {

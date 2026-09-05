@@ -11,7 +11,7 @@ export function describeDriveHealth(health) {
     return {
       pill: "muted",
       title: "Checking…",
-      detail: "Checking this drive's health report.",
+      detail: "Checking this hard drive for wear.",
     };
   }
   if (!health.available) {

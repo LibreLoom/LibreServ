@@ -315,65 +315,40 @@ pub fn finish_comprehensive(
             }
         }
 
-        summary.total_checks += 1;
-        if drive.device.is_empty() {
-            summary.skipped += 1;
-            checks.insert(
-                    smart_name,
-                    HealthCheckResult {
-                        status: "skipped".into(),
-                        message: format!(
-                            "No hardware health report for {label} — Luna doesn't have drive details yet."
-                        ),
-                        details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
-                        category: "drives".into(),
-                    },
-                );
-        } else {
+        if smart::applicable(&drive.device) {
             let health = smart::read(&drive.device);
-            if !health.available {
-                summary.skipped += 1;
-                checks.insert(
+            if health.available {
+                summary.total_checks += 1;
+                if health.overall == "passed" {
+                    summary.passed += 1;
+                    let worn = health.reallocated_sectors.unwrap_or(0) > 0;
+                    let mut msg = if worn {
+                        format!(
+                            "{label} is still working, but it has repaired some worn spots. Copy important files off it soon."
+                        )
+                    } else {
+                        format!("{label} reported no hardware problems.")
+                    };
+                    if let Some(temp) = health.temperature_c {
+                        msg.push_str(&format!(" It's about {temp}°C."));
+                    }
+                    checks.insert(
                         smart_name,
                         HealthCheckResult {
-                            status: "skipped".into(),
-                            message: format!(
-                                "This {label} drive doesn't report hardware health, or Luna can't read it. Your files may still be fine."
-                            ),
-                            details: Some(json!({ "drive_id": drive.id, "drive_label": label })),
+                            status: "passed".into(),
+                            message: msg,
+                            details: Some(json!({
+                                "drive_id": drive.id,
+                                "drive_label": label,
+                                "temperature_c": health.temperature_c,
+                                "reallocated_sectors": health.reallocated_sectors,
+                            })),
                             category: "drives".into(),
                         },
                     );
-            } else if health.overall == "passed" {
-                summary.passed += 1;
-                let worn = health.reallocated_sectors.unwrap_or(0) > 0;
-                let mut msg = if worn {
-                    format!(
-                        "{label} is still working, but it has repaired some worn spots. Copy important files off it soon."
-                    )
                 } else {
-                    format!("{label} reported no hardware problems.")
-                };
-                if let Some(temp) = health.temperature_c {
-                    msg.push_str(&format!(" It's about {temp}°C."));
-                }
-                checks.insert(
-                    smart_name,
-                    HealthCheckResult {
-                        status: "passed".into(),
-                        message: msg,
-                        details: Some(json!({
-                            "drive_id": drive.id,
-                            "drive_label": label,
-                            "temperature_c": health.temperature_c,
-                            "reallocated_sectors": health.reallocated_sectors,
-                        })),
-                        category: "drives".into(),
-                    },
-                );
-            } else {
-                summary.failed += 1;
-                checks.insert(
+                    summary.failed += 1;
+                    checks.insert(
                         smart_name,
                         HealthCheckResult {
                             status: "failed".into(),
@@ -388,6 +363,7 @@ pub fn finish_comprehensive(
                             category: "drives".into(),
                         },
                     );
+                }
             }
         }
     }
@@ -451,6 +427,34 @@ mod tests {
         assert!(resp.healthy, "{:?}", resp.checks);
         assert!(resp.checks.contains_key("database"));
         assert!(resp.checks.contains_key("disk_space"));
+    }
+
+    #[test]
+    fn comprehensive_skips_smart_for_non_hdd() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let now = crate::db::now_unix();
+        conn.execute(
+            "INSERT INTO drives (id, label, state, fs_type, device, mount_point, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                "usb1",
+                "General UDisk",
+                "mounted",
+                "vfat",
+                "nvme0n1",
+                "/mnt/usb",
+                now,
+                now
+            ],
+        )
+        .unwrap();
+        let dm = DriveManager::new(shared_mock(), dir.path());
+        let resp = run_comprehensive(dir.path(), &conn, &dm);
+        assert!(
+            !resp.checks.contains_key("drive_usb1_smart"),
+            "USB/flash drives must not get a SMART row"
+        );
     }
 
     #[test]
