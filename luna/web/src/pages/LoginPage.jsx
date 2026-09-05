@@ -27,7 +27,10 @@ export default function LoginPage() {
 
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home. Mid-setup always continues at /setup.
-  const returnTo = location.state?.from?.pathname || "/";
+  // `from` may be a location object (RequireAuth) or a path string (SetupPage).
+  const from = location.state?.from;
+  const returnTo =
+    (typeof from === "string" ? from : from?.pathname) || "/";
 
   function calculateErrorHTML() {
     if (errorStatus === 401) {

@@ -536,7 +536,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <TextLink
             to="/login"
             surface="secondary"
-            state={{ from: "/setup" }}
+            state={{ from: { pathname: "/setup" } }}
             className="font-mono text-sm underline underline-offset-4"
           >
             Sign in
