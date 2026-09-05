@@ -702,12 +702,12 @@ export default function DashboardPage() {
           {isAdmin && pluggedIn.length > 0 && (
             <Card icon={PlugZap} title="New drive plugged in">
               <p className="text-primary text-sm">
-                Luna noticed a USB drive. Open Drives to look inside — nothing
-                on the drive changes until you choose.
+                Luna noticed a USB drive. Open Drives to add it — nothing
+                on the drive changes until you confirm.
               </p>
               <div className="mt-3">
                 <Button size="sm" variant="primary" asChild>
-                  <Link to="/drives">Look inside</Link>
+                  <Link to="/drives">Add drive</Link>
                 </Button>
               </div>
             </Card>

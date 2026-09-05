@@ -35,7 +35,7 @@ function pluralCount(n, one, many) {
 }
 
 /**
- * Plain-language count line for Look-inside (singular/plural).
+ * Plain-language count line for the add-drive preview (singular/plural).
  * @param {number} folders
  * @param {number} files
  * @param {number} [unreadable]
@@ -117,6 +117,21 @@ function prettyFsType(fs) {
     iso9660: "ISO disc image",
   };
   return names[key] || fs;
+}
+
+/**
+ * Useful one-line details for an unrecognized drive card.
+ * Capacity + USB (when known) + filesystem — not kernel names like "sdmock".
+ * @param {{ size_bytes?: number, usb?: boolean, removable?: boolean, fs_type?: string | null }} drive
+ */
+function detectedDriveMeta(drive) {
+  const parts = [];
+  const size = sizeLabel(drive.size_bytes);
+  if (size) parts.push(size);
+  if (drive.usb || drive.removable) parts.push("USB");
+  const fs = prettyFsType(drive.fs_type);
+  if (fs) parts.push(fs);
+  return parts.length > 0 ? parts.join(" · ") : "A new drive";
 }
 
 /**
@@ -239,21 +254,20 @@ function AdoptedDriveDetails({ drive }) {
   );
 }
 
-function DetectedCard({ drive, onOpen, onIgnore }) {
+function DetectedCard({ drive, onOpen }) {
   return (
-    <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`} headerActions={
-      <Button size="sm" variant="ghost" onClick={() => onIgnore(drive)}>
-        Ignore for now
-      </Button>
-    }>
+    <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`}>
       <p className="text-primary text-sm">
-        {sizeLabel(drive.size_bytes) || "A new drive"} · found on {drive.name}
+        {detectedDriveMeta(drive)}
       </p>
       <p className="text-primary text-sm mt-2">
-        Look inside first. Luna will not change anything until you add it.
+        Click &quot;Add drive&quot; to begin adding the drive.
+      </p>
+      <p className="text-primary text-sm mt-2">
+        You&apos;ll see the contents of the drive before adding it. Luna does not touch the contents until you confirm you want to add the drive.
       </p>
       <div className="mt-3">
-        <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Look inside</Button>
+        <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>Add drive</Button>
       </div>
     </Card>
   );
@@ -372,11 +386,7 @@ export default function DrivesPage() {
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
   const protectAvailable = useCanProtect();
-  /** Frontend-only fallback mock can be dismissed without calling lunad. */
-  const [dismissedMock, setDismissedMock] = useState(false);
-  const unknownDrives = withDevMockDetected(detected.data).filter(
-    (d) => !(dismissedMock && d.name === "sdmock" && !detected.data?.some((real) => real.name === "sdmock")),
-  );
+  const unknownDrives = withDevMockDetected(detected.data);
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
@@ -403,18 +413,6 @@ export default function DrivesPage() {
       // InspectModal closes via ModalCard's animated close (not an instant unmount).
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
-      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
-    },
-  });
-
-  const dismiss = useMutation({
-    mutationFn: (/** @type {any} */ drive) =>
-      postJson(`/api/v1/drives/${drive.name}/dismiss`, {}),
-    onSuccess: (_data, drive) => {
-      if (drive && !detected.data?.some((real) => real.name === drive.name)) {
-        setDismissedMock(true);
-        return;
-      }
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
   });
@@ -535,7 +533,6 @@ export default function DrivesPage() {
                   setInspectFor(d);
                   inspect.mutate(d);
                 }}
-                onIgnore={(d) => dismiss.mutate(d)}
               />
             ))}
           </div>
@@ -651,10 +648,10 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
       onClose={onClose}
       title={
         <span className="inline-flex items-center gap-2 flex-wrap">
-          {`Look inside ${shownDrive.model || shownDrive.name}`}
+          {`Add ${shownDrive.model || shownDrive.name}`}
           <InfoHint
-            label="What looking inside does"
-            content="Luna only reads the drive. Nothing is changed until you add it."
+            label="What happens when you add a drive"
+            content="Luna shows what's on the drive first. Nothing is changed until you confirm."
           />
         </span>
       }
@@ -664,7 +661,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
       {!result && !error && (
         <div className="flex items-center gap-3 text-primary" role="status">
           <Spinner size="sm" decorative className="text-primary shrink-0" />
-          <p className="text-sm">Looking…</p>
+          <p className="text-sm">Checking the drive…</p>
         </div>
       )}
 
