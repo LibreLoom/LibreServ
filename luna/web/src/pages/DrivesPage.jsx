@@ -639,7 +639,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
   const blockedReason = result && !canUse
     ? (!result.readable
       ? "Luna could not read this drive. Make sure it is plugged in firmly and try again."
-      : "This drive will not accept new files right now. Usually that means a filesystem issue, or a write-lock switch on the stick. If this USB still has the Luna installer on it, look inside and choose Erase and add.")
+      : "This drive will not accept new files right now. Usually that means a filesystem issue, or a write-lock switch on the stick. Check the lock switch, then try again.")
     : null;
 
   return (
@@ -723,10 +723,9 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
             <div className="mt-4 flex items-center gap-3">
               <TriangleAlert size={18} className="text-warning shrink-0" />
               <p className="text-primary text-xs">
-                This USB still has the Luna installer on it. That kind of disk
-                cannot be changed. Luna can erase it and set it up for your
-                photos and files. Everything currently on it will be deleted,
-                including the installer.
+                If you have moved any files you want to keep off this drive,
+                choose Erase and add this drive. That deletes everything on it
+                so Luna can use it for your photos and files.
               </p>
             </div>
           ) : blockedReason ? (
