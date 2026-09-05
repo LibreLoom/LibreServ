@@ -31,7 +31,7 @@ support call later.
 - [ ] Admin account created; name saved; wizard completes to drives
 
 ## 4. Storage safety
-- [ ] Unrecognized FAT32 drive → "Look inside" is read-only, contents listed
+- [ ] Unrecognized FAT32 drive → "Add drive" preview is read-only, contents listed
 - [ ] Adoption writes exactly one `.luna` file; nothing else changed (diff the drive before/after)
 - [ ] Eject says safe to remove; replug returns the drive
 

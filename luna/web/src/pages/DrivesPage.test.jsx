@@ -166,7 +166,7 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/^Looking…$/);
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Checking the drive…$/);
     expect(screen.queryByText(/read-only mode/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/changes nothing until you add it/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /What happens when you add a drive/i })).toBeInTheDocument();

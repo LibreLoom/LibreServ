@@ -624,7 +624,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
   const blockedReason = result && !canUse
     ? (!result.readable
       ? "Luna could not read this drive. Make sure it is plugged in firmly and try again."
-      : "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, look inside and choose Erase and add.")
+      : "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, choose Erase and add.")
     : null;
 
   return (
@@ -646,7 +646,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
       {!result && !error && (
         <div className="flex items-center gap-3 text-primary" role="status">
           <Spinner size="sm" decorative className="text-primary shrink-0" />
-          <p className="text-sm">Looking…</p>
+          <p className="text-sm">Checking the drive…</p>
         </div>
       )}
 

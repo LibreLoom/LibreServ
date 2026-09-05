@@ -50,7 +50,7 @@ struct InspectionJson {
     folders: u64,
     files: u64,
     unreadable: u64,
-    /// Non-hidden top-level names (folders first), for the Look-inside preview.
+    /// Non-hidden top-level names (folders first), for the Add-drive preview.
     entries: Vec<InspectEntryJson>,
     needs_erase: bool,
     readable: bool,

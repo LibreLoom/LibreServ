@@ -30,7 +30,7 @@ use crate::fsprobe::{
 use crate::mount::Mounter;
 
 pub const INSTALLER_USB_MESSAGE: &str = "This USB still has the Luna installer on it. That kind of disk cannot be changed. Erase it to use it for photos and files — that deletes everything currently on the USB, including the installer.";
-pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, look inside and choose Erase and add.";
+pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, choose Erase and add.";
 
 #[derive(Debug, Clone)]
 pub struct Inspection {
