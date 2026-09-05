@@ -21,7 +21,9 @@ export default function RemoteCategory() {
   const address = host ? (host.includes("://") ? host : `https://${host}`) : "";
   const tokenError = s.device_token_error || "";
   const unreachable = s.connect_unreachable || "";
-  const panelError = tokenError || unreachable;
+  const tunnelError = s.tunnel_error || "";
+  const hardError = tokenError || unreachable;
+  const tunnelWarn = !hardError ? tunnelError : "";
   const isOn = Boolean(s.enabled);
 
   return (
@@ -45,12 +47,12 @@ export default function RemoteCategory() {
               Public address
             </p>
 
-            {panelError ? (
+            {hardError ? (
               <div
                 className="rounded-large-element border-2 border-error/30 bg-error/20 px-3 py-3 space-y-2"
                 role="alert"
               >
-                <p className="text-sm text-error leading-relaxed">{panelError}</p>
+                <p className="text-sm text-error leading-relaxed">{hardError}</p>
                 {tokenError ? (
                   <Button variant="outline" surface="primary" size="sm" asChild>
                     <Link to="/settings#about">Change the device token in About → Advanced</Link>
@@ -80,9 +82,18 @@ export default function RemoteCategory() {
                 </p>
               </div>
             )}
+
+            {tunnelWarn ? (
+              <div
+                className="rounded-large-element border-2 border-warning/30 bg-warning/20 px-3 py-3"
+                role="status"
+              >
+                <p className="text-sm text-warning leading-relaxed">{tunnelWarn}</p>
+              </div>
+            ) : null}
           </div>
 
-          {!isOn && !panelError ? (
+          {!isOn && !hardError ? (
             <p className="text-primary text-sm leading-relaxed motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
               Pick a name on Luna Connect. Luna shows the address here once it is ready. You can
               also add cloud backup there.

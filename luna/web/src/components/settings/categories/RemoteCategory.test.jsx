@@ -79,6 +79,35 @@ describe("RemoteCategory", () => {
     expect(screen.queryByPlaceholderText("kitchen")).not.toBeInTheDocument();
   });
 
+  it("keeps the address visible and warns when the secure tunnel is down", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              enabled: true,
+              hostname: "photos.luna.servers.libreloom.org",
+              domain: "photos.luna.servers.libreloom.org",
+              tunnel_active: false,
+              tunnel_error:
+                "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Remote access is set up, but the secure tunnel is not running yet\. Luna will keep trying\./i,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("On")).toBeTruthy();
+  });
+
   it("shows device token errors with a link to About Advanced", async () => {
     vi.stubGlobal(
       "fetch",
