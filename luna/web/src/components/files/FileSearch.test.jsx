@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
@@ -139,6 +140,37 @@ describe("FileSearch", () => {
       "href",
       "/api/v1/drives/d1/files/content?path=album&download=1",
     );
+  });
+
+  it("shows tooltips on search result action buttons", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderSearch([
+      {
+        drive_id: "d1",
+        path: "notes.txt",
+        parent: "",
+        name: "notes.txt",
+        kind: "file",
+        size: 10,
+        modified: 1,
+      },
+    ]);
+    fireEvent.change(screen.getByLabelText("Search for a file"), {
+      target: { value: "notes" },
+    });
+    expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+
+    await user.hover(screen.getByRole("button", { name: /Copy notes.txt/i }));
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+
+    await user.hover(screen.getByRole("button", { name: /Move notes.txt to trash/i }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Move to trash");
+
+    vi.useRealTimers();
   });
 
   it("confirms trash from a search hit", async () => {
