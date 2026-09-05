@@ -96,7 +96,7 @@ async fn list(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<DriveJson>>, (StatusCode, Json<serde_json::Value>)> {
-    let rows = with_db(&state.db, crate::db::list_drives).map_err(|e| {
+    let rows = with_db(&state.db, crate::db::list_drives).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list your drives. Try again.",
@@ -279,7 +279,7 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    with_db(&state.db, |conn| state.drive_manager.remove(conn, &id)).map_err(|e| {
+    with_db(&state.db, |conn| state.drive_manager.remove(conn, &id)).map_err(|_| {
         json_error(
             StatusCode::BAD_REQUEST,
             "Luna couldn't remove this drive. Try again.",
