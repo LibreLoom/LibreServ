@@ -41,7 +41,7 @@ describe("useAnimatedHeight", () => {
     expect(result.current.innerRef.current).toBeNull();
   });
 
-  it("sets an explicit pixel height from the measured inner box", () => {
+  it("sets an explicit pixel height from the measured inner box", async () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -58,10 +58,13 @@ describe("useAnimatedHeight", () => {
     );
 
     const { getByTestId } = render(<Probe innerHeight={96} />);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
     expect(getByTestId("outer").style.height).toBe("96px");
   });
 
-  it("updates outer height when ResizeObserver reports a new inner size", () => {
+  it("updates outer height when ResizeObserver reports a new inner size", async () => {
     /** @type {ResizeObserverCallback[]} */
     const callbacks = [];
     vi.stubGlobal(
@@ -81,6 +84,9 @@ describe("useAnimatedHeight", () => {
     );
 
     const { getByTestId, rerender } = render(<Probe innerHeight={64} />);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
     expect(getByTestId("outer").style.height).toBe("64px");
 
     rerender(<Probe innerHeight={240} />);
@@ -90,7 +96,7 @@ describe("useAnimatedHeight", () => {
     expect(getByTestId("outer").style.height).toBe("240px");
   });
 
-  it("rebinds observation when enabled flips back to true", () => {
+  it("rebinds observation when enabled flips back to true", async () => {
     let observeCount = 0;
     vi.stubGlobal(
       "ResizeObserver",
@@ -109,6 +115,9 @@ describe("useAnimatedHeight", () => {
     );
 
     const { rerender, getByTestId } = render(<Probe enabled innerHeight={50} />);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
     expect(observeCount).toBe(1);
     expect(getByTestId("outer").style.height).toBe("50px");
 
@@ -116,6 +125,9 @@ describe("useAnimatedHeight", () => {
     expect(getByTestId("outer").style.height).toBe("");
 
     rerender(<Probe enabled innerHeight={50} />);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
     expect(observeCount).toBe(2);
     expect(getByTestId("outer").style.height).toBe("50px");
   });
