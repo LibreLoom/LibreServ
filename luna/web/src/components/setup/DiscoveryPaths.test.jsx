@@ -55,10 +55,21 @@ describe("DiscoveryPaths", () => {
     );
     renderPaths();
     expect(await screen.findByText("Everywhere:")).toBeTruthy();
-    expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
+    const remoteLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
+    expect(remoteLink).toHaveAttribute("href", "https://kitchen.luna.servers.libreloom.org");
+    expect(remoteLink).toHaveAttribute("target", "_blank");
+    expect(remoteLink).toHaveAttribute("rel", "noreferrer");
+    expect(remoteLink.className).toMatch(/underline/);
+    expect(remoteLink.className).toMatch(/hover:no-underline/);
     expect(screen.getByText("On your home internet only:")).toBeTruthy();
-    expect(screen.getByText("luna.local")).toBeTruthy();
-    expect(screen.getByText("192.168.1.118")).toBeTruthy();
+    const localLink = screen.getByRole("link", { name: "luna.local" });
+    expect(localLink).toHaveAttribute("href", "http://luna.local");
+    expect(localLink).toHaveAttribute("target", "_blank");
+    expect(localLink).toHaveAttribute("rel", "noreferrer");
+    const ipLink = screen.getByRole("link", { name: "192.168.1.118" });
+    expect(ipLink).toHaveAttribute("href", "http://192.168.1.118");
+    expect(ipLink).toHaveAttribute("target", "_blank");
+    expect(ipLink).toHaveAttribute("rel", "noreferrer");
     expect(screen.queryByText(/if your phone finds it/i)).toBeNull();
     expect(screen.queryByText(/current address on the screen/i)).toBeNull();
     expect(screen.queryByText(/Stay on your home internet/i)).toBeNull();
@@ -72,10 +83,13 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths();
-    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(await screen.findByRole("link", { name: "192.168.1.20" })).toHaveAttribute(
+      "href",
+      "http://192.168.1.20",
+    );
     expect(screen.queryByText("Everywhere:")).toBeNull();
     expect(screen.getByText("On your home internet only:")).toBeTruthy();
-    expect(screen.getByText("luna.local")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
   });
 
   it("hides Everywhere when the device token was rejected", async () => {
