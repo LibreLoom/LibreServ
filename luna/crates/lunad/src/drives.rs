@@ -1065,7 +1065,7 @@ mod tests {
 
     /// USB adopted as `sdc` comes back as `sdd` with the same `.luna` marker.
     /// Reconcile rematches by marker UUID, updates `device`, and restores Ready
-    /// so the stick is not listed under Unknown Drives.
+    /// so the stick is not listed under Unrecognized Drives.
     #[test]
     fn reconcile_rematches_by_marker_when_kernel_name_changes() {
         let mounter = shared_mock();

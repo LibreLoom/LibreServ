@@ -520,7 +520,7 @@ export default function DrivesPage() {
       {isAdmin && (
         <>
           <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
-            Unknown Drives
+            Unrecognized Drives
           </h2>
           <div className="grid gap-5 md:grid-cols-2">
             {unknownDrives.map((drive) => (
