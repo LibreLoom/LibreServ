@@ -115,7 +115,7 @@ export default function PreflightStep({ onPass }) {
       } else {
         throw new Error("Luna sent an unexpected response.");
       }
-    } catch (err) {
+    } catch {
       setError("Could not run the system check. Make sure this device can reach Luna, then tap Re-run checks.");
     } finally {
       setRunning(false);
@@ -135,7 +135,7 @@ export default function PreflightStep({ onPass }) {
         } else {
           throw new Error("Luna sent an unexpected response.");
         }
-      } catch (err) {
+      } catch {
         if (cancelled) return;
         setError("Could not run the system check. Make sure this device can reach Luna, then tap Re-run checks.");
       } finally {
