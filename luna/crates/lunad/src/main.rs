@@ -138,16 +138,6 @@ async fn main() -> anyhow::Result<()> {
                     }
                     if let Some(err) = st.tunnel_error.clone() {
                         problems.push(err);
-                    } else if st.connect_active
-                        && st.enabled
-                        && st.hostname.is_some()
-                        && !st.tunnel_active
-                        && st.device_token_error.is_none()
-                    {
-                        problems.push(
-                            "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying."
-                                .into(),
-                        );
                     }
 
                     if !net.ethernet_connected {

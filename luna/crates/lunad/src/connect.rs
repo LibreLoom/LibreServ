@@ -33,6 +33,9 @@ pub const TUNNEL_START_FAILED_MSG: &str =
     "Luna could not start remote access. Luna will keep trying.";
 /// Hostname is set but Connect has not given Luna a tunnel secret yet.
 pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
+/// Hostname/token exist but lunad does not see a live connector yet.
+pub const TUNNEL_NOT_RUNNING_MSG: &str =
+    "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 const MIN_CLOUDFLARED_BYTES: u64 = 1024;
@@ -88,6 +91,9 @@ pub struct ConnectService {
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
     active_tunnel_token: Arc<Mutex<Option<String>>>,
+    /// Serializes ensure/stop so concurrent poll + supervisor ticks cannot drop a
+    /// live `Child` handle and leave an orphaned connector Luna thinks is down.
+    tunnel_mu: Mutex<()>,
     /// Sticky until a later poll succeeds or the token is replaced/removed.
     rejected_token: Mutex<bool>,
     /// Sticky user-facing reachability/challenge message while a device token is present.
@@ -112,6 +118,7 @@ impl ConnectService {
             device_key,
             child: Arc::new(Mutex::new(None)),
             active_tunnel_token: Arc::new(Mutex::new(None)),
+            tunnel_mu: Mutex::new(()),
             rejected_token: Mutex::new(false),
             connect_unreachable: Mutex::new(None),
             tunnel_error: Mutex::new(None),
@@ -135,7 +142,7 @@ impl ConnectService {
         let mut status = self.status_inner();
         let token_error = self.device_token_error();
         let unreachable = self.connect_unreachable_message();
-        let tunnel_err = self.tunnel_error_message();
+        let mut tunnel_err = self.tunnel_error_message();
         if token_error.is_some() {
             status.enabled = false;
             status.paired = false;
@@ -145,6 +152,17 @@ impl ConnectService {
             status.domain = None;
             status.subdomain = None;
             status.setup_code = None;
+        }
+        // HDMI console and the web UI both read tunnel_error — synthesize the
+        // "not running yet" case so they stay in sync when the connector is down.
+        if tunnel_err.is_none()
+            && status.connect_active
+            && status.enabled
+            && status.hostname.is_some()
+            && !status.tunnel_active
+            && token_error.is_none()
+        {
+            tunnel_err = Some(TUNNEL_NOT_RUNNING_MSG.to_string());
         }
         status.device_token_error = token_error;
         status.connect_unreachable = unreachable;
@@ -636,8 +654,6 @@ impl ConnectService {
             .ok_or_else(|| ConnectError::Other("This Luna has no device token yet.".into()))
     }
 
-
-
     pub fn token(&self) -> Result<String, ConnectError> {
         self.device_code()
     }
@@ -770,6 +786,7 @@ impl ConnectService {
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
+        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.load();
         let token = state
             .get("tunnel_token")
@@ -799,7 +816,18 @@ impl ConnectService {
             self.clear_tunnel_error();
             return Ok(());
         }
-        self.stop_tunnel();
+        self.stop_tunnel_unlocked();
+
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        // Reap connectors left behind when a prior lunad lost its Child handle
+        // (hard kill / race). Without this, remote access stays up while
+        // tunnel_active stays false and HDMI complains.
+        reap_stale_cloudflared(&cloudflared_candidate_paths(&local));
 
         let bin = self.resolve_or_install_cloudflared()?;
 
@@ -863,7 +891,10 @@ impl ConnectService {
 
         self.clear_tunnel_error();
         *self.active_tunnel_token.lock().unwrap() = Some(token);
-        *self.child.lock().unwrap() = Some(child);
+        if let Some(mut old) = self.child.lock().unwrap().replace(child) {
+            let _ = old.kill();
+            let _ = old.wait();
+        }
         Ok(())
     }
 
@@ -912,11 +943,25 @@ impl ConnectService {
     }
 
     fn stop_tunnel(&self) {
+        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
+        self.stop_tunnel_unlocked();
+    }
+
+    fn stop_tunnel_unlocked(&self) {
         *self.active_tunnel_token.lock().unwrap() = None;
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        // Pairing off / token revoke must also clear orphans, or remote access
+        // stays up after Luna thinks Connect is gone.
+        reap_stale_cloudflared(&cloudflared_candidate_paths(&local));
     }
 
     /// Status pull reports Luna's HTTP listen port so Connect can aim the tunnel at the right origin.
@@ -979,15 +1024,23 @@ impl ConnectService {
         let mut g = self.child.lock().unwrap();
         if let Some(child) = g.as_mut() {
             match child.try_wait() {
-                Ok(None) => true,
+                Ok(None) => return true,
                 _ => {
                     *g = None;
-                    false
                 }
             }
-        } else {
-            false
         }
+        drop(g);
+        // Child handle can be lost (prior race / hard restart) while cloudflared
+        // keeps the tunnel up. Count those unmanaged connectors so HDMI/API match
+        // reality until ensure_tunnel reaps and re-owns them.
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        external_cloudflared_running(&cloudflared_candidate_paths(&local))
     }
 
     fn call_json(
@@ -1127,6 +1180,64 @@ fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {
         PathBuf::from("/sbin/cloudflared"),
         data_bin.to_path_buf(),
     ]
+}
+
+/// True when a /proc cmdline belongs to a Luna-managed `cloudflared tunnel run`.
+fn stale_cloudflared_cmdline(cmdline: &str, bin_path: &Path) -> bool {
+    let flat = cmdline.replace('\0', " ");
+    let marker = format!("{} tunnel --no-autoupdate run", bin_path.display());
+    flat.contains(&marker)
+}
+
+/// PIDs of cloudflared tunnel processes started from one of `bin_paths`.
+fn cloudflared_tunnel_pids(bin_paths: &[PathBuf]) -> Vec<i32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid_str) = name.to_str() else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<i32>() else {
+            continue;
+        };
+        let cmdline_path = entry.path().join("cmdline");
+        let Ok(raw) = std::fs::read(&cmdline_path) else {
+            continue;
+        };
+        let cmdline = String::from_utf8_lossy(&raw);
+        if bin_paths
+            .iter()
+            .any(|bin| stale_cloudflared_cmdline(&cmdline, bin))
+        {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+fn external_cloudflared_running(bin_paths: &[PathBuf]) -> bool {
+    !cloudflared_tunnel_pids(bin_paths).is_empty()
+}
+
+/// Send SIGINT to unmanaged cloudflared processes from our known binary paths.
+fn reap_stale_cloudflared(bin_paths: &[PathBuf]) {
+    for pid in cloudflared_tunnel_pids(bin_paths) {
+        tracing::info!(pid, "reaping stale cloudflared tunnel process");
+        let _ = nix_kill(pid);
+    }
+}
+
+fn nix_kill(pid: i32) -> std::io::Result<()> {
+    // Avoid depending on the `nix` crate — libc kill is enough here.
+    let rc = unsafe { libc::kill(pid, libc::SIGINT) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
 }
 
 fn cloudflared_arch() -> &'static str {
@@ -1514,11 +1625,109 @@ mod tests {
             TUNNEL_HELPER_MISSING_MSG,
             TUNNEL_START_FAILED_MSG,
             TUNNEL_TOKEN_MISSING_MSG,
+            TUNNEL_NOT_RUNNING_MSG,
         ] {
             assert!(msg.contains("keep trying"), "{msg}");
             assert!(!msg.contains("cloudflared"), "{msg}");
             assert!(!msg.contains("1033"), "{msg}");
         }
+    }
+
+    #[test]
+    fn status_synthesizes_tunnel_not_running_when_hostname_without_connector() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "subdomain": "photos",
+                "tunnel_token": "real-looking-token-not-mock",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        let st = service.status();
+        assert!(st.enabled);
+        assert!(!st.tunnel_active);
+        assert_eq!(st.tunnel_error.as_deref(), Some(TUNNEL_NOT_RUNNING_MSG));
+    }
+
+    #[test]
+    fn stale_cloudflared_cmdline_matches_token_and_env_forms() {
+        let bin = PathBuf::from("/var/lib/luna/bin/cloudflared");
+        assert!(stale_cloudflared_cmdline(
+            "/var/lib/luna/bin/cloudflared\0tunnel\0--no-autoupdate\0run\0--token\0abc",
+            &bin
+        ));
+        assert!(stale_cloudflared_cmdline(
+            "/var/lib/luna/bin/cloudflared tunnel --no-autoupdate run",
+            &bin
+        ));
+        assert!(!stale_cloudflared_cmdline(
+            "/usr/bin/cloudflared\0tunnel\0--no-autoupdate\0run\0--token\0abc",
+            &bin
+        ));
+        assert!(!stale_cloudflared_cmdline(
+            "/var/lib/luna/bin/cloudflared\0tunnel\0run",
+            &bin
+        ));
+    }
+
+    #[test]
+    fn tunnel_active_when_unmanaged_cloudflared_still_alive() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let fake = bin_dir.join("cloudflared");
+        let mut body = String::from(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\nsleep 3600\n",
+        );
+        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
+            body.push('#');
+        }
+        std::fs::write(&fake, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let mut orphan = Command::new(&fake)
+            .args([
+                "tunnel",
+                "--no-autoupdate",
+                "run",
+                "--token",
+                "orphan-token",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake cloudflared");
+
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "orphan-token",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+
+        // Give /proc a moment; then HDMI/API must see the unmanaged connector.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let st = service.status();
+        let _ = orphan.kill();
+        let _ = orphan.wait();
+        assert!(
+            st.tunnel_active,
+            "unmanaged cloudflared must count as tunnel_active so HDMI does not false-alarm"
+        );
+        assert!(st.tunnel_error.is_none());
     }
 
     #[test]
