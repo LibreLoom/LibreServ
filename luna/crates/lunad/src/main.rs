@@ -105,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
                         waited += 1;
                         // Re-check during long steady-state sleeps (300s). Otherwise a dead
                         // cloudflared child is not noticed until the next Connect poll.
-                        if waited % 5 == 0 {
+                        if waited.is_multiple_of(5) {
                             connect.ensure_tunnel_if_needed();
                         }
                     }
