@@ -53,7 +53,7 @@ describe("AccessCategory", () => {
     renderAccess();
     expect(await screen.findByRole("heading", { name: "Apps and access tokens" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
-    expect(screen.getByText(/phone app, desktop app, or script/i)).toBeTruthy();
+    expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
   });
 
   it("lists existing tokens with revoke-token action", async () => {
