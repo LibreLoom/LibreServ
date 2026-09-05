@@ -434,7 +434,8 @@ describe("DrivesPage", () => {
     expect(screen.getByText("EFI")).toBeInTheDocument();
     expect(screen.getByText("boot")).toBeInTheDocument();
     expect(screen.getByText("luna.iso")).toBeInTheDocument();
-    expect(screen.getByText(/still has the Luna installer/i)).toBeInTheDocument();
+    expect(screen.getByText(/moved any files you want to keep/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Luna installer/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Erase and add this drive/i }));
     expect(screen.getByRole("button", { name: /Yes, erase it/i })).toBeInTheDocument();

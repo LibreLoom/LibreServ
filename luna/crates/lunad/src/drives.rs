@@ -29,8 +29,8 @@ use crate::fsprobe::{
 };
 use crate::mount::Mounter;
 
-pub const INSTALLER_USB_MESSAGE: &str = "This USB still has the Luna installer on it. That kind of disk cannot be changed. Erase it to use it for photos and files — that deletes everything currently on the USB, including the installer.";
-pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, look inside and choose Erase and add.";
+pub const INSTALLER_USB_MESSAGE: &str = "If you have moved any files you want to keep off this drive, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files.";
+pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. Then try again.";
 /// Adopt failed because the stick stayed read-only after a remount attempt.
 pub const NEEDS_FORMAT_MESSAGE: &str =
     "This drive is read-only. Format it before using it with Luna.";
