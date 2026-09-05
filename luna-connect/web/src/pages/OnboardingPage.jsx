@@ -1304,9 +1304,15 @@ export default function OnboardingPage() {
           <p className="mt-3 text-xs font-mono text-foreground">RJ45 port</p>
         </div>
       </div>
-      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-        <span>Waiting…</span>
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+          <span>Waiting…</span>
+        </div>
+        <p className="text-xs text-muted-foreground text-center text-pretty max-w-sm leading-relaxed">
+          After Luna is online, setting up its secure address can take a few minutes. If it still
+          isn't ready after 10 minutes, something is wrong.
+        </p>
       </div>
     </StepShell>
   );
