@@ -779,6 +779,10 @@ describe("OnboardingPage finish flow", () => {
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
+    expect(
+      screen.getByText(/setting up its secure address can take a few minutes/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/after 10 minutes, something is wrong/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Complete setup on Luna/i })).toBeNull();
   });
 
