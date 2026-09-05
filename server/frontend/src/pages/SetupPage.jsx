@@ -68,6 +68,10 @@ SetupShell.propTypes = { children: PropTypes.node.isRequired };
 function SetupCard({ children, className = "", header = null }) {
   const { outerRef, innerRef } = useAnimatedHeight();
   const { key: tKey, direction } = useContext(StepTransitionContext);
+  // Drop the slide classes once the entrance animation finishes so that Chrome
+  // can't replay them when a child input receives :focus or a style-recalc
+  // fires (the animation-name stays live on the element otherwise).
+  const [sliding, setSliding] = useState(true);
   return (
     <div
       ref={outerRef}
@@ -78,10 +82,15 @@ function SetupCard({ children, className = "", header = null }) {
         {header}
         <div
           key={tKey}
-          className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          // backwards (not both): drop the transform after the slide so focused
-          // inputs inside the card don't jump on a leftover compositing layer.
-          style={{ animationFillMode: "backwards" }}
+          className={cn(
+            className,
+            sliding && "animate-in duration-300",
+            sliding && (direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
+          )}
+          // backwards (not both): during the slide, hold the from-state before
+          // the animation starts; once done the classes are removed entirely.
+          style={sliding ? { animationFillMode: "backwards" } : undefined}
+          onAnimationEnd={() => setSliding(false)}
         >
           {children}
         </div>
@@ -94,6 +103,7 @@ SetupCard.propTypes = {
   className: PropTypes.string,
   header:    PropTypes.node,
 };
+
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
 // The shared indicator across both products: a plain row of dots where the
