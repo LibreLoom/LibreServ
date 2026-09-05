@@ -257,12 +257,7 @@ fn set_current(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str, c
 }
 
 /// Count a finished transfer and clear `current` so the Status row drops.
-fn bump(
-    progress: &Arc<Mutex<HashMap<String, SyncProgress>>>,
-    id: &str,
-    up: bool,
-    conflict: bool,
-) {
+fn bump(progress: &Arc<Mutex<HashMap<String, SyncProgress>>>, id: &str, up: bool, conflict: bool) {
     if let Ok(mut map) = progress.lock()
         && let Some(p) = map.get_mut(id)
     {

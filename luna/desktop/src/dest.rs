@@ -303,7 +303,10 @@ mod tests {
     #[test]
     fn sanitize_drive_label_for_local_folder() {
         assert_eq!(sanitize_sync_folder_name("Photos"), "Photos");
-        assert_eq!(sanitize_sync_folder_name("Family / Media"), "Family - Media");
+        assert_eq!(
+            sanitize_sync_folder_name("Family / Media"),
+            "Family - Media"
+        );
         assert_eq!(sanitize_sync_folder_name("  "), "Luna Drive");
         assert_eq!(sanitize_sync_folder_name(".."), "Luna Drive");
         assert_eq!(sanitize_sync_folder_name(".hidden."), "hidden");

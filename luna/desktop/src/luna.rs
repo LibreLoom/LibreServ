@@ -32,9 +32,7 @@ pub fn plain_connect_error(err: &ureq::Error) -> String {
         ureq::Error::StatusCode(401) => {
             "That username or password didn't work. Check them and try again.".into()
         }
-        ureq::Error::StatusCode(403) => {
-            "You don't have permission to do that on Luna.".into()
-        }
+        ureq::Error::StatusCode(403) => "You don't have permission to do that on Luna.".into(),
         ureq::Error::StatusCode(409) => {
             "A file with this name is already here. Rename it or choose another.".into()
         }
@@ -444,9 +442,9 @@ pub fn upload_file(
             200 | 201 => Ok(()),
             _ => Err("Luna couldn't finish the upload. Try again.".into()),
         },
-        Err(ureq::Error::StatusCode(409)) => Err(
-            "A file with this name is already here. Rename it or choose another.".into(),
-        ),
+        Err(ureq::Error::StatusCode(409)) => {
+            Err("A file with this name is already here. Rename it or choose another.".into())
+        }
         Err(e) => Err(plain_connect_error(&e)),
     }
 }
@@ -598,10 +596,14 @@ mod tests {
                 {
                     (
                         200,
-                        r#"{"upload_id":"up-1","received":0,"size":3,"name":"note.txt"}"#.to_string(),
+                        r#"{"upload_id":"up-1","received":0,"size":3,"name":"note.txt"}"#
+                            .to_string(),
                     )
                 } else if req.contains("/api/v1/uploads/up-1/complete?overwrite=1") {
-                    (200, r#"{"name":"note.txt","kind":"file","size":3,"modified":1}"#.to_string())
+                    (
+                        200,
+                        r#"{"name":"note.txt","kind":"file","size":3,"modified":1}"#.to_string(),
+                    )
                 } else if req.contains("/api/v1/uploads/up-1/complete") {
                     // Create-only complete: pretend the name already exists.
                     (409, r#"{"error":"exists"}"#.to_string())

@@ -318,9 +318,7 @@ fn open_editor(
     page.set_margin_start(16);
     page.set_margin_end(16);
 
-    let dest_label = gtk::Label::new(Some(
-        "Select a Luna folder or whole drive to sync",
-    ));
+    let dest_label = gtk::Label::new(Some("Select a Luna folder or whole drive to sync"));
     dest_label.set_halign(gtk::Align::Start);
     dest_label.set_wrap(true);
     dest_label.add_css_class("heading");
