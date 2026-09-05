@@ -22,11 +22,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
 
-  const { login } = useAuth();
+  const { login, refresh } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
 
   // Where to send the user after a successful login — the page they were
-  // trying to reach, or home.
+  // trying to reach, or home. Mid-setup always continues at /setup.
   const returnTo = location.state?.from?.pathname || "/";
 
   function calculateErrorHTML() {
@@ -89,7 +89,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
-      navigate(returnTo, { replace: true });
+      const { setup: setupState } = await refresh();
+      if (setupState && setupState.setup_completed === false) {
+        navigate("/setup", { replace: true });
+      } else {
+        navigate(returnTo, { replace: true });
+      }
     } catch (err) {
       setErrorStatus(err.status || "NetworkError");
     } finally {

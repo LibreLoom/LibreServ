@@ -3,19 +3,29 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
 
-function renderAt(path, { setupCompleted = false, hasAdmin = false } = {}) {
+function renderAt(path, { setupCompleted = false, hasAdmin = false, setupHttpStatus = 200 } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
     const u = String(url);
     if (u.endsWith("/api/v1/auth/me")) {
       return new Response("null", { status: 401 });
     }
     if (u.endsWith("/api/v1/auth/status")) {
-      return new Response(JSON.stringify({ has_admin: hasAdmin }), {
+      return new Response(JSON.stringify({
+        has_admin: hasAdmin,
+        setup_completed: setupCompleted,
+        connect_active: false,
+      }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
     if (u.endsWith("/api/v1/setup")) {
+      if (setupHttpStatus !== 200) {
+        return new Response(JSON.stringify({ error: "blocked" }), {
+          status: setupHttpStatus,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({ name: "Luna", setup_completed: setupCompleted }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -56,6 +66,21 @@ describe("AuthProvider setup gating", () => {
     renderAt("/", { setupCompleted: true, hasAdmin: true });
     expect(await screen.findByText("LUNA HOME")).toBeInTheDocument();
   });
+
+  it("sends mid-setup visitors to /setup when GET /setup needs sign-in (401)", async () => {
+    renderAt("/", { setupCompleted: false, hasAdmin: true, setupHttpStatus: 401 });
+    expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+  });
+
+  it("sends mid-setup visitors to /setup when remote GET /setup needs a setup code (403)", async () => {
+    renderAt("/", { setupCompleted: false, hasAdmin: true, setupHttpStatus: 403 });
+    expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+  });
+
+  it("still allows /login when setup is incomplete and GET /setup is 401", async () => {
+    renderAt("/login", { setupCompleted: false, hasAdmin: true, setupHttpStatus: 401 });
+    expect(await screen.findByText("LOGIN SCREEN")).toBeInTheDocument();
+  });
 });
 
 describe("AuthProvider session survival", () => {
@@ -72,7 +97,7 @@ describe("AuthProvider session survival", () => {
         return new Response("null", { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (u.endsWith("/api/v1/auth/status")) {
-        return new Response(JSON.stringify({ has_admin: true }), {
+        return new Response(JSON.stringify({ has_admin: true, setup_completed: true }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });

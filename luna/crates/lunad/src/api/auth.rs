@@ -199,9 +199,13 @@ async fn me(req: Request) -> Json<Value> {
 
 async fn status(State(state): State<AppState>) -> Json<Value> {
     let has_admin = state.auth.count_users().map(|n| n > 0).unwrap_or(false);
+    // Public so the SPA can send mid-setup visitors to /setup even when
+    // GET /api/v1/setup needs a session or remote setup code (401/403).
+    let setup_completed = !crate::auth::setup_wizard_open(&state);
     Json(json!({
         "has_admin": has_admin,
         "connect_active": state.connect.is_connect_active(),
+        "setup_completed": setup_completed,
     }))
 }
 

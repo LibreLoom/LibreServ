@@ -1435,6 +1435,62 @@ mod guard_tests {
 
         let get = call(&app, req(Method::GET, "/api/v1/setup", None, None)).await;
         assert_eq!(get.status(), 401);
+
+        // Public status still reports the wizard is open so the SPA can route
+        // to /setup instead of dumping mid-setup visitors on /login.
+        let status = call(&app, req(Method::GET, "/api/v1/auth/status", None, None)).await;
+        assert_eq!(status.status(), 200);
+        let status_body: serde_json::Value = serde_json::from_str(&text(status).await).unwrap();
+        assert_eq!(status_body["has_admin"], true);
+        assert_eq!(status_body["setup_completed"], false);
+    }
+
+    #[tokio::test]
+    async fn auth_status_reports_setup_completed_after_finish() {
+        let (_dir, app) = test_app();
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/login",
+                Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = cookie_header(&session, &csrf);
+
+        let res = call(
+            &app,
+            req_with_csrf(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"setup_completed":true,"name":"Kitchen"}"#),
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "{}", text(res).await);
+
+        let status = call(&app, req(Method::GET, "/api/v1/auth/status", None, None)).await;
+        assert_eq!(status.status(), 200);
+        let body: serde_json::Value = serde_json::from_str(&text(status).await).unwrap();
+        assert_eq!(body["setup_completed"], true);
+        assert_eq!(body["has_admin"], true);
     }
 
     #[tokio::test]

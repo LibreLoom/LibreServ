@@ -36,6 +36,10 @@ export function AuthProvider({ children }) {
   // A /auth/me that FAILS (network blip, 5xx) is treated as "unknown" and the
   // current user is kept, so a transient error can't silently log someone out.
   // Only a clean 200 with a null body (not signed in) clears the user.
+  //
+  // GET /api/v1/setup can 401 (account exists, not signed in) or 403 (remote
+  // setup needs the device-token prefix). /api/v1/auth/status.setup_completed
+  // stays public so we still know the wizard is open and can route to /setup.
   const refresh = useCallback(async () => {
     let me = null;
     let meFailed = false;
@@ -49,9 +53,19 @@ export function AuthProvider({ children }) {
       getJson("/api/v1/auth/status").catch(() => null),
     ]);
     if (!meFailed) setUser(me || null);
-    if (setupState) setSetup(setupState);
     const hasAdmin = Boolean(authStatus?.has_admin);
-    return { me: me || null, setup: setupState, hasAdmin };
+    const statusSaysIncomplete = authStatus?.setup_completed === false;
+    const statusSaysComplete = authStatus?.setup_completed === true;
+    let resolvedSetup = setupState;
+    if (!resolvedSetup && statusSaysIncomplete) {
+      // Stub so RequireAuth / post-login redirects treat the wizard as open
+      // even when the full setup payload needs auth or a remote setup code.
+      resolvedSetup = { setup_completed: false };
+    } else if (!resolvedSetup && statusSaysComplete) {
+      resolvedSetup = { setup_completed: true };
+    }
+    if (resolvedSetup) setSetup(resolvedSetup);
+    return { me: me || null, setup: resolvedSetup, hasAdmin, authStatus };
   }, []);
 
   // Startup-only: restore the session (or send a fresh Luna to the wizard)

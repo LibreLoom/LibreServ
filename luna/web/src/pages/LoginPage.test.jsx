@@ -11,7 +11,7 @@ function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
       return new Response("null", { status: 401 });
     }
     if (u.endsWith("/api/v1/auth/status")) {
-      return new Response(JSON.stringify({ has_admin: true }), {
+      return new Response(JSON.stringify({ has_admin: true, setup_completed: setupCompleted }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -45,6 +45,7 @@ function renderLogin() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<div>LUNA HOME</div>} />
+          <Route path="/setup" element={<div>SETUP WIZARD</div>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>
@@ -69,6 +70,15 @@ describe("LoginPage", () => {
     expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
   });
 
+  it("after login during incomplete setup, continues at /setup", async () => {
+    stubFetch({ setupCompleted: false });
+    renderLogin();
+    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+  });
+
   it("explains a wrong password in plain language", async () => {
     stubFetch({ loginOk: false });
     renderLogin();
@@ -83,12 +93,12 @@ describe("LoginPage", () => {
       const u = String(url);
       if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
       if (u.endsWith("/api/v1/auth/status")) {
-      return new Response(JSON.stringify({ has_admin: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (u.endsWith("/api/v1/setup")) {
+        return new Response(JSON.stringify({ has_admin: true, setup_completed: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.endsWith("/api/v1/setup")) {
         return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), {
           status: 200, headers: { "Content-Type": "application/json" },
         });
