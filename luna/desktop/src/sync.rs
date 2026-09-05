@@ -1,4 +1,4 @@
-//! Two-way sync between a Luna folder and a local child folder.
+//! Two-way sync between a Luna folder (or whole drive) and a local child folder.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

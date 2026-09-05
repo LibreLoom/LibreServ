@@ -21,7 +21,7 @@ pub mod sync;
 pub mod tray;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use dest::{ExistingJobs, LunaRef};
@@ -287,19 +287,15 @@ pub fn stop_backup_job(state: &AppState, id: &str) -> Result<(), String> {
 }
 
 pub fn save_sync_pair(state: &AppState, pair: sync::SyncPair) -> Result<sync::SyncPair, String> {
-    let _ = require_session(state)?;
+    let s = require_session(state)?;
     let remote = dest::validate_luna_folder(&pair.drive_id, &pair.remote_path)?;
-    let basename = if remote.path.is_empty() {
-        return Err("Choose a folder on Luna to sync — not the whole drive.".into());
-    } else {
-        dest::luna_folder_basename(&remote.path)
-    };
+    let mut pairs = sync::load_pairs();
+    let basename = sync_pair_local_basename(&s, &remote, &pair, &pairs)?;
     let parent = PathBuf::from(&pair.local_parent);
     let local = dest::resolved_sync_local(&parent, &basename)?;
     let existing = existing_jobs(None, Some(&pair.id));
     dest::check_sync_against(&local, &remote, &existing, None)?;
 
-    let mut pairs = sync::load_pairs();
     let mut saved = sync::SyncPair {
         id: if pair.id.is_empty() {
             unique_id()
@@ -320,6 +316,38 @@ pub fn save_sync_pair(state: &AppState, pair: sync::SyncPair) -> Result<sync::Sy
     }
     sync::save_pairs(&pairs)?;
     Ok(saved)
+}
+
+/// Local folder name under the chosen parent. Whole-drive syncs use the drive label.
+/// When editing the same whole-drive sync in place, keep the existing local folder name
+/// so a drive rename does not orphan files already synced.
+fn sync_pair_local_basename(
+    session: &session::SessionData,
+    remote: &LunaRef,
+    pair: &sync::SyncPair,
+    pairs: &[sync::SyncPair],
+) -> Result<String, String> {
+    if !remote.path.is_empty() {
+        return Ok(dest::sync_local_basename(&remote.path, ""));
+    }
+    if let Some(existing) = pairs.iter().find(|p| p.id == pair.id)
+        && existing.drive_id == remote.drive_id
+        && existing.remote_path.is_empty()
+        && existing.local_parent == pair.local_parent
+        && let Some(name) = Path::new(&existing.local_path).file_name()
+    {
+        let name = name.to_string_lossy();
+        if !name.is_empty() {
+            return Ok(name.into_owned());
+        }
+    }
+    let drives = luna::list_drives(&session.base_url, &session.token)?;
+    let label = drives
+        .iter()
+        .find(|d| d.id == remote.drive_id)
+        .map(|d| d.label.as_str())
+        .unwrap_or("Luna Drive");
+    Ok(dest::sync_local_basename("", label))
 }
 
 pub fn delete_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
