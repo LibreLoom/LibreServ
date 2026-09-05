@@ -30,7 +30,7 @@ const addressLinkClass =
  *     luna.local
  *     192.168.1.118
  */
-export default function DiscoveryPaths({ name }) {
+export default function DiscoveryPaths({ name = "" }) {
   const label = (name && String(name).trim()) || "Luna";
   const netStatus = useQuery({
     queryKey: ["network-status"],
