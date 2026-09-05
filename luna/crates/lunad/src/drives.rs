@@ -12,11 +12,11 @@
 //!   that the OS mounted read-only (iso9660 installer media, or an automount
 //!   left `ro`). Those are remounted read-write — or erased, if the user said so.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use luna_core::marker::{Marker, remove_marker, write_marker};
+use luna_core::marker::{Marker, marker_exists, remove_marker, write_marker};
 use luna_core::scan::scan_top_level;
 use rusqlite::Connection;
 use uuid::Uuid;
@@ -93,8 +93,8 @@ impl DriveManager {
             (target, true)
         };
 
-        let marker = luna_core::marker::read_marker(&mount_point).ok().flatten();
-        let has_marker = marker.is_some();
+        // Presence of `.luna` is enough — do not require a parseable id.
+        let has_marker = marker_exists(&mount_point);
         let summary = scan_top_level(&mount_point);
         // A successful inspect means we could open the mount; treat scan
         // failures (permission on individual entries) as still readable.
@@ -253,8 +253,9 @@ impl DriveManager {
             anyhow::bail!("{WRITE_REJECTED_MESSAGE}");
         }
 
-        // Marker first, then DB. Never leave a DB row without a marker.
-        let marker = Marker::new(id.clone(), label);
+        // Sticker first (label only), then DB. Never leave a DB row without a sticker.
+        // The DB row id is Luna's internal registry key — it is not written to the drive.
+        let marker = Marker::new(label);
         if let Err(e) = write_marker(&mount_point, &marker) {
             if mounted_by_luna {
                 let _ = self.mounter.unmount(&mount_point);
@@ -474,21 +475,36 @@ impl DriveManager {
     /// Reconcile the registry with reality.
     ///
     /// Adopted drives that disappeared become `missing`; drives that come back
-    /// become `as_is` again. Matching is by kernel name first, then by `.luna`
-    /// marker UUID when the stick returns under a new `/dev/sdX` name.
-    /// Ejected drives stay ejected while still plugged in (name or marker);
+    /// become `as_is` again. Matching is by kernel name first, then by presence
+    /// of a `.luna` sticker when the stick returns under a new `/dev/sdX` name
+    /// (preferring a label match; no UUID identity on the sticker).
+    /// Ejected drives stay ejected while still plugged in (name or sticker);
     /// once unplugged they become `missing` so a re-plug can restore Ready.
     /// If a Ready drive's Luna mount is already gone, mark it ejected.
     pub fn reconcile(&self, conn: &Connection, detected: &[DetectedDrive]) -> anyhow::Result<()> {
-        // Cache marker ids per detected device for this pass so a missing-row
+        // Devices already claimed by a registry row whose kernel name is live.
+        let mut claimed: HashSet<String> = HashSet::new();
+        for row in db::list_drives(conn)? {
+            if detected.iter().any(|d| d.name == row.device) {
+                claimed.insert(row.device.clone());
+            }
+        }
+        // Cache sticker labels per detected device for this pass so a missing-row
         // loop does not RO-mount the same stick once per registry entry.
+        // `Some(label)` = sticker present (label may be empty if unreadable);
+        // `None` = no sticker.
         let mut marker_cache: HashMap<String, Option<String>> = HashMap::new();
         for row in db::list_drives(conn)? {
             let present_by_name = detected.iter().any(|d| d.name == row.device);
             let marker_match = if present_by_name {
                 None
             } else {
-                self.find_detected_by_marker(&row.id, detected, &mut marker_cache)
+                let found =
+                    self.find_detected_by_sticker(&row.label, detected, &claimed, &mut marker_cache);
+                if let Some(d) = found {
+                    claimed.insert(d.name.clone());
+                }
+                found
             };
             let present = present_by_name || marker_match.is_some();
             let rematch_name = marker_match.map(|d| d.name.as_str());
@@ -538,36 +554,49 @@ impl DriveManager {
         Ok(())
     }
 
-    /// Find a detected device whose `.luna` marker id matches `row_id`.
-    /// Uses an existing mount when available; otherwise briefly mounts RO at a
-    /// foreign path (read-only — never writes), then unmounts.
-    /// `marker_cache` is keyed by detected device name for one reconcile pass.
-    fn find_detected_by_marker<'a>(
+    /// Find an unclaimed detected device that has a `.luna` sticker.
+    /// Prefers a label match; otherwise accepts the sole unclaimed sticker drive.
+    fn find_detected_by_sticker<'a>(
         &self,
-        row_id: &str,
+        row_label: &str,
         detected: &'a [DetectedDrive],
+        claimed: &HashSet<String>,
         marker_cache: &mut HashMap<String, Option<String>>,
     ) -> Option<&'a DetectedDrive> {
+        let mut label_match: Option<&'a DetectedDrive> = None;
+        let mut sticker_candidates: Vec<&'a DetectedDrive> = Vec::new();
         for d in detected {
-            let id = marker_cache
-                .entry(d.name.clone())
-                .or_insert_with(|| self.marker_id_on_detected(d));
-            if id.as_deref() == Some(row_id) {
-                return Some(d);
+            if claimed.contains(&d.name) {
+                continue;
             }
+            let label = marker_cache
+                .entry(d.name.clone())
+                .or_insert_with(|| self.sticker_label_on_detected(d));
+            let Some(sticker_label) = label.as_ref() else {
+                continue;
+            };
+            sticker_candidates.push(d);
+            if sticker_label == row_label && label_match.is_none() {
+                label_match = Some(d);
+            }
+        }
+        if let Some(d) = label_match {
+            return Some(d);
+        }
+        if sticker_candidates.len() == 1 {
+            return Some(sticker_candidates[0]);
         }
         None
     }
 
-    /// Read `.luna` id from a detected device. Mounts RO briefly when unmounted.
-    fn marker_id_on_detected(&self, device: &DetectedDrive) -> Option<String> {
+    /// Read the sticker label from a detected device, if a `.luna` file exists.
+    /// Mounts RO briefly when unmounted. Returns `None` when there is no sticker;
+    /// `Some("")` when the file exists but is unreadable.
+    fn sticker_label_on_detected(&self, device: &DetectedDrive) -> Option<String> {
         if let Some(mp) = device.mount_point.as_deref() {
-            return luna_core::marker::read_marker(Path::new(mp))
-                .ok()
-                .flatten()
-                .map(|m| m.id);
+            return Self::sticker_label_at(Path::new(mp));
         }
-        // Unmounted stick: brief RO foreign mount, read marker, tear down.
+        // Unmounted stick: brief RO foreign mount, read sticker, tear down.
         let choice = self.choice_for(device);
         let target = self.foreign_mount_point(&device.name);
         if self
@@ -582,13 +611,20 @@ impl DriveManager {
         {
             return None;
         }
-        let id = luna_core::marker::read_marker(&target)
-            .ok()
-            .flatten()
-            .map(|m| m.id);
+        let label = Self::sticker_label_at(&target);
         let _ = self.mounter.unmount(&target);
         let _ = std::fs::remove_dir(&target);
-        id
+        label
+    }
+
+    fn sticker_label_at(root: &Path) -> Option<String> {
+        if !marker_exists(root) {
+            return None;
+        }
+        match luna_core::marker::read_marker(root) {
+            Ok(Some(m)) => Some(m.label),
+            _ => Some(String::new()),
+        }
     }
 
     /// True when this row claims a Luna-owned mount that is not live.
@@ -796,7 +832,13 @@ mod tests {
         let marker = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
             .unwrap();
-        assert_eq!(marker.id, row.id);
+        assert_eq!(marker.label, "Photos Drive");
+        assert_eq!(marker.v, 1);
+        let raw = std::fs::read_to_string(Path::new(&row.mount_point).join(".luna")).unwrap();
+        assert!(
+            !raw.contains("\"id\""),
+            "sticker must not embed the DB row id: {raw}"
+        );
 
         let calls = mounter.mounts.lock().unwrap();
         assert_eq!(calls.len(), 2, "read-only inspect, then read-write adopt");
@@ -1063,9 +1105,9 @@ mod tests {
         );
     }
 
-    /// USB adopted as `sdc` comes back as `sdd` with the same `.luna` marker.
-    /// Reconcile rematches by marker UUID, updates `device`, and restores Ready
-    /// so the stick is not listed under Unknown Drives.
+    /// USB adopted as `sdc` comes back as `sdd` with a label-only `.luna` sticker.
+    /// Reconcile rematches by sticker presence (not UUID), updates `device`, and
+    /// restores Ready so the stick is not listed under Unknown Drives.
     #[test]
     fn reconcile_rematches_by_marker_when_kernel_name_changes() {
         let mounter = shared_mock();
@@ -1074,7 +1116,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
 
-        // Adopt under kernel name sdc; marker lands on Luna mount with row.id.
+        // Adopt under kernel name sdc; sticker lands on Luna mount with label only.
         let row = mgr
             .adopt(&conn, &detected("sdc", None), "General UDisk", false)
             .unwrap();
@@ -1083,7 +1125,9 @@ mod tests {
         let marker_on_adopt = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
             .expect("adopt writes .luna");
-        assert_eq!(marker_on_adopt.id, row.id);
+        assert_eq!(marker_on_adopt.label, "General UDisk");
+        let raw = std::fs::read_to_string(Path::new(&row.mount_point).join(".luna")).unwrap();
+        assert!(!raw.contains("\"id\""), "no UUID on sticker: {raw}");
 
         // Unplug → missing.
         mgr.reconcile(&conn, &[]).unwrap();
@@ -1091,9 +1135,9 @@ mod tests {
         assert_eq!(after_unplug.state, "missing");
         assert_eq!(after_unplug.device, "sdc");
 
-        // Replug: same filesystem (marker still at old mount path), new kernel name sdd.
+        // Replug: same filesystem (sticker still at old mount path), new kernel name sdd.
         // Real USB would remount at a new path; here we expose the existing
-        // marker-bearing root under the new detected name.
+        // sticker-bearing root under the new detected name.
         let replugged = DetectedDrive {
             name: "sdd".into(),
             model: "General UDisk".into(),
@@ -1104,10 +1148,10 @@ mod tests {
             fs_type: Some("ext4".into()),
             mount_readonly: false,
         };
-        let marker_on_sdd = luna_core::marker::read_marker(Path::new(&row.mount_point))
-            .unwrap()
-            .expect("marker still on stick");
-        assert_eq!(marker_on_sdd.id, row.id, "UUID is available for rematch");
+        assert!(
+            luna_core::marker::marker_exists(Path::new(&row.mount_point)),
+            "sticker presence is enough for rematch"
+        );
 
         mgr.reconcile(&conn, &[replugged]).unwrap();
         let after = db::get_drive(&conn, &row.id).unwrap().unwrap();
@@ -1132,8 +1176,53 @@ mod tests {
         );
     }
 
+    /// Rematch still works when the sticker has no id and the DB row id cannot
+    /// appear in the file — the old UUID-equality path would fail here.
+    #[test]
+    fn reconcile_rematches_without_sticker_uuid() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+
+        let row = mgr
+            .adopt(&conn, &detected("sdc", None), "Travel Photos", false)
+            .unwrap();
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
+
+        // Plant a label-only sticker at a new path (as if the stick remounted).
+        let probe = dir.join("probe_sde");
+        std::fs::create_dir_all(&probe).unwrap();
+        luna_core::marker::write_marker(&probe, &luna_core::marker::Marker::new("Travel Photos"))
+            .unwrap();
+        // Ensure the file has no id and does not mention the DB row id.
+        let raw = std::fs::read_to_string(probe.join(".luna")).unwrap();
+        assert!(!raw.contains(&row.id));
+        assert!(!raw.contains("\"id\""));
+
+        let replugged = DetectedDrive {
+            name: "sde".into(),
+            model: "Travel Photos".into(),
+            size_bytes: 1000,
+            removable: true,
+            usb: true,
+            mount_point: Some(probe.to_string_lossy().into_owned()),
+            fs_type: Some("ext4".into()),
+            mount_readonly: false,
+        };
+        mgr.reconcile(&conn, &[replugged]).unwrap();
+        let after = db::get_drive(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(after.state, "as_is");
+        assert_eq!(after.device, "sde");
+    }
+
     /// Ejected stick that returns under a new kernel name stays ejected
-    /// (presence via marker) and does not auto-restore to Ready.
+    /// (presence via sticker) and does not auto-restore to Ready.
     #[test]
     fn reconcile_keeps_ejected_when_kernel_name_changes() {
         let mounter = shared_mock();
@@ -1145,20 +1234,19 @@ mod tests {
         let row = mgr
             .adopt(&conn, &detected("sdc", None), "Backup Drive", false)
             .unwrap();
-        let marker_id = row.id.clone();
         mgr.eject(&conn, &row.id).unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "ejected"
         );
 
-        // Eject cleared the Luna mount; expose the same marker under a probe path
+        // Eject cleared the Luna mount; expose the same sticker under a probe path
         // as if the stick were still plugged with a new kernel name.
         let probe = dir.join("probe_sdd");
         std::fs::create_dir_all(&probe).unwrap();
         luna_core::marker::write_marker(
             &probe,
-            &luna_core::marker::Marker::new(marker_id, "Backup Drive"),
+            &luna_core::marker::Marker::new("Backup Drive"),
         )
         .unwrap();
         let renamed = DetectedDrive {
@@ -1199,6 +1287,7 @@ mod tests {
         let marker = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
             .expect("adopt writes .luna");
+        assert_eq!(marker.label, "Travel Stick");
 
         mgr.reconcile(&conn, &[]).unwrap();
         assert_eq!(
@@ -1206,13 +1295,13 @@ mod tests {
             "missing"
         );
 
-        // Plant marker at foreign/sdd and unmount so MockMounter shadows it;
-        // the RO probe during rematch remounts and restores the marker.
+        // Plant sticker at foreign/sdd and unmount so MockMounter shadows it;
+        // the RO probe during rematch remounts and restores the sticker.
         let foreign = dir.join("mounts/foreign/sdd");
         std::fs::create_dir_all(&foreign).unwrap();
         luna_core::marker::write_marker(
             &foreign,
-            &luna_core::marker::Marker::new(marker.id.clone(), "Travel Stick"),
+            &luna_core::marker::Marker::new("Travel Stick"),
         )
         .unwrap();
         mounter.mount("/dev/sdd", &foreign, true).unwrap();

@@ -567,8 +567,8 @@ export default function DrivesPage() {
           <>
             <p className="text-primary text-sm">
               Luna will stop managing <span className="font-mono">{removeTarget?.label}</span>.
-              Your files stay on the drive. Luna only removes its tiny{" "}
-              <span className="font-mono">.luna</span> sticker file.
+              Your files stay on the drive. Luna only removes the tiny{" "}
+              <span className="font-mono">.luna</span> sticker that marks it as a Luna drive.
             </p>
             <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
@@ -724,17 +724,16 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
             </div>
           ) : result.has_marker ? (
             <p className="text-primary text-sm mt-2">
-              This drive was used with a Luna before. Add it here to keep using the
-              files. Luna only updates its tiny sticker file.
+              This drive already has a Luna sticker. Add it to keep using the
+              files. Luna only updates the name in that tiny{" "}
+              <span className="font-mono">.luna</span> file.
             </p>
           ) : (
             <div className="mt-4 flex items-center gap-3">
               <Info size={18} className="text-accent shrink-0" aria-hidden="true" />
               <p className="text-primary text-xs">
-                Adding it only writes one tiny <span className="font-mono">.luna</span> marker
-                file at the{" "}
-                <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive.
-                Your files are untouched.
+                Adding it only writes one tiny <span className="font-mono">.luna</span> sticker
+                that holds the drive&apos;s name. Your files are untouched.
               </p>
             </div>
           )}

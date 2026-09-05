@@ -170,20 +170,49 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
   });
 
-  it("uses an info icon for the .luna marker note and softens the name-field focus ring", async () => {
+  it("uses an info icon for the .luna sticker note and softens the name-field focus ring", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     window.history.replaceState({}, "", "/drives?mockUnknownDrive=1");
     stubDrivesApi();
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Look inside/i }));
-    const note = await screen.findByText(/marker file/i);
+    const note = await screen.findByText(/sticker/i);
     const row = note.closest("div");
     expect(row?.querySelector(".text-accent")).toBeTruthy();
     expect(row?.querySelector(".text-warning")).toBeNull();
     const input = screen.getByDisplayValue("64GB PSSD");
     expect(input.className).toMatch(/no-focus-outline/);
     expect(input.className).not.toMatch(/focus:ring/);
+  });
+
+  it("explains an existing Luna sticker without cross-Luna identity copy", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "General UDisk", size_bytes: 64000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "exfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdb/inspect")) {
+          return new Response(JSON.stringify({
+            device: "sdb", model: "General UDisk", fs_type: "exfat",
+            mount_point: "/mnt", mounted_by_luna: true, has_marker: true,
+            folders: 1, files: 0, unreadable: 0, entries: [],
+            needs_erase: false, readable: true, writable: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Look inside/i }));
+    expect(await screen.findByText(/already has a Luna sticker/i)).toBeInTheDocument();
+    expect(screen.queryByText(/used with a Luna before/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/updates the name/i)).toBeInTheDocument();
   });
 
   it("animates Look-inside out when Add this drive succeeds", async () => {
@@ -519,7 +548,7 @@ describe("DrivesPage", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
-    expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
+    expect(screen.getByText(/sticker that marks it as a Luna drive/i)).toBeInTheDocument();
   });
 
   it("offers Browse files linking to the full files page", async () => {

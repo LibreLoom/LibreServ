@@ -6,8 +6,9 @@ use rusqlite::params;
 
 /// Open (and initialize) the metadata database.
 ///
-/// The index lives on the OS disk. Drives only carry their `.luna` marker, so
-/// a lost system disk is rebuilt by re-scanning the drives themselves.
+/// The index lives on the OS disk. Drives only carry a `.luna` sticker (label
+/// only); presence marks a Luna drive. A lost system disk is rebuilt by
+/// re-scanning stickers on attached drives.
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -290,7 +291,7 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
 }
 
 /// Update kernel device name (and optionally mount point) together with state.
-/// Used when a stick returns under a new `/dev/sdX` name but the same `.luna` id.
+/// Used when a stick returns under a new `/dev/sdX` name but the same `.luna` sticker.
 pub fn update_drive_placement(
     conn: &Connection,
     id: &str,

@@ -1,8 +1,9 @@
-//! The `.luna` adoption marker.
+//! The `.luna` adoption sticker.
 //!
 //! Adopting a drive writes exactly one file at the drive root. Nothing else on
-//! the drive is ever created, moved, or modified by adoption. The file is a
-//! small JSON document so a human (or another Luna) can read it with any tool.
+//! the drive is ever created, moved, or modified by adoption. The file holds
+//! only the human label; its presence marks the drive as a Luna drive. There
+//! is no UUID or Luna-instance identity in the sticker.
 
 use std::fs;
 use std::io::Write;
@@ -16,17 +17,14 @@ pub const MARKER_FILE_NAME: &str = ".luna";
 pub struct Marker {
     /// Marker format version.
     pub v: u32,
-    /// Stable identity for this drive (a UUID generated at adoption time).
-    pub id: String,
     /// Human label chosen by the user ("Photos Drive").
     pub label: String,
 }
 
 impl Marker {
-    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn new(label: impl Into<String>) -> Self {
         Self {
             v: 1,
-            id: id.into(),
             label: label.into(),
         }
     }
@@ -42,6 +40,14 @@ pub enum MarkerError {
     Parse(#[source] serde_json::Error),
     #[error("could not write the marker: {0}")]
     Write(#[source] std::io::Error),
+}
+
+/// True when a `.luna` sticker file exists at the drive root.
+///
+/// Presence alone means "this is a Luna drive." Parse failures still count as
+/// present so a torn or older sticker does not hide the drive.
+pub fn marker_exists(root: &Path) -> bool {
+    root.join(MARKER_FILE_NAME).is_file()
 }
 
 /// Read a marker if the drive has one. Returns `Ok(None)` when the drive root
@@ -145,13 +151,13 @@ mod tests {
     fn missing_root_is_an_error_not_a_write() {
         let root = Path::new("/nonexistent/luna/drive");
         assert!(matches!(read_marker(root), Err(MarkerError::NotADirectory)));
-        assert!(write_marker(root, &Marker::new("id", "x")).is_err());
+        assert!(write_marker(root, &Marker::new("x")).is_err());
     }
 
     #[test]
     fn round_trip_and_single_file_created() {
         let root = temp_dir();
-        let marker = Marker::new("drive-uuid-1", "Photos Drive");
+        let marker = Marker::new("Photos Drive");
         write_marker(&root, &marker).unwrap();
 
         let entries: Vec<_> = fs::read_dir(&root).unwrap().collect();
@@ -160,6 +166,30 @@ mod tests {
 
         let back = read_marker(&root).unwrap().expect("marker exists");
         assert_eq!(back, marker);
+        assert!(marker_exists(&root));
+
+        let raw = fs::read_to_string(root.join(MARKER_FILE_NAME)).unwrap();
+        assert!(
+            !raw.contains("\"id\""),
+            "sticker must not carry a UUID identity: {raw}"
+        );
+        assert!(raw.contains("\"label\""));
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn reads_legacy_sticker_with_id_field_ignored() {
+        let root = temp_dir();
+        fs::write(
+            root.join(MARKER_FILE_NAME),
+            r#"{ "v": 1, "id": "f2c0746e-a223-4400-9601-9d2ced65a648", "label": "General UDisk" }
+"#,
+        )
+        .unwrap();
+        let marker = read_marker(&root).unwrap().expect("legacy sticker parses");
+        assert_eq!(marker.label, "General UDisk");
+        assert_eq!(marker.v, 1);
+        assert!(marker_exists(&root));
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -168,7 +198,7 @@ mod tests {
         let root = temp_dir();
         fs::write(root.join("keep-me.txt"), b"hello").unwrap();
         fs::create_dir(root.join("pics")).unwrap();
-        write_marker(&root, &Marker::new("id", "Backup Drive")).unwrap();
+        write_marker(&root, &Marker::new("Backup Drive")).unwrap();
 
         assert_eq!(fs::read(root.join("keep-me.txt")).unwrap(), b"hello");
         assert!(root.join("pics").is_dir());
@@ -180,6 +210,7 @@ mod tests {
     fn no_marker_is_none() {
         let root = temp_dir();
         assert!(read_marker(&root).unwrap().is_none());
+        assert!(!marker_exists(&root));
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -187,11 +218,20 @@ mod tests {
     fn remove_marker_deletes_only_the_sticker() {
         let root = temp_dir();
         fs::write(root.join("keep-me.txt"), b"hello").unwrap();
-        write_marker(&root, &Marker::new("id", "Photos")).unwrap();
+        write_marker(&root, &Marker::new("Photos")).unwrap();
         assert!(remove_marker(&root).unwrap());
         assert!(read_marker(&root).unwrap().is_none());
         assert_eq!(fs::read(root.join("keep-me.txt")).unwrap(), b"hello");
         assert!(!remove_marker(&root).unwrap());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn torn_sticker_still_counts_as_present() {
+        let root = temp_dir();
+        fs::write(root.join(MARKER_FILE_NAME), b"not-json").unwrap();
+        assert!(marker_exists(&root));
+        assert!(read_marker(&root).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
 }
