@@ -25,11 +25,12 @@ const queryClient = new QueryClient({
 });
 
 function RequireAuth({ children }) {
-  const { user, setup, loading } = useAuth();
+  const { user, setup, hasAdmin, loading } = useAuth();
   const location = useLocation();
   if (loading) return null;
-  // Not set up yet — the wizard is the only app there is.
-  if (setup && setup.setup_completed === false) return <Navigate to="/setup" replace />;
+  if (setup?.setup_completed === false || (!user && hasAdmin === false)) {
+    return <Navigate to="/setup" replace />;
+  }
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }

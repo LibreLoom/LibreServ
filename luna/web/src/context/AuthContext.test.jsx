@@ -56,6 +56,34 @@ describe("AuthProvider setup gating", () => {
     renderAt("/", { setupCompleted: true, hasAdmin: true });
     expect(await screen.findByText("LUNA HOME")).toBeInTheDocument();
   });
+
+  it("sends to setup wizard when /setup endpoint fails and hasAdmin is false", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
+      if (u.endsWith("/api/v1/auth/status")) {
+        return new Response(JSON.stringify({ has_admin: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.endsWith("/api/v1/setup")) {
+        return new Response("{}", { status: 500 });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<div>LUNA HOME</div>} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+  });
 });
 
 describe("AuthProvider session survival", () => {

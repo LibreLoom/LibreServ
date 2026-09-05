@@ -14,6 +14,7 @@ const ALLOWED_DURING_SETUP = ["/setup", "/login"];
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [setup, setSetup] = useState(null);
+  const [hasAdmin, setHasAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
@@ -49,9 +50,18 @@ export function AuthProvider({ children }) {
       getJson("/api/v1/auth/status").catch(() => null),
     ]);
     if (!meFailed) setUser(me || null);
-    if (setupState) setSetup(setupState);
-    const hasAdmin = Boolean(authStatus?.has_admin);
-    return { me: me || null, setup: setupState, hasAdmin };
+
+    // If authStatus succeeded, use has_admin.
+    // If authStatus was unreachable or unmocked, infer from me or setupState:
+    // a signed-in user or a completed setup implies an account exists.
+    const adminExists = authStatus != null
+      ? Boolean(authStatus.has_admin)
+      : Boolean(me || setupState?.setup_completed);
+
+    setHasAdmin(adminExists);
+    const effectiveSetup = setupState || (!adminExists ? { setup_completed: false } : null);
+    if (effectiveSetup) setSetup(effectiveSetup);
+    return { me: me || null, setup: effectiveSetup, hasAdmin: adminExists };
   }, []);
 
   // Startup-only: restore the session (or send a fresh Luna to the wizard)
@@ -61,11 +71,13 @@ export function AuthProvider({ children }) {
     let alive = true;
     const path = location.pathname;
     (async () => {
-      const { setup: setupState, hasAdmin } = await refresh();
+      const { me, setup: setupState, hasAdmin: adminExists } = await refresh();
       if (!alive) return;
-      const needsSetup = Boolean(setupState && setupState.setup_completed === false);
-      if (path === "/login" && !hasAdmin) {
-        navigateRef.current("/setup", { replace: true });
+      const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
+      if (!adminExists && !me) {
+        if (path !== "/setup") {
+          navigateRef.current("/setup", { replace: true });
+        }
       } else if (needsSetup && !ALLOWED_DURING_SETUP.includes(path)) {
         navigateRef.current("/setup", { replace: true });
       }
@@ -101,7 +113,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, setup, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, setup, hasAdmin, loading, login, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );

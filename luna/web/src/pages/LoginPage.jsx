@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { login as loginQuips } from "../assets/greetings";
@@ -22,8 +22,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
 
-  const { login } = useAuth();
+  const { login, hasAdmin, loading: authLoading } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
+
+  useEffect(() => {
+    if (!authLoading && hasAdmin === false) {
+      navigate("/setup", { replace: true });
+    }
+  }, [authLoading, hasAdmin, navigate]);
 
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home.

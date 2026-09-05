@@ -158,7 +158,7 @@ impl ConnectService {
 
     /// True when `{data_dir}/device-token` exists and holds a valid device token.
     pub fn has_valid_device_code(&self) -> bool {
-        self.setup_prefix().is_some()
+        self.device_code().is_ok()
     }
 
     /// Alias for API clarity.
@@ -636,33 +636,7 @@ impl ConnectService {
             .ok_or_else(|| ConnectError::Other("This Luna has no device token yet.".into()))
     }
 
-    /// Setup unlock prefix: first eight Crockford characters (XXXX-XXXX).
-    /// None when the device-token file is missing or malformed (fail closed for remote setup).
-    pub fn setup_prefix(&self) -> Option<String> {
-        let code = self.read_device_token()?;
-        let norm = normalize_setup_code(&code);
-        if !is_device_token_format(&norm) || norm.len() < 8 {
-            return None;
-        }
-        Some(group_device_token(&norm[..8]))
-    }
 
-    /// Constant-time-ish compare of a submitted unlock code against the on-disk prefix.
-    pub fn matches_setup_prefix(&self, submitted: &str) -> bool {
-        let Some(expected) = self.setup_prefix() else {
-            return false;
-        };
-        let got = normalize_setup_code(submitted);
-        let exp = normalize_setup_code(&expected);
-        if got.len() != 8 || exp.len() != 8 {
-            return false;
-        }
-        got.as_bytes()
-            .iter()
-            .zip(exp.as_bytes())
-            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-            == 0
-    }
 
     pub fn token(&self) -> Result<String, ConnectError> {
         self.device_code()
@@ -1368,7 +1342,7 @@ mod tests {
         let st = service.status();
         assert!(!st.connect_active);
         assert!(!st.enabled);
-        assert!(service.setup_prefix().is_none());
+        assert!(!service.has_valid_device_code());
         assert!(!service.poll_status());
     }
 
@@ -1410,27 +1384,23 @@ mod tests {
             service.set_oss_code("a1b2c3").is_err(),
             "short hex must be rejected"
         );
-        assert_eq!(service.setup_prefix().as_deref(), Some("3097-V4YK"));
-        assert!(service.matches_setup_prefix("3097-V4YK"));
-        assert!(service.matches_setup_prefix("3097v4yk"));
-        assert!(!service.matches_setup_prefix("3097-XXXX"));
+        assert!(service.has_valid_device_code());
     }
 
     #[test]
-    fn missing_device_code_refuses_prefix_match() {
+    fn missing_device_code_invalid() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(service.setup_prefix().is_none());
-        assert!(!service.matches_setup_prefix("ABCD-EFGH"));
+        assert!(!service.has_valid_device_code());
+        assert!(service.device_code().is_err());
     }
 
     #[test]
-    fn malformed_device_code_refuses_prefix() {
+    fn malformed_device_code_invalid() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(service.setup_prefix().is_none());
-        assert!(!service.matches_setup_prefix("ABCD-EFGH"));
+        assert!(!service.has_valid_device_code());
     }
 
     #[test]

@@ -49,9 +49,6 @@ async fn register(
         ));
     }
     let has_users = state.auth.count_users().map_err(map_auth_err)? > 0;
-    if !has_users {
-        crate::setup_access::check(&state, &addr, &headers)?;
-    }
     if has_users {
         let Some(Extension(user)) = current else {
             return Err(json_error(
@@ -226,18 +223,48 @@ fn first_user_on_public_host(
     if !host.eq_ignore_ascii_case(&hostname) {
         return Ok(());
     }
-    let Some(want) = state.connect.first_user_secret() else {
+
+    let offered = body.setup_secret.as_deref().unwrap_or("").trim();
+    if offered.is_empty() {
         return Err(
-            "Open this Luna from the address on its screen first. If you opened it from the internet, paste the device token from Luna Connect into the setup field.".into(),
-        );
-    };
-    let offered = body.setup_secret.clone().unwrap_or_default();
-    if offered != want {
-        return Err(
-            "This address is on the internet. Paste the device token from Luna Connect into the setup field, or open Luna from the address on its screen instead.".into(),
+            "Paste the device token from connect.luna.libreloom.org after you named this Luna. It confirms you finished setup there, so nobody else on the internet can create this first login.".into(),
         );
     }
-    Ok(())
+
+    let norm_offered = crate::connect::normalize_setup_code(offered);
+
+    // 1. Check against first_user_secret if set by Connect
+    if let Some(want) = state.connect.first_user_secret() {
+        let norm_want = crate::connect::normalize_setup_code(&want);
+        if offered.eq_ignore_ascii_case(want.trim())
+            || (!norm_offered.is_empty() && norm_offered == norm_want)
+        {
+            return Ok(());
+        }
+    }
+
+    // 2. Check against the device token on disk
+    if let Ok(device_code) = state.connect.device_code() {
+        let norm_code = crate::connect::normalize_setup_code(&device_code);
+        if offered.eq_ignore_ascii_case(device_code.trim())
+            || (!norm_offered.is_empty() && norm_offered == norm_code)
+        {
+            return Ok(());
+        }
+    }
+
+    // 3. In case Connect just updated, attempt a refresh poll
+    let _ = state.connect.poll_status();
+    if let Some(want) = state.connect.first_user_secret() {
+        let norm_want = crate::connect::normalize_setup_code(&want);
+        if offered.eq_ignore_ascii_case(want.trim())
+            || (!norm_offered.is_empty() && norm_offered == norm_want)
+        {
+            return Ok(());
+        }
+    }
+
+    Err("That device token doesn't match. Paste the device token from connect.luna.libreloom.org, or check the card that came with Luna.".into())
 }
 
 fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {
