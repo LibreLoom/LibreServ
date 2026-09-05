@@ -33,8 +33,7 @@ export default function LoginPage() {
     if (errorStatus === 401) {
       return (
         <p>
-          It seems that your username or password might be incorrect.
-          Double-check to make sure they're right!
+          That username or password is wrong. Try again.
         </p>
       );
     } else if (errorStatus === 429) {
@@ -46,39 +45,24 @@ export default function LoginPage() {
     } else if (errorStatus === 500) {
       return (
         <p>
-          Wait up! If you just rebooted, updated, or simply turned on your
-          Luna, it may still be starting up. <br />
-          <br />
-          If this issue has been happening repeatedly, try rebooting your
-          Luna (it's not super intuitive for this error, but trust us, it
-          can help). <br />
-          <br /> If you've rebooted your Luna and continue encountering
-          this issue, try contacting support for assistance.
+          Luna may still be starting after a power-on or update. Wait a minute
+          and try again. If this keeps happening, power Luna off and on once,
+          then contact support.
         </p>
       );
     } else if (errorStatus === "NetworkError") {
       return (
         <p>
-          Check your device's connection to the internet. (Not Luna's,
-          but this device's!) <br />
-          <br />
-          If you're absolutely sure that you are connected to the internet,
-          please try rebooting your Luna. <br />
-          <br />
-          If you've both rebooted your Luna and have ensured that your
-          device is connected to the internet, please reach out to support for
-          assistance.{" "}
+          This phone or computer cannot reach Luna. Check that it is on the
+          same Wi‑Fi or network as Luna, then try again. If Luna just powered
+          on, wait a minute and try once more.
         </p>
       );
     }
     return (
       <p>
-        We've encountered an unidentified error while trying to log in.
-        <br />
-        <br />
-        If you're having this issue repeatedly, start by rebooting your
-        Luna. If that fails, feel free to contact support to help resolve
-        this issue, we're always happy to help!
+        Sign-in failed. Try again. If it keeps failing, power Luna off and on
+        once, then contact support.
       </p>
     );
   }
@@ -114,7 +98,7 @@ export default function LoginPage() {
             <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
             <StepTransition step="form" order={LOGIN_STEPS}>
               <span className="text-primary font-mono text-xl font-normal block text-center">
-                Hey there! Log in to continue.
+                Sign in to continue.
               </span>
               <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
               <form
@@ -140,7 +124,7 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="e.g. hunter2"
+                  placeholder="Your password"
                   autoComplete="current-password"
                   surface="primary"
                   shake={errorStatus}

@@ -315,7 +315,7 @@ export default function GalleryPage() {
       <Page title="Photos" titleId="gallery-title">
         <EmptyState
           icon={PlugZap}
-          title="No drives to look in"
+          title="No drives yet"
           description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos."
           action={
             <Button variant="primary" asChild>
@@ -363,7 +363,7 @@ export default function GalleryPage() {
       {noFavorites && (
         <EmptyState
           icon={ImageIcon}
-          title="You have no favorites yet :("
+          title="No favorites yet"
           description="Open a photo and tap the heart to save it here."
         />
       )}

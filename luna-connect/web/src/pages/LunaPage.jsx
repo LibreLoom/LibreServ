@@ -167,7 +167,7 @@ export default function LunaPage() {
         <Card className="mb-6 animate-fade-in-up border-accent">
           <CardContent className="pt-6 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
             <p className="text-sm leading-relaxed">
-              You still have setup to finish ({resumePath === "diy" ? "bring your own" : "official"}).
+              You still have setup to finish.
             </p>
             <Button asChild>
               <Link to={resumePath === "diy" ? "/diyonboarding" : "/onboarding"}>Resume setup</Link>
@@ -180,7 +180,7 @@ export default function LunaPage() {
         <CardHeader>
           <CardTitle>My Luna</CardTitle>
           <CardDescription>
-            One Luna on this account. Bind with the device code, then Luna picks up the address when it is online.
+            One Luna on this account. Link it with your device token, then Luna picks up its address when it comes online.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -194,7 +194,7 @@ export default function LunaPage() {
                   <Link to="/onboarding">Start setup</Link>
                 </Button>
                 <Button variant="outline" asChild>
-                  <Link to="/diyonboarding">I set this computer up myself</Link>
+                  <Link to="/diyonboarding">I installed Luna myself</Link>
                 </Button>
               </div>
             </div>
@@ -243,7 +243,7 @@ export default function LunaPage() {
                   data-testid="luna-unbind-confirm"
                 >
                   <p className="text-sm leading-relaxed">
-                    The public address goes away. Cloud backups stay on this account (archived) and stay billed until you turn payment off. Someone else can bind this Luna later with the same device code.
+                    The public address goes away. Cloud backups stay on this account and stay billed until you turn off payment in Cloud backups. Someone else can link this Luna later with the same device token.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button variant="destructive" loading={unbinding} onClick={unbind}>
@@ -264,7 +264,7 @@ export default function LunaPage() {
               data-testid="luna-device-code"
             >
               <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                Device code
+                Device token
               </p>
               <p className="font-mono text-xl tracking-widest break-all">{shownCode}</p>
               <Button variant="secondary" onClick={() => copyText(shownCode, "code")}>

@@ -21,7 +21,7 @@ describe("RemoteCategory", () => {
       new Response(JSON.stringify({ enabled: false }), { status: 200, headers: { "Content-Type": "application/json" } }),
     ));
     renderPage();
-    expect(await screen.findByText(/Configure your subdomain & add cloud backup on/i)).toBeTruthy();
+    expect(await screen.findByText(/Pick your Luna address and turn on cloud backup at/i)).toBeTruthy();
     const link = screen.getByRole("link", { name: "Luna Connect" });
     expect(link).toHaveAttribute("href", "https://connect.luna.libreloom.org");
     expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();

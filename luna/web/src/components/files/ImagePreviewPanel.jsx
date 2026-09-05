@@ -58,7 +58,7 @@ export default function ImagePreviewPanel({ src, alt, expanded = false }) {
 
       {status === "error" && (
         <p className="text-sm text-secondary px-4 py-10 text-center">
-          Could not load this photo. Try downloading it instead.
+          Luna couldn't show this photo. Download it instead.
         </p>
       )}
 

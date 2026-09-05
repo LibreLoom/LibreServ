@@ -56,7 +56,7 @@ describe("LoginPage", () => {
     stubFetch();
     renderLogin();
     expect(screen.getByText("Luna")).toBeInTheDocument();
-    expect(screen.getByText("Hey there! Log in to continue.")).toBeInTheDocument();
+    expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
   });
 
@@ -75,7 +75,7 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
-    expect(await screen.findByText(/username or password might be incorrect/i)).toBeInTheDocument();
+    expect(await screen.findByText(/username or password is wrong/i)).toBeInTheDocument();
   });
 
   it("asks the user to wait after too many tries, without a reset ritual", async () => {

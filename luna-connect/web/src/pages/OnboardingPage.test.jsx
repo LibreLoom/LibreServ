@@ -336,7 +336,7 @@ describe("OnboardingPage DIY verify", () => {
 
     mount("/onboarding");
 
-    expect(await screen.findByLabelText(/^Device code$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Check your inbox/i })).toBeNull();
   });
 
@@ -376,7 +376,7 @@ describe("OnboardingPage DIY verify", () => {
     mount("/onboarding");
 
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/^Device code$/i)).toBeNull();
+    expect(screen.queryByLabelText(/^Device token$/i)).toBeNull();
     expect(screen.queryByText(/already has a Luna/i)).toBeNull();
   });
 
@@ -558,7 +558,7 @@ describe("OnboardingPage DIY verify", () => {
       });
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
-    expect(screen.getByText(/installer asks for your device code/i)).toBeTruthy();
+    expect(screen.getByText(/when you install Luna on your device/i)).toBeTruthy();
     expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
@@ -605,10 +605,10 @@ describe("OnboardingPage DIY verify", () => {
     await fillAccount("owner@example.com", "password1234");
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
-    expect(screen.getByText(/quick-start card/i)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
+    expect(screen.getByText(/card in your Luna box/i)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/^Device token$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
@@ -653,9 +653,9 @@ describe("OnboardingPage DIY verify", () => {
     authState.me = { email: "owner@example.com", email_verified: true };
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
+    fireEvent.change(screen.getByLabelText(/^Device token$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
@@ -666,7 +666,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
     });
-    expect(await screen.findByLabelText(/^Device code$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     await waitFor(() => {
@@ -682,9 +682,9 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
+    fireEvent.change(screen.getByLabelText(/^Device token$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
@@ -696,7 +696,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^Nah\.$/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Skip for now$/i })).toBeTruthy();
     });
   }
 
@@ -737,11 +737,11 @@ describe("OnboardingPage finish flow", () => {
 
   it("skips the plug-in step and shows the simplified done card when Luna is already online", async () => {
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
-    expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
-    expect(screen.getByText(/initial connection is complete/i)).toBeTruthy();
+    expect(screen.getByText(/Luna is linked to your account/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Plug in Luna/i })).toBeNull();
     expect(screen.queryByText(/one-time code/i)).toBeNull();
     expect(document.body.textContent).not.toMatch(/\?setup=/);
@@ -775,11 +775,11 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /Complete setup on Luna/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /You're connected/i })).toBeNull();
   });
 
   it("polls device status and advances to the done card when Luna is ready", async () => {
@@ -814,13 +814,13 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
 
     ready = true;
     await vi.advanceTimersByTimeAsync(5000);
 
-    expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
     vi.useRealTimers();
   });
@@ -831,9 +831,9 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device code$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText(/^Device code$/i), {
+    fireEvent.change(screen.getByLabelText(/^Device token$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));

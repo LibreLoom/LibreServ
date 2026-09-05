@@ -35,7 +35,7 @@ export default function AdminLogin() {
       }
       navigate("/admin");
     } catch (err) {
-      setError(err.message || "Could not sign in.");
+      setError(err.message || "Could not sign in. Check your email, password, and authenticator code.");
     }
   };
 
@@ -57,7 +57,7 @@ export default function AdminLogin() {
           <CardDescription>
             {needs2FA
               ? "Enter your authenticator code to continue."
-              : "Sign in to mint device tokens and manage this Connect."}
+              : "Sign in to create device tokens and manage Luna Connect."}
           </CardDescription>
         </CardHeader>
         <CardContent>

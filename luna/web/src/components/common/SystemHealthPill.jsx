@@ -101,7 +101,7 @@ export default function SystemHealthPill() {
     return (
       <Pill variant="success" data-slot="system-health-pill">
         <CheckCircle size={12} strokeWidth={2.5} aria-hidden="true" />
-        <span className="font-medium">All systems healthy</span>
+        <span className="font-medium">Everything looks good</span>
       </Pill>
     );
   }

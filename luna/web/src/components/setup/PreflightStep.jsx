@@ -17,8 +17,8 @@ const KNOWN_CHECKS = new Set([
 ]);
 
 const CHECK_LABELS = {
-  database: "Database",
-  database_writable: "Database storage",
+  database: "File index",
+  database_writable: "File index storage",
   data_path_writable: "Luna data storage",
   logs_path_writable: "Log storage",
   disk_space: "Storage space",
@@ -83,7 +83,7 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
             isOk ? "text-primary/30" : "text-error",
           )}
         >
-          {isOk ? "ok" : "fail"}
+          {isOk ? "Passed" : "Failed"}
         </span>
       )}
     </div>
@@ -116,7 +116,7 @@ export default function PreflightStep({ onPass }) {
         throw new Error("Luna sent an unexpected response.");
       }
     } catch (err) {
-      setError(`Could not reach Luna: ${err.message || "try again."}`);
+      setError("Could not run the system check. Make sure this device can reach Luna, then tap Re-run checks.");
     } finally {
       setRunning(false);
     }
@@ -137,7 +137,7 @@ export default function PreflightStep({ onPass }) {
         }
       } catch (err) {
         if (cancelled) return;
-        setError(`Could not reach Luna: ${err.message || "try again."}`);
+        setError("Could not run the system check. Make sure this device can reach Luna, then tap Re-run checks.");
       } finally {
         if (!cancelled) setRunning(false);
       }
@@ -175,7 +175,7 @@ export default function PreflightStep({ onPass }) {
       <div className="mb-7">
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">System check</h2>
         <p className="text-accent text-sm mt-2">
-          Luna checks its storage and database before you continue setup.
+          Luna checks its storage and file index before you continue setup.
         </p>
       </div>
 

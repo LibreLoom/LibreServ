@@ -35,12 +35,12 @@ export default function DiscoveryPaths() {
     <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left space-y-4">
       {remoteHost ? (
         <div>
-          <p className="text-xs text-secondary mb-2">Everywhere:</p>
+          <p className="text-xs text-secondary mb-2">From anywhere (when Luna Connect is on):</p>
           <p className="font-mono text-xs text-secondary break-all">{remoteHost}</p>
         </div>
       ) : null}
       <div>
-        <p className="text-xs text-secondary mb-2">On your home internet only:</p>
+        <p className="text-xs text-secondary mb-2">On your home network only:</p>
         <ul className="space-y-1.5 text-xs font-mono text-secondary">
           <li>luna.local</li>
           {ipv4.map((ip) => (

@@ -132,7 +132,7 @@ pub fn run_preflight(data_dir: &Path, conn: &Connection) -> PreflightResponse {
         "database",
         "system",
         db_ok,
-        (!db_ok).then(|| "Luna couldn't open its database.".into()),
+        (!db_ok).then(|| "Luna couldn't open its file index.".into()),
         None,
     );
 
@@ -235,7 +235,7 @@ pub fn finish_comprehensive(
                         "Enough free space.".into()
                     }
                 }
-                "database" => "Database is working.".into(),
+                "database" => "File index is working.".into(),
                 "api_server" => "Luna is running.".into(),
                 _ => "OK.".into(),
             }

@@ -54,9 +54,9 @@ describe("DiscoveryPaths", () => {
       }),
     );
     renderPaths();
-    expect(await screen.findByText("Everywhere:")).toBeTruthy();
+    expect(await screen.findByText("From anywhere (when Luna Connect is on):")).toBeTruthy();
     expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
-    expect(screen.getByText("On your home internet only:")).toBeTruthy();
+    expect(screen.getByText("On your home network only:")).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
     expect(screen.getByText("192.168.1.118")).toBeTruthy();
     expect(screen.queryByText(/if your phone finds it/i)).toBeNull();
@@ -73,8 +73,8 @@ describe("DiscoveryPaths", () => {
     );
     renderPaths();
     expect(await screen.findByText("192.168.1.20")).toBeTruthy();
-    expect(screen.queryByText("Everywhere:")).toBeNull();
-    expect(screen.getByText("On your home internet only:")).toBeTruthy();
+    expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
+    expect(screen.getByText("On your home network only:")).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
   });
 
@@ -92,7 +92,7 @@ describe("DiscoveryPaths", () => {
     );
     renderPaths();
     expect(await screen.findByText("192.168.1.20")).toBeTruthy();
-    expect(screen.queryByText("Everywhere:")).toBeNull();
+    expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
     expect(screen.queryByText("kitchen.luna.servers.libreloom.org")).toBeNull();
   });
 });

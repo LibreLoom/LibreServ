@@ -49,7 +49,7 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
       }
       await onConfirm(paymentMethod.id);
     } catch (err) {
-      setLocalError(err.message || "We could not take the dollar. Try again.");
+      setLocalError(err.message || "The $1 card check did not go through. Check the card details and try again.");
     } finally {
       setBusy(false);
     }
@@ -59,7 +59,7 @@ function VerifyHumanCardForm({ onConfirm, loading, description, buttonLabel }) {
     <form className="space-y-3" onSubmit={handleSubmit} data-testid="verify-human-card">
       {description !== "" && (
         <p className="text-sm text-card-foreground">
-          {description || "A dollar to confirm this is a real person; it counts toward cloud backup if you turn it on."}
+          {description || "A one-time $1 charge checks that your card works. It counts toward cloud backup if you turn that on."}
         </p>
       )}
       <ShakeTarget shake={localError}>

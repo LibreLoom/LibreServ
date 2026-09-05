@@ -88,7 +88,7 @@ async fn reindex(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage search.",
         ));
     }
     let db = state.db.clone();
@@ -123,7 +123,7 @@ async fn scrub_status(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage search.",
         ));
     }
     let conn = state.db.lock().map_err(|_| {
@@ -151,7 +151,7 @@ async fn start_scrub(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage search.",
         ));
     }
     if state
@@ -185,7 +185,7 @@ async fn factory_reset(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage search.",
         ));
     }
     if !body.confirm {

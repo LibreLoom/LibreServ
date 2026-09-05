@@ -40,13 +40,13 @@ fn token_row_json(dt: &crate::db::DeviceTokenRow) -> Value {
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
     match err {
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an admin can do that."),
+        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage access tokens."),
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that. Try again.",
+            "Luna couldn't update access tokens. Try again.",
         ),
     }
 }

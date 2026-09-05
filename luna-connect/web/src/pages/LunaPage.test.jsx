@@ -45,7 +45,7 @@ describe("LunaPage one Luna", () => {
     expect(await screen.findByText(/No Luna linked yet/i)).toBeTruthy();
     expect(screen.getByRole("heading", { name: /My Luna/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Start setup/i }).getAttribute("href")).toBe("/onboarding");
-    expect(screen.getByRole("link", { name: /I set this computer up myself/i }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: /I installed Luna myself/i }).getAttribute("href")).toBe(
       "/diyonboarding",
     );
     expect(screen.queryByRole("button", { name: /Get a new setup code/i })).toBeNull();

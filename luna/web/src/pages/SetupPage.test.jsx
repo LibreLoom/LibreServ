@@ -216,8 +216,8 @@ describe("SetupPage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     renderSetup();
-    expect(await screen.findByRole("heading", { name: /Your device code/i })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/Device code/i), { target: { value: "ABCDEFGH" } });
+    expect(await screen.findByRole("heading", { name: /Your device token/i })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Device token/i), { target: { value: "ABCDEFGH" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     expect(await screen.findByRole("heading", { name: "Welcome." })).toBeTruthy();
   });
@@ -241,7 +241,7 @@ describe("SetupPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-    expect(await screen.findByLabelText(/Your device code/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/Your device token/i)).toBeTruthy();
     expect(screen.getByText(/nobody else on the internet/i)).toBeTruthy();
   });
 
@@ -263,7 +263,7 @@ describe("SetupPage", () => {
     fireEvent.change(screen.getByLabelText(/Choose a password/i), { target: { value: "SecurePass123!" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
-    expect(screen.queryByLabelText(/Your device code/i)).toBeNull();
+    expect(screen.queryByLabelText(/Your device token/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Create account/i })).toBeTruthy();
   });
 });

@@ -19,7 +19,7 @@ export const ERROR_REMEDIATIONS = [
   {
     id: "database",
     match: (err) => /database|sqlite/i.test(err),
-    tip: "The database folder may be missing or read-only. Restart Luna and run the check again.",
+    tip: "Luna can't write its file index. Restart Luna. If it still fails, contact support.",
     severity: "critical",
   },
 ];
@@ -48,7 +48,7 @@ export function summarizeError(error) {
   if (!error) return "";
   const lower = error.toLowerCase();
   if (lower.includes("512 mb") || lower.includes("disk space")) return "Low disk space";
-  if (lower.includes("database")) return "Database problem";
+  if (lower.includes("database")) return "File index problem";
   if (lower.includes("write") || lower.includes("permission")) return "Can't write here";
   return error.length > 48 ? `${error.slice(0, 45)}…` : error;
 }

@@ -245,7 +245,7 @@ fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Jso
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage updates.",
         ));
     }
     Ok(())

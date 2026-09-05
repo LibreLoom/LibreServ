@@ -99,14 +99,14 @@ async fn list(
     let rows = with_db(&state.db, crate::db::list_drives).map_err(|e| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Could not list drives. {e}"),
+            "Luna couldn't list your drives. Try again.",
         )
     })?;
     let admin = user.role == "admin";
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna is updating its file list. Wait a moment and try again.",
         )
     })?;
     Ok(Json(
@@ -254,7 +254,7 @@ async fn dismiss(
     state.drive_manager.dismiss_foreign(&name).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't let go of this drive. Try ejecting it from your computer instead.",
+            "Luna couldn't let go of this drive. Unplug it, wait a few seconds, and plug it back in.",
         )
     })?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -282,7 +282,7 @@ async fn remove(
     with_db(&state.db, |conn| state.drive_manager.remove(conn, &id)).map_err(|e| {
         json_error(
             StatusCode::BAD_REQUEST,
-            format!("Luna couldn't remove this drive. {e}"),
+            "Luna couldn't remove this drive. Try again.",
         )
     })?;
     crate::dav::drop_cached_handler(&state, &id);
@@ -300,11 +300,11 @@ async fn drive_health(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna is updating its file list. Wait a moment and try again.",
             )
         })?;
         let drive = crate::db::get_drive(&conn, &id)
-            .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+            .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't update this drive. Try again."))?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
         drive.device
     };
@@ -328,11 +328,11 @@ async fn drive_summary(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna is updating its file list. Wait a moment and try again.",
             )
         })?;
         let drive = crate::db::get_drive(&conn, &id)
-            .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+            .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't update this drive. Try again."))?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
         if !crate::auth::has_drive_access(&user, &conn, &id) {
             return Err(json_error(
@@ -403,7 +403,7 @@ fn require_admin(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can manage drives.",
+            "Only an Admin can manage drives.",
         ));
     }
     Ok(())

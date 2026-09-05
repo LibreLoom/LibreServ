@@ -59,7 +59,7 @@ pub enum AuthError {
     PasswordPolicy(String),
     #[error("That username is already taken.")]
     Taken,
-    #[error("Only an admin can do that.")]
+    #[error("Only an Admin can do that.")]
     Forbidden,
     #[error("Sign in to Luna first.")]
     Unauthenticated,

@@ -83,7 +83,7 @@ async fn setup_code(
     if !setup_or_admin(&state, current.as_ref()) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can enter a device token.",
+            "Only an Admin can enter a device token.",
         ));
     }
     let service = state.connect.clone();
@@ -98,7 +98,7 @@ async fn setup_code(
         .map_err(map_connect_err)?;
     Ok(Json(json!({
         "ok": true,
-        "message": "Luna will use this device token to meet Luna Connect. Keep this page open."
+        "message": "Luna will use this device token to sign in to Luna Connect. Keep this page open."
     })))
 }
 
@@ -196,7 +196,7 @@ async fn set_sources(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna is updating its file list. Wait a moment and try again.",
             )
         })?;
         let drives = crate::db::list_drives(&conn).map_err(|_| {
@@ -225,7 +225,7 @@ fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can change remote access.",
+            "Only an Admin can change remote access.",
         ));
     }
     Ok(())
@@ -242,7 +242,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
     match err {
         ConnectError::Unreachable => json_error(
             StatusCode::BAD_GATEWAY,
-            "Connect couldn't be reached. Check your internet connection and try again.",
+            "Luna Connect couldn't be reached. Check your internet connection and try again.",
         ),
         ConnectError::GatewayChallenge => json_error(
             StatusCode::BAD_GATEWAY,

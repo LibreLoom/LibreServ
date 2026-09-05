@@ -200,7 +200,7 @@ function SetupCodeStep({ onCodeVerified }) {
   const handleSubmit = async () => {
     const trimmed = normalize(code);
     if (trimmed.length !== 8) {
-      setError("Enter the first eight characters (****-****) from your device code.");
+      setError("Enter the first eight characters (****-****) from your device token.");
       return;
     }
     const grouped = `${trimmed.slice(0, 4)}-${trimmed.slice(4)}`;
@@ -229,10 +229,10 @@ function SetupCodeStep({ onCodeVerified }) {
         <LogoMark size={120} />
       </div>
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Your device code
+        Your device token
       </h1>
       <p className="text-primary text-base leading-relaxed mb-10 max-w-[22rem]">
-        From a phone or another computer, Luna asks for the first eight characters of your device code (****-****). Find them on the card that came with Luna, or on the Luna Connect page.
+        From a phone or another computer, Luna asks for the first eight characters of your device token (****-****). Find them on the card in your Luna box, or on the Luna Connect page.
       </p>
       <div className="w-full mb-6">
         <ShakeTarget shake={error}>
@@ -252,7 +252,7 @@ function SetupCodeStep({ onCodeVerified }) {
             autoComplete="off"
             autoFocus
             disabled={loading}
-            aria-label="Device code"
+            aria-label="Device token"
             aria-invalid={Boolean(error)}
           />
         </ShakeTarget>
@@ -431,11 +431,11 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   if (needsSetupCode) {
     authFields.push({
       id: "setup_secret",
-      question: "Your device code",
-      hint: "Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login.",
+      question: "Your device token",
+      hint: "Paste the device token from connect.luna.libreloom.org after you named this Luna. It confirms you finished setup there, so nobody else on the internet can create this first login.",
       name: "setup_secret",
       type: "text",
-      placeholder: "Paste the code from Luna Connect",
+      placeholder: "Paste from Luna Connect",
       autoComplete: "off",
       valid: setupSecretOk,
     });

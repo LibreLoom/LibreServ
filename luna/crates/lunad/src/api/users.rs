@@ -31,7 +31,7 @@ async fn list(
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage users.",
         ));
     }
     let users = state.auth.list_users().map_err(map_err)?;
@@ -46,7 +46,7 @@ async fn create(
     if admin.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage users.",
         ));
     }
     let role = body.role.as_deref().unwrap_or("user");
@@ -70,7 +70,7 @@ async fn remove(
     if admin.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an admin can do that.",
+            "Only an Admin can manage users.",
         ));
     }
     if admin.id == id {
@@ -85,13 +85,13 @@ async fn remove(
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
     match err {
-        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an admin can do that."),
+        AuthError::Forbidden => json_error(StatusCode::FORBIDDEN, "Only an Admin can manage users."),
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that. Try again.",
+            "Luna couldn't update users. Try again.",
         ),
     }
 }
