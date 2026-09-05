@@ -742,9 +742,9 @@ describe("OnboardingPage finish flow", () => {
     expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
     expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
     const lunaLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
-    expect(lunaLink).toHaveAttribute("href", "https://kitchen.luna.servers.libreloom.org");
-    expect(lunaLink).toHaveAttribute("target", "_blank");
-    expect(lunaLink).toHaveAttribute("rel", "noreferrer");
+    expect(lunaLink.getAttribute("href")).toBe("https://kitchen.luna.servers.libreloom.org");
+    expect(lunaLink.getAttribute("target")).toBe("_blank");
+    expect(lunaLink.getAttribute("rel")).toBe("noreferrer");
     expect(lunaLink.className).toMatch(/underline/);
     expect(lunaLink.className).toMatch(/hover:no-underline/);
     expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
@@ -829,10 +829,9 @@ describe("OnboardingPage finish flow", () => {
 
     expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
     expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" })).toHaveAttribute(
-      "href",
-      "https://kitchen.luna.servers.libreloom.org",
-    );
+    expect(
+      screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" }).getAttribute("href"),
+    ).toBe("https://kitchen.luna.servers.libreloom.org");
     vi.useRealTimers();
   });
 
