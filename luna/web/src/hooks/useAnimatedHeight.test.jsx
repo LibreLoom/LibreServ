@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRef } from "react";
 import { render, act, renderHook } from "@testing-library/react";
 import { useAnimatedHeight } from "./useAnimatedHeight.jsx";
@@ -61,6 +61,35 @@ describe("useAnimatedHeight", () => {
     expect(getByTestId("outer").style.height).toBe("96px");
   });
 
+  it("updates outer height when ResizeObserver reports a new inner size", () => {
+    /** @type {ResizeObserverCallback[]} */
+    const callbacks = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        /** @param {ResizeObserverCallback} cb */
+        constructor(cb) {
+          callbacks.push(cb);
+          this.cb = cb;
+        }
+        observe() {
+          this.cb([], this);
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+
+    const { getByTestId, rerender } = render(<Probe innerHeight={64} />);
+    expect(getByTestId("outer").style.height).toBe("64px");
+
+    rerender(<Probe innerHeight={240} />);
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    expect(getByTestId("outer").style.height).toBe("240px");
+  });
+
   it("rebinds observation when enabled flips back to true", () => {
     let observeCount = 0;
     vi.stubGlobal(
@@ -89,34 +118,5 @@ describe("useAnimatedHeight", () => {
     rerender(<Probe enabled innerHeight={50} />);
     expect(observeCount).toBe(2);
     expect(getByTestId("outer").style.height).toBe("50px");
-  });
-
-  it("updates outer height when ResizeObserver reports a new inner size", () => {
-    /** @type {ResizeObserverCallback[]} */
-    const callbacks = [];
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        /** @param {ResizeObserverCallback} cb */
-        constructor(cb) {
-          callbacks.push(cb);
-          this.cb = cb;
-        }
-        observe() {
-          this.cb([], this);
-        }
-        disconnect() {}
-        unobserve() {}
-      },
-    );
-
-    const { getByTestId, rerender } = render(<Probe innerHeight={64} />);
-    expect(getByTestId("outer").style.height).toBe("64px");
-
-    rerender(<Probe innerHeight={240} />);
-    act(() => {
-      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
-    });
-    expect(getByTestId("outer").style.height).toBe("240px");
   });
 });

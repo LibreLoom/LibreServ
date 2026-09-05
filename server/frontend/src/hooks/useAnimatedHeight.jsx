@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 /**
  * useAnimatedHeight - smooth height transitions for cards with changing content.
@@ -10,6 +10,8 @@ import { useEffect, useRef } from "react";
  *
  * Usage:
  *   const { outerRef, innerRef } = useAnimatedHeight();
+ *   // ModalCard (portal mounts/unmounts with `present`):
+ *   const { outerRef, innerRef } = useAnimatedHeight(present);
  *
  *   <div ref={outerRef} className="overflow-hidden transition-[height] ease-[...]"
  *        style={{ transitionDuration: "var(--motion-duration-medium2)" }}>
@@ -19,19 +21,29 @@ import { useEffect, useRef } from "react";
  *   </div>
  *
  * Notes:
- * - `innerRef` must wrap ALL content inside the outer div.
+ * - `innerRef` must wrap ALL content inside the outer div, and must NOT carry a
+ *   max-height that tracks the outer (that caps the measured box so growth
+ *   never notifies ResizeObserver). Put viewport max-height / scrolling on a
+ *   wrapper around the measure target, not on the measure target itself.
  * - The initial height is set without animation (auto → px is not transitionable
  *   by the browser, so it snaps instantly — correct behaviour).
  * - All subsequent height changes (px → px) animate via the CSS transition.
+ * - Pass `enabled=false` while the measured DOM is unmounted (e.g. ModalCard
+ *   after exit). Pass `enabled=true` again when it remounts so observation
+ *   rebinds — a mount-only effect would miss the second open.
+ *
+ * @param {boolean} [enabled=true] When false, disconnects and clears the outer height.
  */
-export function useAnimatedHeight() {
+export function useAnimatedHeight(enabled = true) {
   const outerRef = useRef(null);
   const innerRef = useRef(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!enabled) return undefined;
+
     const outer = outerRef.current;
     const inner = innerRef.current;
-    if (!outer || !inner) return;
+    if (!outer || !inner) return undefined;
 
     const applyHeight = () => {
       // offsetHeight excludes the inner element's own margins, but those
@@ -41,14 +53,18 @@ export function useAnimatedHeight() {
       // bottom. Add the vertical margins back so the outer box fits content.
       const { marginTop, marginBottom } = getComputedStyle(inner);
       const margins = (parseFloat(marginTop) || 0) + (parseFloat(marginBottom) || 0);
-      outer.style.height = inner.offsetHeight + margins + "px";
+      outer.style.height = `${inner.offsetHeight + margins}px`;
     };
 
+    applyHeight();
     const ro = new ResizeObserver(applyHeight);
     ro.observe(inner);
 
-    return () => ro.disconnect();
-  }, []);
+    return () => {
+      ro.disconnect();
+      outer.style.height = "";
+    };
+  }, [enabled]);
 
   return { outerRef, innerRef };
 }
