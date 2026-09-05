@@ -69,7 +69,7 @@ export default function RemoteCategory() {
                 <p className="font-mono text-lg leading-snug text-secondary">
                   No public address yet
                 </p>
-                <p className="font-mono text-sm text-accent break-all">
+                <p className="font-mono text-sm text-secondary break-all">
                   <TermHint
                     content="The short name you pick on Luna Connect becomes the first part of this address — for example kitchen in kitchen.luna.servers.libreloom.org."
                     surface="primary"
