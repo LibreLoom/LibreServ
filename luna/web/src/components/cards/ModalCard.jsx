@@ -80,7 +80,9 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
-  const { outerRef, innerRef } = useAnimatedHeight();
+  // Rebind when the portal remounts after exit — a mount-only observer would
+  // miss the second open and leave height:auto (content jumps instead of easing).
+  const { outerRef, innerRef } = useAnimatedHeight(present);
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -270,64 +272,74 @@ export default function ModalCard({
         style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         onClick={(event) => event.stopPropagation()}
       >
+        {/*
+          Scroller carries viewport max-height + overflow. Measure target is a
+          child without max-height so ResizeObserver sees content grow (loading
+          → form) and the outer height transition can run. Measuring the
+          max-h-full scroller itself locked the first height forever.
+        */}
         <div
-          ref={innerRef}
           data-slot="dialog-scroller"
-          className={cn(maxHeightClasses, scrollReady && !isClosing ? "overflow-y-auto" : "overflow-hidden")}
+          className={cn(
+            "h-full max-h-full",
+            scrollReady && !isClosing ? "overflow-y-auto" : "overflow-hidden",
+          )}
           onAnimationEnd={handlePopInEnd}
         >
-        <ModalCloseContext.Provider value={handleClose}>
-        <Card
-          noHeightAnim
-          noPopIn
-          className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
-        >
-          {showCloseButton && (
-            <button
-              type="button"
-              data-slot="dialog-close"
-              onClick={handleClose}
-              className={cn(
-                "absolute top-5 right-5 p-2 rounded-pill text-primary",
-                "motion-safe:transition-all hover:bg-primary hover:text-secondary",
-                "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-                "focus-visible:ring-offset-secondary no-focus-outline"
-              )}
-              aria-label="Close"
-              ref={closeButtonRef}
-            >
-              <X size={20} aria-hidden="true" />
-            </button>
-          )}
+          <div ref={innerRef} data-slot="dialog-measure">
+            <ModalCloseContext.Provider value={handleClose}>
+              <Card
+                noHeightAnim
+                noPopIn
+                className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
+              >
+                {showCloseButton && (
+                  <button
+                    type="button"
+                    data-slot="dialog-close"
+                    onClick={handleClose}
+                    className={cn(
+                      "absolute top-5 right-5 p-2 rounded-pill text-primary",
+                      "motion-safe:transition-all hover:bg-primary hover:text-secondary",
+                      "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+                      "focus-visible:ring-offset-secondary no-focus-outline"
+                    )}
+                    aria-label="Close"
+                    ref={closeButtonRef}
+                  >
+                    <X size={20} aria-hidden="true" />
+                  </button>
+                )}
 
-          {title && (
-            <h2 id={titleId} className="text-xl font-mono font-normal mb-4 pr-10">
-              {title}
-            </h2>
-          )}
+                {title && (
+                  <h2 id={titleId} className="text-xl font-mono font-normal mb-4 pr-10">
+                    {title}
+                  </h2>
+                )}
 
-          {loading ? (
-            <div className="p-5 space-y-4" aria-hidden="true">
-              <div className="h-4 w-3/4 rounded-pill bg-accent/30 animate-pulse" />
-              <div className="h-4 w-full rounded-pill bg-accent/30 animate-pulse" />
-              <div className="h-4 w-2/3 rounded-pill bg-accent/30 animate-pulse" />
-              <div className="h-10 w-full rounded-pill bg-accent/30 animate-pulse" />
-              <div className="flex gap-3 pt-2">
-                <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
-                <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
-              </div>
-            </div>
-          ) : (
-            content
-          )}
+                {loading ? (
+                  <div className="p-5 space-y-4" aria-hidden="true">
+                    <div className="h-4 w-3/4 rounded-pill bg-accent/30 animate-pulse" />
+                    <div className="h-4 w-full rounded-pill bg-accent/30 animate-pulse" />
+                    <div className="h-4 w-2/3 rounded-pill bg-accent/30 animate-pulse" />
+                    <div className="h-10 w-full rounded-pill bg-accent/30 animate-pulse" />
+                    <div className="flex gap-3 pt-2">
+                      <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
+                      <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
+                    </div>
+                  </div>
+                ) : (
+                  content
+                )}
 
-          {footer && (
-            <div className="mt-4">
-              {typeof footer === "function" ? footer({ close: handleClose }) : footer}
-            </div>
-          )}
-        </Card>
-        </ModalCloseContext.Provider>
+                {footer && (
+                  <div className="mt-4">
+                    {typeof footer === "function" ? footer({ close: handleClose }) : footer}
+                  </div>
+                )}
+              </Card>
+            </ModalCloseContext.Provider>
+          </div>
         </div>
       </div>
     </div>,

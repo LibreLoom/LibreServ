@@ -225,6 +225,24 @@ describe("ModalCard", () => {
     );
   });
 
+  it("measures height from dialog-measure, not the max-height scroller", () => {
+    render(
+      <ModalCard title="Measure" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    const measure = dialog.querySelector("[data-slot=dialog-measure]");
+    expect(scroller).toBeTruthy();
+    expect(measure).toBeTruthy();
+    expect(scroller?.contains(measure)).toBe(true);
+    // Scroller may fill the clipped dialog; it must not be the measured node
+    // (max-h-full on the measured node locked the first content height).
+    expect(measure).not.toBe(scroller);
+    expect(dialog.className).toMatch(/transition-\[height\]/);
+  });
+
   it("Escape on a nested overlay closes only the top modal", () => {
     vi.useFakeTimers();
     const onBottom = vi.fn();
