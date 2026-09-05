@@ -197,6 +197,51 @@ describe("SetupPage", () => {
     expect(form.querySelector("[class*='slide-in-from']")).toBeTruthy();
   });
 
+  it("drops SetupCard slide classes after the step entrance animation ends", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    await screen.findByRole("heading", { name: /Create your account/i });
+    const slide = [...document.querySelectorAll('[data-slot="one-shot-slide"]')]
+      .find((el) => el.className.includes("slide-in-from"));
+    expect(slide).toBeTruthy();
+    await waitFor(() => {
+      expect(slide.className).not.toMatch(/slide-in-from/);
+      expect(slide.className).not.toMatch(/animate-in/);
+    });
+  });
+
+  it("drops account substep slide classes after the field entrance animation ends", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    const username = await screen.findByLabelText(/Pick a username/i);
+    const form = username.closest("form");
+    const slide = form.querySelector('[data-slot="one-shot-slide"]');
+    expect(slide?.className).toMatch(/slide-in-from/);
+    await waitFor(() => {
+      expect(slide.className).not.toMatch(/slide-in-from/);
+    });
+  });
 
   it("asks for the Luna Connect setup code on a public hostname when Connect is active", async () => {
     vi.stubGlobal("fetch", stubFetch({
