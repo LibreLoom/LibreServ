@@ -219,6 +219,14 @@ for mod in e1000e igc igb ixgbe r8169 atl1c virtio_net virtio_pci; do
     modprobe "$mod" 2>/dev/null || true
 done
 
+# Ensure loopback interface is active with standard localhost address.
+if ip link show lo >/dev/null 2>&1; then
+    ip link set lo up 2>/dev/null || true
+    if ! ip -4 addr show dev lo 2>/dev/null | grep -q 'inet '; then
+        ip addr add 127.0.0.1/8 dev lo brd + 2>/dev/null || true
+    fi
+fi
+
 for iface_path in /sys/class/net/*; do
     iface="${iface_path##*/}"
     [ "$iface" = lo ] && continue
@@ -259,7 +267,7 @@ mkdir -p "$ROOTFS/etc/runlevels/default" "$ROOTFS/etc/runlevels/boot" "$ROOTFS/e
 for svc in devfs dmesg mdev hwdrivers; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/sysinit/$svc" 2>/dev/null || true
 done
-for svc in hwclock modules sysctl hostname bootmisc syslog luna-input luna-network; do
+for svc in hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/boot/$svc" 2>/dev/null || true
 done
 for svc in avahi-daemon luna crond chronyd; do
