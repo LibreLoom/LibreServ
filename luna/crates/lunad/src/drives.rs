@@ -31,6 +31,9 @@ use crate::mount::Mounter;
 
 pub const INSTALLER_USB_MESSAGE: &str = "This USB still has the Luna installer on it. That kind of disk cannot be changed. Erase it to use it for photos and files — that deletes everything currently on the USB, including the installer.";
 pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, look inside and choose Erase and add.";
+/// Adopt failed because the stick stayed read-only after a remount attempt.
+pub const NEEDS_FORMAT_MESSAGE: &str =
+    "This drive is read-only. Format it before using it with Luna.";
 
 #[derive(Debug, Clone)]
 pub struct Inspection {
@@ -192,51 +195,27 @@ impl DriveManager {
             };
         }
 
-        let usb = device.removable || device.usb;
-        let (mount_point, mounted_by_luna) = match &device.mount_point {
-            Some(existing) if !erase && !self.is_ours(Path::new(existing)) => {
-                let existing = PathBuf::from(existing);
-                if is_system_mountpoint(&existing) {
-                    anyhow::bail!(
-                        "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
-                    );
+        let (mut mount_point, mut mounted_by_luna) =
+            self.initial_adopt_mount(device, &choice, &id, erase)?;
+
+        // Writing must work before Luna claims the drive. On failure, silently
+        // unmount + remount read-write once, then probe again.
+        if probe_writable(&mount_point).is_err() {
+            match self.remount_adopt_rw(device, &choice, &id, &mount_point, mounted_by_luna) {
+                Ok((new_mp, new_by_luna)) => {
+                    mount_point = new_mp;
+                    mounted_by_luna = new_by_luna;
                 }
-                if device.mount_readonly {
-                    let _ = self.mounter.remount(&existing, false);
-                    if probe_writable(&existing).is_ok() {
-                        (existing, false)
-                    } else if usb {
-                        self.mounter.unmount(&existing)?;
-                        let target = self.adopted_mount_point(&id);
-                        self.mounter
-                            .mount_typed(
-                                &device_path(&choice.name),
-                                &target,
-                                false,
-                                fs_opt(&choice.fs_type),
-                            )
-                            .map_err(|e| anyhow::anyhow!("Could not add this drive. {e}"))?;
-                        (target, true)
-                    } else {
-                        anyhow::bail!("{INSTALLER_USB_MESSAGE}");
-                    }
-                } else {
-                    (existing, false)
+                Err(_) => {
+                    self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
+                    anyhow::bail!("{NEEDS_FORMAT_MESSAGE}");
                 }
             }
-            _ => {
-                let target = self.adopted_mount_point(&id);
-                self.mounter
-                    .mount_typed(
-                        &device_path(&choice.name),
-                        &target,
-                        false,
-                        fs_opt(&choice.fs_type),
-                    )
-                    .map_err(|e| anyhow::anyhow!("Could not add this drive. {e}"))?;
-                (target, true)
+            if probe_writable(&mount_point).is_err() {
+                self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
+                anyhow::bail!("{NEEDS_FORMAT_MESSAGE}");
             }
-        };
+        }
 
         let recorded_fs = if choice.fs_type.is_empty() {
             device.fs_type.as_deref().unwrap_or("")
@@ -244,28 +223,36 @@ impl DriveManager {
             choice.fs_type.as_str()
         };
 
-        // Both reading and writing must work before Luna claims the drive.
-        if probe_writable(&mount_point).is_err() {
-            if mounted_by_luna {
-                let _ = self.mounter.unmount(&mount_point);
-                let _ = std::fs::remove_dir(&mount_point);
-            }
-            anyhow::bail!("{WRITE_REJECTED_MESSAGE}");
-        }
-
         // Marker first, then DB. Never leave a DB row without a marker.
         let marker = Marker::new(id.clone(), label);
         if let Err(e) = write_marker(&mount_point, &marker) {
-            if mounted_by_luna {
-                let _ = self.mounter.unmount(&mount_point);
-                let _ = std::fs::remove_dir(&mount_point);
-            }
             if is_erofs(&e) {
-                return Err(anyhow::anyhow!("{WRITE_REJECTED_MESSAGE}"));
+                // Stick flipped read-only under us — same silent remount retry.
+                match self.remount_adopt_rw(device, &choice, &id, &mount_point, mounted_by_luna) {
+                    Ok((new_mp, new_by_luna)) => {
+                        mount_point = new_mp;
+                        mounted_by_luna = new_by_luna;
+                        if let Err(e2) = write_marker(&mount_point, &marker) {
+                            self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
+                            if is_erofs(&e2) {
+                                return Err(anyhow::anyhow!("{NEEDS_FORMAT_MESSAGE}"));
+                            }
+                            return Err(anyhow::anyhow!(
+                                "Luna could not mark this drive as its own. {e2}"
+                            ));
+                        }
+                    }
+                    Err(_) => {
+                        self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
+                        return Err(anyhow::anyhow!("{NEEDS_FORMAT_MESSAGE}"));
+                    }
+                }
+            } else {
+                self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
+                return Err(anyhow::anyhow!(
+                    "Luna could not mark this drive as its own. {e}"
+                ));
             }
-            return Err(anyhow::anyhow!(
-                "Luna could not mark this drive as its own. {e}"
-            ));
         }
 
         if let Err(e) = db::upsert_drive(
@@ -278,16 +265,93 @@ impl DriveManager {
             mount_point.to_str().unwrap_or(""),
         ) {
             let _ = remove_marker(&mount_point);
-            if mounted_by_luna {
-                let _ = self.mounter.unmount(&mount_point);
-                let _ = std::fs::remove_dir(&mount_point);
-            }
+            self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
             return Err(anyhow::anyhow!("Could not add this drive. {e}"));
         }
 
         db::get_drive(conn, &id)?
             .map(Ok)
             .unwrap_or_else(|| anyhow::bail!("Drive was added but could not be read back."))
+    }
+
+    /// First mount for adopt: prefer an existing OS mount, else mount RW at a
+    /// Luna-owned path. Does not yet guarantee writability.
+    fn initial_adopt_mount(
+        &self,
+        device: &DetectedDrive,
+        choice: &MountChoice,
+        id: &str,
+        erase: bool,
+    ) -> anyhow::Result<(PathBuf, bool)> {
+        match &device.mount_point {
+            Some(existing) if !erase && !self.is_ours(Path::new(existing)) => {
+                let existing = PathBuf::from(existing);
+                if is_system_mountpoint(&existing) {
+                    anyhow::bail!(
+                        "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
+                    );
+                }
+                if device.mount_readonly {
+                    let _ = self.mounter.remount(&existing, false);
+                }
+                Ok((existing, false))
+            }
+            _ => {
+                let target = self.adopted_mount_point(id);
+                self.mounter
+                    .mount_typed(
+                        &device_path(&choice.name),
+                        &target,
+                        false,
+                        fs_opt(&choice.fs_type),
+                    )
+                    .map_err(|e| anyhow::anyhow!("Could not add this drive. {e}"))?;
+                Ok((target, true))
+            }
+        }
+    }
+
+    /// Silent recover: drop the current mount and remount the stick read-write
+    /// at a Luna-owned path so adoption can write the marker.
+    fn remount_adopt_rw(
+        &self,
+        device: &DetectedDrive,
+        choice: &MountChoice,
+        id: &str,
+        current: &Path,
+        mounted_by_luna: bool,
+    ) -> anyhow::Result<(PathBuf, bool)> {
+        let _ = self.mounter.unmount(current);
+        if mounted_by_luna {
+            let _ = std::fs::remove_dir(current);
+        }
+        // Also drop a leftover foreign inspect mount if present.
+        let foreign = self.foreign_mount_point(&device.name);
+        if foreign.exists() {
+            let _ = self.mounter.unmount(&foreign);
+            let _ = std::fs::remove_dir(&foreign);
+        }
+        let target = self.adopted_mount_point(id);
+        if target.exists() {
+            let _ = self.mounter.unmount(&target);
+            let _ = std::fs::remove_dir(&target);
+        }
+        self.mounter
+            .mount_typed(
+                &device_path(&choice.name),
+                &target,
+                false,
+                fs_opt(&choice.fs_type),
+            )
+            .map_err(|e| anyhow::anyhow!("Could not remount this drive. {e}"))?;
+        Ok((target, true))
+    }
+
+    fn cleanup_adopt_mount(&self, mount_point: &Path, mounted_by_luna: bool) {
+        if mounted_by_luna {
+            let _ = self.mounter.unmount(mount_point);
+            let _ = std::fs::remove_dir(mount_point);
+        }
     }
 
     fn choice_for(&self, device: &DetectedDrive) -> MountChoice {
@@ -361,12 +425,17 @@ impl DriveManager {
     /// forget the DB row. Files on the drive are left alone.
     ///
     /// If Luna already ejected (unmounted) the drive, this remounts it long
-    /// enough to delete the sticker. If the drive is unplugged, Remove fails
-    /// and the DB row is left alone so the sticker is never silently skipped.
+    /// enough to delete the sticker. If the drive is unplugged (`missing`),
+    /// Luna forgets the registry row and leaves the on-disk sticker alone —
+    /// it cannot reach the stick to delete `.luna`.
     pub fn remove(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
+        if drive.state == "missing" {
+            db::delete_drive_cascade(conn, id)?;
+            return Ok(());
+        }
         let (root, remounted) = self.mount_for_remove(&drive)?;
         remove_marker(&root).map_err(|e| {
             if remounted {
@@ -459,16 +528,42 @@ impl DriveManager {
     /// Check every adopted drive is still writable. Drives that fail a safe
     /// create/write/sync/delete probe transition to `readonly` — never failed
     /// — because reads usually still work and the UI can explain calmly.
+    ///
+    /// Before marking readonly, try a remount read-write: Linux often flips a
+    /// mount to `ro` after a transient filesystem error (`errors=remount-ro`),
+    /// which would otherwise leave a healthy stick stuck read-only forever.
+    /// Readonly drives that pass the probe again are restored to `as_is`.
     pub fn health_check(&self, conn: &Connection) -> anyhow::Result<()> {
         for drive in db::list_drives(conn)? {
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
+            if drive.mount_point.is_empty() {
                 continue;
             }
-            if probe_writable(std::path::Path::new(&drive.mount_point)).is_err() {
-                db::set_drive_state(conn, &drive.id, "readonly")?;
+            if drive.state != "as_is" && drive.state != "readonly" {
+                continue;
+            }
+            let root = std::path::Path::new(&drive.mount_point);
+            if !self.mounter.is_mounted(root) {
+                continue;
+            }
+            let writable = self.ensure_writable_mount(root);
+            match (drive.state.as_str(), writable) {
+                ("as_is", false) => db::set_drive_state(conn, &drive.id, "readonly")?,
+                ("readonly", true) => db::set_drive_state(conn, &drive.id, "as_is")?,
+                _ => {}
             }
         }
         Ok(())
+    }
+
+    /// Probe writes; if that fails, remount RW once and probe again.
+    fn ensure_writable_mount(&self, root: &Path) -> bool {
+        if probe_writable(root).is_ok() {
+            return true;
+        }
+        if self.mounter.remount(root, false).is_err() {
+            return false;
+        }
+        probe_writable(root).is_ok()
     }
 
     /// Reconcile the registry with reality.
@@ -808,7 +903,7 @@ mod tests {
     }
 
     #[test]
-    fn adopt_refuses_when_not_writable_and_leaves_no_db_row() {
+    fn adopt_recovers_from_os_readonly_by_remounting() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
@@ -822,14 +917,54 @@ mod tests {
             std::fs::set_permissions(&existing, perms).unwrap();
         }
         let conn = db::open(&dir.join("luna.db")).unwrap();
-        let mgr = DriveManager::new(mounter, dir);
+        let mgr = DriveManager::new(mounter.clone(), dir);
         let mut dev = detected("sdz", existing.to_str());
         dev.mount_readonly = false;
+        let row = mgr.adopt(&conn, &dev, "Photos Drive", false).unwrap();
+        // Recovery remounts at a Luna-owned path where the marker can be written.
+        assert!(row.mount_point.contains("mounts/drives"));
+        assert!(
+            luna_core::marker::read_marker(Path::new(&row.mount_point))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(db::list_drives(&conn).unwrap().len(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&existing).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&existing, perms).unwrap();
+        }
+    }
+
+    #[test]
+    fn adopt_refuses_when_remount_stays_readonly_and_leaves_no_db_row() {
+        let mounter = shared_mock();
+        *mounter.fail_mount.lock().unwrap() = true;
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let existing = dir.join("locked-usb");
+        std::fs::create_dir_all(&existing).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&existing).unwrap().permissions();
+            perms.set_mode(0o555);
+            std::fs::set_permissions(&existing, perms).unwrap();
+        }
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let dev = detected("sdz", existing.to_str());
+        // Pretend OS already mounted it (no new mount until recovery).
         let err = mgr
             .adopt(&conn, &dev, "Photos Drive", false)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("will not accept") || err.contains("lock switch"));
+        assert!(
+            err.contains("Format it") || err.contains("read-only"),
+            "unexpected error: {err}"
+        );
         assert!(db::list_drives(&conn).unwrap().is_empty());
         #[cfg(unix)]
         {
@@ -1065,7 +1200,7 @@ mod tests {
 
     /// USB adopted as `sdc` comes back as `sdd` with the same `.luna` marker.
     /// Reconcile rematches by marker UUID, updates `device`, and restores Ready
-    /// so the stick is not listed under Unknown Drives.
+    /// so the stick is not listed under Unrecognized Drives.
     #[test]
     fn reconcile_rematches_by_marker_when_kernel_name_changes() {
         let mounter = shared_mock();
@@ -1280,6 +1415,47 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&row.mount_point, perms).unwrap();
         }
+    }
+
+    #[test]
+    fn health_check_restores_writable_drive_from_readonly() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        db::set_drive_state(&conn, &row.id, "readonly").unwrap();
+        mgr.health_check(&conn).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "as_is"
+        );
+    }
+
+    #[test]
+    fn remove_unplugged_forgets_db_row_without_marker() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .unwrap();
+        let marker = PathBuf::from(&row.mount_point).join(".luna");
+        assert!(marker.is_file());
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
+        mgr.remove(&conn, &row.id).unwrap();
+        assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
+        // Sticker would remain on a real unplugged stick; mock still has the dir.
+        assert!(marker.is_file());
     }
 
     #[test]

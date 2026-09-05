@@ -9,12 +9,17 @@ use axum::http::{HeaderMap, StatusCode};
 use serde_json::Value;
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::json_error_code;
 use crate::auth::setup_wizard_open;
 
 const REMOTE_NO_TOKEN: &str = "Finish setup from a device on the same home network as Luna (same Wi‑Fi or ethernet). Luna works fully without Luna Connect.";
 const REMOTE_WRONG_PREFIX: &str =
     "Enter the first eight characters of your device token (****-****).";
+
+/// Wrong or missing `X-Setup-Token` prefix when a device token is on disk.
+pub const CODE_SETUP_TOKEN_REQUIRED: &str = "setup_token_required";
+/// Remote setup while no device token exists (never fail-open).
+pub const CODE_SETUP_REMOTE_NO_TOKEN: &str = "setup_remote_no_token";
 
 /// Enforce the remote setup unlock for an incomplete wizard.
 /// Returns `Ok(())` when the request may proceed.
@@ -31,7 +36,11 @@ pub fn check(
     }
 
     if state.connect.setup_prefix().is_none() {
-        return Err(json_error(StatusCode::FORBIDDEN, REMOTE_NO_TOKEN));
+        return Err(json_error_code(
+            StatusCode::FORBIDDEN,
+            CODE_SETUP_REMOTE_NO_TOKEN,
+            REMOTE_NO_TOKEN,
+        ));
     }
 
     let token = headers
@@ -39,7 +48,11 @@ pub fn check(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if !state.connect.matches_setup_prefix(token) {
-        return Err(json_error(StatusCode::FORBIDDEN, REMOTE_WRONG_PREFIX));
+        return Err(json_error_code(
+            StatusCode::FORBIDDEN,
+            CODE_SETUP_TOKEN_REQUIRED,
+            REMOTE_WRONG_PREFIX,
+        ));
     }
     Ok(())
 }
@@ -201,6 +214,54 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json.get("code").and_then(|v| v.as_str()),
+            Some(CODE_SETUP_REMOTE_NO_TOKEN)
+        );
+        assert!(
+            json.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .contains("home network"),
+            "{json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_setup_missing_prefix_returns_setup_token_required() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("device-token"),
+            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
+        )
+        .unwrap();
+        let app = app(dir.path());
+        let res = call(
+            &app,
+            Method::POST,
+            "/api/v1/setup",
+            r#"{"current_step":"network"}"#,
+            REMOTE,
+            None,
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json.get("code").and_then(|v| v.as_str()),
+            Some(CODE_SETUP_TOKEN_REQUIRED)
+        );
+        assert_eq!(
+            json.get("error").and_then(|v| v.as_str()),
+            Some(REMOTE_WRONG_PREFIX)
+        );
     }
 
     #[tokio::test]
@@ -320,6 +381,14 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json.get("code").and_then(|v| v.as_str()),
+            Some(CODE_SETUP_TOKEN_REQUIRED)
+        );
     }
 
     #[test]

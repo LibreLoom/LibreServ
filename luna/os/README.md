@@ -29,9 +29,11 @@ disk both boot in either firmware mode.
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
 #    GRUB should load Linux on its own. You should see "Luna rapidinstall"
 #    — not a grub> prompt.
-#    The installer picks the smallest non-USB disk and starts after 5s
-#    (press a key to pick another disk from a numbered list). It never
-#    erases the USB stick.
+#    The installer picks the smallest non-USB disk and waits 5s
+#    (press a key to pick another disk from a numbered list). After the
+#    disk is chosen you must type INSTALL and press Enter; anything else
+#    shuts the machine down. It never erases the USB stick.
+#    QEMU automation: add LUNA_CONFIRM=INSTALL on the kernel cmdline.
 #
 #    Factory OEM: the hybrid image includes a writable FAT partition labeled
 #    LUNAASSETS (256 MiB). Mount it after dd and put one official device token

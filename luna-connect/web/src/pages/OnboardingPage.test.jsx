@@ -740,7 +740,14 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
 
     expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
-    expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
+    expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
+    const lunaLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
+    expect(lunaLink.getAttribute("href")).toBe("https://kitchen.luna.servers.libreloom.org");
+    expect(lunaLink.getAttribute("target")).toBe("_blank");
+    expect(lunaLink.getAttribute("rel")).toBe("noreferrer");
+    expect(lunaLink.className).toMatch(/underline/);
+    expect(lunaLink.className).toMatch(/hover:no-underline/);
+    expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
     expect(screen.getByText(/initial connection is complete/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Plug in Luna/i })).toBeNull();
     expect(screen.queryByText(/one-time code/i)).toBeNull();
@@ -779,6 +786,10 @@ describe("OnboardingPage finish flow", () => {
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
+    expect(
+      screen.getByText(/setting up its secure address can take a few minutes/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/after 10 minutes, something is wrong/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Complete setup on Luna/i })).toBeNull();
   });
 
@@ -821,7 +832,10 @@ describe("OnboardingPage finish flow", () => {
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(await screen.findByRole("heading", { name: /Complete setup on Luna/i })).toBeTruthy();
-    expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
+    expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" }).getAttribute("href"),
+    ).toBe("https://kitchen.luna.servers.libreloom.org");
     vi.useRealTimers();
   });
 

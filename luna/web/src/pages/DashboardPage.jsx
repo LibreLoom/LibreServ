@@ -129,14 +129,16 @@ function DriveHomeCard({ drive }) {
       <div className="space-y-3">
         <p className="text-primary text-sm">
           {drive.state === "missing"
-            ? "This drive is unplugged. Plug it back in to see files and space."
+            ? "Unplugged. Plug it back in when you want its files and space here."
             : drive.state === "ejected"
               ? "Safely removed. Plug it in again when you need it."
               : "Luna ran into a problem with this drive. Open Drives for details."}
         </p>
-        <Button size="sm" variant="outline" asChild>
-          <Link to="/drives">Open Drives</Link>
-        </Button>
+        {drive.state === "failed" ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/drives">Open Drives</Link>
+          </Button>
+        ) : null}
       </div>
     );
   } else if (summary.isError) {
@@ -646,9 +648,8 @@ export default function DashboardPage() {
 
   const adopted = Array.isArray(drives.data) ? drives.data : [];
   const pluggedIn = Array.isArray(detected.data) ? detected.data : [];
-  const attentionDrives = adopted.filter(
-    (drive) => drive.state === "missing" || drive.state === "failed",
-  );
+  // Unplugged is normal — only real failures need the "Needs a look" card.
+  const attentionDrives = adopted.filter((drive) => drive.state === "failed");
   const recentJobs = Array.isArray(jobs.data) ? jobs.data : [];
   const grants = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
   const remoteOn = Boolean(connect.data?.enabled && connect.data?.tunnel_active);
@@ -717,10 +718,7 @@ export default function DashboardPage() {
               <ul className="space-y-2">
                 {attentionDrives.map((drive) => (
                   <li key={drive.id} className="text-primary text-sm">
-                    {drive.label}{" "}
-                    {drive.state === "missing"
-                      ? "is unplugged."
-                      : "ran into a problem."}
+                    {drive.label} ran into a problem.
                   </li>
                 ))}
               </ul>

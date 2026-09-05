@@ -214,10 +214,10 @@ describe("DrivesPage", () => {
     });
   });
 
-  it("uses a page heading for unknown drives, not a stacked title card", async () => {
+  it("uses a page heading for unrecognized drives, not a stacked title card", async () => {
     stubDrivesApi();
     renderPage();
-    const heading = await screen.findByRole("heading", { name: /Unknown Drives/i, level: 2 });
+    const heading = await screen.findByRole("heading", { name: /Unrecognized Drives/i, level: 2 });
     expect(heading.tagName).toBe("H2");
     expect(heading.closest("[data-slot=card]")).toBeNull();
     expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
@@ -271,7 +271,7 @@ describe("DrivesPage", () => {
     expect(opens).toHaveLength(2);
     expect(opens[0]).toHaveAttribute("href", "/drives/d1?path=");
     expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=DCIM");
-    expect(screen.queryByText(/Unknown Drives/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
   });
 
   it("shows granted folders for a household member", async () => {
@@ -295,7 +295,7 @@ describe("DrivesPage", () => {
     renderPage();
     expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
     expect(screen.getByText(/Ask an administrator to share a folder, drive, or file with you/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Unknown Drives/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
   });
 
   it("shows plain-language drive health for an admin", async () => {
@@ -520,6 +520,33 @@ describe("DrivesPage", () => {
     await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
+  });
+
+  it("explains that an unplugged remove leaves the marker on the drive", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "General UDisk", state: "missing", fs_type: "exfat", device: "sda",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) =>
+        node?.tagName === "P"
+          && Boolean(
+            node.textContent?.includes("marker file will stay on the drive")
+              && node.textContent?.includes("currently unplugged"),
+          ),
+      ),
+    ).toBeInTheDocument();
   });
 
   it("offers Browse files linking to the full files page", async () => {

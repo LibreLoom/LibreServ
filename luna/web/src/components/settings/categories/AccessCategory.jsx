@@ -174,7 +174,7 @@ export default function AccessCategory() {
 
       <SettingsCard icon={Smartphone} title="Apps and access tokens" index={1}>
         <p className="text-primary text-sm">
-          A phone app, desktop app, or script can keep working without typing
+          A phone app, Luna Desktop, or script can keep working without typing
           your password each time.
         </p>
 
