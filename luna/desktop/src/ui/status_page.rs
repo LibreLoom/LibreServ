@@ -131,7 +131,15 @@ impl StatusPage {
                                 continue;
                             }
                             any = true;
-                            let name = leaf(&pair.remote_path);
+                            let name = if pair.remote_path.trim_matches('/').is_empty() {
+                                std::path::Path::new(&pair.local_path)
+                                    .file_name()
+                                    .and_then(|s| s.to_str())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("Drive")
+                            } else {
+                                leaf(&pair.remote_path)
+                            };
                             let row = adw::ActionRow::builder()
                                 .title(name)
                                 .subtitle(&short_name(&p.current))
@@ -180,7 +188,7 @@ fn leaf(path: &str) -> &str {
     path.rsplit('/')
         .next()
         .filter(|s| !s.is_empty())
-        .unwrap_or("Sync")
+        .unwrap_or("Drive")
 }
 
 fn short_name(path: &str) -> String {
