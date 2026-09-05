@@ -52,7 +52,7 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := "active"
-	price := "Cloud backup costs $8 per terabyte each month, based on your average storage. Downloads are free up to three times that average."
+	price := "Cloud backup costs $8 per terabyte each month, based on your average storage. Downloads are free up to 3× stored amount."
 	if billing.DevBypass() {
 		status = "dev"
 		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
