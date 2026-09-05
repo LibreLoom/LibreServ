@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,7 +209,7 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 	// Clean up the rollback safety net on success.
 	if rollbackPath != "" {
 		if err := os.Remove(rollbackPath); err != nil && !os.IsNotExist(err) {
-			log.Printf("warning: failed to remove pre-restore rollback file %s: %v", rollbackPath, err)
+			slog.Warn(fmt.Sprintf("warning: failed to remove pre-restore rollback file %s: %v", rollbackPath, err))
 		}
 	}
 	return nil
@@ -272,9 +272,9 @@ func (d *DB) CleanupStaleBackups() error {
 		if strings.HasPrefix(name, base+".pre-restore-") ||
 			strings.HasPrefix(name, base+".pre-migration-") {
 			path := filepath.Join(dir, name)
-			log.Printf("Cleaning up stale safety-net file: %s", path)
+			slog.Info(fmt.Sprintf("Cleaning up stale safety-net file: %s", path))
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				log.Printf("warning: failed to remove stale file %s: %v", path, err)
+				slog.Warn(fmt.Sprintf("warning: failed to remove stale file %s: %v", path, err))
 			}
 		}
 	}
