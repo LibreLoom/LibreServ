@@ -827,7 +827,7 @@ function DoneStep({ name, onGoDrives }) {
         </p>
 
         {/* Discovery paths — where to find Luna after setup */}
-        <DiscoveryPaths />
+        <DiscoveryPaths name={label} />
 
         <div className="mt-8 animate-in fade-in duration-300 delay-400">
           <Button

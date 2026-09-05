@@ -31,11 +31,11 @@ function stubFetch({ network = {}, connect = /** @type {Record<string, unknown>}
   });
 }
 
-function renderPaths() {
+function renderPaths(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <DiscoveryPaths />
+      <DiscoveryPaths {...props} />
     </QueryClientProvider>,
   );
 }
@@ -53,8 +53,9 @@ describe("DiscoveryPaths", () => {
         connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true },
       }),
     );
-    renderPaths();
+    renderPaths({ name: "Kitchen" });
     expect(await screen.findByText("Everywhere:")).toBeTruthy();
+    expect(screen.getByText("Access Kitchen here:")).toBeTruthy();
     expect(screen.getByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
     expect(screen.getByText("On your home internet only:")).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
@@ -64,7 +65,7 @@ describe("DiscoveryPaths", () => {
     expect(screen.queryByText(/Stay on your home internet/i)).toBeNull();
   });
 
-  it("hides Everywhere when remote access is not configured", async () => {
+  it("falls back to Luna in the heading when name is missing", async () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
@@ -73,6 +74,31 @@ describe("DiscoveryPaths", () => {
     );
     renderPaths();
     expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Luna here:")).toBeTruthy();
+  });
+
+  it("falls back to Luna when name is blank", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ipv4: ["192.168.1.20"] },
+      }),
+    );
+    renderPaths({ name: "   " });
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Luna here:")).toBeTruthy();
+  });
+
+  it("hides Everywhere when remote access is not configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ipv4: ["192.168.1.20"] },
+      }),
+    );
+    renderPaths({ name: "Studio" });
+    expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Studio here:")).toBeTruthy();
     expect(screen.queryByText("Everywhere:")).toBeNull();
     expect(screen.getByText("On your home internet only:")).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
@@ -90,8 +116,9 @@ describe("DiscoveryPaths", () => {
         },
       }),
     );
-    renderPaths();
+    renderPaths({ name: "Kitchen" });
     expect(await screen.findByText("192.168.1.20")).toBeTruthy();
+    expect(screen.getByText("Access Kitchen here:")).toBeTruthy();
     expect(screen.queryByText("Everywhere:")).toBeNull();
     expect(screen.queryByText("kitchen.luna.servers.libreloom.org")).toBeNull();
   });
