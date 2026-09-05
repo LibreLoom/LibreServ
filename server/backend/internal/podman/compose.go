@@ -3,7 +3,7 @@ package podman
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,7 +148,7 @@ func extractBindMountPaths(composePath string) ([]string, error) {
 				continue
 			}
 			if !isSafeBindMountPath(hostPath) {
-				log.Printf("Warning: skipping unsafe bind mount host path %s in %s", hostPath, composePath)
+				slog.Warn(fmt.Sprintf("Warning: skipping unsafe bind mount host path %s in %s", hostPath, composePath))
 				continue
 			}
 
@@ -169,11 +169,11 @@ func CreateVolumeDirs(composePath string) error {
 
 	for _, hostPath := range paths {
 		if !isSafeBindMountPath(hostPath) {
-			log.Printf("Warning: refusing to pre-create unsafe volume directory %s", hostPath)
+			slog.Warn(fmt.Sprintf("Warning: refusing to pre-create unsafe volume directory %s", hostPath))
 			continue
 		}
 		if err := os.MkdirAll(hostPath, 0750); err != nil {
-			log.Printf("Warning: failed to pre-create volume directory %s: %v", hostPath, err)
+			slog.Warn(fmt.Sprintf("Warning: failed to pre-create volume directory %s: %v", hostPath, err))
 			continue
 		}
 
@@ -193,7 +193,7 @@ func CreateVolumeDirs(composePath string) error {
 func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 	// Pre-create volume directories before docker compose runs to prevent root-owned dirs
 	if err := CreateVolumeDirs(composePath); err != nil {
-		log.Printf("Warning: failed to pre-create volume directories: %v", err)
+		slog.Warn(fmt.Sprintf("Warning: failed to pre-create volume directories: %v", err))
 	}
 
 	// Ensure the container daemon socket is up (best-effort; ignore failures —
@@ -299,7 +299,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 			continue
 		}
 		if !isSafeBindMountPath(hostPath) {
-			log.Printf("Warning: refusing to chown unsafe bind mount %s", hostPath)
+			slog.Warn(fmt.Sprintf("Warning: refusing to chown unsafe bind mount %s", hostPath))
 			continue
 		}
 		// Try host chown first — avoids pulling any image and runs without container.
@@ -344,7 +344,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 		)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Printf("Warning: failed to chown bind mount %s: %v (%s)", hostPath, err, strings.TrimSpace(string(output)))
+			slog.Warn(fmt.Sprintf("Warning: failed to chown bind mount %s: %v (%s)", hostPath, err, strings.TrimSpace(string(output))))
 			continue
 		}
 
@@ -355,7 +355,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 		)
 		output2, err2 := cmd2.CombinedOutput()
 		if err2 != nil {
-			log.Printf("Warning: failed to chmod bind mount %s: %v (%s)", hostPath, err2, strings.TrimSpace(string(output2)))
+			slog.Warn(fmt.Sprintf("Warning: failed to chmod bind mount %s: %v (%s)", hostPath, err2, strings.TrimSpace(string(output2))))
 		}
 	}
 

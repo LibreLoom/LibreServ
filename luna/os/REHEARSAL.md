@@ -17,7 +17,8 @@ support call later.
 - [ ] Factory stick: mount `LUNAASSETS`, put official device tokens in `TOKENS` (one per line); each flash peels the first line
 - [ ] PC boots the USB (BIOS or UEFI; Secure Boot off)
 - [ ] Installer shows built-in storage (`/dev/sda`, `/dev/nvme0n1`, or `/dev/mmcblk0`)
-- [ ] Waited 5s (or pressed a number to pick another disk); installer finished; USB removed; reboot from internal disk
+- [ ] Waited 5s (or pressed a number to pick another disk); typed INSTALL and pressed Enter; installer finished; USB removed; reboot from internal disk
+- [ ] Typed something other than INSTALL after disk selection → machine shut down (did not erase)
 - [ ] `e2fsck -f` on the Luna root partition (`…p3` / `sda3`) is clean if checked afterwards
 
 ## 2. First boot

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -213,7 +213,7 @@ func GetPendingJobs(ctx context.Context, db *database.DB, limit int) ([]*Job, er
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn(fmt.Sprintf("failed to close rows: %v", cerr))
 		}
 	}()
 
@@ -240,7 +240,7 @@ func GetJobsByStatus(ctx context.Context, db *database.DB, status JobStatus, lim
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn(fmt.Sprintf("failed to close rows: %v", cerr))
 		}
 	}()
 
@@ -444,7 +444,7 @@ func GetQueueStats(ctx context.Context, db *database.DB) (*QueueStats, error) {
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn(fmt.Sprintf("failed to close rows: %v", cerr))
 		}
 	}()
 
@@ -452,7 +452,7 @@ func GetQueueStats(ctx context.Context, db *database.DB) (*QueueStats, error) {
 		var status string
 		var count int
 		if err := rows.Scan(&status, &count); err != nil {
-			log.Printf("failed to scan job stats row: %v", err)
+			slog.Warn(fmt.Sprintf("failed to scan job stats row: %v", err))
 			continue
 		}
 		switch JobStatus(status) {
@@ -520,7 +520,7 @@ func scanJobFrom(s rowScanner) (*Job, error) {
 		if err := job.LoadLogsFromJSON(logsJSON); err != nil {
 			// Losing the logs hides why an ACME job failed, which is the whole
 			// reason anyone looks at this record.
-			log.Printf("failed to load logs for job %s: %v", job.ID, err)
+			slog.Warn(fmt.Sprintf("failed to load logs for job %s: %v", job.ID, err))
 		}
 	}
 

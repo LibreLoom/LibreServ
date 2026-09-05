@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -199,7 +199,7 @@ func (a *ACMEManager) Issue(ctx context.Context, req ACMERequest) error {
 		return fmt.Errorf("caddy load failed: %s", string(body))
 	}
 
-	log.Printf("ACME request submitted for %s via Caddy Admin API", req.Domain)
+	slog.Info(fmt.Sprintf("ACME request submitted for %s via Caddy Admin API", req.Domain))
 	if !a.auto {
 		if a.metrics != nil {
 			a.metrics.RecordCertIssuance(true, certType, time.Since(start))
@@ -270,7 +270,7 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 		return fmt.Errorf("copy privkey: %w", err)
 	}
 
-	log.Printf("External ACME issued cert for %s (dns-01 via lego)", domain)
+	slog.Info(fmt.Sprintf("External ACME issued cert for %s (dns-01 via lego)", domain))
 	return nil
 }
 
@@ -469,6 +469,6 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 			return fmt.Errorf("copy privkey for %s: %w", d, err)
 		}
 	}
-	log.Printf("Wildcard certificate issued for %s and %s", legoDomain, domain)
+	slog.Info(fmt.Sprintf("Wildcard certificate issued for %s and %s", legoDomain, domain))
 	return nil
 }

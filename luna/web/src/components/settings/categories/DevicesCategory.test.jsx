@@ -15,11 +15,12 @@ function renderDevices() {
 }
 
 describe("DevicesCategory", () => {
-  it("shows Mobile App and Desktop App cards with download and security links", () => {
+  it("shows Mobile App and Luna Desktop cards with download and security links", () => {
     renderDevices();
 
     expect(screen.getByRole("heading", { name: "Mobile App" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Desktop App" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Luna Desktop" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Desktop App" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Devices" })).toBeNull();
     expect(screen.queryByText(/from the same place you downloaded/i)).toBeNull();
     expect(screen.queryByText(/^Computers: use the Luna Desktop app\.$/i)).toBeNull();
@@ -29,7 +30,7 @@ describe("DevicesCategory", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Backup folders onto your Luna and access your Luna's files directly from your computer.",
+        /Backup folders onto your Luna and access your Luna's files directly from your computer\. On Linux, the same download also works on Linux phones\./,
       ),
     ).toBeTruthy();
 

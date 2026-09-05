@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useQuery } from "@tanstack/react-query";
 import { getJson } from "../../lib/api";
 
@@ -5,13 +6,15 @@ import { getJson } from "../../lib/api";
  * Where to find Luna after install — remote (when configured) + home LAN.
  *
  * Layout:
+ *   Access <name> here:
  *   Everywhere:                         ← only when remote access is configured
  *     whatever.luna.servers.libreloom.org
  *   On your home internet only:
  *     luna.local
  *     192.168.1.118
  */
-export default function DiscoveryPaths() {
+export default function DiscoveryPaths({ name }) {
+  const label = (name && String(name).trim()) || "Luna";
   const netStatus = useQuery({
     queryKey: ["network-status"],
     queryFn: () => getJson("/api/v1/network/status"),
@@ -33,6 +36,9 @@ export default function DiscoveryPaths() {
 
   return (
     <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left space-y-4">
+      <h3 className="font-mono text-sm text-secondary tracking-tight">
+        Access {label} here:
+      </h3>
       {remoteHost ? (
         <div>
           <p className="text-xs text-secondary mb-2">Everywhere:</p>
@@ -51,3 +57,7 @@ export default function DiscoveryPaths() {
     </div>
   );
 }
+
+DiscoveryPaths.propTypes = {
+  name: PropTypes.string,
+};

@@ -109,3 +109,42 @@ wait_override_key() {
 	printf '\n'
 	return 1
 }
+
+# After the disk is chosen: type INSTALL and press Enter, or shut down.
+# QEMU / automation may set LUNA_CONFIRM=INSTALL on the kernel command line.
+confirm_install() {
+	_disk="$1"
+	if [ "${LUNA_CONFIRM:-}" = "INSTALL" ]; then
+		echo "Confirm override set (LUNA_CONFIRM=INSTALL). Continuing."
+		return 0
+	fi
+	# Drop leftover single-key presses from the disk picker, then restore
+	# line mode so INSTALL + Enter works with echo.
+	drain_stdin
+	console_sane
+	echo
+	echo "Luna will erase $_disk and install. This cannot be undone."
+	echo "Type INSTALL (all capital letters) and press Enter to continue."
+	echo "Anything else shuts this computer down."
+	printf "Confirm: "
+	_confirm=""
+	IFS= read -r _confirm || true
+	# Strip CR from USB keyboards that send CR+LF.
+	_confirm="$(printf '%s' "$_confirm" | tr -d '\r')"
+	if [ "$_confirm" = "INSTALL" ]; then
+		return 0
+	fi
+	echo
+	echo "That was not INSTALL. Shutting down."
+	sync
+	if command -v poweroff >/dev/null 2>&1; then
+		exec poweroff -f
+	fi
+	if [ -x /sbin/poweroff ]; then
+		exec /sbin/poweroff -f
+	fi
+	if command -v halt >/dev/null 2>&1; then
+		exec halt -f
+	fi
+	exit 1
+}

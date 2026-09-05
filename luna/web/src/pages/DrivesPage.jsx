@@ -343,7 +343,9 @@ function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Plug it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
   if (drive.state === "failed") return "This drive ran into a problem.";
-  if (drive.state === "readonly") return "Read only — Luna cannot save here.";
+  if (drive.state === "readonly") {
+    return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
+  }
   return null;
 }
 
@@ -351,7 +353,7 @@ function plainDriveState(state) {
   if (state === "as_is") return "Ready";
   if (state === "readonly") {
     return (
-      <TermHint content="Luna can open files on this drive but cannot save changes here.">
+      <TermHint content="Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.">
         Read only
       </TermHint>
     );
@@ -518,7 +520,7 @@ export default function DrivesPage() {
       {isAdmin && (
         <>
           <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
-            Unknown Drives
+            Unrecognized Drives
           </h2>
           <div className="grid gap-5 md:grid-cols-2">
             {unknownDrives.map((drive) => (
@@ -563,9 +565,22 @@ export default function DrivesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              Luna will stop managing <span className="font-mono">{removeTarget?.label}</span>.
-              Your files stay on the drive. Luna only removes its tiny{" "}
-              <span className="font-mono">.luna</span> sticker file.
+              {removeTarget?.state === "missing" ? (
+                <>
+                  Luna will stop managing{" "}
+                  <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
+                  <span className="font-mono">.luna</span> marker file will stay on the
+                  drive since it is currently unplugged. Your files stay exactly where
+                  they are.
+                </>
+              ) : (
+                <>
+                  Luna will stop managing{" "}
+                  <span className="font-mono">{removeTarget?.label}</span>. Your files
+                  stay on the drive. Luna only removes its tiny{" "}
+                  <span className="font-mono">.luna</span> sticker file.
+                </>
+              )}
             </p>
             <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
@@ -624,7 +639,7 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
   const blockedReason = result && !canUse
     ? (!result.readable
       ? "Luna could not read this drive. Make sure it is plugged in firmly and try again."
-      : "This drive will not accept new files right now. If it has a lock switch, slide it to unlock. If this USB still has the Luna installer on it, choose Erase and add.")
+      : "This drive will not accept new files right now. Usually that means a filesystem issue, or a write-lock switch on the stick. If this USB still has the Luna installer on it, look inside and choose Erase and add.")
     : null;
 
   return (
