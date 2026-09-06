@@ -378,7 +378,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "password",
       question: "Choose a password",
-      hint: PASSWORD_POLICY_HINT,
+      hint: 'Not "a1!", please.',
       name: "password",
       type: "password",
       placeholder: PASSWORD_POLICY_HINT,
