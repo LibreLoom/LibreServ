@@ -14,7 +14,7 @@ export function labelFor(name) {
   const driveRw = name.match(/^drive_(.+)_read_write$/);
   if (driveRw) return `Drive save test`;
   const driveSmart = name.match(/^drive_(.+)_smart$/);
-  if (driveSmart) return "Drive health report";
+  if (driveSmart) return "Hard drive wear check";
   return String(name)
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -25,7 +25,7 @@ export function displayLabel(name, check) {
   const label = check?.details?.drive_label;
   if (label && name.startsWith("drive_")) {
     if (name.endsWith("_read_write")) return `${label} — save test`;
-    if (name.endsWith("_smart")) return `${label} — health report`;
+    if (name.endsWith("_smart")) return `${label} — hard drive wear`;
   }
   return labelFor(name);
 }

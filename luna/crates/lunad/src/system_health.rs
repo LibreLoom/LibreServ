@@ -315,7 +315,7 @@ pub fn finish_comprehensive(
             }
         }
 
-        if !drive.device.is_empty() {
+        if smart::applicable(&drive.device) {
             let health = smart::read(&drive.device);
             if health.available {
                 summary.total_checks += 1;
@@ -427,6 +427,34 @@ mod tests {
         assert!(resp.healthy, "{:?}", resp.checks);
         assert!(resp.checks.contains_key("database"));
         assert!(resp.checks.contains_key("disk_space"));
+    }
+
+    #[test]
+    fn comprehensive_skips_smart_for_non_hdd() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let now = crate::db::now_unix();
+        conn.execute(
+            "INSERT INTO drives (id, label, state, fs_type, device, mount_point, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                "usb1",
+                "General UDisk",
+                "mounted",
+                "vfat",
+                "nvme0n1",
+                "/mnt/usb",
+                now,
+                now
+            ],
+        )
+        .unwrap();
+        let dm = DriveManager::new(shared_mock(), dir.path());
+        let resp = run_comprehensive(dir.path(), &conn, &dm);
+        assert!(
+            !resp.checks.contains_key("drive_usb1_smart"),
+            "USB/flash drives must not get a SMART row"
+        );
     }
 
     #[test]
