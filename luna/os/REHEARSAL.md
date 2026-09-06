@@ -25,7 +25,7 @@ support call later.
 - [ ] Power on from eMMC; front LED is lit; no smoke
 - [ ] `ping luna.local` answers from the LAN
 - [ ] `http://luna.local` opens the setup wizard (maybe)
-- [ ] HDMI shows the current IPv4 (or waiting-for-address) and device code while unclaimed
+- [ ] HDMI shows the current IPv4 (or waiting-for-address) and device code (including after setup / Connect claim)
 
 ## 3. Setup wizard
 - [ ] Ethernet cable detected; no Luna Setup network; no Wi-Fi scan required

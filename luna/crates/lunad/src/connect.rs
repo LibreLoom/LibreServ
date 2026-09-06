@@ -266,7 +266,9 @@ impl ConnectService {
                 .unwrap_or(false),
             paired: enabled,
             unclaimed: !enabled,
-            setup_code: self.display_setup_code(enabled),
+            // Permanent device code stays available after claim so HDMI (and
+            // admin status) can still show it for recovery / re-bind.
+            setup_code: self.display_setup_code(),
             device_token_error: None,
             connect_unreachable: None,
             tunnel_error: None,
@@ -278,10 +280,7 @@ impl ConnectService {
         }
     }
 
-    fn display_setup_code(&self, claimed: bool) -> Option<String> {
-        if claimed {
-            return None;
-        }
+    fn display_setup_code(&self) -> Option<String> {
         self.read_device_token()
     }
 
@@ -1482,6 +1481,15 @@ mod tests {
         assert_eq!(service.first_user_secret().as_deref(), Some("secret-abc"));
         assert!(st.enabled);
         assert!(!st.unclaimed);
+        assert_eq!(
+            st.setup_code.as_deref(),
+            Some("ABCD-EFGH-JKMN-PQRS-TVWX"),
+            "claimed Luna must still expose the device code for HDMI / admin status"
+        );
+        assert!(
+            service.status_for(false).setup_code.is_none(),
+            "non-admin must never see a live pairing code"
+        );
         service.clear_first_user_secret().unwrap();
         assert!(service.first_user_secret().is_none());
     }

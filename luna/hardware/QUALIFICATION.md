@@ -5,8 +5,8 @@ The phone stays on home internet.
 
 ## Requirements
 - Wired Ethernet to a LAN port on the home router or modem.
-- HDMI (or the screen on the box) shows the current address and, while
-  unclaimed, the device code (purchased from LibreLoom).
+- HDMI (or the screen on the box) shows the current address and the device
+  code (purchased from LibreLoom), including after setup / Connect claim.
 - No monitor and skipping Luna Connect means the box cannot be found
   until a screen is attached or Connect is used later.
 

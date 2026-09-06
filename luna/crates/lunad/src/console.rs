@@ -47,7 +47,6 @@ pub struct ConsoleSnapshot {
     pub has_default_route: bool,
     pub setup_code: Option<String>,
     pub connect_hostname: Option<String>,
-    pub unclaimed: bool,
     /// User-facing problems, highest priority first. Empty means healthy.
     pub problems: Vec<String>,
 }
@@ -115,10 +114,9 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         }
     }
 
-    if !token_problem
-        && snap.unclaimed
-        && let Some(code) = &snap.setup_code
-    {
+    // Keep showing the device code after setup / Connect claim — HDMI is
+    // local-only, and the code is the durable identity for recovery and re-bind.
+    if !token_problem && let Some(code) = &snap.setup_code {
         lines.push(String::new());
         lines.push("  Device code (purchased from LibreLoom):".into());
         lines.push(format!("    {code}"));
@@ -183,7 +181,6 @@ mod tests {
             has_default_route: true,
             setup_code: Some("ABCD-EFGH".into()),
             connect_hostname: None,
-            unclaimed: true,
             problems: vec![],
         });
         assert!(text.contains("192.168.1.20"));
@@ -200,7 +197,6 @@ mod tests {
         let text = help_text(&ConsoleSnapshot {
             cable_in: true,
             ipv4: vec![],
-            unclaimed: true,
             ..Default::default()
         });
         assert!(text.contains("Waiting for an address"));
@@ -258,7 +254,6 @@ mod tests {
             has_default_route: true,
             setup_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
-            unclaimed: true,
             problems: vec![crate::connect::DEVICE_TOKEN_REJECTED_MSG.into()],
         });
         let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -279,6 +274,22 @@ mod tests {
             !text.contains("photos.luna.servers.libreloom.org"),
             "rejected token must not advertise remote access"
         );
+    }
+
+    #[test]
+    fn device_code_still_shown_after_connect_claim() {
+        let text = help_text(&ConsoleSnapshot {
+            ipv4: vec!["192.168.1.20".into()],
+            cable_in: true,
+            has_default_route: true,
+            setup_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
+            connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
+            problems: vec![],
+        });
+        assert!(text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"));
+        assert!(text.contains("Device code (purchased from LibreLoom)"));
+        assert!(text.contains("connect.luna.libreloom.org"));
+        assert!(text.contains("photos.luna.servers.libreloom.org"));
     }
 
     #[test]

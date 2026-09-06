@@ -191,7 +191,6 @@ async fn main() -> anyhow::Result<()> {
                         has_default_route: net.has_default_route,
                         setup_code: st.setup_code.clone(),
                         connect_hostname: st.hostname.clone(),
-                        unclaimed: st.unclaimed,
                         problems,
                     };
                     // Always rewrite so luna-console's mtime liveness check stays
