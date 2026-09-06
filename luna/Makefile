@@ -21,8 +21,9 @@ run: build
 	./target/debug/lunad --port $(PORT)
 
 # DEV MODE: one command. daemon :PORT + Vite HMR :3000; Ctrl-C kills both.
-dev: build-daemon mock-pssd
+dev: build-daemon
 	@echo "==> luna dev — daemon http://localhost:$(PORT) + UI http://localhost:3000"
+	@echo "    Tip: spawn test drives with: make mock-drive ARGS=\"spawn <name> <preset>\""
 	@trap 'kill 0' EXIT; \
 	  LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT) & \
 	  (cd web && npm install --no-audit --no-fund >/dev/null && npm run dev) & \
@@ -52,7 +53,7 @@ mock-drive:
 mock-connect:
 	bash scripts/mock-connect.sh $(ARGS)
 
-dev-daemon: build-daemon mock-pssd
+dev-daemon: build-daemon
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)
 
 dev-web:
