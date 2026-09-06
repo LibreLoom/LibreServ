@@ -805,9 +805,80 @@ describe("OnboardingPage finish flow", () => {
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /You're connected/i })).toBeNull();
     expect(
-      screen.getByText(/setting up its secure address can take a few minutes/i),
-    ).toBeTruthy();
-    expect(screen.getByText(/after 10 minutes, something is wrong/i)).toBeTruthy();
+      screen.queryByText(/setting up its secure address can take a few minutes/i),
+    ).toBeNull();
+    expect(screen.queryByText(/after 10 minutes, something is wrong/i)).toBeNull();
+  });
+
+  it("shows the provisioning address card when Luna is online but tunnel is not ready", async () => {
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
+      if (path === "/api/v1/devices/dev_1/domain") {
+        return {
+          device_id: "dev_1",
+          hostname: "kitchen.luna.servers.libreloom.org",
+          subdomain: "kitchen",
+        };
+      }
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: true }] };
+      }
+      if (path === "/api/v1/account/devices/dev_1/setup-readiness") {
+        return {
+          ready: false,
+          online: true,
+          has_tunnel: false,
+          reachable: false,
+          hostname: "kitchen.luna.servers.libreloom.org",
+        };
+      }
+      if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    await advanceToBackupStep();
+    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+
+    expect(await screen.findByRole("heading", { name: /Provisioning Address\.\.\./i })).toBeTruthy();
+    expect(screen.getByText(/We're using Cloudflare to create your Luna's domain name/i)).toBeTruthy();
+    expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
+  });
+
+  it("shows the finishing up card when domain is provisioned but health probe not ready", async () => {
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
+      if (path === "/api/v1/devices/dev_1/domain") {
+        return {
+          device_id: "dev_1",
+          hostname: "kitchen.luna.servers.libreloom.org",
+          subdomain: "kitchen",
+        };
+      }
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "kitchen.luna.servers.libreloom.org", online: true }] };
+      }
+      if (path === "/api/v1/account/devices/dev_1/setup-readiness") {
+        return {
+          ready: false,
+          online: true,
+          has_tunnel: true,
+          reachable: false,
+          hostname: "kitchen.luna.servers.libreloom.org",
+        };
+      }
+      if (path === "/api/v1/onboarding/backups") return { ok: true, enabled: false };
+      if (path === "/api/v1/onboarding/progress") return { ok: true };
+      return {};
+    });
+
+    await advanceToBackupStep();
+    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+
+    expect(await screen.findByRole("heading", { name: /Finishing up\.\.\./i })).toBeTruthy();
+    expect(screen.getByText(/Your Luna is now connecting to its provisioned domain name/i)).toBeTruthy();
+    expect(screen.getByRole("region", { name: /Connecting Luna to Cloudflare domain/i })).toBeTruthy();
+    expect(screen.getByLabelText("Cloudflare")).toBeTruthy();
   });
 
   it("polls device status and advances to the done card when Luna is ready", async () => {

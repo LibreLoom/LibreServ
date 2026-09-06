@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_ONLINE_POLL_MS,
   fetchDeviceOnline,
+  fetchDeviceSetupReadiness,
   fetchDeviceSetupReady,
 } from "./deviceOnline.js";
 
@@ -30,6 +31,40 @@ describe("fetchDeviceOnline", () => {
       devices: [{ id: "dev_1", online: true }],
     }));
     await expect(fetchDeviceOnline(api)).resolves.toBe(true);
+  });
+});
+
+describe("fetchDeviceSetupReadiness", () => {
+  it("returns full readiness breakdown", async () => {
+    const api = vi.fn(async () => ({
+      online: true,
+      has_tunnel: true,
+      reachable: false,
+      hostname: "test.luna.servers.libreloom.org",
+      ready: false,
+    }));
+    const result = await fetchDeviceSetupReadiness(api, "dev_1");
+    expect(result).toEqual({
+      online: true,
+      has_tunnel: true,
+      reachable: false,
+      hostname: "test.luna.servers.libreloom.org",
+      ready: false,
+    });
+    expect(api).toHaveBeenCalledWith("/api/v1/account/devices/dev_1/setup-readiness");
+  });
+
+  it("returns all false when without a device id", async () => {
+    const api = vi.fn();
+    const result = await fetchDeviceSetupReadiness(api, "");
+    expect(result).toEqual({
+      online: false,
+      has_tunnel: false,
+      reachable: false,
+      hostname: "",
+      ready: false,
+    });
+    expect(api).not.toHaveBeenCalled();
   });
 });
 

@@ -9,9 +9,11 @@ import {
   HardDrive,
   Key,
   Loader2,
+  Lock,
   MailOpen,
   Moon,
   Plug,
+  Radio,
   Sparkles,
   Sun,
   User,
@@ -26,6 +28,8 @@ import ShakeTarget from "../components/ui/shake-target.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
 import { BackupPricingTable } from "../components/BackupPricingTable.jsx";
 import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
+import { ProvisioningDomainAnimation } from "../components/ProvisioningDomainAnimation.jsx";
+import { FinishingTransferAnimation } from "../components/FinishingTransferAnimation.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
@@ -35,7 +39,11 @@ import {
   PASSWORD_POLICY_HELPER,
   passwordChecks,
 } from "../lib/passwordPolicy.js";
-import { DEVICE_ONLINE_POLL_MS, fetchDeviceSetupReady } from "../lib/deviceOnline.js";
+import {
+  DEVICE_ONLINE_POLL_MS,
+  fetchDeviceSetupReadiness,
+  fetchDeviceSetupReady,
+} from "../lib/deviceOnline.js";
 import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 import { buildLunaSetupLink } from "../lib/lunaSetupLink.js";
 import { cn } from "../lib/utils.js";
@@ -239,16 +247,18 @@ function ErrorBanner({ error }) {
   );
 }
 
-function StepShell({ icon: Icon, title, children }) {
+function StepShell({ icon: Icon, title, className, fullWidth = false, children }) {
   return (
-    <div className="flex flex-col items-center text-center">
+    <div className={cn("flex flex-col items-center text-center", fullWidth ? "w-[calc(100%+3rem)] sm:w-[calc(100%+6rem)] -mx-6 sm:-mx-12" : "w-full")}>
       <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-6 animate-step-icon">
         <Icon size={26} className="text-foreground" strokeWidth={1.75} />
       </div>
-      <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3 text-balance">
+      <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3 text-balance px-6 sm:px-12">
         {title}
       </h1>
-      <div className="w-full max-w-sm">{children}</div>
+      <div className={cn(fullWidth ? "w-full" : "w-full max-w-sm", className)}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -288,6 +298,12 @@ export default function OnboardingPage() {
   const saved = useRef(loadProgress());
 
   const [step, setStep] = useState(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const previewParam = searchParams.get("preview") || searchParams.get("state");
+    if (previewParam) return previewParam === "done" ? "done" : "plug-in";
+    const stepParam = searchParams.get("step");
+    if (stepParam) return stepParam;
+
     const local = saved.current?.path === path ? saved.current : null;
     if (path === "diy") {
       const resumed = resumeStepFromServer("diy", null, local);
@@ -318,6 +334,32 @@ export default function OnboardingPage() {
   const [cooldown, setCooldown] = useState(0);
   const verifyAdvanceLock = useRef(false);
 
+  const [readiness, setReadiness] = useState({
+    online: false,
+    has_tunnel: false,
+    reachable: false,
+    hostname: "",
+    ready: false,
+  });
+  const [devReadinessOverride, setDevReadinessOverride] = useState(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const previewParam = searchParams.get("preview") || searchParams.get("state");
+    if (previewParam === "offline" || previewParam === "plug-in") {
+      return { online: false, has_tunnel: false, reachable: false, ready: false };
+    }
+    if (previewParam === "provisioning" || previewParam === "domain") {
+      return { online: true, has_tunnel: false, reachable: false, ready: false };
+    }
+    if (previewParam === "finishing" || previewParam === "connecting") {
+      return { online: true, has_tunnel: true, reachable: false, ready: false };
+    }
+    if (previewParam === "done" || previewParam === "connected") {
+      return { online: true, has_tunnel: true, reachable: true, ready: true };
+    }
+    return null;
+  });
+  const activeReadiness = devReadinessOverride ?? readiness;
+
   const emailVerified = Boolean(me?.email_verified);
 
   const goTo = useCallback((next, dir = "right") => {
@@ -327,12 +369,14 @@ export default function OnboardingPage() {
 
   const goToFinish = useCallback(async () => {
     try {
-      const ready = await fetchDeviceSetupReady(api, deviceId);
-      goTo(ready ? "done" : "plug-in");
+      const status = await fetchDeviceSetupReadiness(api, deviceId);
+      setReadiness(status);
+      if (status.hostname && !hostname) setHostname(status.hostname);
+      goTo(status.ready ? "done" : "plug-in");
     } catch {
       goTo("plug-in");
     }
-  }, [deviceId, goTo]);
+  }, [deviceId, hostname, goTo]);
 
   const seedFromOnboardingAccount = useCallback((account) => {
     if (!account) return;
@@ -389,8 +433,12 @@ export default function OnboardingPage() {
 
     async function checkReady() {
       try {
-        const ready = await fetchDeviceSetupReady(api, deviceId);
-        if (!cancelled && ready) goTo("done");
+        const status = await fetchDeviceSetupReadiness(api, deviceId);
+        if (!cancelled) {
+          setReadiness(status);
+          if (status.hostname && !hostname) setHostname(status.hostname);
+          if (status.ready) goTo("done");
+        }
       } catch {
         /* keep waiting */
       }
@@ -402,7 +450,7 @@ export default function OnboardingPage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [step, deviceId, goTo]);
+  }, [step, deviceId, hostname, goTo]);
 
   useEffect(() => {
     if (!isAuthenticated || !me) return;
@@ -1280,41 +1328,69 @@ export default function OnboardingPage() {
     </StepShell>
   );
 
-  const renderPlugIn = () => (
-    <StepShell icon={Plug} title="Plug in Luna">
-      <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
-        Plug Luna into power and your router or modem with the included{" "}
-        <TermHint content="RJ45 is the wide plug on the ethernet cable in the box. It clicks into the port on Luna and your router.">
-          RJ45
-        </TermHint>{" "}
-        (
-        <TermHint content="Ethernet is wired internet. Luna needs this cable to reach Luna Connect and your public address.">
-          ethernet
-        </TermHint>
-        ) cable. We will continue once Luna is online.
-      </p>
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
-          <Plug className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
-          <p className="mt-3 text-xs font-mono text-foreground">Power</p>
-        </div>
-        <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
-          <EthernetPort className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
-          <p className="mt-3 text-xs font-mono text-foreground">RJ45 port</p>
-        </div>
-      </div>
-      <div className="flex flex-col items-center gap-2">
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-          <span>Waiting…</span>
-        </div>
-        <p className="text-xs text-muted-foreground text-center text-pretty max-w-sm leading-relaxed">
-          After Luna is online, setting up its secure address can take a few minutes. If it still
-          isn't ready after 10 minutes, something is wrong.
+  const renderPlugIn = () => {
+    const targetHost =
+      activeReadiness.hostname ||
+      hostname ||
+      (name ? `${name}.luna.servers.libreloom.org` : "your-luna.luna.servers.libreloom.org");
+
+    // State 1: Luna is offline
+    if (!activeReadiness.online) {
+      return (
+        <StepShell icon={Plug} title="Plug in Luna">
+          <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
+            Plug Luna into power and your router or modem with the included{" "}
+            <TermHint content="RJ45 is the wide plug on the ethernet cable in the box. It clicks into the port on Luna and your router.">
+              RJ45
+            </TermHint>{" "}
+            (
+            <TermHint content="Ethernet is wired internet. Luna needs this cable to reach Luna Connect and your public address.">
+              ethernet
+            </TermHint>
+            ) cable. We will continue once Luna is online.
+          </p>
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
+              <Plug className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
+              <p className="mt-3 text-xs font-mono text-foreground">Power</p>
+            </div>
+            <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
+              <EthernetPort className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
+              <p className="mt-3 text-xs font-mono text-foreground">RJ45 port</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+            <span>Waiting…</span>
+          </div>
+        </StepShell>
+      );
+    }
+
+    // State 2: Luna is online, domain provisioning in progress
+    if (!activeReadiness.has_tunnel) {
+      const chosenDomain =
+        name || (hostname ? hostname.split(".")[0] : "") || "kitchen";
+      return (
+        <StepShell icon={Globe} title="Provisioning Address..." className="max-w-lg">
+          <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
+            We're using Cloudflare to create your Luna's domain name. This can take up to 10 minutes.
+          </p>
+          <ProvisioningDomainAnimation domain={chosenDomain} />
+        </StepShell>
+      );
+    }
+
+    // State 3: Domain provisioned, connecting securely to Luna
+    return (
+      <StepShell icon={Radio} title="Finishing up..." className="max-w-lg">
+        <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
+          Your Luna is now connecting to its provisioned domain name. This shouldn't take long.
         </p>
-      </div>
-    </StepShell>
-  );
+        <FinishingTransferAnimation />
+      </StepShell>
+    );
+  };
 
   const renderDone = () => {
     // Prefer the token the user entered (official) or minted (DIY). Href/copy
@@ -1442,6 +1518,84 @@ export default function OnboardingPage() {
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="w-4 h-4 mr-1" /> Back
           </Button>
+        </div>
+      )}
+      {import.meta.env.DEV && (
+        <div
+          className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted border border-border text-xs font-mono shadow-lg text-foreground"
+          role="region"
+          aria-label="Dev State Switcher"
+        >
+          <span className="text-muted-foreground mr-1">Preview:</span>
+          <button
+            type="button"
+            className={cn(
+              "px-2 py-0.5 rounded-full transition-colors",
+              step === "plug-in" && !activeReadiness.online
+                ? "bg-foreground text-background font-medium"
+                : "hover:bg-accent text-foreground",
+            )}
+            onClick={() => {
+              goTo("plug-in");
+              setDevReadinessOverride({ online: false, has_tunnel: false, reachable: false, ready: false });
+            }}
+          >
+            1. Offline
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "px-2 py-0.5 rounded-full transition-colors",
+              step === "plug-in" && activeReadiness.online && !activeReadiness.has_tunnel
+                ? "bg-foreground text-background font-medium"
+                : "hover:bg-accent text-foreground",
+            )}
+            onClick={() => {
+              goTo("plug-in");
+              setDevReadinessOverride({ online: true, has_tunnel: false, reachable: false, ready: false });
+            }}
+          >
+            2. Provisioning
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "px-2 py-0.5 rounded-full transition-colors",
+              step === "plug-in" && activeReadiness.online && activeReadiness.has_tunnel && !activeReadiness.reachable
+                ? "bg-foreground text-background font-medium"
+                : "hover:bg-accent text-foreground",
+            )}
+            onClick={() => {
+              goTo("plug-in");
+              setDevReadinessOverride({ online: true, has_tunnel: true, reachable: false, ready: false });
+            }}
+          >
+            3. Finishing
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "px-2 py-0.5 rounded-full transition-colors",
+              step === "done"
+                ? "bg-foreground text-background font-medium"
+                : "hover:bg-accent text-foreground",
+            )}
+            onClick={() => {
+              setDevReadinessOverride({ online: true, has_tunnel: true, reachable: true, ready: true });
+              goTo("done");
+            }}
+          >
+            4. Done
+          </button>
+          {devReadinessOverride !== null && (
+            <button
+              type="button"
+              className="ml-1 text-muted-foreground hover:text-foreground underline text-[11px]"
+              onClick={() => setDevReadinessOverride(null)}
+            >
+              Live
+            </button>
+          )}
         </div>
       )}
     </div>
