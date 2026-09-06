@@ -100,30 +100,26 @@ function applyFlip(el, fromRect, direction) {
   const sy = fromRect.height / to.height;
   el.style.transformOrigin = "top left";
   el.style.willChange = "transform, opacity";
+  // Keep the panel's final border-radius for the whole FLIP — no pill→card morph.
   if (direction === "open") {
     el.style.transition = "none";
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
     el.style.opacity = "0.55";
-    el.style.borderRadius = "9999px";
     // Force layout so the invert sticks before we play forward.
     void el.offsetWidth;
     el.style.transition = [
       "transform var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate)",
       "opacity var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate)",
-      "border-radius var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate)",
     ].join(", ");
     el.style.transform = "none";
     el.style.opacity = "1";
-    el.style.borderRadius = "";
   } else {
     el.style.transition = [
       "transform var(--motion-duration-medium2) var(--motion-easing-emphasized-accelerate)",
       "opacity var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate)",
-      "border-radius var(--motion-duration-medium2) var(--motion-easing-emphasized-accelerate)",
     ].join(", ");
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
     el.style.opacity = "0";
-    el.style.borderRadius = "9999px";
   }
   return true;
 }
