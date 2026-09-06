@@ -4,7 +4,7 @@ Luna is the $49 LibreServ file box. Local-first, no subscription, drives served 
 
 Setup is Ethernet-only: plug the included RJ45 (ethernet) cable into a router or modem. There is no setup Wi-Fi access point.
 
-**Remote setup** (phone on the LAN, or later over the tunnel) requires the first eight characters (`****-****`) of the permanent device code when that code is on disk. Loopback / on-box setup is always allowed. If install skipped the code (local-only / air-gap), remote setup is refused — never left open. Add a device code later in Settings (or re-install with a code) to unlock remote setup and Luna Connect.
+**Setup** is open on the local network (loopback, `luna.local`, private IPs). **First registration over the public hostname** (the Connect name) asks for the **full device token** in the account-creation step — matched case-insensitively against `{data_dir}/device-token` (or Connect's `first_user_secret` in `connect.json`) and refused with plain-language copy when missing or wrong: remote first login never fail-opens. There is no `X-Setup-Token` header or 8-char prefix gate anymore; Connect's onboarding links to `/setup?token=` to prefill the token. Add or replace the token later in Settings → About → Advanced.
 
 Luna Connect bind is offline on the website with the full device code. Luna pulls status on boot and every 5 minutes and auto-applies tunnel/domain/backup. Factory reset keeps the device-code file so a still-bound account can re-join.
 
