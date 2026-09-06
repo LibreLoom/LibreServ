@@ -186,7 +186,7 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    const note = await screen.findByText(/marker file/i);
+    const note = await screen.findByText(/drive database/i);
     const row = note.closest("div");
     expect(row?.querySelector(".text-accent")).toBeTruthy();
     expect(row?.querySelector(".text-warning")).toBeNull();
@@ -575,7 +575,7 @@ describe("DrivesPage", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
-    expect(screen.getByText(/sticker file/i)).toBeInTheDocument();
+    expect(screen.getByText(/drive database/i)).toBeInTheDocument();
   });
 
   it("explains that an unplugged remove leaves the marker on the drive", async () => {
@@ -598,7 +598,7 @@ describe("DrivesPage", () => {
       screen.getByText((_, node) =>
         node?.tagName === "P"
           && Boolean(
-            node.textContent?.includes("marker file will stay on the drive")
+            node.textContent?.includes("drive database will stay on the drive")
               && node.textContent?.includes("currently unplugged"),
           ),
       ),

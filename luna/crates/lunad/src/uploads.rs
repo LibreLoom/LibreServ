@@ -18,6 +18,33 @@ use uuid::Uuid;
 use crate::db::{self, UploadRow};
 use crate::files::{self, FileEntry, FilesError};
 
+fn drive_db_for(central: &Connection, drive_id: &str) -> Result<Connection, UploadError> {
+    let drive = db::get_drive(central, drive_id)
+        .map_err(UploadError::Db)?
+        .filter(|d| !d.mount_point.is_empty())
+        .ok_or_else(|| UploadError::Db(anyhow::anyhow!("drive is not mounted")))?;
+    crate::drive_db::open_migrating(Path::new(&drive.mount_point), central, drive_id)
+        .map_err(UploadError::Db)
+}
+
+/// Locate an upload session by scanning mounted drive microdbs.
+fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection), UploadError> {
+    for drive in db::list_drives(central).map_err(UploadError::Db)? {
+        if drive.mount_point.is_empty() || drive.state != "as_is" {
+            continue;
+        }
+        let Ok(dconn) =
+            crate::drive_db::open_migrating(Path::new(&drive.mount_point), central, &drive.id)
+        else {
+            continue;
+        };
+        if let Ok(Some(row)) = db::get_upload(&dconn, id) {
+            return Ok((row, dconn));
+        }
+    }
+    Err(UploadError::NotFound)
+}
+
 /// Flush upload progress to SQLite at least this often (bytes received).
 const PROGRESS_FLUSH_BYTES: u64 = 2 * 1024 * 1024;
 /// Flush upload progress to SQLite at least this often (wall clock).
@@ -134,7 +161,8 @@ pub fn create(
         .open(&temp)
         .map_err(UploadError::Io)?;
 
-    db::insert_upload(conn, &id, drive_id, dest_path, &name, size).map_err(UploadError::Db)?;
+    let drive_conn = drive_db_for(conn, drive_id)?;
+    db::insert_upload(&drive_conn, &id, drive_id, dest_path, &name, size).map_err(UploadError::Db)?;
     Ok(Upload {
         id,
         drive_id: drive_id.into(),
@@ -148,14 +176,12 @@ pub fn create(
 
 /// Rehydrate a session row into an `Upload` with its temp path.
 pub fn load(conn: &Connection, id: &str) -> Result<Upload, UploadError> {
-    let row = get_row(conn, id)?;
+    let (row, _dconn) = find_upload(conn, id)?;
     to_upload(conn, &row)
 }
 
 pub fn get_row(conn: &Connection, id: &str) -> Result<UploadRow, UploadError> {
-    db::get_upload(conn, id)
-        .map_err(UploadError::Db)?
-        .ok_or(UploadError::NotFound)
+    Ok(find_upload(conn, id)?.0)
 }
 
 fn to_upload(conn: &Connection, row: &UploadRow) -> Result<Upload, UploadError> {
@@ -191,7 +217,8 @@ pub fn write_chunk(
     let (temp, size, prev_received, drive_id) = {
         let conn = db.lock().map_err(|_| UploadError::NotFound)?;
         let upload = load(&conn, id)?;
-        if upload.state_not_active(&conn)? {
+        let (_row, dconn) = find_upload(&conn, id)?;
+        if upload.state_not_active(&dconn)? {
             return Err(UploadError::NotActive);
         }
         // Prefer in-memory received if we have unflushed progress.
@@ -246,7 +273,8 @@ pub fn write_chunk(
     };
     if do_flush {
         let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-        flush_pending(&conn, id)?;
+        let (_row, dconn) = find_upload(&conn, id)?;
+        flush_pending(&dconn, id)?;
     }
     Ok(received)
 }
@@ -260,9 +288,10 @@ pub fn complete(
     expected_hash: Option<&str>,
 ) -> Result<FileEntry, UploadError> {
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-    flush_pending(&conn, id)?;
-    let upload = load(&conn, id)?;
-    if upload.state_not_active(&conn)? {
+    let (row, dconn) = find_upload(&conn, id)?;
+    flush_pending(&dconn, id)?;
+    let upload = to_upload(&conn, &row)?;
+    if upload.state_not_active(&dconn)? {
         return Err(UploadError::NotActive);
     }
 
@@ -271,16 +300,16 @@ pub fn complete(
     // was written, so length alone is not enough — every byte must be covered
     // contiguously from 0, otherwise a resumable client that lost earlier
     // chunks would install a file full of zero holes.
-    let covered = db::upload_fully_covered(&conn, id, upload.size).map_err(UploadError::Db)?;
+    let covered = db::upload_fully_covered(&dconn, id, upload.size).map_err(UploadError::Db)?;
     if meta.len() != upload.size || !covered {
-        db::set_upload_state(&conn, id, "error", "incomplete").map_err(UploadError::Db)?;
+        db::set_upload_state(&dconn, id, "error", "incomplete").map_err(UploadError::Db)?;
         return Err(UploadError::SizeMismatch);
     }
 
     if let Some(expected) = expected_hash.filter(|h| !h.is_empty()) {
         let actual = blake3_hash_file(&upload.temp).map_err(UploadError::Io)?;
         if !actual.eq_ignore_ascii_case(expected) {
-            db::set_upload_state(&conn, id, "error", "hash-mismatch").map_err(UploadError::Db)?;
+            db::set_upload_state(&dconn, id, "error", "hash-mismatch").map_err(UploadError::Db)?;
             return Err(UploadError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "upload hash did not match",
@@ -316,8 +345,8 @@ pub fn complete(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    db::delete_upload(&conn, id).map_err(UploadError::Db)?;
-    db::delete_upload_chunks(&conn, id).map_err(UploadError::Db)?;
+    db::delete_upload(&dconn, id).map_err(UploadError::Db)?;
+    db::delete_upload_chunks(&dconn, id).map_err(UploadError::Db)?;
 
     Ok(FileEntry {
         name: upload.name,
@@ -347,10 +376,11 @@ fn blake3_hash_file(path: &Path) -> Result<String, std::io::Error> {
 pub fn cancel(db: &Arc<Mutex<Connection>>, id: &str) -> Result<(), UploadError> {
     clear_pending(id);
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-    let upload = load(&conn, id)?;
+    let (row, dconn) = find_upload(&conn, id)?;
+    let upload = to_upload(&conn, &row)?;
     let _ = std::fs::remove_file(&upload.temp);
-    db::delete_upload(&conn, id).map_err(UploadError::Db)?;
-    db::delete_upload_chunks(&conn, id).map_err(UploadError::Db)?;
+    db::delete_upload(&dconn, id).map_err(UploadError::Db)?;
+    db::delete_upload_chunks(&dconn, id).map_err(UploadError::Db)?;
     Ok(())
 }
 
@@ -372,6 +402,8 @@ mod tests {
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "Test");
+        crate::drive_db::create(&root, &marker).unwrap();
         db::upsert_drive(
             &conn,
             "d1",
@@ -402,7 +434,7 @@ mod tests {
         let entry = complete(&db, &up.id, false, None).unwrap();
         assert_eq!(entry.size, 1000);
 
-        let row = db::get_upload(&db.lock().unwrap(), &up.id).unwrap();
+        let row = find_upload(&db.lock().unwrap(), &up.id).ok();
         assert!(row.is_none(), "session removed after completion");
     }
 
@@ -446,9 +478,7 @@ mod tests {
         cancel(&db, &up.id).unwrap();
         assert!(!up.temp.exists());
         assert!(
-            db::get_upload(&db.lock().unwrap(), &up.id)
-                .unwrap()
-                .is_none()
+            find_upload(&db.lock().unwrap(), &up.id).is_err()
         );
     }
 }

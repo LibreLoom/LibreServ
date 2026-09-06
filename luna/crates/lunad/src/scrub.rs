@@ -59,7 +59,13 @@ pub fn hash_file(path: &Path) -> anyhow::Result<String> {
 /// still match are left untouched — they are the *baseline to verify against*
 /// on a later scrub. (The previous behaviour re-hashed and overwrote every
 /// file in the same pass it verified, so silent corruption was never detected.)
-pub fn hash_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+pub fn hash_drive(central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+    let _ = crate::drive_db::open_migrating(root, central, drive_id)?;
+    hash_drive_walk(drive_id, root)
+}
+
+fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+    let conn = crate::drive_db::open(root)?;
     let mut report = ScrubReport {
         files_checked: 0,
         files_hashed: 0,
@@ -79,6 +85,11 @@ pub fn hash_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Res
                 continue;
             }
             if meta.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if crate::files::is_internal_temp(&name) {
+                    continue;
+                }
                 stack.push(entry.path());
                 continue;
             }
@@ -91,6 +102,15 @@ pub fn hash_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Res
             let Some(rel) = path_buf.strip_prefix(root).ok().and_then(|p| p.to_str()) else {
                 continue;
             };
+            // Skip Luna's own on-drive stores (microdb, trash, thumbs, …).
+            if crate::files::is_internal_temp(rel)
+                || rel
+                    .split('/')
+                    .next()
+                    .is_some_and(crate::files::is_internal_temp)
+            {
+                continue;
+            }
             let size = meta.len();
             let mtime = meta
                 .modified()
@@ -99,7 +119,7 @@ pub fn hash_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Res
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
             // Already have an identical baseline for this file? Leave it alone.
-            if let Ok(Some((s, m))) = get_hash(conn, drive_id, rel)
+            if let Ok(Some((s, m))) = get_hash(&conn, drive_id, rel)
                 && s == size
                 && m == mtime
             {
@@ -108,7 +128,7 @@ pub fn hash_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Res
             let Ok(hash) = hash_file(&entry.path()) else {
                 continue;
             };
-            let _ = upsert_hash(conn, drive_id, rel, size, mtime, &hash);
+            let _ = upsert_hash(&conn, drive_id, rel, size, mtime, &hash);
             report.files_hashed += 1;
             report.bytes_hashed += size;
         }
@@ -122,7 +142,13 @@ pub fn hash_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Res
 /// compared; a mismatch is reported (never auto-repaired). A file that changed
 /// is re-hashed and becomes the new baseline. Individual unreadable paths are
 /// skipped rather than aborting the whole drive.
-pub fn scrub_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+pub fn scrub_drive(central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+    let _ = crate::drive_db::open_migrating(root, central, drive_id)?;
+    scrub_drive_walk(drive_id, root)
+}
+
+fn scrub_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+    let conn = crate::drive_db::open(root)?;
     let mut report = ScrubReport {
         files_checked: 0,
         files_hashed: 0,
@@ -167,7 +193,7 @@ pub fn scrub_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Re
             let Ok(actual) = hash_file(&path) else {
                 continue;
             };
-            let _ = upsert_hash(conn, drive_id, &rel, meta.len(), mtime, &actual);
+            let _ = upsert_hash(&conn, drive_id, &rel, meta.len(), mtime, &actual);
             report.files_hashed += 1;
             report.bytes_hashed += meta.len();
         }
@@ -266,130 +292,34 @@ pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
     Ok(total)
 }
 
-/// Like [`hash_drive`], but releases the DB mutex while hashing each file so
-/// interactive API traffic is not stalled for the whole walk.
+/// Like [`hash_drive`], but does not hold the central `luna.db` mutex while
+/// walking/hashing — hashes live in the drive `.luna` microdb. Any one-shot
+/// central→drive migration runs under a brief lock, then the walk is unlocked.
 pub fn hash_drive_unlocked(
     db: &std::sync::Mutex<Connection>,
     drive_id: &str,
     root: &Path,
 ) -> anyhow::Result<ScrubReport> {
-    let mut report = ScrubReport {
-        files_checked: 0,
-        files_hashed: 0,
-        mismatches: 0,
-        bytes_hashed: 0,
-    };
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
-                continue;
-            };
-            if meta.file_type().is_symlink() {
-                continue;
-            }
-            if meta.is_dir() {
-                stack.push(entry.path());
-                continue;
-            }
-            if !meta.is_file() {
-                continue;
-            }
-            let path_buf = entry.path();
-            let Some(rel) = path_buf.strip_prefix(root).ok().and_then(|p| p.to_str()) else {
-                continue;
-            };
-            let size = meta.len();
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            {
-                let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-                if let Ok(Some((s, m))) = get_hash(&conn, drive_id, rel)
-                    && s == size
-                    && m == mtime
-                {
-                    continue;
-                }
-            }
-            let Ok(hash) = hash_file(&entry.path()) else {
-                continue;
-            };
-            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-            let _ = upsert_hash(&conn, drive_id, rel, size, mtime, &hash);
-            report.files_hashed += 1;
-            report.bytes_hashed += size;
-        }
+    {
+        let central = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        let conn = crate::drive_db::open(root)?;
+        crate::drive_db::migrate_from_central(&central, drive_id, &conn)?;
     }
-    Ok(report)
+    hash_drive_walk(drive_id, root)
 }
 
-/// Like [`scrub_drive`], hashing outside the mutex.
+/// Like [`scrub_drive`], without holding the central mutex for the walk.
 pub fn scrub_drive_unlocked(
     db: &std::sync::Mutex<Connection>,
     drive_id: &str,
     root: &Path,
 ) -> anyhow::Result<ScrubReport> {
-    let rows: Vec<(String, u64, i64, String)> = {
-        let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-        let mut stmt =
-            conn.prepare("SELECT path, size, mtime, hash FROM file_hashes WHERE drive_id = ?1")?;
-        let mapped = stmt.query_map(params![drive_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)? as u64,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
-        mapped.flatten().collect()
-    };
-
-    let mut report = ScrubReport {
-        files_checked: 0,
-        files_hashed: 0,
-        mismatches: 0,
-        bytes_hashed: 0,
-    };
-    for (rel, expected_size, expected_mtime, expected_hash) in rows {
-        let Ok(path) = luna_core::path::resolve_child(root, &rel) else {
-            continue;
-        };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            continue;
-        };
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        if meta.len() == expected_size && mtime == expected_mtime {
-            let Ok(actual) = hash_file(&path) else {
-                continue;
-            };
-            report.bytes_hashed += meta.len();
-            if actual != expected_hash {
-                report.mismatches += 1;
-            }
-            report.files_checked += 1;
-        } else {
-            let Ok(actual) = hash_file(&path) else {
-                continue;
-            };
-            let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-            let _ = upsert_hash(&conn, drive_id, &rel, meta.len(), mtime, &actual);
-            report.files_hashed += 1;
-            report.bytes_hashed += meta.len();
-        }
+    {
+        let central = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        let conn = crate::drive_db::open(root)?;
+        crate::drive_db::migrate_from_central(&central, drive_id, &conn)?;
     }
-    Ok(report)
+    scrub_drive_walk(drive_id, root)
 }
 
 pub fn scrub_all_drives_unlocked(db: &std::sync::Mutex<Connection>) -> anyhow::Result<ScrubReport> {
@@ -442,8 +372,12 @@ mod tests {
     #[test]
     fn scrub_detects_silent_corruption() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = db::open(&dir.path().join("luna.db")).unwrap();
-        let file = dir.path().join("photo.jpg");
+        let root = dir.path().join("drive");
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drive_db::create(&root, &marker).unwrap();
+        let central = db::open(&dir.path().join("luna.db")).unwrap();
+        let file = root.join("photo.jpg");
         std::fs::write(&file, b"original").unwrap();
         let hash = hash_file(&file).unwrap();
         let mtime = std::fs::metadata(&file)
@@ -458,7 +392,7 @@ mod tests {
         // Corrupt bytes (same size). Depending on filesystem mtime resolution
         // this is detected as corruption or as a legitimate change and rehashed.
         std::fs::write(&file, b"or1ginal").unwrap();
-        let report = scrub_drive(&conn, "d1", dir.path()).unwrap();
+        let report = scrub_drive(&central, "d1", &root).unwrap();
         assert!(
             report.files_hashed + report.mismatches >= 1,
             "scrub must notice the changed file: {report:?}"
@@ -471,16 +405,18 @@ mod tests {
         // overwrite the stored hash of an unchanged file, otherwise silent
         // corruption is re-baselined away before it can ever be detected.
         let dir = tempfile::tempdir().unwrap();
-        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let central = db::open(&dir.path().join("luna.db")).unwrap();
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let _ = crate::drive_db::create(&root, &marker).unwrap();
         let file = root.join("doc.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let first = hash_drive(&conn, "d1", &root).unwrap();
+        let first = hash_drive(&central, "d1", &root).unwrap();
         assert_eq!(first.files_hashed, 1, "first run establishes the baseline");
 
-        let second = hash_drive(&conn, "d1", &root).unwrap();
+        let second = hash_drive(&central, "d1", &root).unwrap();
         assert_eq!(
             second.files_hashed, 0,
             "an unchanged file must not be re-hashed/overwritten: {second:?}"

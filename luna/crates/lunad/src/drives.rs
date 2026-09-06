@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use luna_core::marker::{Marker, remove_marker, write_marker};
+use luna_core::marker::{Marker, remove_marker};
 use luna_core::scan::scan_top_level;
 use rusqlite::Connection;
 use uuid::Uuid;
@@ -225,14 +225,14 @@ impl DriveManager {
 
         // Marker first, then DB. Never leave a DB row without a marker.
         let marker = Marker::new(id.clone(), label);
-        if let Err(e) = write_marker(&mount_point, &marker) {
+        if let Err(e) = crate::drive_db::create(&mount_point, &marker) {
             if is_erofs(&e) {
                 // Stick flipped read-only under us — same silent remount retry.
                 match self.remount_adopt_rw(device, &choice, &id, &mount_point, mounted_by_luna) {
                     Ok((new_mp, new_by_luna)) => {
                         mount_point = new_mp;
                         mounted_by_luna = new_by_luna;
-                        if let Err(e2) = write_marker(&mount_point, &marker) {
+                        if let Err(e2) = crate::drive_db::create(&mount_point, &marker) {
                             self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
                             if is_erofs(&e2) {
                                 return Err(anyhow::anyhow!("{NEEDS_FORMAT_MESSAGE}"));
@@ -763,9 +763,12 @@ fn is_system_mountpoint(path: &Path) -> bool {
         || s.starts_with("/proc/")
 }
 
-fn is_erofs(err: &luna_core::marker::MarkerError) -> bool {
+fn is_erofs(err: &impl std::fmt::Display) -> bool {
     let text = err.to_string().to_ascii_lowercase();
-    text.contains("read-only file system") || text.contains("erofs") || text.contains("os error 30")
+    text.contains("read-only file system")
+        || text.contains("erofs")
+        || text.contains("os error 30")
+        || text.contains("read-only filesystem")
 }
 
 /// Safe create/write/sync/delete probe — shared by adoption and health checks.

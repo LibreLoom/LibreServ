@@ -1,4 +1,4 @@
-//! Photo gallery: per-drive indexes under `{drive}/.lunagallery/`.
+//! Photo gallery: index tables live in the per-drive `.luna` microdb.
 //!
 //! Thumbnails live in `{drive}/.lunathumbs/`. Gallery SQLite never touches the
 //! OS eMMC / `luna.db`. JPEG/PNG/GIF use the `image` crate; HEIC uses embedded
@@ -24,7 +24,6 @@ pub const GALLERY_DIR_NAME: &str = ".lunagallery";
 /// Shared-album contribution uploads land here on the album's home drive.
 pub const SHARED_ALBUMS_DIR_NAME: &str = ".luna-shared-albums";
 
-const DB_FILE: &str = "gallery.sqlite";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
@@ -125,7 +124,7 @@ pub fn gallery_dir(drive_root: &Path) -> PathBuf {
 }
 
 pub fn gallery_db_path(drive_root: &Path) -> PathBuf {
-    gallery_dir(drive_root).join(DB_FILE)
+    crate::drive_db::path_for(drive_root)
 }
 
 pub fn shared_albums_dir(drive_root: &Path) -> PathBuf {
@@ -151,76 +150,13 @@ pub fn skip_gallery_dir(name: &str) -> bool {
         || name == SHARED_ALBUMS_DIR_NAME
         || name == ".luna-trash"
         || name == crate::protect::PROTECTED_DIR
+        || name == ".luna"
 }
 
-/// Open (or create) the on-drive gallery database. Never under OS data_dir.
+/// Open (or create) the on-drive `.luna` microdb (gallery tables included).
+/// Never under OS data_dir.
 pub fn open_drive_db(drive_root: &Path) -> anyhow::Result<Connection> {
-    let dir = gallery_dir(drive_root);
-    std::fs::create_dir_all(&dir)?;
-    let path = dir.join(DB_FILE);
-    let conn = Connection::open(&path)?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         CREATE TABLE IF NOT EXISTS photos (
-            path TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            mtime INTEGER NOT NULL,
-            taken_at INTEGER NOT NULL DEFAULT 0,
-            kind TEXT NOT NULL DEFAULT 'image',
-            width INTEGER NOT NULL DEFAULT 0,
-            height INTEGER NOT NULL DEFAULT 0,
-            lat REAL,
-            lon REAL,
-            place_label TEXT NOT NULL DEFAULT '',
-            has_thumb INTEGER NOT NULL DEFAULT 0
-         );
-         CREATE INDEX IF NOT EXISTS photos_timeline
-            ON photos(taken_at DESC, mtime DESC, path);
-         CREATE INDEX IF NOT EXISTS photos_place
-            ON photos(lat, lon);
-         CREATE TABLE IF NOT EXISTS favorites (
-            user_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            PRIMARY KEY (user_id, path)
-         );
-         CREATE TABLE IF NOT EXISTS albums (
-            id TEXT PRIMARY KEY,
-            owner_user_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            cover_path TEXT NOT NULL DEFAULT '',
-            shared INTEGER NOT NULL DEFAULT 0,
-            allow_uploads INTEGER NOT NULL DEFAULT 0,
-            contrib_path TEXT NOT NULL DEFAULT ''
-         );
-         CREATE TABLE IF NOT EXISTS album_items (
-            album_id TEXT NOT NULL,
-            drive_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            added_at INTEGER NOT NULL,
-            PRIMARY KEY (album_id, drive_id, path)
-         );
-         CREATE TABLE IF NOT EXISTS album_members (
-            album_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            PRIMARY KEY (album_id, user_id)
-         );
-         CREATE TABLE IF NOT EXISTS album_invites (
-            id TEXT PRIMARY KEY,
-            album_id TEXT NOT NULL,
-            token TEXT NOT NULL UNIQUE,
-            role TEXT NOT NULL,
-            expires_at INTEGER,
-            password_hash TEXT,
-            created_at INTEGER NOT NULL
-         );
-         CREATE INDEX IF NOT EXISTS album_invites_token ON album_invites(token);",
-    )?;
-    Ok(conn)
+    crate::drive_db::open(drive_root)
 }
 
 struct PendingUpsert {

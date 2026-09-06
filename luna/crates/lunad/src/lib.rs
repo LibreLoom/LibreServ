@@ -12,6 +12,7 @@ pub mod db;
 pub mod detect;
 pub mod dev_mock;
 pub mod dhcp;
+pub mod drive_db;
 pub mod drives;
 pub mod exif;
 pub mod factory_mag;
@@ -57,6 +58,7 @@ pub type DavHandler = dav_server::DavHandler;
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
+    pub drive_dbs: Arc<crate::drive_db::DriveDbPool>,
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
     pub gallery: Arc<crate::gallery_indexer::GalleryIndexer>,
@@ -80,6 +82,7 @@ impl AppState {
         data_dir: &std::path::Path,
     ) -> Self {
         let db = Arc::new(Mutex::new(conn));
+        let drive_dbs = Arc::new(crate::drive_db::DriveDbPool::new());
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");
         let auth = Arc::new(crate::auth::AuthService::new(
@@ -95,6 +98,7 @@ impl AppState {
         ));
         Self {
             db: db.clone(),
+            drive_dbs,
             drive_manager,
             job_manager,
             gallery,
