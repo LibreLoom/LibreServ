@@ -433,7 +433,14 @@ export default function GalleryPage() {
       )}
 
       {(place || albumView) && (
-        <div className="mb-4 flex items-center gap-3">
+        <div
+          key={
+            place?.key
+            || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
+          }
+          data-slot="gallery-detail-chrome"
+          className="mb-4 flex items-center gap-3 animate-nav-slide-in"
+        >
           <Button
             variant="outline"
             surface="primary"

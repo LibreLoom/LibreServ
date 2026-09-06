@@ -7,8 +7,8 @@ import GalleryPage, { galleryUrl } from "./GalleryPage";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
-/** @param {{ places?: unknown[], albumsHold?: Promise<void> }} [options] */
-function stubGalleryFetch({ places = [], albumsHold } = {}) {
+/** @param {{ places?: unknown[], albums?: unknown[], albumsHold?: Promise<void> }} [options] */
+function stubGalleryFetch({ places = [], albums = [], albumsHold } = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url) => {
@@ -36,7 +36,7 @@ function stubGalleryFetch({ places = [], albumsHold } = {}) {
       }
       if (u.includes("/gallery/albums")) {
         if (albumsHold) await albumsHold;
-        return new Response(JSON.stringify([]), {
+        return new Response(JSON.stringify(albums), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -146,6 +146,31 @@ describe("GalleryPage", () => {
       expect(window.location.hash).toBe("#library");
     });
     expect(screen.getByRole("radio", { name: /^Library$/i })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("slides the album Back + title row in from the left on open", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch({
+      albums: [
+        {
+          id: "al1",
+          home_drive_id: "a",
+          name: "test",
+          item_count: 0,
+          shared: false,
+          cover_thumb: null,
+        },
+      ],
+    });
+    renderGallery();
+    fireEvent.click(await screen.findByRole("button", { name: /test/i }));
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+    expect(screen.getByText("test")).toBeInTheDocument();
+    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    expect(chrome).toBeTruthy();
+    expect(chrome?.className).toContain("animate-nav-slide-in");
+    expect(chrome?.className).toContain("mb-4");
+    expect(chrome?.className).toContain("flex");
   });
 
   it("shows a centered spinner while albums are still loading", async () => {
