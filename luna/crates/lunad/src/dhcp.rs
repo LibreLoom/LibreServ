@@ -114,12 +114,16 @@ fn dhcp_iface(iface: &str) {
 
 /// Watch sysfs carrier and request DHCP when a cable starts carrying a link,
 /// and retry while carrier stays up without a usable IPv4.
-/// When `wake_connect` is set, a rising carrier edge wakes the Connect poll loop.
+/// When `wake_connect` is set, wake the Connect poll loop on a rising carrier
+/// edge **or** when a usable IPv4 appears (DHCP/internet arrived after boot
+/// with the cable already in — carrier edge alone misses that case).
 pub fn watch_link_up(
     stop: std::sync::Arc<AtomicBool>,
     wake_connect: Option<std::sync::Arc<AtomicBool>>,
 ) {
     let mut last: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
+    let mut last_had_addr: std::collections::BTreeMap<String, bool> =
+        std::collections::BTreeMap::new();
     let mut last_attempt: std::collections::BTreeMap<String, Instant> =
         std::collections::BTreeMap::new();
     while !stop.load(Ordering::Relaxed) {
@@ -138,7 +142,10 @@ pub fn watch_link_up(
                 let carrier = read_carrier(&dir);
                 let was = last.get(&name).copied().unwrap_or(false);
                 let rising = carrier && (!was || is_new);
-                let needs_addr = carrier && !iface_has_usable_ipv4(&name);
+                let has_addr = iface_has_usable_ipv4(&name);
+                let previously_had_addr = last_had_addr.get(&name).copied().unwrap_or(false);
+                let acquired_ipv4 = carrier && has_addr && !previously_had_addr;
+                let needs_addr = carrier && !has_addr;
                 let due = last_attempt
                     .get(&name)
                     .is_none_or(|t| t.elapsed() >= RETRY_WHILE_UP);
@@ -146,20 +153,30 @@ pub fn watch_link_up(
                     dhcp_iface(&name);
                     last_attempt.insert(name.clone(), Instant::now());
                 }
-                if rising && let Some(wake) = &wake_connect {
+                if should_wake_connect_poll(rising, acquired_ipv4)
+                    && let Some(wake) = &wake_connect
+                {
                     wake.store(true, Ordering::Relaxed);
                 }
                 if !carrier {
                     last_attempt.remove(&name);
                 }
-                last.insert(name, carrier);
+                last.insert(name.clone(), carrier);
+                last_had_addr.insert(name, carrier && has_addr);
             }
         }
         // Drop state for interfaces that disappeared.
         last.retain(|k, _| seen.contains(k));
+        last_had_addr.retain(|k, _| seen.contains(k));
         last_attempt.retain(|k, _| seen.contains(k));
         std::thread::sleep(Duration::from_secs(2));
     }
+}
+
+/// Wake Connect when link rises or when a usable IPv4 appears on an already-up
+/// link (DHCP arrived late — carrier edge alone misses that case).
+pub(crate) fn should_wake_connect_poll(rising_carrier: bool, acquired_ipv4: bool) -> bool {
+    rising_carrier || acquired_ipv4
 }
 
 #[cfg(test)]
@@ -230,5 +247,16 @@ mod tests {
         let eth = root.path().join("eth0");
         std::fs::create_dir_all(&eth).unwrap();
         assert!(is_wired_iface("eth0", &eth));
+    }
+
+    #[test]
+    fn wake_connect_on_rising_carrier_or_acquired_ipv4() {
+        assert!(should_wake_connect_poll(true, false));
+        assert!(should_wake_connect_poll(false, true));
+        assert!(should_wake_connect_poll(true, true));
+        assert!(
+            !should_wake_connect_poll(false, false),
+            "steady carrier with no new address must not spuriously wake"
+        );
     }
 }

@@ -62,6 +62,8 @@ async fn main() -> anyhow::Result<()> {
 
     let connect_poll_wake = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
+    // DHCP link watcher: wake Connect poll on carrier rise *or* when IPv4 appears
+    // (late DHCP/internet with cable already in — carrier edge alone misses that).
     std::thread::Builder::new()
         .name("luna-dhcp-link".into())
         .spawn({
