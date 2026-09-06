@@ -424,6 +424,21 @@ describe("GalleryPage", () => {
     expect(screen.queryByRole("button", { name: /Look again/i })).not.toBeInTheDocument();
   });
 
+  it("shows a placeholder hint on the New album name field", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch();
+    renderGallery();
+    expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /New album/i })[0]);
+
+    expect(await screen.findByRole("heading", { name: "New album" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Album name/i)).toHaveAttribute(
+      "placeholder",
+      "e.g. Family Trip to Beijing",
+    );
+  });
+
   it("renders Add to album modal with an outline Cancel button that closes the modal", async () => {
     stubGalleryFetch();
     renderGallery();

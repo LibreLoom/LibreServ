@@ -498,6 +498,7 @@ export default function GalleryPage() {
                   <input
                     value={newAlbumName}
                     onChange={(e) => setNewAlbumName(e.target.value)}
+                    placeholder="e.g. Family Trip to Beijing"
                     className="mt-1 w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2"
                     autoFocus
                     required
