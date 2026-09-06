@@ -481,7 +481,7 @@ describe("DrivesPage", () => {
     expect(screen.getByRole("button", { name: /^Format$/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Format$/i }));
     expect(screen.getByRole("button", { name: /Yes, format it/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/What should Luna call this drive/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Locked Stick")).toBeInTheDocument();
   });
 
   it("formats a write-locked drive through adopt erase", async () => {
