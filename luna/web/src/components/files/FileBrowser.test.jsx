@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -246,6 +247,37 @@ describe("FileBrowser", () => {
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalled();
     });
+  });
+
+  it("clears selection when the path changes without a select deep-link", async () => {
+    stubListing({
+      "": [{ name: "album", kind: "dir", size: 0, hidden: false }],
+      album: [{ name: "beach.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    function Harness() {
+      const [path, setPath] = useState("");
+      return (
+        <>
+          <button type="button" onClick={() => setPath("album")}>
+            Go album
+          </button>
+          <FileBrowser driveId="d1" driveLabel="Photos" path={path} multiSelect />
+        </>
+      );
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByLabelText("Select album"));
+    expect(screen.getByLabelText("Select album")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Go album" }));
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
   });
 
   it("hides trash folder row in subfolders", async () => {

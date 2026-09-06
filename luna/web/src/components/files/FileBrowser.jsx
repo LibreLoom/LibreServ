@@ -207,6 +207,18 @@ export default function FileBrowser({
     }));
   }, [entryPaths, path, controlledSelected]);
 
+  // Link navigation (and search deep-links) change `path` without calling setPath,
+  // so clear the previous folder's selection unless a fresh `select=` is pending.
+  const prevPathRef = useRef(path);
+  useEffect(() => {
+    if (prevPathRef.current === path) return;
+    prevPathRef.current = path;
+    if (selectPath) return;
+    setSelectedPaths([]);
+    setLastClicked(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- path transition seed only
+  }, [path, selectPath]);
+
   // Deep-link from search (`?select=`): select the file once the listing is
   // ready, scroll it into view, then let the parent clear the query param.
   useEffect(() => {
