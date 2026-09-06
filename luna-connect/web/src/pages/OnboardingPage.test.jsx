@@ -747,11 +747,12 @@ describe("OnboardingPage finish flow", () => {
     expect(screen.getByText(/Luna is linked to your account/i)).toBeTruthy();
     expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
     const lunaLink = screen.getByRole("link", {
-      name: "kitchen.luna.servers.libreloom.org/setup",
+      name: "kitchen.luna.servers.libreloom.org",
     });
     expect(lunaLink.getAttribute("href")).toBe(
       "https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV",
     );
+    expect(lunaLink.textContent).not.toMatch(/\/setup/i);
     expect(lunaLink.getAttribute("target")).toBe("_blank");
     expect(lunaLink.getAttribute("rel")).toBe("noreferrer");
     expect(lunaLink.className).toMatch(/underline/);
@@ -851,9 +852,10 @@ describe("OnboardingPage finish flow", () => {
     expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
     expect(
       screen
-        .getByRole("link", { name: "kitchen.luna.servers.libreloom.org/setup" })
+        .getByRole("link", { name: "kitchen.luna.servers.libreloom.org" })
         .getAttribute("href"),
     ).toBe("https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV");
+    expect(document.body.textContent).not.toMatch(/\/setup/i);
     expect(document.body.textContent).not.toMatch(/\?token=/);
     vi.useRealTimers();
   });

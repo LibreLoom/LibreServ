@@ -1318,7 +1318,7 @@ export default function OnboardingPage() {
 
   const renderDone = () => {
     // Prefer the token the user entered (official) or minted (DIY). Href/copy
-    // include ?token= for silent WAN auth on Luna; the visible label stays clean.
+    // include /setup?token= for silent WAN auth; the visible label is hostname-only.
     const deviceToken = (code || diyCode || "").trim();
     const { display: setupDisplay, href: setupHref } = buildLunaSetupLink(hostname, deviceToken);
     return (
