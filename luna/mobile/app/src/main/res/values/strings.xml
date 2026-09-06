@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Luna</string>
-    <string name="login_subtitle">Sign in with an access token from Luna. Open Luna in a browser → Settings → Apps and access tokens → Create access token, then paste it here — or tap Scan QR code.</string>
+    <string name="login_subtitle">Sign in with an access token from Luna. Open Luna in a browser → Settings → Security → Create access token, then paste it here — or tap Scan QR code.</string>
     <string name="luna_address_hint">Luna address (for example http://luna.local)</string>
     <string name="access_token_hint">Access token</string>
     <string name="scan_qr">Scan QR code</string>
@@ -59,7 +59,7 @@
     <string name="tap_a_folder">Tap a folder to open it, or Use this folder to choose the one you are in.</string>
     <string name="folder_empty">No folders here. You can still use this folder, or create a new one.</string>
     <string name="pick_a_drive_first">Tap a drive first, then Continue.</string>
-    <string name="sign_in_again">You\'re not signed in. Sign out, then sign in again with an access token from Luna → Settings → Apps and access tokens.</string>
+    <string name="sign_in_again">You\'re not signed in. Sign out, then sign in again with an access token from Luna → Settings → Security.</string>
     <string name="status_blurb">Photos still being copied from this phone to Luna.</string>
     <string name="status_up_to_date">Everything is up to date.</string>
     <string name="status_nothing_waiting">Nothing is waiting to copy right now.</string>

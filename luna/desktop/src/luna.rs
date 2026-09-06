@@ -172,7 +172,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
     let mut resp = auth_get(base_url, token, "/api/v1/auth/me")?;
     if resp.status() == 401 {
         return Err(
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
                 .into(),
         );
     }
@@ -185,7 +185,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
         .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
     if value.is_null() {
         return Err(
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
                 .into(),
         );
     }
@@ -193,7 +193,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
         .get("username")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
                 .to_string()
         })?
         .to_string();
@@ -635,7 +635,7 @@ mod tests {
     fn is_auth_failure_recognizes_credential_errors() {
         assert!(is_auth_failure("unauthorized"));
         assert!(is_auth_failure(
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
         ));
         assert!(is_auth_failure(
             "That username or password didn't work. Check them and try again."

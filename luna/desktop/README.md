@@ -5,8 +5,7 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
 ## What it does
 
-1. **Sign in** once with an **access token** from Luna (Settings → Apps and access
-   tokens → Create access token). Luna for Linux remembers it on this computer.
+1. **Sign in** once with an **access token** from Luna (Settings → Security → Create access token). Luna for Linux remembers it on this computer.
    Your Luna password is not stored.
 2. **Backup** — pick folders on this computer and a folder on Luna (create one
    if you need). You can run several backup jobs to different destinations.

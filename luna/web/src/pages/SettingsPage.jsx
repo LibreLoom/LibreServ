@@ -9,9 +9,16 @@ import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
 
+/** Old category ids → current sidebar ids (bookmarks / deep links). */
+const HASH_ALIASES = {
+  remote: "external_services",
+  access: "security",
+};
+
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
 function categoryFromHash(hash, allowedCategoryIds) {
-  const id = String(hash || "").replace(/^#/, "");
+  const raw = String(hash || "").replace(/^#/, "");
+  const id = HASH_ALIASES[raw] || raw;
   return allowedCategoryIds.includes(id) ? id : null;
 }
 
