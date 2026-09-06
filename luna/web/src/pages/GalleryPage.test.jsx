@@ -618,7 +618,7 @@ describe("GalleryPage", () => {
     expect(screen.getByText("Keep me")).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.every(
-        ([url, init]) => (init?.method || "GET").toUpperCase() !== "DELETE",
+        ([_url, init]) => (init?.method || "GET").toUpperCase() !== "DELETE",
       ),
     ).toBe(true);
   });

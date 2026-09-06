@@ -214,6 +214,7 @@ export default function FileBrowser({
     if (prevPathRef.current === path) return;
     prevPathRef.current = path;
     if (selectPath) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- path transition clears selection
     setSelectedPaths([]);
     setLastClicked(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- path transition seed only
@@ -234,6 +235,7 @@ export default function FileBrowser({
       return;
     }
     appliedSelectRef.current = selectPath;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link select= seed
     setSelectedPaths([selectPath]);
     setLastClicked(selectPath);
     const frame = window.requestAnimationFrame(() => {

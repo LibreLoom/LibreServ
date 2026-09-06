@@ -343,6 +343,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     const fromQuery = readSetupTokenFromSearch(searchParams);
     if (!fromQuery) return;
     consumedQueryTokenRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
     setForm((f) => ({ ...f, setup_secret: fromQuery }));
     setHideSetupSecretStep(true);
     setSearchParams(stripSetupTokenFromSearch(searchParams), { replace: true });
