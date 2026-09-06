@@ -4,10 +4,12 @@ use std::time::Duration;
 use rusqlite::Connection;
 use rusqlite::params;
 
-/// Open (and initialize) the metadata database.
+/// Open (and initialize) the central metadata database.
 ///
-/// The index lives on the OS disk. Drives only carry their `.luna` marker, so
-/// a lost system disk is rebuilt by re-scanning the drives themselves.
+/// Drive-scoped high-churn metadata (file index, scrub hashes, gallery, trash
+/// paths, upload sessions) lives in each drive's `.luna` SQLite microdb.
+/// This OS-disk DB keeps users, auth, grants, shares, protection rules, jobs,
+/// and the thin drives registry.
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -38,24 +40,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             mount_point TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS uploads (
-            id TEXT PRIMARY KEY,
-            drive_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            name TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            received INTEGER NOT NULL DEFAULT 0,
-            state TEXT NOT NULL,
-            error TEXT NOT NULL DEFAULT '',
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS upload_chunks (
-            upload_id TEXT NOT NULL,
-            start INTEGER NOT NULL,
-            end INTEGER NOT NULL,
-            PRIMARY KEY (upload_id, start)
         );
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
@@ -100,32 +84,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             created_by TEXT NOT NULL,
             created_at INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS index_entries (
-            drive_id TEXT NOT NULL,
-            parent TEXT NOT NULL,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            modified INTEGER NOT NULL,
-            hidden INTEGER NOT NULL,
-            PRIMARY KEY (drive_id, parent, name)
-        );
-        CREATE TABLE IF NOT EXISTS indexed_dirs (
-            drive_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            dir_mtime INTEGER NOT NULL,
-            indexed_at INTEGER NOT NULL,
-            PRIMARY KEY (drive_id, path)
-        );
-        CREATE TABLE IF NOT EXISTS file_hashes (
-            drive_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            mtime INTEGER NOT NULL,
-            hash TEXT NOT NULL,
-            verified_at INTEGER NOT NULL,
-            PRIMARY KEY (drive_id, path)
-        );
         CREATE TABLE IF NOT EXISTS protections (
             id TEXT PRIMARY KEY,
             source_drive TEXT NOT NULL,
@@ -158,8 +116,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             window_start INTEGER NOT NULL,
             locked_until INTEGER NOT NULL DEFAULT 0
         );
-        CREATE INDEX IF NOT EXISTS index_entries_name
-            ON index_entries(name COLLATE NOCASE);",
+        ",
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
@@ -326,11 +283,7 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
     let statements = [
         "DELETE FROM grants WHERE drive_id = ?1",
         "DELETE FROM shares WHERE drive_id = ?1",
-        "DELETE FROM uploads WHERE drive_id = ?1",
         "DELETE FROM jobs WHERE from_drive = ?1 OR to_drive = ?1",
-        "DELETE FROM index_entries WHERE drive_id = ?1",
-        "DELETE FROM indexed_dirs WHERE drive_id = ?1",
-        "DELETE FROM file_hashes WHERE drive_id = ?1",
         "DELETE FROM protections WHERE source_drive = ?1 OR target_drive = ?1",
     ];
     for sql in statements {
@@ -340,33 +293,24 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
-    // Orphaned upload chunk rows for uploads we just deleted.
-    let _ = tx.execute(
-        "DELETE FROM upload_chunks WHERE upload_id NOT IN (SELECT id FROM uploads)",
-        [],
-    );
+    // Upload sessions and file index/hashes live in the drive `.luna` microdb.
     tx.execute("DELETE FROM drives WHERE id = ?1", params![id])?;
     tx.commit()?;
     Ok(())
 }
 
 /// Wipe all user data and return the box to first-run state, keeping the
-/// schema. Clears users/grants/shares/device-tokens, uploads/jobs, the file
-/// index/hashes/protections, drives, and resets setup + the JWT and BLE
-/// setup secrets. Gallery indexes live on each data drive under `.lunagallery/`
-/// and are not part of `luna.db`.
+/// schema. Clears users/grants/shares/device-tokens, jobs/protections, drives,
+/// and resets setup + the JWT and BLE setup secrets. Per-drive `.luna`
+/// microdbs (index, hashes, gallery, uploads, trash meta) are not part of
+/// `luna.db` and are left on the sticks.
 pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
     for table in [
         "users",
         "grants",
         "shares",
         "device_tokens",
-        "uploads",
-        "upload_chunks",
         "jobs",
-        "index_entries",
-        "indexed_dirs",
-        "file_hashes",
         "protections",
         "drives",
         "device_token_usage",

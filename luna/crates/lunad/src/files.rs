@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use luna_core::path::resolve_child;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::db::{self, DriveRow};
 
@@ -35,10 +35,6 @@ pub struct TrashEntry {
 const TRASH_DIR_NAME: &str = ".luna-trash";
 const TRASH_META_DIR_NAME: &str = ".meta";
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct TrashMeta {
-    original_path: String,
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
@@ -67,6 +63,10 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
         .ok_or(FilesError::UnknownDrive)
 }
 
+fn open_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
+    crate::drive_db::open(std::path::Path::new(&drive.mount_point)).map_err(FilesError::Db)
+}
+
 /// List one directory. Directories first, then case-insensitive by name.
 ///
 /// Serves from the SQLite index whenever the directory mtime matches; any
@@ -93,12 +93,13 @@ pub fn list_dir(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    if let Some(entries) = crate::index::fresh_entries(conn, drive_id, rel, mtime) {
+    let drive_conn = open_drive_db(&drive)?;
+    if let Some(entries) = crate::index::fresh_entries(&drive_conn, drive_id, rel, mtime) {
         return Ok(entries);
     }
 
     let entries = read_dir_entries(&dir)?;
-    let _ = crate::index::replace_dir(conn, drive_id, rel, mtime, &entries);
+    let _ = crate::index::replace_dir(&drive_conn, drive_id, rel, mtime, &entries);
     Ok(entries)
 }
 
@@ -359,6 +360,7 @@ pub fn is_internal_temp(name: &str) -> bool {
         || base == crate::gallery::SHARED_ALBUMS_DIR_NAME
         || base == TRASH_DIR_NAME
         || base == TRASH_META_DIR_NAME
+        || base == ".luna"
         || base.starts_with(".luna-upload.")
         || (base.starts_with('.') && base.ends_with(".part"))
 }
@@ -611,7 +613,7 @@ pub fn delete_to_trash(
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    write_trash_meta(&trash, &trash_entry_name, &trash_rel)?;
+    write_trash_meta(&root, &trash_entry_name, &trash_rel)?;
     Ok(dest
         .strip_prefix(&root)
         .unwrap_or(&dest)
@@ -619,50 +621,39 @@ pub fn delete_to_trash(
         .into_owned())
 }
 
-fn trash_meta_dir(trash: &Path) -> PathBuf {
-    trash.join(TRASH_META_DIR_NAME)
-}
 
-fn trash_meta_path(trash: &Path, entry_name: &str) -> PathBuf {
-    trash_meta_dir(trash).join(format!("{entry_name}.json"))
-}
 
-fn write_trash_meta(trash: &Path, entry_name: &str, original_path: &str) -> Result<(), FilesError> {
-    let meta_dir = trash_meta_dir(trash);
-    std::fs::create_dir_all(&meta_dir).map_err(FilesError::Io)?;
-    let payload = TrashMeta {
-        original_path: original_path.to_string(),
-    };
-    let data = serde_json::to_vec(&payload).map_err(|e| {
-        FilesError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            e.to_string(),
-        ))
-    })?;
-    let path = trash_meta_path(trash, entry_name);
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let temp = meta_dir.join(format!(".luna-upload.{}.{nonce}", std::process::id()));
-    std::fs::write(&temp, &data).map_err(FilesError::Io)?;
-    if let Ok(file) = std::fs::File::open(&temp) {
-        let _ = file.sync_all();
-    }
-    install_temp(&temp, &path, true)?;
+fn write_trash_meta(
+    drive_root: &Path,
+    entry_name: &str,
+    original_path: &str,
+) -> Result<(), FilesError> {
+    let conn = crate::drive_db::open(drive_root).map_err(FilesError::Db)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO trash_meta (entry_name, original_path) VALUES (?1, ?2)",
+        rusqlite::params![entry_name, original_path],
+    )
+    .map_err(|e| FilesError::Db(e.into()))?;
     Ok(())
 }
 
-fn read_trash_meta(trash: &Path, entry_name: &str) -> Option<String> {
-    let path = trash_meta_path(trash, entry_name);
-    let data = std::fs::read(&path).ok()?;
-    let meta: TrashMeta = serde_json::from_slice(&data).ok()?;
-    Some(meta.original_path)
+fn read_trash_meta(drive_root: &Path, entry_name: &str) -> Option<String> {
+    let conn = crate::drive_db::open(drive_root).ok()?;
+    conn.query_row(
+        "SELECT original_path FROM trash_meta WHERE entry_name = ?1",
+        rusqlite::params![entry_name],
+        |row| row.get(0),
+    )
+    .ok()
 }
 
-fn remove_trash_meta(trash: &Path, entry_name: &str) {
-    let path = trash_meta_path(trash, entry_name);
-    let _ = std::fs::remove_file(path);
+fn remove_trash_meta(drive_root: &Path, entry_name: &str) {
+    if let Ok(conn) = crate::drive_db::open(drive_root) {
+        let _ = conn.execute(
+            "DELETE FROM trash_meta WHERE entry_name = ?1",
+            rusqlite::params![entry_name],
+        );
+    }
 }
 
 fn trash_entry_name(trash_rel: &str) -> Option<&str> {
@@ -699,7 +690,8 @@ pub fn list_trash(
     drive_id: &str,
 ) -> Result<Vec<TrashEntry>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
-    let trash = PathBuf::from(&drive.mount_point).join(TRASH_DIR_NAME);
+    let root = PathBuf::from(&drive.mount_point);
+    let trash = root.join(TRASH_DIR_NAME);
     if !trash.exists() {
         return Ok(Vec::new());
     }
@@ -707,7 +699,7 @@ pub fn list_trash(
     Ok(entries
         .into_iter()
         .map(|entry| TrashEntry {
-            original_path: read_trash_meta(&trash, &entry.name).unwrap_or_default(),
+            original_path: read_trash_meta(&root, &entry.name).unwrap_or_default(),
             name: entry.name,
             kind: entry.kind,
             size: entry.size,
@@ -726,11 +718,11 @@ pub fn trash_original_path(
         return Ok(None);
     }
     let drive = drive_root(conn, drive_id)?;
-    let trash = PathBuf::from(&drive.mount_point).join(TRASH_DIR_NAME);
+    let root = PathBuf::from(&drive.mount_point);
     let Some(entry_name) = trash_entry_name(trash_rel) else {
         return Ok(None);
     };
-    Ok(read_trash_meta(&trash, entry_name))
+    Ok(read_trash_meta(&root, entry_name))
 }
 
 /// Move an item out of `.luna-trash` onto the same drive (atomic rename).
@@ -788,7 +780,7 @@ pub fn restore_from_trash(
         let _ = dir.sync_all();
     }
     if let Some(entry_name) = trash_entry_name(trash_rel) {
-        remove_trash_meta(&root.join(TRASH_DIR_NAME), entry_name);
+        remove_trash_meta(&root, entry_name);
     }
     Ok(())
 }
@@ -815,7 +807,7 @@ pub fn purge_trash(
         std::fs::remove_file(&path).map_err(FilesError::Io)?;
     }
     if let Some(entry_name) = trash_entry_name(trash_rel) {
-        remove_trash_meta(&root.join(TRASH_DIR_NAME), entry_name);
+        remove_trash_meta(&root, entry_name);
     }
     Ok(())
 }
@@ -944,6 +936,8 @@ mod tests {
         let id = "drive-1";
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
+        let marker = luna_core::marker::Marker::new(id, "Test");
+        crate::drive_db::create(&root, &marker).unwrap();
         db::upsert_drive(
             &conn,
             id,
@@ -1125,7 +1119,8 @@ mod tests {
             .to_path_buf();
         std::fs::write(root.join("note.txt"), b"n").unwrap();
         delete_to_trash(&conn, &id, "note.txt").unwrap();
-        assert!(root.join(".luna-trash/.meta").is_dir());
+        // Trash restore paths live in the `.luna` microdb, not a `.meta` folder.
+        assert!(!root.join(".luna-trash/.meta").exists());
         let listed = list_trash(&conn, &id).unwrap();
         assert_eq!(listed.len(), 1);
         assert!(!listed.iter().any(|e| e.name == ".meta"));

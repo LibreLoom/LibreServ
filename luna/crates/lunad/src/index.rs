@@ -99,48 +99,100 @@ pub struct SearchHit {
 
 /// Search files and folders by name, folder path, kind, or drive label.
 /// Hidden entries are skipped; callers still enforce access checks.
-pub fn search(conn: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit>> {
+///
+/// Fans out across each mounted drive's `.luna` microdb (index no longer
+/// lives in central `luna.db`).
+pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit>> {
     let escaped = query
         .replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_");
     let pattern = format!("%{escaped}%");
-    let mut stmt = conn.prepare(
-        "SELECT e.drive_id, e.parent, e.name, e.kind, e.size, e.modified
-         FROM index_entries e
-         LEFT JOIN drives d ON d.id = e.drive_id
-         WHERE e.hidden = 0
-           AND (
-             e.name LIKE ?1 ESCAPE '\\'
-             OR e.parent LIKE ?1 ESCAPE '\\'
-             OR (CASE WHEN e.parent = '' THEN e.name ELSE e.parent || '/' || e.name END)
-                 LIKE ?1 ESCAPE '\\'
-             OR e.kind LIKE ?1 ESCAPE '\\'
-             OR IFNULL(d.label, '') LIKE ?1 ESCAPE '\\'
-           )
-         ORDER BY e.name COLLATE NOCASE
-         LIMIT 200",
-    )?;
-    let rows = stmt.query_map(params![pattern], |row| {
-        Ok(SearchHit {
-            drive_id: row.get(0)?,
-            parent: row.get(1)?,
-            name: row.get(2)?,
-            kind: row.get(3)?,
-            size: row.get(4)?,
-            modified: row.get(5)?,
-        })
-    })?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    let q_lower = query.to_ascii_lowercase();
+    let mut all = Vec::new();
+    for drive in db::list_drives(central)? {
+        if drive.mount_point.is_empty() || drive.state != "as_is" {
+            continue;
+        }
+        let root = std::path::Path::new(&drive.mount_point);
+        if !crate::drive_db::path_for(root).is_file() {
+            continue;
+        }
+        let conn = match crate::drive_db::open(root) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let label_hit = drive.label.to_ascii_lowercase().contains(&q_lower);
+        let mut stmt = conn.prepare(
+            "SELECT drive_id, parent, name, kind, size, modified
+             FROM index_entries
+             WHERE hidden = 0
+               AND drive_id = ?2
+               AND (
+                 name LIKE ?1 ESCAPE '\\'
+                 OR parent LIKE ?1 ESCAPE '\\'
+                 OR (CASE WHEN parent = '' THEN name ELSE parent || '/' || name END)
+                     LIKE ?1 ESCAPE '\\'
+                 OR kind LIKE ?1 ESCAPE '\\'
+               )
+             ORDER BY name COLLATE NOCASE
+             LIMIT 200",
+        )?;
+        let mut hits: Vec<SearchHit> = stmt
+            .query_map(params![pattern, drive.id], |row| {
+                Ok(SearchHit {
+                    drive_id: row.get(0)?,
+                    parent: row.get(1)?,
+                    name: row.get(2)?,
+                    kind: row.get(3)?,
+                    size: row.get(4)?,
+                    modified: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        if label_hit && hits.is_empty() {
+            let mut stmt = conn.prepare(
+                "SELECT drive_id, parent, name, kind, size, modified
+                 FROM index_entries
+                 WHERE hidden = 0 AND drive_id = ?1
+                 ORDER BY name COLLATE NOCASE
+                 LIMIT 50",
+            )?;
+            hits = stmt
+                .query_map(params![drive.id], |row| {
+                    Ok(SearchHit {
+                        drive_id: row.get(0)?,
+                        parent: row.get(1)?,
+                        name: row.get(2)?,
+                        kind: row.get(3)?,
+                        size: row.get(4)?,
+                        modified: row.get(5)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+        }
+        all.append(&mut hits);
+        if all.len() >= 200 {
+            all.truncate(200);
+            break;
+        }
+    }
+    all.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
+    Ok(all)
 }
 
 /// Recursively index an adopted drive. Runs in the background; never blocks
 /// a request. Directories are read once each, then kept fresh by mtime.
 pub fn scan_drive(
-    conn: &Connection,
+    _central: &Connection,
     drive_id: &str,
     root: &std::path::Path,
 ) -> anyhow::Result<u64> {
+    let conn = crate::drive_db::open(root)?;
     let mut dirs = 0u64;
     let mut stack = vec![(String::new(), root.to_path_buf())];
     while let Some((rel, dir)) = stack.pop() {
@@ -162,7 +214,7 @@ pub fn scan_drive(
                 stack.push((child_rel, dir.join(&entry.name)));
             }
         }
-        replace_dir(conn, drive_id, &rel, mtime, &entries)?;
+        replace_dir(&conn, drive_id, &rel, mtime, &entries)?;
         dirs += 1;
     }
     Ok(dirs)
@@ -171,32 +223,13 @@ pub fn scan_drive(
 /// Like [`scan_drive`], but releases the DB mutex between directories so
 /// listings and search stay responsive during a full reindex.
 pub fn scan_drive_unlocked(
-    db: &std::sync::Mutex<Connection>,
+    _db: &std::sync::Mutex<Connection>,
     drive_id: &str,
     root: &std::path::Path,
 ) -> anyhow::Result<u64> {
-    let mut dirs = 0u64;
-    let mut stack = vec![(String::new(), root.to_path_buf())];
-    while let Some((rel, dir)) = stack.pop() {
-        let meta = std::fs::metadata(&dir)?;
-        let mtime = mtime(&meta);
-        let entries = crate::files::read_dir_entries(&dir)?;
-        for entry in &entries {
-            if entry.kind == "dir" {
-                let child_rel = if rel.is_empty() {
-                    entry.name.clone()
-                } else {
-                    format!("{rel}/{}", entry.name)
-                };
-                stack.push((child_rel, dir.join(&entry.name)));
-            }
-        }
-        let conn = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-        replace_dir(&conn, drive_id, &rel, mtime, &entries)?;
-        drop(conn);
-        dirs += 1;
-    }
-    Ok(dirs)
+    // Index lives on the drive `.luna` microdb — central lock is unused.
+    let unused = Connection::open_in_memory()?;
+    scan_drive(&unused, drive_id, root)
 }
 
 fn mtime(meta: &std::fs::Metadata) -> i64 {
@@ -214,7 +247,8 @@ mod tests {
     #[test]
     fn fresh_and_stale_index_round_trip() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drive_db::create(dir.path(), &marker).unwrap();
         let entries = vec![
             FileEntry {
                 name: "b".into(),
@@ -236,27 +270,28 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].name, "a");
         assert!(fresh_entries(&conn, "d1", "sub", 43).is_none());
-        let found = search(&conn, "a").unwrap();
-        assert!(!found.is_empty());
-        assert_eq!(found[0].kind, "dir");
     }
 
     #[test]
     fn search_matches_parent_path_and_drive_label() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let central = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_root = dir.path().join("drive");
+        std::fs::create_dir_all(&drive_root).unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "Photos Drive");
+        let dconn = crate::drive_db::create(&drive_root, &marker).unwrap();
         db::upsert_drive(
-            &conn,
+            &central,
             "d1",
             "Photos Drive",
             "as_is",
             "ext4",
             "sdz",
-            "/mnt/d1",
+            drive_root.to_str().unwrap(),
         )
         .unwrap();
         replace_dir(
-            &conn,
+            &dconn,
             "d1",
             "album/2024",
             1,
@@ -269,17 +304,18 @@ mod tests {
             }],
         )
         .unwrap();
-        let by_folder = search(&conn, "2024").unwrap();
+        drop(dconn);
+        let by_folder = search(&central, "2024").unwrap();
         assert!(
             by_folder.iter().any(|h| h.name == "beach.jpg"),
             "folder path should match"
         );
-        let by_label = search(&conn, "Photos").unwrap();
+        let by_label = search(&central, "Photos").unwrap();
         assert!(
             by_label.iter().any(|h| h.name == "beach.jpg"),
             "drive label should match"
         );
-        let by_kind = search(&conn, "file").unwrap();
+        let by_kind = search(&central, "file").unwrap();
         assert!(by_kind.iter().any(|h| h.name == "beach.jpg"));
     }
 }

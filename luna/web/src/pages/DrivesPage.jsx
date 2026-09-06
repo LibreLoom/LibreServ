@@ -567,7 +567,7 @@ export default function DrivesPage() {
                 <>
                   Luna will stop managing{" "}
                   <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
-                  <span className="font-mono">.luna</span> marker file will stay on the
+                  <span className="font-mono">.luna</span> drive database will stay on the
                   drive since it is currently unplugged. Your files stay exactly where
                   they are.
                 </>
@@ -576,7 +576,7 @@ export default function DrivesPage() {
                   Luna will stop managing{" "}
                   <span className="font-mono">{removeTarget?.label}</span>. Your files
                   stay on the drive. Luna only removes its tiny{" "}
-                  <span className="font-mono">.luna</span> sticker file.
+                  <span className="font-mono">.luna</span> drive database.
                 </>
               )}
             </p>
@@ -776,13 +776,13 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
           ) : result.has_marker ? (
             <p className="text-primary text-sm mt-2">
               This drive was used with a Luna before. Add it here to keep using the
-              files. Luna only updates its tiny sticker file.
+              files. Luna only updates its on-drive database.
             </p>
           ) : (
             <div className="mt-4 flex items-center gap-3">
               <Info size={18} className="text-accent shrink-0" aria-hidden="true" />
               <p className="text-primary text-xs">
-                Adding it only writes one tiny <span className="font-mono">.luna</span> marker
+                Adding it writes a <span className="font-mono">.luna</span> database
                 file at the{" "}
                 <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive.
                 Your files are untouched.

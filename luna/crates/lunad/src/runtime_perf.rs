@@ -3,7 +3,7 @@
 //! Run: `cargo test -p lunad --lib runtime_perf -- --nocapture`
 //! Prefer `--release` for wall-clock numbers closer to the appliance.
 //!
-//! Gallery indexes live on each data drive under `.lunagallery/`, so holding the
+//! Gallery indexes live in each data drive's `.luna` microdb, so holding the
 //! global `luna.db` mutex must not stall `list_photos`. These tests also measure
 //! index/scrub contention against the OS DB.
 
@@ -142,8 +142,8 @@ fn runtime_perf_numbers() {
         "thumbs must be on the photo drive"
     );
     assert!(
-        gallery::gallery_db_path(&photos).exists(),
-        "gallery index must live under .lunagallery on the photo drive"
+        crate::drive_db::path_for(&photos).exists(),
+        "gallery index must live in the drive .luna microdb"
     );
 
     let t1 = Instant::now();
@@ -170,8 +170,10 @@ fn runtime_perf_numbers() {
     };
 
     {
-        let conn = db.lock().unwrap();
-        conn.execute_batch("DELETE FROM index_entries; DELETE FROM indexed_dirs;")
+        // Wipe the on-drive index so the unlocked pass does real work again.
+        let dconn = crate::drive_db::open(&tree).unwrap();
+        dconn
+            .execute_batch("DELETE FROM index_entries; DELETE FROM indexed_dirs;")
             .unwrap();
     }
     let (index_unlocked_n, index_unlocked_max, index_unlocked_p50) = {
@@ -211,8 +213,8 @@ fn runtime_perf_numbers() {
 
     // Wipe hashes so unlocked pass does real I/O again.
     {
-        let conn = db.lock().unwrap();
-        conn.execute_batch("DELETE FROM file_hashes;").unwrap();
+        let dconn = crate::drive_db::open(&files).unwrap();
+        dconn.execute_batch("DELETE FROM file_hashes;").unwrap();
     }
     let (scrub_unlocked_n, scrub_unlocked_max, scrub_unlocked_p50, scrub_unlocked_wall) = {
         let done = Arc::new(AtomicBool::new(false));
@@ -323,9 +325,11 @@ fn runtime_perf_numbers() {
     let os_data = dir.path().join("os-data");
     std::fs::create_dir_all(&os_data).unwrap();
     let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos));
-    let gallery_bytes_on_drive = dir_byte_size(&gallery::gallery_dir(&photos));
+    let gallery_bytes_on_drive = std::fs::metadata(crate::drive_db::path_for(&photos))
+        .map(|m| m.len())
+        .unwrap_or(0);
     let thumb_bytes_on_os = dir_byte_size(&os_data.join("thumbs"));
-    let gallery_bytes_on_os = dir_byte_size(&os_data.join(gallery::GALLERY_DIR_NAME));
+    let gallery_bytes_on_os = dir_byte_size(&os_data.join(".luna"));
     eprintln!("PERF emmc_thumb_bytes_on_photo_drive={thumb_bytes_on_drive}");
     eprintln!("PERF emmc_gallery_db_bytes_on_photo_drive={gallery_bytes_on_drive}");
     eprintln!("PERF emmc_thumb_bytes_under_os_data_dir={thumb_bytes_on_os}");
@@ -344,7 +348,7 @@ fn runtime_perf_numbers() {
     );
     assert!(
         gallery_bytes_on_drive > 0,
-        "gallery index must land under .lunagallery on the photo drive"
+        "gallery index must land in the drive .luna microdb on the photo drive"
     );
 
     // Holding luna.db must not stall on-drive gallery list.
@@ -372,7 +376,7 @@ fn runtime_perf_numbers() {
     }
 
     // Upload coalesce: 8 × 256 KiB < 2 MiB flush threshold → 0 mid-flight DB
-    // chunk rows until complete flushes.
+    // chunk rows until complete flushes. Sessions live in the drive `.luna`.
     {
         let conn = db.lock().unwrap();
         let up = uploads::create(&conn, "d1", "", "coalesce.bin", 2 * 1024 * 1024).unwrap();
@@ -382,13 +386,21 @@ fn runtime_perf_numbers() {
             uploads::write_chunk(&db, &up.id, i * piece.len() as u64, &piece).unwrap();
         }
         let mid_chunks: i64 = {
-            let conn = db.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM upload_chunks WHERE upload_id = ?1",
-                rusqlite::params![up.id],
-                |row| row.get(0),
-            )
-            .unwrap()
+            let central = db.lock().unwrap();
+            let dconn = crate::drive_db::open(std::path::Path::new(
+                &crate::db::get_drive(&central, "d1")
+                    .unwrap()
+                    .unwrap()
+                    .mount_point,
+            ))
+            .unwrap();
+            dconn
+                .query_row(
+                    "SELECT COUNT(*) FROM upload_chunks WHERE upload_id = ?1",
+                    rusqlite::params![up.id],
+                    |row| row.get(0),
+                )
+                .unwrap()
         };
         eprintln!("PERF upload_chunk_rows_before_flush_threshold={mid_chunks}");
         assert_eq!(

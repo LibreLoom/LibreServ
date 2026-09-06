@@ -66,7 +66,7 @@ on home internet. Open the address shown on Luna's screen, or try `luna.local`.
 
 Photos lives under each data drive — never on the OS eMMC:
 
-- `{drive}/.lunagallery/gallery.sqlite` — index, favorites, albums, invites
+- `{drive}/.luna (gallery tables inside the drive microdb)` — index, favorites, albums, invites
 - `{drive}/.lunathumbs/` — JPEG previews
 - `{drive}/.luna-shared-albums/{id}/` — uploads into shared albums
 
