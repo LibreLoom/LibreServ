@@ -14,8 +14,6 @@ if ! command -v cargo-watch >/dev/null 2>&1; then
   cargo install cargo-watch --locked
 fi
 
-make mock-pssd
-
 idx="$ROOT/crates/lunad/web/dist/index.html"
 if [ ! -f "$idx" ] || grep -Fq 'build the web app first' "$idx"; then
   echo "==> Luna web dist missing or stub — building once"
