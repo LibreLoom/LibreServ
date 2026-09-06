@@ -12,9 +12,6 @@ import {
 import {
   readSetupTokenFromSearch,
   stripSetupTokenFromSearch,
-  takeSetupHandoffFromSearch,
-  peekSetupHandoffToken,
-  clearSetupHandoffToken,
 } from "../lib/setupTokenParam.js";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
@@ -339,22 +336,17 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const setupSecretOk = !needsSetupCode || form.setup_secret.trim().length > 0;
   const showSetupSecretField = needsSetupCode && !hideSetupSecretStep;
 
-  // Prefer a Connect handoff token stashed when /setup?token= landed (URL may
-  // already be stripped so Welcome can restart without losing the secret). Fall
-  // back to a still-present ?token= for older bookmarks / mid-flow links.
+  // Consume ?token= once: prefill setup_secret, hide that substep, strip from the URL
+  // so the full device token does not linger in the address bar / history entry.
   useEffect(() => {
     if (consumedQueryTokenRef.current) return;
     const fromQuery = readSetupTokenFromSearch(searchParams);
-    const fromHandoff = peekSetupHandoffToken();
-    const token = fromQuery || fromHandoff;
-    if (!token) return;
+    if (!fromQuery) return;
     consumedQueryTokenRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot token seed from URL/handoff
-    setForm((f) => ({ ...f, setup_secret: token }));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
+    setForm((f) => ({ ...f, setup_secret: fromQuery }));
     setHideSetupSecretStep(true);
-    if (fromQuery) {
-      setSearchParams(stripSetupTokenFromSearch(searchParams), { replace: true });
-    }
+    setSearchParams(stripSetupTokenFromSearch(searchParams), { replace: true });
   }, [searchParams, setSearchParams]);
 
   const setField = (name, value) => {
@@ -454,7 +446,6 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       const displayName = form.display_name.trim() || form.username.trim();
       await register(form.username.trim(), displayName, pw, needsSetupCode ? form.setup_secret.trim() : undefined);
       await login(form.username.trim(), pw);
-      clearSetupHandoffToken();
       onContinue();
     } catch (err) {
       setFieldError(err.message);
@@ -843,7 +834,6 @@ const STEP_ORDER = [
 
 export default function SetupPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { user, refresh } = useAuth();
   // null until saved progress is loaded — avoids flashing Welcome over a resume.
   const [step, setStep] = useState(null);
@@ -875,38 +865,17 @@ export default function SetupPage() {
   }, [user]);
 
   // Restore wizard position from the device so a refresh mid-setup continues
-  // where the user left off — unless this load is a fresh Connect /setup?token=
-  // handoff, which always restarts at Welcome.
+  // where the user left off (same behavior as LibreServ).
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { token: handoffToken, freshFromUrl } = takeSetupHandoffFromSearch(searchParams);
-      if (freshFromUrl) {
-        setSearchParams(stripSetupTokenFromSearch(searchParams), { replace: true });
-      }
-
       try {
         const setup = await getJson("/api/v1/setup");
         if (!alive) return;
         if (setup?.name) setDeviceName(setup.name);
 
         if (setup?.setup_completed) {
-          clearSetupHandoffToken();
           navigate("/drives", { replace: true });
-          return;
-        }
-
-        // Fresh Connect link: always start at Welcome, even if the device has
-        // mid-wizard progress from an earlier attempt.
-        if (freshFromUrl && handoffToken) {
-          progressRef.current = { step: STEP.WELCOME, stepData: {} };
-          try {
-            await saveProgress(STEP.WELCOME, {});
-          } catch {
-            /* still show Welcome — progress save is best-effort on handoff */
-          }
-          if (!alive) return;
-          setStep(STEP.WELCOME);
           return;
         }
 
@@ -949,12 +918,6 @@ export default function SetupPage() {
         // After the first account exists, setup reads are signed-in only. If an
         // admin exists but this browser isn't signed in, land on the account
         // step so they can sign in and finish — not Welcome.
-        if (freshFromUrl && handoffToken) {
-          progressRef.current = { step: STEP.WELCOME, stepData: {} };
-          if (!alive) return;
-          setStep(STEP.WELCOME);
-          return;
-        }
         const status = await getJson("/api/v1/auth/status").catch(() => null);
         if (!alive) return;
         setStep(status?.has_admin ? STEP.ACCOUNT : STEP.WELCOME);

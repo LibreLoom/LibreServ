@@ -98,7 +98,6 @@ function renderSetup(initialEntry = "/setup") {
 
 describe("SetupPage", () => {
   beforeEach(() => {
-    sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -155,35 +154,6 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
     expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
     expect(screen.getByLabelText(/What's your name/i)).toBeTruthy();
-  });
-
-  it("starts at Welcome when opened with ?token= even if progress was mid-wizard", async () => {
-    const fetchMock = stubFetch({
-      setup: {
-        name: "Luna",
-        setup_completed: false,
-        current_step: "account",
-        step_data: { network_connected: true, preflight_passed: true },
-      },
-      connectActive: true,
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderSetup("/setup?token=6XKS-P674-1786-RKKT-62DD");
-
-    expect(await screen.findByRole("heading", { name: "Welcome." })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Begin Setup/i })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /Create your account/i })).toBeNull();
-
-    await waitFor(() => {
-      const progressPosts = fetchMock.mock.calls.filter(([url, init]) => {
-        return String(url).includes("/api/v1/setup") && (init?.method || "GET").toUpperCase() === "POST";
-      });
-      const resetPost = progressPosts.find(([, init]) => {
-        const body = init?.body ? JSON.parse(init.body) : {};
-        return body.current_step === "welcome";
-      });
-      expect(resetPost).toBeTruthy();
-    });
   });
 
   it("does not attach a substep slide/pop class to the name field on first account paint", async () => {
