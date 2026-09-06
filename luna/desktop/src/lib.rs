@@ -16,9 +16,12 @@ pub mod autostart;
 pub mod backup;
 pub mod dest;
 pub mod luna;
+pub mod luna_url;
 pub mod session;
 pub mod sync;
 pub mod tray;
+
+pub use luna_url::{normalize_luna_base_url, LUNA_ADDRESS_PLACEHOLDER};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -136,10 +139,7 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
 }
 
 pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<SessionInfo, String> {
-    let base_url = base_url.trim().trim_end_matches('/').to_string();
-    if base_url.is_empty() {
-        return Err("Enter your Luna address (for example http://luna.local).".into());
-    }
+    let base_url = normalize_luna_base_url(base_url)?;
     let token = access_token.trim().to_string();
     if token.is_empty() {
         return Err("Paste an access token from Luna → Settings → Security.".into());

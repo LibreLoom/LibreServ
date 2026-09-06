@@ -2,17 +2,16 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
-use luna_desktop::AppState;
+use luna_desktop::{normalize_luna_base_url, AppState, LUNA_ADDRESS_PLACEHOLDER};
 
 use super::spawn_blocking;
 use super::toast_error;
 
-fn env_or(key: &str, fallback: &str) -> String {
+fn env_optional(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| fallback.to_string())
 }
 
 fn auto_login_enabled() -> bool {
@@ -23,6 +22,23 @@ fn auto_login_enabled() -> bool {
             .as_str(),
         "1" | "true" | "yes"
     )
+}
+
+/// Adw EntryRow title doubles as the empty-state placeholder; also set the
+/// inner GtkText placeholder so focus still shows the same hint.
+fn set_address_placeholder(row: &adw::EntryRow) {
+    fn apply(widget: &gtk::Widget) {
+        if let Ok(text) = widget.clone().downcast::<gtk::Text>() {
+            text.set_placeholder_text(Some(LUNA_ADDRESS_PLACEHOLDER));
+            return;
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            apply(&c);
+            child = c.next_sibling();
+        }
+    }
+    apply(row.upcast_ref());
 }
 
 pub struct LoginView {
@@ -60,11 +76,18 @@ impl LoginView {
 
         let group = adw::PreferencesGroup::new();
 
-        let default_url = env_or("LUNA_DESKTOP_URL", "http://127.0.0.1:8090");
-        let default_token = env_or("LUNA_DESKTOP_TOKEN", "");
+        // Dev only: LUNA_DESKTOP_URL from `make desktop-dev`. No hardcoded default.
+        let prefill_url = env_optional("LUNA_DESKTOP_URL");
+        let default_token = env_optional("LUNA_DESKTOP_TOKEN").unwrap_or_default();
 
-        let url_row = adw::EntryRow::builder().title("Luna address").build();
-        url_row.set_text(&default_url);
+        // Adw EntryRow title doubles as the empty-state placeholder.
+        let url_row = adw::EntryRow::builder()
+            .title(LUNA_ADDRESS_PLACEHOLDER)
+            .build();
+        set_address_placeholder(&url_row);
+        if let Some(url) = prefill_url.as_ref() {
+            url_row.set_text(url);
+        }
         group.add(&url_row);
 
         let token_row = adw::PasswordEntryRow::builder()
@@ -115,8 +138,27 @@ impl LoginView {
                 sign_in.set_label("Signing in…");
                 status.set_visible(false);
 
-                let base_url = url_row.text().to_string();
+                let typed = url_row.text().to_string();
                 let access_token = token_row.text().to_string();
+                // Normalize before leaving the UI thread so the field shows the
+                // canonical form even when sign-in fails.
+                let base_url = match normalize_luna_base_url(&typed) {
+                    Ok(url) => {
+                        if url != typed.trim() {
+                            url_row.set_text(&url);
+                        }
+                        url
+                    }
+                    Err(e) => {
+                        busy.set(false);
+                        sign_in.set_sensitive(true);
+                        sign_in.set_label("Sign in");
+                        status.set_text(&e);
+                        status.set_visible(true);
+                        toast_error(&toast, &e);
+                        return;
+                    }
+                };
                 let state = state.clone();
                 spawn_blocking(
                     move || -> Result<luna_desktop::SessionInfo, String> {
@@ -173,7 +215,8 @@ impl LoginView {
 
     /// Prefill Luna address and clear the access token (after auth failure).
     pub fn prepare_reconfigure(&self, base_url: &str) {
-        self.url_row.set_text(base_url.trim());
+        let shown = normalize_luna_base_url(base_url).unwrap_or_else(|_| base_url.trim().to_string());
+        self.url_row.set_text(&shown);
         self.token_row.set_text("");
     }
 

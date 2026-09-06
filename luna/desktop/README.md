@@ -60,7 +60,7 @@ Useful env vars:
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `LUNA_DESKTOP_AUTO_LOGIN` | `1` | Set `0` to exercise the login UI |
-| `LUNA_DESKTOP_URL` | `http://127.0.0.1:8090` | Luna address |
+| `LUNA_DESKTOP_URL` | _(empty)_ | Optional Luna address prefill (dev). No built-in default. |
 | `LUNA_DESKTOP_DEV_USER` | `desktop` | User used to mint the token |
 | `LUNA_DESKTOP_DEV_PASS` | `hunter22hunter1` | Password for that user |
 | `GTK_DEBUG` | `interactive` | Set empty to hide the inspector |

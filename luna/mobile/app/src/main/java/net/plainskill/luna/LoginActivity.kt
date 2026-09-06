@@ -59,8 +59,9 @@ class LoginActivity : AppCompatActivity() {
         signIn = findViewById(R.id.signInButton)
         scanQr = findViewById(R.id.scanQrButton)
 
+        // Prefill only a previously saved address — never a hardcoded default.
         if (baseUrl.text.isNullOrBlank()) {
-            baseUrl.setText(BackupPrefs.baseUrl(this) ?: "http://luna.local")
+            BackupPrefs.baseUrl(this)?.let { baseUrl.setText(it) }
         }
 
         applyPairing(intent)
@@ -107,12 +108,16 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun attemptSignIn() {
-        val url = baseUrl.text.toString().trim().trimEnd('/')
-        val accessToken = token.text.toString().trim()
-        if (url.isEmpty()) {
-            status.text = "Enter your Luna address (for example http://luna.local)."
+        val typed = baseUrl.text.toString()
+        val url = LunaUrl.normalize(typed)
+        if (url == null) {
+            status.text = if (typed.isBlank()) LunaUrl.emptyAddressMessage() else LunaUrl.badAddressMessage()
             return
         }
+        if (url != typed.trim()) {
+            baseUrl.setText(url)
+        }
+        val accessToken = token.text.toString().trim()
         if (accessToken.isEmpty()) {
             status.text = "Paste an access token from Luna → Settings → Security."
             return
