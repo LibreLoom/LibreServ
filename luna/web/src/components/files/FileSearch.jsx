@@ -20,6 +20,7 @@ import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "../ui/ShakeTarget";
 import Button from "../ui/Button";
 import Spinner from "../ui/Spinner.jsx";
+import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
 import FolderPickerModal from "./FolderPickerModal";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
@@ -214,79 +215,91 @@ export default function FileSearch() {
                         {!isDir && item.size != null ? ` · ${fmtSize(item.size)}` : ""}
                       </p>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        asChild
-                        aria-label={isDir ? `Open ${item.name}` : `Go to folder for ${item.name}`}
-                      >
-                        <Link to={openHref(item)}>
-                          <FolderOpen size={14} />
-                        </Link>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        asChild
-                        aria-label={`Download ${item.name}`}
-                      >
-                        <a href={downloadHref(item)}>
-                          <Download size={14} />
-                        </a>
-                      </Button>
-                      <AccessButton
-                        label={item.name}
-                        surface="secondary"
-                        onClick={() =>
-                          setAccessTarget({
-                            driveId: item.drive_id,
-                            path: item.path,
-                            kind: isDir ? "folder" : "file",
-                          })
-                        }
-                      />
-                      <Button
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        aria-label={`Copy ${item.name}`}
-                        onClick={() => {
-                          setCopyKind("copy");
-                          setCopyTarget(item);
-                          setActionError(null);
-                        }}
-                      >
-                        <Copy size={14} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        aria-label={`Move ${item.name}`}
-                        onClick={() => {
-                          setCopyKind("move");
-                          setCopyTarget(item);
-                          setActionError(null);
-                        }}
-                      >
-                        <FolderInput size={14} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        aria-label={`Move ${item.name} to trash`}
-                        onClick={() => {
-                          setDeleteTarget(item);
-                          setActionError(null);
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
+                    <ActionTooltipGroup>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Tooltip content={isDir ? "Open" : "Go to folder"}>
+                          <Button
+                            variant="ghost"
+                            surface="secondary"
+                            size="iconSm"
+                            asChild
+                            aria-label={isDir ? `Open ${item.name}` : `Go to folder for ${item.name}`}
+                          >
+                            <Link to={openHref(item)}>
+                              <FolderOpen size={14} />
+                            </Link>
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Download">
+                          <Button
+                            variant="ghost"
+                            surface="secondary"
+                            size="iconSm"
+                            asChild
+                            aria-label={`Download ${item.name}`}
+                          >
+                            <a href={downloadHref(item)}>
+                              <Download size={14} />
+                            </a>
+                          </Button>
+                        </Tooltip>
+                        <AccessButton
+                          label={item.name}
+                          surface="secondary"
+                          onClick={() =>
+                            setAccessTarget({
+                              driveId: item.drive_id,
+                              path: item.path,
+                              kind: isDir ? "folder" : "file",
+                            })
+                          }
+                        />
+                        <Tooltip content="Copy">
+                          <Button
+                            variant="ghost"
+                            surface="secondary"
+                            size="iconSm"
+                            aria-label={`Copy ${item.name}`}
+                            onClick={() => {
+                              setCopyKind("copy");
+                              setCopyTarget(item);
+                              setActionError(null);
+                            }}
+                          >
+                            <Copy size={14} />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Move">
+                          <Button
+                            variant="ghost"
+                            surface="secondary"
+                            size="iconSm"
+                            aria-label={`Move ${item.name}`}
+                            onClick={() => {
+                              setCopyKind("move");
+                              setCopyTarget(item);
+                              setActionError(null);
+                            }}
+                          >
+                            <FolderInput size={14} />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Move to trash">
+                          <Button
+                            variant="ghost"
+                            surface="secondary"
+                            size="iconSm"
+                            aria-label={`Move ${item.name} to trash`}
+                            onClick={() => {
+                              setDeleteTarget(item);
+                              setActionError(null);
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </Tooltip>
+                      </div>
+                    </ActionTooltipGroup>
                   </div>
                 </div>
               </li>
