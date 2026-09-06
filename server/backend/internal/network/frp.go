@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -18,6 +19,11 @@ import (
 // FRPProviderType identifies the FRP tunnel backend.
 const (
 	TunnelProviderFRP TunnelProviderType = "frp"
+
+	// frpRelease pins on-demand frpc installs (avoid mutable latest tags).
+	frpRelease = "v0.61.0"
+	// Reject tiny/truncated downloads before installing into binDir.
+	minFrpcBytes = 1024
 )
 
 // FRPConfig holds the persisted settings for an FRP relay.
@@ -201,7 +207,6 @@ func (f *frpProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
 
-	version := "v0.61.0"
 	// frp publishes linux_amd64 and linux_arm64 tarballs. Fail on anything
 	// else rather than silently fetching the wrong binary.
 	var arch string
@@ -211,22 +216,37 @@ func (f *frpProvider) Install(ctx context.Context) error {
 	default:
 		return fmt.Errorf("unsupported architecture for frpc download: %s", runtime.GOARCH)
 	}
-	downloadURL := fmt.Sprintf("https://github.com/fatedier/frp/releases/download/%s/frp_%s_linux_%s.tar.gz", version, strings.TrimPrefix(version, "v"), arch)
-	f.logger.Info("Downloading frpc...", "url", downloadURL)
+	downloadURL := fmt.Sprintf(
+		"https://github.com/fatedier/frp/releases/download/%s/frp_%s_linux_%s.tar.gz",
+		frpRelease, strings.TrimPrefix(frpRelease, "v"), arch,
+	)
+	f.logger.Info("Downloading frpc...", "url", downloadURL, "release", frpRelease)
 
-	// Download + extract in a temp dir, then copy frpc into place.
+	// Download + extract in a temp dir, then install frpc atomically.
 	tmp, err := os.MkdirTemp("", "frp-download-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
 
-	if _, err := exec.LookPath("curl"); err != nil {
-		return fmt.Errorf("curl not available to download frpc")
-	}
 	archive := filepath.Join(tmp, "frp.tar.gz")
-	if output, err := exec.CommandContext(ctx, "curl", "-L", "-o", archive, downloadURL).CombinedOutput(); err != nil {
-		return fmt.Errorf("download frpc: %w (%s)", err, string(output))
+	var downloaded bool
+	if _, err := exec.LookPath("curl"); err == nil {
+		// HTTPS only; follow redirects (GitHub release assets) but refuse cleartext.
+		cmd := exec.CommandContext(ctx, "curl", "-fsS", "--proto", "=https", "--tlsv1.2", "-L", "-o", archive, downloadURL)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("download frpc: %w (%s)", err, string(output))
+		}
+		downloaded = true
+	} else if _, err := exec.LookPath("wget"); err == nil {
+		cmd := exec.CommandContext(ctx, "wget", "-q", "--https-only", "-O", archive, downloadURL)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("download frpc: %w (%s)", err, string(output))
+		}
+		downloaded = true
+	}
+	if !downloaded {
+		return fmt.Errorf("neither curl nor wget available to download frpc")
 	}
 
 	if output, err := exec.CommandContext(ctx, "tar", "-xzf", archive, "-C", tmp).CombinedOutput(); err != nil {
@@ -248,15 +268,45 @@ func (f *frpProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("frpc binary not found in archive")
 	}
 
+	info, err := os.Stat(frpcSrc)
+	if err != nil {
+		return fmt.Errorf("stat extracted frpc: %w", err)
+	}
+	if info.Size() < minFrpcBytes || !frpcDownloadIsELF(frpcSrc) {
+		return fmt.Errorf("downloaded frpc failed integrity checks")
+	}
+
+	dest := f.frpcPath()
+	staged := dest + ".tmp"
+	_ = os.Remove(staged)
 	data, err := os.ReadFile(frpcSrc)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(f.frpcPath(), data, 0o755); err != nil {
+	if err := os.WriteFile(staged, data, 0o755); err != nil {
+		_ = os.Remove(staged)
 		return err
 	}
-	f.logger.Info("frpc installed successfully")
+	if err := os.Rename(staged, dest); err != nil {
+		_ = os.Remove(staged)
+		return fmt.Errorf("install frpc: %w", err)
+	}
+	f.logger.Info("frpc installed successfully", "release", frpRelease)
 	return nil
+}
+
+// frpcDownloadIsELF reports whether path starts with Linux ELF magic.
+func frpcDownloadIsELF(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var magic [4]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		return false
+	}
+	return magic == [4]byte{0x7f, 'E', 'L', 'F'}
 }
 
 // Status reports the provider status.
