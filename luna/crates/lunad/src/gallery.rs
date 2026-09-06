@@ -670,7 +670,10 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
         anyhow::bail!("ffmpeg not available");
     };
     let _permit = crate::budget::acquire_heif_slot_blocking();
-    let tmp = dest.with_extension("vid.jpg.tmp");
+    // Must end in `.jpg` so ffmpeg can pick an image muxer. A `.tmp` suffix
+    // (e.g. `hash.vid.jpg.tmp`) makes ffmpeg fail with "Unable to choose an
+    // output format" and gallery video thumbs stay empty forever.
+    let tmp = dest.with_extension("vidtmp.jpg");
     if let Some(parent) = tmp.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -1520,6 +1523,70 @@ mod tests {
         assert!(is_media(Path::new("clip.MOV")));
         assert!(!is_image(Path::new("video.mp4")));
         assert!(!is_media(Path::new("notes.txt")));
+    }
+
+    #[test]
+    fn video_thumb_temp_path_uses_jpg_extension() {
+        let dest = PathBuf::from("/drive/.lunathumbs/abc.jpg");
+        let tmp = dest.with_extension("vidtmp.jpg");
+        assert_eq!(
+            tmp.extension().and_then(|e| e.to_str()),
+            Some("jpg"),
+            "ffmpeg needs a real image extension to pick a muxer"
+        );
+        // The old `with_extension("vid.jpg.tmp")` produced `abc.vid.jpg.tmp`.
+        let broken = dest.with_extension("vid.jpg.tmp");
+        assert_eq!(
+            broken.extension().and_then(|e| e.to_str()),
+            Some("tmp"),
+            "regression guard: .tmp must not be the final extension"
+        );
+    }
+
+    #[test]
+    fn thumbnails_video_with_ffmpeg_when_available() {
+        let Some(ffmpeg) = which_ffmpeg() else {
+            eprintln!("skip: ffmpeg not on PATH");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("clip.mp4");
+        let status = std::process::Command::new(&ffmpeg)
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=320x240:d=1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(&src)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("spawn ffmpeg to build fixture");
+        if !status.success() || !src.exists() {
+            eprintln!("skip: could not encode fixture mp4 with this ffmpeg");
+            return;
+        }
+
+        let dest = dir.path().join("thumb.jpg");
+        let (_w, _h, made) = ensure_thumb(&src, &dest, "video").expect("video thumb");
+        assert!(made && dest.exists());
+        let bytes = std::fs::read(&dest).unwrap();
+        assert!(
+            bytes.len() > 32,
+            "expected a non-trivial JPEG preview, got {} bytes",
+            bytes.len()
+        );
+        // JPEG SOI marker
+        assert_eq!(&bytes[0..2], &[0xff, 0xd8]);
+
+        let (_, _, made_again) = ensure_thumb(&src, &dest, "video").unwrap();
+        assert!(!made_again, "cached video thumbs are not regenerated");
     }
 
     #[test]
