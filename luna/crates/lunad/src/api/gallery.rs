@@ -368,7 +368,7 @@ async fn thumb(
         .map_err(|_| {
             json_error(
                 StatusCode::NOT_FOUND,
-                "Luna couldn't make a thumbnail for this photo.",
+                "Luna couldn't make a thumbnail for this file.",
             )
         })?;
     }
