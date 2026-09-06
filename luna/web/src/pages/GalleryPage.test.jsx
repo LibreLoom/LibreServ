@@ -176,6 +176,40 @@ describe("GalleryPage", () => {
     expect(window.location.hash).toBe("#places");
   });
 
+  it("shows a pop-in card while Luna is still finding photos", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify({ scanning: true, pending: 3, busy: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery?")) {
+          return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    renderGallery();
+    expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
+    expect(screen.getByText(/They'll show up here when ready/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Previews stay on your drive/i)).not.toBeInTheDocument();
+    const card = screen.getByText(/Looking through your drives/i).closest("[data-slot=card-clip]");
+    expect(card?.className).toMatch(/pop-in/);
+  });
+
   it("shows Places empty state with Card pop-in when there are no geotagged photos", async () => {
     window.history.replaceState(null, "", "/gallery#places");
     stubGalleryFetch({ places: [] });
