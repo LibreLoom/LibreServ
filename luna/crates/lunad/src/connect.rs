@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
@@ -13,6 +14,13 @@ const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 pub const STEADY_POLL_SECS: u64 = 300;
 /// Fast pull while setup is open and the tunnel is not running yet.
 pub const AGGRESSIVE_POLL_SECS: u64 = 10;
+
+/// End-to-end Connect HTTP budget. ureq 3 defaults to *no* timeout — without this,
+/// wedged DNS/TCP during late network bring-up can freeze the Connect poll thread
+/// until reboot (sticky "Luna will keep trying").
+const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+/// TCP/TLS connect budget inside the global timeout.
+const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Permanent Luna Connect device token (`{data_dir}/device-token`).
 /// Connect is inactive until this file holds a valid token.
@@ -403,13 +411,17 @@ impl ConnectService {
     }
 
     /// Seconds until the next status pull. Aggressive while the tunnel connector is not
-    /// healthy yet (setup wizard open, or Connect already assigned a hostname/token).
+    /// healthy yet (setup wizard open, or Connect already assigned a hostname/token),
+    /// or while the last pull reported Connect unreachable/challenged.
     /// Steady 5 minutes once cloudflared is running (or Connect is inactive).
     pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
-        if self.tunnel_ready() {
+        if self.tunnel_ready() && self.connect_unreachable_msg().is_none() {
             return STEADY_POLL_SECS;
         }
-        if setup_wizard_open || self.expects_tunnel_connector() {
+        if setup_wizard_open
+            || self.expects_tunnel_connector()
+            || self.connect_unreachable_msg().is_some()
+        {
             AGGRESSIVE_POLL_SECS
         } else {
             STEADY_POLL_SECS
@@ -751,6 +763,10 @@ impl ConnectService {
             rel.trim_start_matches('/')
         );
         let result = ureq::put(&url)
+            .config()
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+            .build()
             .header("Authorization", format!("Bearer {token}"))
             .send(bytes);
         result.map(|_| ()).map_err(map_transport_error)
@@ -764,6 +780,10 @@ impl ConnectService {
             rel.trim_start_matches('/')
         );
         ureq::delete(&url)
+            .config()
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+            .build()
             .header("Authorization", format!("Bearer {token}"))
             .call()
             .map(|_| ())
@@ -976,6 +996,8 @@ impl ConnectService {
         let mut req = ureq::get(&url)
             .config()
             .http_status_as_error(false)
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
             .build()
             .header("Authorization", format!("Bearer {code}"));
         if self.local_port > 0 {
@@ -1067,7 +1089,12 @@ impl ConnectService {
         // Allow reading non-2xx bodies (CF challenge HTML vs Connect JSON).
         let result = match (method, body) {
             ("GET", _) => {
-                let mut req = ureq::get(&url).config().http_status_as_error(false).build();
+                let mut req = ureq::get(&url)
+                    .config()
+                    .http_status_as_error(false)
+                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+                    .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
@@ -1077,6 +1104,8 @@ impl ConnectService {
                 let mut req = ureq::post(&url)
                     .config()
                     .http_status_as_error(false)
+                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1087,6 +1116,8 @@ impl ConnectService {
                 let mut req = ureq::post(&url)
                     .config()
                     .http_status_as_error(false)
+                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1282,8 +1313,17 @@ fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
     let tmp = parent.join("cloudflared.tmp");
     let _ = std::fs::remove_file(&tmp);
 
+    // Bound downloads: an unbounded curl/wget on a half-up network stalls the
+    // Connect poll thread the same way an unbounded ureq call does.
     let downloaded = if Command::new("curl")
-        .args(["-fsSL", "-o"])
+        .args([
+            "-fsSL",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "120",
+            "-o",
+        ])
         .arg(&tmp)
         .arg(&url)
         .status()
@@ -1293,7 +1333,7 @@ fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
         true
     } else {
         Command::new("wget")
-            .args(["-q", "-O"])
+            .args(["-q", "--timeout=30", "--tries=2", "-O"])
             .arg(&tmp)
             .arg(&url)
             .status()
@@ -1811,6 +1851,54 @@ mod tests {
             service.poll_interval_secs(true),
             STEADY_POLL_SECS,
             "tunnel ready during setup should slow polling"
+        );
+    }
+
+    #[test]
+    fn poll_interval_aggressive_while_connect_unreachable() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(!service.poll_status());
+        assert_eq!(
+            service.status().connect_unreachable.as_deref(),
+            Some(CONNECT_UNREACHABLE_MSG)
+        );
+        assert_eq!(
+            service.poll_interval_secs(false),
+            AGGRESSIVE_POLL_SECS,
+            "after a failed reachability check Luna must keep trying quickly once the network is up"
+        );
+    }
+
+    #[test]
+    fn poll_hanging_peer_times_out_instead_of_blocking_forever() {
+        use std::time::Instant;
+        // Accept the TCP handshake in the kernel backlog but never speak HTTP.
+        // Without CONNECT_HTTP_TIMEOUT this used to freeze luna-connect-status.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _keeper = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            drop(listener);
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(format!("http://{addr}")));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        let started = Instant::now();
+        assert!(!service.poll_status());
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < CONNECT_HTTP_TIMEOUT + Duration::from_secs(10),
+            "poll must return within the HTTP timeout budget, got {elapsed:?}"
+        );
+        assert!(
+            elapsed >= Duration::from_secs(1),
+            "expected the hanging peer to consume some of the timeout, got {elapsed:?}"
+        );
+        assert_eq!(
+            service.status().connect_unreachable.as_deref(),
+            Some(CONNECT_UNREACHABLE_MSG)
         );
     }
 
