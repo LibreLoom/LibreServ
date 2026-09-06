@@ -41,6 +41,24 @@ async fn main() -> anyhow::Result<()> {
     connect.restore_tunnel_from_disk();
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
+    // One-shot: pull pre-microdb index/hash/upload rows out of luna.db into each
+    // mounted drive's `.luna` before gallery catch-up or search fans out.
+    {
+        let db = state.db.lock().expect("db");
+        for drive in lunad::db::list_drives(&db).unwrap_or_default() {
+            if drive.state != "as_is" || drive.mount_point.is_empty() {
+                continue;
+            }
+            let root = std::path::Path::new(&drive.mount_point);
+            if !lunad::drive_db::path_for(root).is_file() {
+                continue;
+            }
+            if let Ok(dconn) = lunad::drive_db::open(root) {
+                let _ = lunad::drive_db::migrate_from_central(&db, &drive.id, &dconn);
+            }
+        }
+    }
+
     // Catch-up gallery index for every adopted mount already on disk.
     {
         let mounts = {

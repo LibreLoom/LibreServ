@@ -37,11 +37,268 @@ pub fn open(root: &Path) -> anyhow::Result<Connection> {
     Ok(conn)
 }
 
-/// Create a fresh `.luna` microdb with identity, then apply the full schema.
+/// Create or claim a `.luna` microdb with identity, then apply the full schema.
+///
+/// If `.luna` already exists as a SQLite microdb, identity is updated in place
+/// and other tables (index, gallery, hashes, uploads, trash) are preserved.
+/// When the drive id changes, `drive_id` columns are rewritten to match.
 pub fn create(root: &Path, marker: &Marker) -> anyhow::Result<Connection> {
+    let path = root.join(MARKER_FILE_NAME);
+    if path.is_file() {
+        // Open first so JSON stickers upgrade and the full schema exists, then
+        // claim identity in place so index/gallery/hash/upload tables survive.
+        let conn = open(root)?;
+        if let Some(old) = read_identity(&conn)? {
+            if old.id != marker.id {
+                rewrite_drive_ids(&conn, &old.id, &marker.id)?;
+            }
+        }
+        upsert_identity(&conn, marker)?;
+        return Ok(conn);
+    }
     luna_core::marker::write_marker(root, marker)
         .map_err(|e| anyhow::anyhow!("could not create drive database: {e}"))?;
     open(root)
+}
+
+fn upsert_identity(conn: &Connection, marker: &Marker) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM identity", [])?;
+    conn.execute(
+        "INSERT INTO identity (id, label, format_version) VALUES (?1, ?2, ?3)",
+        params![marker.id, marker.label, marker.v as i64],
+    )?;
+    Ok(())
+}
+
+fn rewrite_drive_ids(conn: &Connection, old_id: &str, new_id: &str) -> anyhow::Result<()> {
+    for sql in [
+        "UPDATE index_entries SET drive_id = ?1 WHERE drive_id = ?2",
+        "UPDATE indexed_dirs SET drive_id = ?1 WHERE drive_id = ?2",
+        "UPDATE file_hashes SET drive_id = ?1 WHERE drive_id = ?2",
+        "UPDATE uploads SET drive_id = ?1 WHERE drive_id = ?2",
+        "UPDATE album_items SET drive_id = ?1 WHERE drive_id = ?2",
+    ] {
+        conn.execute(sql, params![new_id, old_id])?;
+    }
+    Ok(())
+}
+
+/// Copy drive-scoped rows left in central `luna.db` (pre-microdb) into `.luna`.
+///
+/// Safe to call repeatedly: uses `INSERT OR IGNORE`, then deletes the migrated
+/// central rows for this drive. When every legacy table is empty, drops them.
+pub fn migrate_from_central(
+    central: &Connection,
+    drive_id: &str,
+    dest: &Connection,
+) -> anyhow::Result<()> {
+    if !central_has_legacy_drive_tables(central) {
+        return Ok(());
+    }
+
+    if table_exists(central, "index_entries") {
+        let mut stmt = central.prepare(
+            "SELECT drive_id, parent, name, kind, size, modified, hidden
+             FROM index_entries WHERE drive_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![drive_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        })?;
+        {
+            let mut insert = dest.prepare(
+                "INSERT OR IGNORE INTO index_entries
+                 (drive_id, parent, name, kind, size, modified, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for row in rows.flatten() {
+                let (d, parent, name, kind, size, modified, hidden) = row;
+                insert.execute(params![d, parent, name, kind, size, modified, hidden])?;
+            }
+        }
+        let _ = central.execute(
+            "DELETE FROM index_entries WHERE drive_id = ?1",
+            params![drive_id],
+        );
+    }
+
+    if table_exists(central, "indexed_dirs") {
+        let mut stmt = central.prepare(
+            "SELECT drive_id, path, dir_mtime, indexed_at FROM indexed_dirs WHERE drive_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![drive_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?;
+        {
+            let mut insert = dest.prepare(
+                "INSERT OR IGNORE INTO indexed_dirs (drive_id, path, dir_mtime, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for row in rows.flatten() {
+                let (d, path, dir_mtime, indexed_at) = row;
+                insert.execute(params![d, path, dir_mtime, indexed_at])?;
+            }
+        }
+        let _ = central.execute(
+            "DELETE FROM indexed_dirs WHERE drive_id = ?1",
+            params![drive_id],
+        );
+    }
+
+    if table_exists(central, "file_hashes") {
+        let mut stmt = central.prepare(
+            "SELECT drive_id, path, size, mtime, hash, verified_at
+             FROM file_hashes WHERE drive_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![drive_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?;
+        {
+            let mut insert = dest.prepare(
+                "INSERT OR IGNORE INTO file_hashes
+                 (drive_id, path, size, mtime, hash, verified_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for row in rows.flatten() {
+                let (d, path, size, mtime, hash, verified_at) = row;
+                insert.execute(params![d, path, size, mtime, hash, verified_at])?;
+            }
+        }
+        let _ = central.execute(
+            "DELETE FROM file_hashes WHERE drive_id = ?1",
+            params![drive_id],
+        );
+    }
+
+    if table_exists(central, "uploads") {
+        let mut stmt = central.prepare(
+            "SELECT id, drive_id, path, name, size, received, state, error, created_at, updated_at
+             FROM uploads WHERE drive_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![drive_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7).unwrap_or_default(),
+                row.get::<_, i64>(8)?,
+                row.get::<_, i64>(9)?,
+            ))
+        })?;
+        let mut upload_ids = Vec::new();
+        {
+            let mut insert = dest.prepare(
+                "INSERT OR IGNORE INTO uploads
+                 (id, drive_id, path, name, size, received, state, error, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?;
+            for row in rows.flatten() {
+                let (id, d, path, name, size, received, state, error, created_at, updated_at) = row;
+                insert.execute(params![
+                    id, d, path, name, size, received, state, error, created_at, updated_at
+                ])?;
+                upload_ids.push(id);
+            }
+        }
+        if table_exists(central, "upload_chunks") {
+            let mut insert_chunk = dest.prepare(
+                "INSERT OR IGNORE INTO upload_chunks (upload_id, start, end) VALUES (?1, ?2, ?3)",
+            )?;
+            for upload_id in &upload_ids {
+                let mut chunk_stmt = central.prepare(
+                    "SELECT upload_id, start, end FROM upload_chunks WHERE upload_id = ?1",
+                )?;
+                let chunks = chunk_stmt.query_map(params![upload_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })?;
+                for chunk in chunks.flatten() {
+                    let (uid, start, end) = chunk;
+                    insert_chunk.execute(params![uid, start, end])?;
+                }
+                let _ = central.execute(
+                    "DELETE FROM upload_chunks WHERE upload_id = ?1",
+                    params![upload_id],
+                );
+            }
+        }
+        let _ = central.execute("DELETE FROM uploads WHERE drive_id = ?1", params![drive_id]);
+    }
+
+    drop_legacy_drive_tables_if_empty(central);
+    Ok(())
+}
+
+fn central_has_legacy_drive_tables(central: &Connection) -> bool {
+    ["index_entries", "indexed_dirs", "file_hashes", "uploads"]
+        .iter()
+        .any(|t| table_exists(central, t))
+}
+
+fn table_exists(conn: &Connection, name: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        params![name],
+        |_| Ok(()),
+    )
+    .is_ok()
+}
+
+fn drop_legacy_drive_tables_if_empty(central: &Connection) {
+    for table in [
+        "index_entries",
+        "indexed_dirs",
+        "file_hashes",
+        "upload_chunks",
+        "uploads",
+    ] {
+        if !table_exists(central, table) {
+            continue;
+        }
+        let count: i64 = central
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap_or(1);
+        if count == 0 {
+            let _ = central.execute_batch(&format!("DROP TABLE IF EXISTS {table};"));
+        }
+    }
+}
+
+/// Open a drive microdb and pull any leftover central rows for this drive.
+pub fn open_migrating(
+    root: &Path,
+    central: &Connection,
+    drive_id: &str,
+) -> anyhow::Result<Connection> {
+    let conn = open(root)?;
+    migrate_from_central(central, drive_id, &conn)?;
+    Ok(conn)
 }
 
 fn configure(conn: &Connection) -> anyhow::Result<()> {
@@ -410,5 +667,170 @@ mod tests {
             .unwrap();
         assert_eq!(path, "album/photo.jpg");
         assert!(!meta.join("123-photo.jpg.json").exists());
+    }
+
+    #[test]
+    fn create_preserves_existing_microdb_tables() {
+        let dir = tempdir().unwrap();
+        let first = Marker::new("old-id", "Old");
+        let conn = create(dir.path(), &first).unwrap();
+        conn.execute(
+            "INSERT INTO photos (path, name, size, mtime, taken_at, kind)
+             VALUES ('a.jpg', 'a.jpg', 10, 1, 1, 'image')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO index_entries (drive_id, parent, name, kind, size, modified, hidden)
+             VALUES ('old-id', '', 'a.jpg', 'file', 10, 1, 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let second = Marker::new("new-id", "New Label");
+        let conn = create(dir.path(), &second).unwrap();
+        let id = read_identity(&conn).unwrap().unwrap();
+        assert_eq!(id.id, "new-id");
+        assert_eq!(id.label, "New Label");
+        let photos: i64 = conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(photos, 1, "gallery rows must survive re-claim");
+        let indexed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM index_entries WHERE drive_id = 'new-id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexed, 1, "drive_id columns must be rewritten");
+        let leftover: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM index_entries WHERE drive_id = 'old-id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftover, 0);
+    }
+
+    #[test]
+    fn migrates_central_index_hashes_and_uploads() {
+        let dir = tempdir().unwrap();
+        let central_path = dir.path().join("luna.db");
+        let central = Connection::open(&central_path).unwrap();
+        central
+            .execute_batch(
+                "CREATE TABLE index_entries (
+                    drive_id TEXT NOT NULL, parent TEXT NOT NULL, name TEXT NOT NULL,
+                    kind TEXT NOT NULL, size INTEGER NOT NULL, modified INTEGER NOT NULL,
+                    hidden INTEGER NOT NULL, PRIMARY KEY (drive_id, parent, name));
+                 CREATE TABLE indexed_dirs (
+                    drive_id TEXT NOT NULL, path TEXT NOT NULL, dir_mtime INTEGER NOT NULL,
+                    indexed_at INTEGER NOT NULL, PRIMARY KEY (drive_id, path));
+                 CREATE TABLE file_hashes (
+                    drive_id TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL,
+                    mtime INTEGER NOT NULL, hash TEXT NOT NULL, verified_at INTEGER NOT NULL,
+                    PRIMARY KEY (drive_id, path));
+                 CREATE TABLE uploads (
+                    id TEXT PRIMARY KEY, drive_id TEXT NOT NULL, path TEXT NOT NULL,
+                    name TEXT NOT NULL, size INTEGER NOT NULL, received INTEGER NOT NULL,
+                    state TEXT NOT NULL, error TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+                 CREATE TABLE upload_chunks (
+                    upload_id TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL,
+                    PRIMARY KEY (upload_id, start));",
+            )
+            .unwrap();
+        central
+            .execute(
+                "INSERT INTO index_entries VALUES ('d1', '', 'x.txt', 'file', 3, 1, 0)",
+                [],
+            )
+            .unwrap();
+        central
+            .execute(
+                "INSERT INTO indexed_dirs VALUES ('d1', '', 1, 2)",
+                [],
+            )
+            .unwrap();
+        central
+            .execute(
+                "INSERT INTO file_hashes VALUES ('d1', 'x.txt', 3, 1, 'abc', 2)",
+                [],
+            )
+            .unwrap();
+        central
+            .execute(
+                "INSERT INTO uploads VALUES ('u1', 'd1', '', 'x.txt', 3, 1, 'active', '', 1, 1)",
+                [],
+            )
+            .unwrap();
+        central
+            .execute("INSERT INTO upload_chunks VALUES ('u1', 0, 1)", [])
+            .unwrap();
+        // Other drive stays until its own migrate.
+        central
+            .execute(
+                "INSERT INTO index_entries VALUES ('d2', '', 'y.txt', 'file', 1, 1, 0)",
+                [],
+            )
+            .unwrap();
+
+        let root = dir.path().join("drive");
+        std::fs::create_dir_all(&root).unwrap();
+        let dest = create(&root, &Marker::new("d1", "D")).unwrap();
+        migrate_from_central(&central, "d1", &dest).unwrap();
+
+        let n: i64 = dest
+            .query_row(
+                "SELECT COUNT(*) FROM index_entries WHERE drive_id = 'd1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        let hash: String = dest
+            .query_row(
+                "SELECT hash FROM file_hashes WHERE path = 'x.txt'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hash, "abc");
+        let upload: String = dest
+            .query_row("SELECT id FROM uploads WHERE id = 'u1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(upload, "u1");
+        let chunk: i64 = dest
+            .query_row(
+                "SELECT end FROM upload_chunks WHERE upload_id = 'u1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(chunk, 1);
+
+        let left: i64 = central
+            .query_row(
+                "SELECT COUNT(*) FROM index_entries WHERE drive_id = 'd1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
+        let other: i64 = central
+            .query_row(
+                "SELECT COUNT(*) FROM index_entries WHERE drive_id = 'd2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(other, 1);
+        assert!(
+            table_exists(&central, "index_entries"),
+            "legacy tables remain until every drive is migrated"
+        );
     }
 }

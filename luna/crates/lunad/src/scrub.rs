@@ -59,7 +59,12 @@ pub fn hash_file(path: &Path) -> anyhow::Result<String> {
 /// still match are left untouched — they are the *baseline to verify against*
 /// on a later scrub. (The previous behaviour re-hashed and overwrote every
 /// file in the same pass it verified, so silent corruption was never detected.)
-pub fn hash_drive(_central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+pub fn hash_drive(central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+    let _ = crate::drive_db::open_migrating(root, central, drive_id)?;
+    hash_drive_walk(drive_id, root)
+}
+
+fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
     let conn = crate::drive_db::open(root)?;
     let mut report = ScrubReport {
         files_checked: 0,
@@ -137,7 +142,12 @@ pub fn hash_drive(_central: &Connection, drive_id: &str, root: &Path) -> anyhow:
 /// compared; a mismatch is reported (never auto-repaired). A file that changed
 /// is re-hashed and becomes the new baseline. Individual unreadable paths are
 /// skipped rather than aborting the whole drive.
-pub fn scrub_drive(_central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+pub fn scrub_drive(central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+    let _ = crate::drive_db::open_migrating(root, central, drive_id)?;
+    scrub_drive_walk(drive_id, root)
+}
+
+fn scrub_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
     let conn = crate::drive_db::open(root)?;
     let mut report = ScrubReport {
         files_checked: 0,
@@ -282,27 +292,34 @@ pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
     Ok(total)
 }
 
-/// Like [`hash_drive`], but releases the DB mutex while hashing each file so
-/// interactive API traffic is not stalled for the whole walk.
+/// Like [`hash_drive`], but does not hold the central `luna.db` mutex while
+/// walking/hashing — hashes live in the drive `.luna` microdb. Any one-shot
+/// central→drive migration runs under a brief lock, then the walk is unlocked.
 pub fn hash_drive_unlocked(
     db: &std::sync::Mutex<Connection>,
     drive_id: &str,
     root: &Path,
 ) -> anyhow::Result<ScrubReport> {
-    // Hashes live in the drive `.luna` microdb — no need to hold the central
-    // mutex while walking files.
-    let central = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-    hash_drive(&central, drive_id, root)
+    {
+        let central = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        let conn = crate::drive_db::open(root)?;
+        crate::drive_db::migrate_from_central(&central, drive_id, &conn)?;
+    }
+    hash_drive_walk(drive_id, root)
 }
 
-/// Like [`scrub_drive`], hashing outside the mutex.
+/// Like [`scrub_drive`], without holding the central mutex for the walk.
 pub fn scrub_drive_unlocked(
     db: &std::sync::Mutex<Connection>,
     drive_id: &str,
     root: &Path,
 ) -> anyhow::Result<ScrubReport> {
-    let central = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
-    scrub_drive(&central, drive_id, root)
+    {
+        let central = db.lock().map_err(|_| anyhow::anyhow!("db lock poisoned"))?;
+        let conn = crate::drive_db::open(root)?;
+        crate::drive_db::migrate_from_central(&central, drive_id, &conn)?;
+    }
+    scrub_drive_walk(drive_id, root)
 }
 
 pub fn scrub_all_drives_unlocked(db: &std::sync::Mutex<Connection>) -> anyhow::Result<ScrubReport> {

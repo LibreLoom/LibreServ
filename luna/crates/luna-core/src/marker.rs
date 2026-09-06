@@ -106,13 +106,16 @@ pub fn remove_marker(root: &Path) -> Result<bool, MarkerError> {
     Ok(removed)
 }
 
-/// Adopt a drive: atomically write one `.luna` SQLite marker at its root.
+/// Adopt a drive: write one `.luna` SQLite marker at its root.
 ///
 /// Safety properties:
 /// - fails if `root` is not an existing directory;
 /// - never creates directories, never touches anything except a temp file and
-///   the final `.luna` name;
-/// - writes via `temp + fsync + rename` so a power cut cannot leave a torn marker.
+///   the final `.luna` name (or an in-place identity update);
+/// - when `.luna` is already a SQLite microdb, updates the `identity` row only
+///   so index/gallery/hash/upload tables are preserved;
+/// - for a new file or a legacy JSON sticker, writes via
+///   `temp + fsync + rename` so a power cut cannot leave a torn marker.
 pub fn write_marker(root: &Path, marker: &Marker) -> Result<(), MarkerError> {
     let meta = fs::metadata(root).map_err(|_| MarkerError::NotADirectory)?;
     if !meta.is_dir() {
@@ -120,6 +123,31 @@ pub fn write_marker(root: &Path, marker: &Marker) -> Result<(), MarkerError> {
     }
 
     let marker_path = root.join(MARKER_FILE_NAME);
+    if marker_path.is_file() {
+        let bytes = fs::read(&marker_path).map_err(MarkerError::Read)?;
+        // Existing SQLite microdb — update identity in place; never replace the file.
+        if bytes.first() != Some(&b'{') {
+            let conn = open_db(&marker_path)?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS identity (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    label TEXT NOT NULL,
+                    format_version INTEGER NOT NULL DEFAULT 1
+                 );",
+            )
+            .map_err(MarkerError::Db)?;
+            conn.execute("DELETE FROM identity", [])
+                .map_err(MarkerError::Db)?;
+            conn.execute(
+                "INSERT INTO identity (id, label, format_version) VALUES (?1, ?2, ?3)",
+                params![marker.id, marker.label, marker.v as i64],
+            )
+            .map_err(MarkerError::Db)?;
+            return Ok(());
+        }
+        // Legacy JSON sticker falls through to an atomic SQLite replace.
+    }
+
     let tmp = temp_path(root)?;
     // Build the SQLite DB at a temp path, then rename into place.
     {
@@ -280,6 +308,30 @@ mod tests {
         let m = read_marker(&root).unwrap().unwrap();
         assert_eq!(m.id, "legacy-id");
         assert_eq!(m.label, "Old Stick");
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn write_marker_preserves_extra_sqlite_tables() {
+        let root = temp_dir();
+        write_marker(&root, &Marker::new("id-1", "First")).unwrap();
+        {
+            let conn = open_db(&root.join(MARKER_FILE_NAME)).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE photos (path TEXT PRIMARY KEY);
+                 INSERT INTO photos (path) VALUES ('keep.jpg');",
+            )
+            .unwrap();
+        }
+        write_marker(&root, &Marker::new("id-2", "Second")).unwrap();
+        let back = read_marker(&root).unwrap().unwrap();
+        assert_eq!(back.id, "id-2");
+        assert_eq!(back.label, "Second");
+        let conn = open_db(&root.join(MARKER_FILE_NAME)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
         fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -23,7 +23,8 @@ fn drive_db_for(central: &Connection, drive_id: &str) -> Result<Connection, Uplo
         .map_err(UploadError::Db)?
         .filter(|d| !d.mount_point.is_empty())
         .ok_or_else(|| UploadError::Db(anyhow::anyhow!("drive is not mounted")))?;
-    crate::drive_db::open(Path::new(&drive.mount_point)).map_err(UploadError::Db)
+    crate::drive_db::open_migrating(Path::new(&drive.mount_point), central, drive_id)
+        .map_err(UploadError::Db)
 }
 
 /// Locate an upload session by scanning mounted drive microdbs.
@@ -32,7 +33,9 @@ fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection)
         if drive.mount_point.is_empty() || drive.state != "as_is" {
             continue;
         }
-        let Ok(dconn) = crate::drive_db::open(Path::new(&drive.mount_point)) else {
+        let Ok(dconn) =
+            crate::drive_db::open_migrating(Path::new(&drive.mount_point), central, &drive.id)
+        else {
             continue;
         };
         if let Ok(Some(row)) = db::get_upload(&dconn, id) {

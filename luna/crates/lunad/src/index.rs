@@ -118,7 +118,7 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
         if !crate::drive_db::path_for(root).is_file() {
             continue;
         }
-        let conn = match crate::drive_db::open(root) {
+        let conn = match crate::drive_db::open_migrating(root, central, &drive.id) {
             Ok(c) => c,
             Err(_) => continue,
         };
