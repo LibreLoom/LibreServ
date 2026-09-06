@@ -60,7 +60,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const matches = typedName === appName;
 
   return (
-    <ModalCard title="Uninstall App" onClose={onCancel}>
+    <ModalCard title="Uninstall Application" onClose={onCancel}>
       <div className="space-y-4">
         <div className="flex items-center gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
           <AlertTriangle className="text-primary shrink-0" size={24} />

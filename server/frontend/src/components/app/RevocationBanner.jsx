@@ -54,7 +54,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
 
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-1 mt-2 text-sm text-accent hover:text-primary transition-colors"
+                className="flex items-center gap-1 mt-2 text-sm text-accent hover:text-primary transition-colors cursor-pointer"
               >
                 {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 {expanded ? "Less" : "More"} details

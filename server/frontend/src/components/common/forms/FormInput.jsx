@@ -72,7 +72,7 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
               "pr-11",
               error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
@@ -111,7 +111,7 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
               "pr-11",
               error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",

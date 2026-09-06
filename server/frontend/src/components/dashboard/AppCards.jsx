@@ -138,7 +138,7 @@ function NoAppsCard() {
 
         <Button asChild variant="primary" size="md" className="font-mono">
           <Link to="/apps">
-            Install an App <ArrowRight size={16} className="ml-1" />
+            Install an Application <ArrowRight size={16} className="ml-1" />
           </Link>
         </Button>
       </Card>
