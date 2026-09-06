@@ -607,7 +607,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
-    expect(screen.getByText(/card in your Luna box/i)).toBeTruthy();
+    expect(screen.getByText(/card in your Luna's box/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/^Device token$/i), {
       target: { value: "ABCD-EFGH-IJKM-NPQR-STUV" },
     });

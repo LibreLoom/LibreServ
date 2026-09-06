@@ -1051,7 +1051,7 @@ export default function OnboardingPage() {
   const renderCode = () => (
     <StepShell icon={Key} title="Enter your device token">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        Enter the device token from the card in your Luna box (five groups like ****-****-****-****-****).
+        Enter the device token from the card in your Luna's box (five groups like ****-****-****-****-****).
       </p>
       <form
         className="space-y-5 text-left"
