@@ -163,7 +163,8 @@ describe("GalleryPage", () => {
       ],
     });
     renderGallery();
-    fireEvent.click(await screen.findByRole("button", { name: /test/i }));
+    // Prefer the open-album control; /test/i also matches "Delete album test".
+    fireEvent.click(await screen.findByRole("button", { name: /^test\b/i }));
     expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
     expect(screen.getByText("test")).toBeInTheDocument();
     const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
