@@ -52,7 +52,7 @@ impl LoginView {
         title.set_halign(gtk::Align::Start);
 
         let subtitle = gtk::Label::new(Some(
-            "Sign in with an access token from Luna. Open Luna in a browser → Settings → Apps and access tokens → Create access token, then paste it here.",
+            "Sign in with an access token from Luna. Open Luna in a browser → Settings → Security → Create access token, then paste it here.",
         ));
         subtitle.set_wrap(true);
         subtitle.set_halign(gtk::Align::Start);

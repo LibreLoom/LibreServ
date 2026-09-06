@@ -53,7 +53,7 @@ object LunaApi {
         if (result.code !in 200..299) {
             throw ApiException(
                 result.code,
-                "Luna couldn't check that access token. Check the address, then try again. If it still fails, create a new token in Luna → Settings → Apps and access tokens.",
+                "Luna couldn't check that access token. Check the address, then try again. If it still fails, create a new token in Luna → Settings → Security.",
             )
         }
         return parseUser(String(result.body, Charsets.UTF_8))
@@ -119,7 +119,7 @@ object LunaApi {
         if (result.code == 403) {
             throw ApiException(
                 403,
-                "This access token can't open that folder. Create a new token in Luna → Settings → Apps and access tokens, and allow access to this drive.",
+                "This access token can't open that folder. Create a new token in Luna → Settings → Security, and allow access to this drive.",
             )
         }
         if (result.code == 404) {
@@ -147,7 +147,7 @@ object LunaApi {
                 401 -> ApiException(401, badTokenMessage())
                 403 -> ApiException(
                     403,
-                    "This access token can't create a folder here. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                    "This access token can't create a folder here. Create a new token in Luna → Settings → Security, and allow Write on this drive.",
                 )
                 409 -> ApiException(409, "A folder with this name is already here. Choose another name.")
                 404 -> ApiException(404, "Luna can't find the parent folder. Open it and try again.")
@@ -198,7 +198,7 @@ object LunaApi {
                 401 -> ApiException(401, badTokenMessage())
                 403 -> ApiException(
                     403,
-                    "This access token can see the folder but cannot save files there. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                    "This access token can see the folder but cannot save files there. Create a new token in Luna → Settings → Security, and allow Write on this drive.",
                 )
                 404 -> ApiException(
                     404,
@@ -230,7 +230,7 @@ object LunaApi {
                 ?: "This phone couldn't store the sign-in safely. Photo backup can't start. Try signing in again."
         else ->
             error.message
-                ?: "Something went wrong. Try again. If it keeps happening, sign out and sign in with a new access token from Luna → Settings → Apps and access tokens."
+                ?: "Something went wrong. Try again. If it keeps happening, sign out and sign in with a new access token from Luna → Settings → Security."
     }
 
     fun parseFiles(body: String): List<FileEntry> {
@@ -258,7 +258,7 @@ object LunaApi {
                 401 -> ApiException(401, badTokenMessage())
                 403 -> ApiException(
                     403,
-                    "This access token cannot save files to that folder. Create a new token in Luna → Settings → Apps and access tokens, and allow Write on this drive.",
+                    "This access token cannot save files to that folder. Create a new token in Luna → Settings → Security, and allow Write on this drive.",
                 )
                 else -> ApiException(
                     e.code,
@@ -300,7 +300,7 @@ object LunaApi {
     }
 
     private fun badTokenMessage() =
-        "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+        "That access token didn't work. Create a new one in Luna → Settings → Security."
 
     private data class HttpResult(val code: Int, val body: ByteArray, val setCookie: String? = null) {
         fun errorText(): String {

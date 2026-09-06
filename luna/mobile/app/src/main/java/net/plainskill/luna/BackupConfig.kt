@@ -51,7 +51,7 @@ object BackupConfig {
         if (url.isNullOrBlank() || token.isNullOrBlank()) {
             return Result(
                 false,
-                "You're not signed in. Sign out, then sign in again with an access token from Luna → Settings → Apps and access tokens.",
+                "You're not signed in. Sign out, then sign in again with an access token from Luna → Settings → Security.",
             )
         }
         if (driveId.isNullOrBlank()) {

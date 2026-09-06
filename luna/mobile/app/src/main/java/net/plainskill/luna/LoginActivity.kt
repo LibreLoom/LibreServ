@@ -39,7 +39,7 @@ class LoginActivity : AppCompatActivity() {
             status.text = "Address and access token filled in. Tap Sign in."
         } else {
             status.text =
-                "That QR code is not a Luna sign-in code. In Luna, open Settings → Apps and access tokens → Show as QR code."
+                "That QR code is not a Luna sign-in code. In Luna, open Settings → Security → Show as QR code."
         }
     }
 
@@ -98,7 +98,7 @@ class LoginActivity : AppCompatActivity() {
     private fun launchScanner() {
         val options = ScanOptions()
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            .setPrompt("Point at the QR code in Luna → Settings → Apps and access tokens")
+            .setPrompt("Point at the QR code in Luna → Settings → Security")
             .setBeepEnabled(false)
             .setOrientationLocked(false)
             .setCaptureActivity(PortraitCaptureActivity::class.java)
@@ -114,7 +114,7 @@ class LoginActivity : AppCompatActivity() {
             return
         }
         if (accessToken.isEmpty()) {
-            status.text = "Paste an access token from Luna → Settings → Apps and access tokens."
+            status.text = "Paste an access token from Luna → Settings → Security."
             return
         }
         signIn.isEnabled = false

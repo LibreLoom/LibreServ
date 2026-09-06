@@ -171,6 +171,18 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
 
+  it("maps legacy /settings#access hash to Security", async () => {
+    stubFetch("admin");
+    renderPage("/settings#access");
+    expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
+  });
+
+  it("maps legacy /settings#remote hash to External Services", async () => {
+    stubFetch("admin", true);
+    renderPage("/settings#remote");
+    expect(await screen.findByRole("heading", { level: 1, name: "External Services" })).toBeTruthy();
+  });
+
   it("switches to Security when the Devices access-token link is clicked", async () => {
     stubFetch("admin");
     const user = userEvent.setup();

@@ -142,7 +142,7 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
     }
     let token = access_token.trim().to_string();
     if token.is_empty() {
-        return Err("Paste an access token from Luna → Settings → Apps and access tokens.".into());
+        return Err("Paste an access token from Luna → Settings → Security.".into());
     }
     let (username, _) = luna::auth_me(&base_url, &token)?;
     let data = session::SessionData {
