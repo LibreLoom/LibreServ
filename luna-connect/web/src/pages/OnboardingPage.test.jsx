@@ -696,7 +696,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^Skip for now$/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Nah\.$/i })).toBeTruthy();
     });
   }
 
@@ -741,7 +741,7 @@ describe("OnboardingPage finish flow", () => {
 
   it("skips the plug-in step and shows the simplified done card when Luna is already online", async () => {
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
 
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText(/Luna is linked to your account/i)).toBeTruthy();
@@ -798,7 +798,7 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
@@ -841,7 +841,7 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
 
     ready = true;

@@ -1275,7 +1275,7 @@ export default function OnboardingPage() {
           await goToFinish();
         }}
       >
-        Skip for now
+        Nah.
       </Button>
     </StepShell>
   );
