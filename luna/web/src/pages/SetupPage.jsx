@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson, ApiError } from "../lib/api";
@@ -9,6 +9,10 @@ import {
   PASSWORD_POLICY_HINT,
   passwordChecks,
 } from "../lib/passwordPolicy";
+import {
+  readSetupTokenFromSearch,
+  stripSetupTokenFromSearch,
+} from "../lib/setupTokenParam.js";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
 import useSetupProgress from "../hooks/useSetupProgress";
@@ -301,6 +305,7 @@ FormField.propTypes = {
 
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const needsSetupCode = isPublicLunaHost() && connectActive;
   const [form, setForm] = useState({
     display_name:     "",
@@ -314,10 +319,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const [fieldError, setFieldError] = useState(null);
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir]   = useState("right");
+  // When Connect linked with ?token=, skip the device-token substep (still send it on register).
+  const [hideSetupSecretStep, setHideSetupSecretStep] = useState(false);
   // Only animate field swaps after the user moves between substeps — not on
   // the initial mount (parent SetupCard already owns that entrance).
   const authSubAnimatedRef = useRef(false);
   const fieldInputRef = useRef(null);
+  const consumedQueryTokenRef = useRef(false);
 
   const pw       = form.password;
   const confirm  = form.confirm_password;
@@ -326,6 +334,20 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const usernameOk  = form.username.trim().length >= 3;
   const confirmOk   = confirm === pw && pw !== "";
   const setupSecretOk = !needsSetupCode || form.setup_secret.trim().length > 0;
+  const showSetupSecretField = needsSetupCode && !hideSetupSecretStep;
+
+  // Consume ?token= once: prefill setup_secret, hide that substep, strip from the URL
+  // so the full device token does not linger in the address bar / history entry.
+  useEffect(() => {
+    if (consumedQueryTokenRef.current) return;
+    const fromQuery = readSetupTokenFromSearch(searchParams);
+    if (!fromQuery) return;
+    consumedQueryTokenRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
+    setForm((f) => ({ ...f, setup_secret: fromQuery }));
+    setHideSetupSecretStep(true);
+    setSearchParams(stripSetupTokenFromSearch(searchParams), { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const setField = (name, value) => {
     setForm((f) => ({ ...f, [name]: value }));
@@ -375,7 +397,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       valid: confirmOk,
     },
   ];
-  if (needsSetupCode) {
+  if (showSetupSecretField) {
     authFields.push({
       id: "setup_secret",
       question: "Your device token",
@@ -427,6 +449,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       onContinue();
     } catch (err) {
       setFieldError(err.message);
+      // Silent token failed — reveal the device-token field so the user can paste a new one.
+      if (hideSetupSecretStep && needsSetupCode) {
+        setHideSetupSecretStep(false);
+        authSubAnimatedRef.current = true;
+        setAuthSubDir("right");
+        setAuthSubStep(authFields.length);
+      }
       setSubmitting(false);
     }
   };
