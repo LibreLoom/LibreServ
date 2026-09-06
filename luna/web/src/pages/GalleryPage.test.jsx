@@ -617,9 +617,11 @@ describe("GalleryPage", () => {
     });
     expect(screen.getByText("Keep me")).toBeInTheDocument();
     expect(
-      fetchMock.mock.calls.every(
-        ([_url, init]) => (init?.method || "GET").toUpperCase() !== "DELETE",
-      ),
+      fetchMock.mock.calls.every((call) => {
+        /** @type {any} */
+        const c = call;
+        return ((c[1]?.method) || "GET").toUpperCase() !== "DELETE";
+      }),
     ).toBe(true);
   });
 });

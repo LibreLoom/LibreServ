@@ -22,10 +22,10 @@ function dayLabel(ts) {
 /** Date-grouped infinite photo grid. */
 export default function PhotoTimeline({
   photos,
-  hasMore,
-  loadingMore,
-  onLoadMore,
-  onOpen,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore = undefined,
+  onOpen = undefined,
 }) {
   const sentinel = useRef(null);
   const groups = useMemo(() => {

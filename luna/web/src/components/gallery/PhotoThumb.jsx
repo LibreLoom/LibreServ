@@ -5,11 +5,11 @@ import { Heart, Play } from "lucide-react";
 /** Dense edge-to-edge photo cell for the timeline grid. */
 export default function PhotoThumb({
   photo,
-  onClick,
+  onClick = undefined,
   selected = false,
-  index,
-  staggerIndex,
-  style,
+  index = undefined,
+  staggerIndex = undefined,
+  style = undefined,
 }) {
   const [loaded, setLoaded] = useState(false);
   const stagger = typeof index === "number" ? index : staggerIndex;
@@ -87,5 +87,9 @@ PhotoThumb.propTypes = {
 };
 
 PhotoThumb.defaultProps = {
+  onClick: undefined,
   selected: false,
+  index: undefined,
+  staggerIndex: undefined,
+  style: undefined,
 };

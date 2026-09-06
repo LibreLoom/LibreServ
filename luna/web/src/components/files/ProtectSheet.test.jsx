@@ -224,6 +224,7 @@ describe("ProtectSheet", () => {
 
   it("keeps button in loading and disabled state while enabling cloud backup until status refetches", async () => {
     const user = userEvent.setup();
+    /** @type {((value?: unknown) => void) | undefined} */
     let resolveBackupSources;
     const backupSourcesPromise = new Promise((resolve) => {
       resolveBackupSources = resolve;
@@ -299,6 +300,7 @@ describe("ProtectSheet", () => {
 
   it("keeps button in loading and disabled state while stopping cloud backup until status refetches", async () => {
     const user = userEvent.setup();
+    /** @type {((value?: unknown) => void) | undefined} */
     let resolveBackupSources;
     const backupSourcesPromise = new Promise((resolve) => {
       resolveBackupSources = resolve;
