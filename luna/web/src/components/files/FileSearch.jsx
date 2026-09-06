@@ -550,7 +550,8 @@ export default function FileSearch() {
           variant="ghost"
           surface="secondary"
           size="icon"
-          aria-label="Search for a file"
+          aria-label="Search"
+          title="Search for a file"
           aria-haspopup="dialog"
           aria-expanded={present && !isClosing}
           onClick={openOverlay}

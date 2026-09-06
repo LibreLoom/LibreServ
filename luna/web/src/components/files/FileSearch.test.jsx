@@ -56,7 +56,7 @@ function renderSearch(hits, { searchHold } = {}) {
 }
 
 async function openSearchOverlay() {
-  const trigger = await screen.findByRole("button", { name: "Search for a file" });
+  const trigger = await screen.findByRole("button", { name: "Search" });
   fireEvent.click(trigger);
   return screen.findByRole("dialog", { name: "Search for a file" });
 }
@@ -67,13 +67,16 @@ describe("FileSearch", () => {
     expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
     const dialog = await openSearchOverlay();
     expect(dialog).toBeInTheDocument();
-    expect(screen.getByLabelText("Search for a file")).toHaveAttribute("placeholder", "Search for a file");
+    expect(screen.getByPlaceholderText("Search for a file")).toHaveAttribute(
+      "aria-label",
+      "Search for a file",
+    );
     expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
   });
 
   it("closes on Escape and restores focus to the header button", async () => {
     renderSearch([]);
-    const trigger = await screen.findByRole("button", { name: "Search for a file" });
+    const trigger = await screen.findByRole("button", { name: "Search" });
     fireEvent.click(trigger);
     expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -92,7 +95,7 @@ describe("FileSearch", () => {
     });
     renderSearch([], { searchHold });
     await openSearchOverlay();
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "zz" },
     });
     const searching = await screen.findByText(/Searching/i);
@@ -108,7 +111,7 @@ describe("FileSearch", () => {
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
@@ -128,7 +131,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "beach" },
     });
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
@@ -162,7 +165,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "alb" },
     });
     const open = await screen.findByRole("link", { name: /Open album/i });
@@ -188,9 +191,9 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.click(await screen.findByRole("button", { name: "Search for a file" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
     expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "notes" },
     });
     expect(await screen.findByText("notes.txt")).toBeInTheDocument();
@@ -220,7 +223,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Move notes.txt to trash/i }));

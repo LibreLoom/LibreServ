@@ -101,12 +101,12 @@ describe("DrivesPage", () => {
   it("shows a header search button that opens the universal search overlay", async () => {
     stubDrivesApi();
     renderPage();
-    const trigger = await screen.findByRole("button", { name: "Search for a file" });
+    const trigger = await screen.findByRole("button", { name: "Search" });
     expect(trigger).toBeInTheDocument();
     // Lives in the page header right slot, not the body drive list.
     expect(trigger.closest("header")).toBeTruthy();
     fireEvent.click(trigger);
-    const input = await screen.findByLabelText("Search for a file");
+    const input = await screen.findByPlaceholderText("Search for a file");
     expect(input).toHaveAttribute("placeholder", "Search for a file");
     expect(screen.getByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
   });
