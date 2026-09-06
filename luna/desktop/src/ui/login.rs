@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
-use luna_desktop::{normalize_luna_base_url, AppState, LUNA_ADDRESS_PLACEHOLDER};
+use luna_desktop::{AppState, LUNA_ADDRESS_PLACEHOLDER, normalize_luna_base_url};
 
 use super::spawn_blocking;
 use super::toast_error;
@@ -215,7 +215,8 @@ impl LoginView {
 
     /// Prefill Luna address and clear the access token (after auth failure).
     pub fn prepare_reconfigure(&self, base_url: &str) {
-        let shown = normalize_luna_base_url(base_url).unwrap_or_else(|_| base_url.trim().to_string());
+        let shown =
+            normalize_luna_base_url(base_url).unwrap_or_else(|_| base_url.trim().to_string());
         self.url_row.set_text(&shown);
         self.token_row.set_text("");
     }

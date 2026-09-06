@@ -21,7 +21,7 @@ pub mod session;
 pub mod sync;
 pub mod tray;
 
-pub use luna_url::{normalize_luna_base_url, LUNA_ADDRESS_PLACEHOLDER};
+pub use luna_url::{LUNA_ADDRESS_PLACEHOLDER, normalize_luna_base_url};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

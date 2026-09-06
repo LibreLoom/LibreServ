@@ -172,8 +172,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
     let mut resp = auth_get(base_url, token, "/api/v1/auth/me")?;
     if resp.status() == 401 {
         return Err(
-            "That access token didn't work. Create a new one in Luna → Settings → Security."
-                .into(),
+            "That access token didn't work. Create a new one in Luna → Settings → Security.".into(),
         );
     }
     if !resp.status().is_success() {
@@ -185,8 +184,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
         .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
     if value.is_null() {
         return Err(
-            "That access token didn't work. Create a new one in Luna → Settings → Security."
-                .into(),
+            "That access token didn't work. Create a new one in Luna → Settings → Security.".into(),
         );
     }
     let username = value

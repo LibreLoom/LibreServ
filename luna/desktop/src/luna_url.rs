@@ -49,9 +49,7 @@ pub fn empty_address_message() -> String {
 }
 
 fn bad_address_message() -> String {
-    format!(
-        "That Luna address does not look right. Try something like {LUNA_ADDRESS_PLACEHOLDER}."
-    )
+    format!("That Luna address does not look right. Try something like {LUNA_ADDRESS_PLACEHOLDER}.")
 }
 
 fn collapse_whitespace(raw: &str) -> String {
@@ -99,9 +97,7 @@ fn authority_only(after_scheme: &str) -> String {
     while s.starts_with('/') {
         s = &s[1..];
     }
-    let end = s
-        .find(['/', '?', '#'])
-        .unwrap_or(s.len());
+    let end = s.find(['/', '?', '#']).unwrap_or(s.len());
     s[..end].to_string()
 }
 
@@ -113,9 +109,7 @@ fn split_host_port(authority: &str) -> Result<(String, Option<String>), String> 
     };
 
     if auth.starts_with('[') {
-        let close = auth
-            .find(']')
-            .ok_or_else(bad_address_message)?;
+        let close = auth.find(']').ok_or_else(bad_address_message)?;
         let host = auth[..=close].to_string();
         let rest = &auth[close + 1..];
         if rest.is_empty() {
@@ -187,7 +181,11 @@ fn default_scheme_for_host(host: &str) -> &'static str {
 /// Match Luna Mobile `PrivateLan.allowsCleartext` — LAN / loopback may use HTTP.
 fn allows_cleartext(host: &str) -> bool {
     let h = host.trim().to_ascii_lowercase();
-    if h == "localhost" || h == "::1" || h.ends_with(".local") || h.ends_with(".lan") || h.ends_with(".home")
+    if h == "localhost"
+        || h == "::1"
+        || h.ends_with(".local")
+        || h.ends_with(".lan")
+        || h.ends_with(".home")
     {
         return true;
     }
@@ -244,14 +242,8 @@ mod tests {
             ok("  https://Kitchen.luna.servers.libreloom.org/setup?x=1#y  "),
             "https://kitchen.luna.servers.libreloom.org"
         );
-        assert_eq!(
-            ok("http://luna.local/"),
-            "http://luna.local"
-        );
-        assert_eq!(
-            ok("http://luna.local///files/"),
-            "http://luna.local"
-        );
+        assert_eq!(ok("http://luna.local/"), "http://luna.local");
+        assert_eq!(ok("http://luna.local///files/"), "http://luna.local");
     }
 
     #[test]
@@ -285,21 +277,27 @@ mod tests {
             ok("http://kitchen.luna.servers.libreloom.org"),
             "http://kitchen.luna.servers.libreloom.org"
         );
-        assert_eq!(
-            ok("https://192.168.1.20:8090"),
-            "https://192.168.1.20:8090"
-        );
+        assert_eq!(ok("https://192.168.1.20:8090"), "https://192.168.1.20:8090");
     }
 
     #[test]
     fn repairs_scheme_typos() {
         assert_eq!(ok("HTTP://Luna.Local"), "http://luna.local");
         assert_eq!(ok("http:/luna.local"), "http://luna.local");
-        assert_eq!(ok("https:/kitchen.luna.servers.libreloom.org"), "https://kitchen.luna.servers.libreloom.org");
+        assert_eq!(
+            ok("https:/kitchen.luna.servers.libreloom.org"),
+            "https://kitchen.luna.servers.libreloom.org"
+        );
         assert_eq!(ok("http//127.0.0.1:8090"), "http://127.0.0.1:8090");
-        assert_eq!(ok("https//kitchen.luna.servers.libreloom.org"), "https://kitchen.luna.servers.libreloom.org");
+        assert_eq!(
+            ok("https//kitchen.luna.servers.libreloom.org"),
+            "https://kitchen.luna.servers.libreloom.org"
+        );
         assert_eq!(ok("http:192.168.1.20:8090"), "http://192.168.1.20:8090");
-        assert_eq!(ok("https:kitchen.luna.servers.libreloom.org"), "https://kitchen.luna.servers.libreloom.org");
+        assert_eq!(
+            ok("https:kitchen.luna.servers.libreloom.org"),
+            "https://kitchen.luna.servers.libreloom.org"
+        );
     }
 
     #[test]
