@@ -44,7 +44,8 @@ object PairingQr {
         return Pairing(url, token)
     }
 
-    private fun trimUrl(url: String): String = url.trim().trimEnd('/')
+    private fun trimUrl(url: String): String =
+        LunaUrl.normalize(url) ?: url.trim().trimEnd('/')
 
     private fun enc(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8.name()).replace("+", "%20")

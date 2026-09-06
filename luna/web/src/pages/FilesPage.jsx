@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -38,6 +38,7 @@ export default function FilesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const path = searchParams.get("path") || "";
+  const selectPath = searchParams.get("select") || "";
   const inTrash = searchParams.get("view") === "trash";
   const [actionError, setActionError] = useState(null);
   const [restoreTarget, setRestoreTarget] = useState(null);
@@ -45,6 +46,13 @@ export default function FilesPage() {
   const [purgeTarget, setPurgeTarget] = useState(null);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+
+  const clearSelectParam = useCallback(() => {
+    if (!searchParams.has("select")) return;
+    const params = new URLSearchParams(searchParams);
+    params.delete("select");
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
@@ -105,9 +113,8 @@ export default function FilesPage() {
     <Page
       title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
       titleId="files-title"
+      rightContent={<FileSearch />}
     >
-      <FileSearch />
-
       {activeJobs.length > 0 && (
         <div className="grid gap-3 mb-4">
           {activeJobs.map((job) => (
@@ -202,8 +209,11 @@ export default function FilesPage() {
             if (next) params.set("path", next);
             else params.delete("path");
             params.delete("view");
+            params.delete("select");
             setSearchParams(params, { replace: true });
           }}
+          selectPath={selectPath || null}
+          onSelectPathApplied={clearSelectParam}
           linkNavigation
           folderHref={folderHref}
           isAdmin={isAdmin}

@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Luna</string>
     <string name="login_subtitle">Sign in with an access token from Luna. Open Luna in a browser → Settings → Security → Create access token, then paste it here — or tap Scan QR code.</string>
-    <string name="luna_address_hint">Luna address (for example http://luna.local)</string>
+    <string name="luna_address_hint">kitchen.luna.servers.libreloom.org</string>
     <string name="access_token_hint">Access token</string>
     <string name="scan_qr">Scan QR code</string>
     <string name="sign_in">Sign in</string>

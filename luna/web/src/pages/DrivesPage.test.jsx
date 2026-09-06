@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -98,12 +98,17 @@ describe("DrivesPage", () => {
     expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
-  it("shows universal search above the drive list", async () => {
+  it("shows a header search button that opens the universal search overlay", async () => {
     stubDrivesApi();
     renderPage();
-    const search = await screen.findByLabelText("Search for a file");
-    expect(search).toBeInTheDocument();
-    expect(search).toHaveAttribute("placeholder", "Search for a file");
+    const trigger = await screen.findByRole("button", { name: "Search" });
+    expect(trigger).toBeInTheDocument();
+    // Lives in the page header right slot, not the body drive list.
+    expect(trigger.closest("header")).toBeTruthy();
+    fireEvent.click(trigger);
+    const input = await screen.findByPlaceholderText("Search for a file");
+    expect(input).toHaveAttribute("placeholder", "Search for a file");
+    expect(screen.getByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
   });
 
   it("shows a mock 64GB PSSD when opted in for review", async () => {

@@ -444,8 +444,7 @@ export default function DrivesPage() {
   if (user?.role === "user") {
     const grants = memberAccessRoots(access.data || []);
     return (
-      <Page title="Files" titleId="drives-title">
-        <FileSearch />
+      <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
@@ -487,8 +486,7 @@ export default function DrivesPage() {
   const actionModalOpen = removeTarget != null || inspectFor != null;
 
   return (
-    <Page title="Files" titleId="drives-title">
-      <FileSearch />
+    <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
       {showPageLevelError(actionError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
       )}

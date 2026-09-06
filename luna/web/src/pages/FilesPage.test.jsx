@@ -229,6 +229,23 @@ describe("FilesPage", () => {
     );
   });
 
+  it("selects a file from the select query param", async () => {
+    stubFilesApi({
+      album: [
+        { name: "a.txt", kind: "file", size: 1, modified: 0, hidden: false },
+        { name: "beach.jpg", kind: "file", size: 2000, modified: 0, hidden: false },
+      ],
+    });
+    renderFiles("/drives/d1?path=album&select=album%2Fbeach.jpg");
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Select beach.jpg")).toBeChecked();
+    });
+    expect(document.querySelector('[data-file-path="album/beach.jpg"]')?.className).toMatch(
+      /bg-accent\/20/,
+    );
+  });
+
   it("opens trash and can start a restore", async () => {
     stubFilesApi({
       "": [],
