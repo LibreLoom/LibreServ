@@ -39,7 +39,7 @@ class LoginActivity : AppCompatActivity() {
             status.text = "Address and access token filled in. Tap Sign in."
         } else {
             status.text =
-                "That QR code is not a Luna sign-in code. In Luna, open Settings → Apps and access tokens → Show as QR code."
+                "That QR code is not a Luna sign-in code. In Luna, open Settings → Security → Show as QR code."
         }
     }
 
@@ -79,7 +79,13 @@ class LoginActivity : AppCompatActivity() {
         val pairing = PairingQr.decode(data) ?: return
         baseUrl.setText(pairing.url)
         token.setText(pairing.token)
-        status.text = "Address and access token filled in. Tap Sign in."
+        // Rapid-dev: luna://pair from `make mobile-dev` auto-signs in on debug builds.
+        if (BuildConfig.DEBUG) {
+            status.text = "Signing in (dev)…"
+            attemptSignIn()
+        } else {
+            status.text = "Address and access token filled in. Tap Sign in."
+        }
     }
 
     private fun requestCameraAndScan() {
@@ -92,7 +98,7 @@ class LoginActivity : AppCompatActivity() {
     private fun launchScanner() {
         val options = ScanOptions()
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            .setPrompt("Point at the QR code in Luna → Settings → Apps and access tokens")
+            .setPrompt("Point at the QR code in Luna → Settings → Security")
             .setBeepEnabled(false)
             .setOrientationLocked(false)
             .setCaptureActivity(PortraitCaptureActivity::class.java)
@@ -108,7 +114,7 @@ class LoginActivity : AppCompatActivity() {
             return
         }
         if (accessToken.isEmpty()) {
-            status.text = "Paste an access token from Luna → Settings → Apps and access tokens."
+            status.text = "Paste an access token from Luna → Settings → Security."
             return
         }
         signIn.isEnabled = false
@@ -117,21 +123,10 @@ class LoginActivity : AppCompatActivity() {
         thread {
             try {
                 val user = LunaApi.authMe(url, accessToken)
-                val drives = LunaApi.listDrives(url, accessToken)
-                if (drives.isEmpty()) {
-                    runOnUiThread {
-                        if (isFinishing) return@runOnUiThread
-                        status.text =
-                            "No drives found on Luna. Open Luna in a browser → Drives → add a drive, then sign in again."
-                        signIn.isEnabled = true
-                        scanQr.isEnabled = true
-                    }
-                    return@thread
-                }
                 BackupPrefs.saveSession(this, url, accessToken, user.username)
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
-                    startActivity(Intent(this, SetupActivity::class.java))
+                    startActivity(Intent(this, if (BackupPrefs.setupComplete(this)) ShellActivity::class.java else SetupActivity::class.java))
                     finish()
                 }
             } catch (e: Exception) {

@@ -28,21 +28,32 @@ pub fn is_auth_failure(err: &str) -> bool {
 }
 
 pub fn plain_connect_error(err: &ureq::Error) -> String {
-    let text = err.to_string();
-    if text.contains("Connection refused")
-        || text.contains("failed to connect")
-        || text.contains("Name or service not known")
-        || text.contains("Temporary failure")
-        || text.contains("timed out")
-        || text.contains("Network is unreachable")
-    {
-        "Luna couldn't be reached. Check the address and that Luna is on, then try again.".into()
-    } else if text.contains("401") || text.contains("status code 401") {
-        "That username or password didn't work. Check them and try again.".into()
-    } else if text.contains("403") || text.contains("status code 403") {
-        "You don't have permission to do that on Luna.".into()
-    } else {
-        format!("Something went wrong talking to Luna. {text}")
+    match err {
+        ureq::Error::StatusCode(401) => {
+            "That username or password didn't work. Check them and try again.".into()
+        }
+        ureq::Error::StatusCode(403) => "You don't have permission to do that on Luna.".into(),
+        ureq::Error::StatusCode(404) => {
+            "Luna couldn't find this drive or file. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into()
+        }
+        ureq::Error::StatusCode(409) => {
+            "A file with this name is already here. Rename it or choose another.".into()
+        }
+        other => {
+            let text = other.to_string();
+            if text.contains("Connection refused")
+                || text.contains("failed to connect")
+                || text.contains("Name or service not known")
+                || text.contains("Temporary failure")
+                || text.contains("timed out")
+                || text.contains("Network is unreachable")
+            {
+                "Luna couldn't be reached. Check the address and that Luna is on, then try again."
+                    .into()
+            } else {
+                format!("Something went wrong talking to Luna. {text}")
+            }
+        }
     }
 }
 
@@ -161,7 +172,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
     let mut resp = auth_get(base_url, token, "/api/v1/auth/me")?;
     if resp.status() == 401 {
         return Err(
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
                 .into(),
         );
     }
@@ -174,7 +185,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
         .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
     if value.is_null() {
         return Err(
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
                 .into(),
         );
     }
@@ -182,7 +193,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
         .get("username")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
                 .to_string()
         })?
         .to_string();
@@ -234,6 +245,11 @@ pub fn list_files(
     }
     if resp.status() == 403 {
         return Err("You don't have permission to view this folder.".into());
+    }
+    if resp.status() == 404 {
+        return Err(
+            "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into(),
+        );
     }
     if !resp.status().is_success() {
         return Err("Luna couldn't open that folder. Try again.".into());
@@ -330,12 +346,18 @@ pub fn download_file(
 
 const CHUNK: usize = 1024 * 1024;
 
+/// Upload `local` to `dest` / `remote_rel`.
+///
+/// When `overwrite` is true, complete uses `?overwrite=1` so an existing file at
+/// that path is replaced. Use that only for ledger-authorized same-path updates.
+/// New files and conflict copies must pass `overwrite: false`.
 pub fn upload_file(
     base_url: &str,
     token: &str,
     dest: &LunaRef,
     local: &Path,
     remote_rel: &str,
+    overwrite: bool,
 ) -> Result<(), String> {
     let meta = std::fs::metadata(local)
         .map_err(|_| "Couldn't read that file on this computer.".to_string())?;
@@ -409,17 +431,29 @@ pub fn upload_file(
         start += n as u64;
     }
 
-    let complete = ureq::post(&format!(
-        "{}/api/v1/uploads/{upload_id}/complete",
-        base_url.trim_end_matches('/')
-    ))
-    .header("Authorization", &format!("Bearer {token}"))
-    .send_empty()
-    .map_err(|e| plain_connect_error(&e))?;
-    match complete.status().as_u16() {
-        200 | 201 => Ok(()),
-        409 => Ok(()),
-        _ => Err("Luna couldn't finish the upload. Try again.".into()),
+    let complete_url = if overwrite {
+        format!(
+            "{}/api/v1/uploads/{upload_id}/complete?overwrite=1",
+            base_url.trim_end_matches('/')
+        )
+    } else {
+        format!(
+            "{}/api/v1/uploads/{upload_id}/complete",
+            base_url.trim_end_matches('/')
+        )
+    };
+    match ureq::post(&complete_url)
+        .header("Authorization", &format!("Bearer {token}"))
+        .send_empty()
+    {
+        Ok(complete) => match complete.status().as_u16() {
+            200 | 201 => Ok(()),
+            _ => Err("Luna couldn't finish the upload. Try again.".into()),
+        },
+        Err(ureq::Error::StatusCode(409)) => {
+            Err("A file with this name is already here. Rename it or choose another.".into())
+        }
+        Err(e) => Err(plain_connect_error(&e)),
     }
 }
 
@@ -564,6 +598,25 @@ mod tests {
                         r#"[{"name":"Family","kind":"dir","size":0,"modified":1,"hidden":false}]"#
                             .to_string(),
                     )
+                } else if req.contains("POST /api/v1/uploads ")
+                    || req.contains("POST /api/v1/uploads\r")
+                    || (req.starts_with("POST /api/v1/uploads") && !req.contains("/complete"))
+                {
+                    (
+                        200,
+                        r#"{"upload_id":"up-1","received":0,"size":3,"name":"note.txt"}"#
+                            .to_string(),
+                    )
+                } else if req.contains("/api/v1/uploads/up-1/complete?overwrite=1") {
+                    (
+                        200,
+                        r#"{"name":"note.txt","kind":"file","size":3,"modified":1}"#.to_string(),
+                    )
+                } else if req.contains("/api/v1/uploads/up-1/complete") {
+                    // Create-only complete: pretend the name already exists.
+                    (409, r#"{"error":"exists"}"#.to_string())
+                } else if req.contains("PUT /api/v1/uploads/up-1") {
+                    (200, r#"{"upload_id":"up-1","received":3}"#.to_string())
                 } else {
                     (404, "{}".to_string())
                 };
@@ -582,7 +635,7 @@ mod tests {
     fn is_auth_failure_recognizes_credential_errors() {
         assert!(is_auth_failure("unauthorized"));
         assert!(is_auth_failure(
-            "That access token didn't work. Create a new one in Luna → Settings → Apps and access tokens."
+            "That access token didn't work. Create a new one in Luna → Settings → Security."
         ));
         assert!(is_auth_failure(
             "That username or password didn't work. Check them and try again."
@@ -623,6 +676,29 @@ mod tests {
         let files = list_files(&base, &token, "a", "").unwrap();
         assert_eq!(files[0].name, "Family");
         mkdir(&base, &token, "a", "Family/New").unwrap();
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(handle);
+    }
+
+    #[test]
+    fn upload_file_sends_overwrite_query_when_replacing() {
+        let (base, handle, stop) = spawn_server();
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("note.txt");
+        std::fs::write(&local, b"hi\n").unwrap();
+        let dest = LunaRef {
+            drive_id: "a".into(),
+            path: "Docs".into(),
+        };
+        // Create-only complete returns 409 on this fake server.
+        let err = upload_file(&base, "device-tok-456", &dest, &local, "note.txt", false)
+            .expect_err("create-only complete should fail when the name exists");
+        assert!(
+            err.contains("already here") || err.contains("409") || err.contains("http status"),
+            "unexpected error: {err}"
+        );
+        // Replace path must send ?overwrite=1 and succeed.
+        upload_file(&base, "device-tok-456", &dest, &local, "note.txt", true).unwrap();
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
     }

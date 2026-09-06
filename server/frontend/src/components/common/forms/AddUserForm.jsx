@@ -6,6 +6,7 @@ import PropTypes from "prop-types";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function PasswordStrengthIndicator({ password }) {
   const strength = useMemo(() => {
@@ -212,7 +213,7 @@ export default function AddUserForm({ onSuccess }) {
         ) : (
           <>
             Create User
-            <ArrowRight size={18} aria-hidden="true" />
+            <ArrowRight size={ICON_SIZE.lg} aria-hidden="true" />
           </>
         )}
       </Button>

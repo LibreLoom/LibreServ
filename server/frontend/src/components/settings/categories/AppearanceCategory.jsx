@@ -7,6 +7,7 @@ import SettingsRow from "../SettingsRow";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import { useHapticsEnabled, setHapticsEnabled, haptic } from "../../../utils/haptics";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -157,7 +158,7 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
           className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-accent flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
           aria-hidden="true"
         >
-          <Check size={12} className="text-primary" strokeWidth={3} />
+          <Check size={ICON_SIZE.xs} className="text-primary" strokeWidth={3} />
         </span>
       )}
     </button>
@@ -367,7 +368,7 @@ export default function AppearanceCategory({
                 onClick={handleReset}
                 aria-label="Reset colors to default"
               >
-                <RotateCcw size={14} />
+                <RotateCcw size={ICON_SIZE.sm} />
                 <span>Reset to Default</span>
               </Button>
             </div>

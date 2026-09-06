@@ -8,6 +8,7 @@ import { InfoHint, TermHint } from "../ui/Tooltip.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import { updateNotifications } from "../../lib/notifications-api.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function EmailServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "", loading = false }) {
   const [useConnect, setUseConnect] = useState(
@@ -50,7 +51,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
-            <Mail size={18} className="text-accent" />
+            <Mail size={ICON_SIZE.lg} className="text-accent" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-primary">
@@ -78,7 +79,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
         {useConnect && connectWarning.show ? (
           <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-secondary">
-              <AlertTriangle size={16} className="text-warning shrink-0" />
+              <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
             </div>
             <p className="text-xs text-accent">
@@ -89,7 +90,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
         ) : useConnect ? (
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
-              <Check size={16} className="text-accent" />
+              <Check size={ICON_SIZE.md} className="text-accent" />
               Email handled by LibreServ Connect
             </div>
             <p className="text-xs text-accent">

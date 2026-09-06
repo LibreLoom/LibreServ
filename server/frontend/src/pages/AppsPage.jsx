@@ -14,6 +14,7 @@ import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 import { sanitizeURL } from "../lib/sanitize";
 import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 // Status color for the layered pill's icon — mirrors StatusPill's tint mapping
 // (success/warning/error/info) as plain text colors.
@@ -36,8 +37,8 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
         <LayeredPill
           mono
           className="absolute top-3 right-3"
-          icon={<StatusIcon size={11} className={STATUS_TEXT[instance.status] || "text-accent"} />}
-          actionIcon={<Check size={11} />}
+          icon={<StatusIcon size={ICON_SIZE.tight} className={STATUS_TEXT[instance.status] || "text-accent"} />}
+          actionIcon={<Check size={ICON_SIZE.tight} />}
           actionLabel="Installed"
         >
           {statusConf.label}
@@ -72,7 +73,7 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
           className="mt-4"
           onClick={() => onInstall(app.id)}
         >
-          <Download size={16} />
+          <Download size={ICON_SIZE.md} />
           Install
         </Button>
       )}
@@ -84,7 +85,7 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
             className="flex-1"
             onClick={() => onManage(instance.id)}
           >
-            <Settings size={16} />
+            <Settings size={ICON_SIZE.md} />
             Manage
           </Button>
           {appUrl && (
@@ -94,7 +95,7 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
               aria-label={`Open ${app.name} (opens in new tab)`}
               onClick={() => window.open(appUrl, "_blank", "noopener,noreferrer")}
             >
-              <ExternalLink size={16} aria-hidden="true" />
+              <ExternalLink size={ICON_SIZE.md} aria-hidden="true" />
               Open
             </Button>
           )}
@@ -187,7 +188,7 @@ export default function AppsPage() {
         <div className="mt-5 flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 whitespace-nowrap border-2 border-primary/20 focus-within:border-accent transition-colors">
           <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
             <Search
-              size={18}
+              size={ICON_SIZE.lg}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
             />
             <input

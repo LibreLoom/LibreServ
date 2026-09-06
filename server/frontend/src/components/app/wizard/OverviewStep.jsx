@@ -4,6 +4,7 @@ import { AlertTriangle, Info, HardDrive, Cpu, MemoryStick } from "lucide-react";
 import Card from "../../cards/Card";
 import AppIcon from "../../common/AppIcon";
 import Button from "../../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 
 const ACCESS_MODEL_INFO = {
@@ -43,7 +44,7 @@ function RequirementBadge({ icon: Icon, label, value, warning }) {
     <div
       className={cn("flex items-center gap-2 px-3 py-2 rounded-large-element", warning ? "bg-secondary/20 text-secondary" : "bg-secondary/10 text-secondary")}
     >
-      <Icon size={16} aria-hidden="true" />
+      <Icon size={ICON_SIZE.md} aria-hidden="true" />
       <span className="text-xs font-mono">{label}:</span>
       <span className="text-xs font-mono font-medium">{value}</span>
     </div>
@@ -64,7 +65,7 @@ function FeatureWarning({ info }) {
       role="note"
     >
       <Icon
-        size={20}
+        size={ICON_SIZE.xl}
         className={info.variant === "warning" ? "text-secondary" : "text-accent"}
         aria-hidden="true"
       />

@@ -1,54 +1,87 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 /**
- * useAnimatedHeight - smooth height transitions for cards with changing content.
+ * useAnimatedHeight - smooth height transitions for cards and modals with changing content.
  *
- * CSS `transition` cannot animate `height: auto`. This hook solves that by
- * measuring the inner content with ResizeObserver and setting an explicit pixel
- * height on the outer container, so the browser always knows both start and end
- * values and can transition between them.
+ * CSS `transition` cannot animate `height: auto`. This hook measures the inner
+ * content with ResizeObserver and sets an explicit pixel height on the outer
+ * container so the browser can transition px → px when content grows or shrinks.
  *
- * Usage:
- *   const { outerRef, innerRef } = useAnimatedHeight();
- *
- *   <div ref={outerRef} className="overflow-hidden transition-[height] ease-[...]"
- *        style={{ transitionDuration: "var(--motion-duration-medium2)" }}>
- *     <div ref={innerRef}>
- *       {content that changes height}
- *     </div>
- *   </div>
- *
- * Notes:
- * - `innerRef` must wrap ALL content inside the outer div.
- * - The initial height is set without animation (auto → px is not transitionable
- *   by the browser, so it snaps instantly — correct behaviour).
- * - All subsequent height changes (px → px) animate via the CSS transition.
+ * @param {boolean} [enabled=true] When false, disconnects and clears the outer height.
  */
-export function useAnimatedHeight() {
+export function useAnimatedHeight(enabled = true) {
   const outerRef = useRef(null);
   const innerRef = useRef(null);
 
-  useEffect(() => {
-    const outer = outerRef.current;
-    const inner = innerRef.current;
-    if (!outer || !inner) return;
+  useLayoutEffect(() => {
+    if (!enabled) {
+      if (outerRef.current) outerRef.current.style.height = "";
+      return undefined;
+    }
+
+    let cancelled = false;
+    /** @type {ResizeObserver | null} */
+    let ro = null;
+    /** @type {number | null} */
+    let resizeRaf = null;
+
+    /** @type {HTMLElement | null} */
+    let outerAtBind = null;
 
     const applyHeight = () => {
-      // offsetHeight excludes the inner element's own margins, but those
-      // margins still occupy space inside the clipped outer box — so a Card
-      // given a margin class (EmptyState's `mt-12`, say) puts that margin on
-      // the inner element and gets exactly that many pixels shaved off its
-      // bottom. Add the vertical margins back so the outer box fits content.
+      const outer = outerRef.current;
+      const inner = innerRef.current;
+      if (!outer || !inner) return;
       const { marginTop, marginBottom } = getComputedStyle(inner);
       const margins = (parseFloat(marginTop) || 0) + (parseFloat(marginBottom) || 0);
-      outer.style.height = inner.offsetHeight + margins + "px";
+      const contentHeight = Math.ceil(
+        Math.max(inner.offsetHeight || 0, inner.getBoundingClientRect?.().height || 0)
+      );
+      let targetHeight = contentHeight + margins;
+
+      // When outer has a CSS max-height (e.g. modal calc(95vh - 4rem)), cap the inline
+      // height to avoid dead-zone delay when animating down from large content.
+      const computedMax = parseFloat(getComputedStyle(outer).maxHeight);
+      if (!isNaN(computedMax) && computedMax > 0) {
+        targetHeight = Math.min(targetHeight, Math.ceil(computedMax));
+      }
+
+      outer.style.height = `${targetHeight}px`;
     };
 
-    const ro = new ResizeObserver(applyHeight);
-    ro.observe(inner);
+    const onWindowResize = () => {
+      if (resizeRaf != null) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(applyHeight);
+    };
 
-    return () => ro.disconnect();
-  }, []);
+    const bind = () => {
+      if (cancelled) return;
+      const outer = outerRef.current;
+      const inner = innerRef.current;
+      if (!outer || !inner) {
+        requestAnimationFrame(bind);
+        return;
+      }
+      outerAtBind = outer;
+      applyHeight();
+      if (typeof ResizeObserver !== "undefined") {
+        ro = new ResizeObserver(applyHeight);
+        ro.observe(inner);
+      }
+      window.addEventListener("resize", onWindowResize);
+    };
+
+    bind();
+
+    return () => {
+      cancelled = true;
+      ro?.disconnect();
+      window.removeEventListener("resize", onWindowResize);
+      if (resizeRaf != null) cancelAnimationFrame(resizeRaf);
+      if (outerAtBind) outerAtBind.style.height = "";
+    };
+  }, [enabled]);
 
   return { outerRef, innerRef };
 }
+

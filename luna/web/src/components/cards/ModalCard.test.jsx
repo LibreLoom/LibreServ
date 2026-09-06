@@ -225,6 +225,50 @@ describe("ModalCard", () => {
     );
   });
 
+  it("measures height from dialog-measure, not the max-height scroller", () => {
+    render(
+      <ModalCard title="Measure" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    const measure = dialog.querySelector("[data-slot=dialog-measure]");
+    expect(scroller).toBeTruthy();
+    expect(measure).toBeTruthy();
+    expect(scroller?.contains(measure)).toBe(true);
+    // Scroller may fill the clipped dialog; it must not be the measured node
+    expect(measure).not.toBe(scroller);
+    expect(dialog.className).toMatch(/transition-\[.*height.*\]/);
+    expect(dialog.className).toMatch(/transition-\[.*max-width.*\]/);
+    expect(dialog.className).toMatch(/motion-reduce:transition-none/);
+  });
+
+  it("updates width classes when size changes", () => {
+    const { rerender } = render(
+      <ModalCard size="sm" title="Size test" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("sm:max-w-md");
+
+    rerender(
+      <ModalCard size="lg" title="Size test" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    expect(dialog).toHaveClass("sm:max-w-3xl");
+
+    rerender(
+      <ModalCard size="fullscreen" title="Size test" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    expect(dialog).toHaveClass("max-w-[95vw]");
+  });
+
+
   it("Escape on a nested overlay closes only the top modal", () => {
     vi.useFakeTimers();
     const onBottom = vi.fn();

@@ -8,6 +8,7 @@ import Button from "../../ui/Button";
 import ShakeTarget from "../../ui/ShakeTarget";
 import ModalCard from "../../cards/ModalCard";
 import ConfirmModal from "../../cards/ConfirmModal";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const inputClasses =
   "w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 outline-none focus:border-accent border-primary/30";
@@ -137,7 +138,7 @@ function AddRepoModal({ onClose, onAdded }) {
         {error && (
           <div className="p-3 bg-error/20 border border-error/30 rounded-large-element">
             <div className="flex items-start gap-2">
-              <AlertCircle size={16} className="text-error shrink-0 mt-0.5" />
+              <AlertCircle size={ICON_SIZE.md} className="text-error shrink-0 mt-0.5" />
               <span className="text-sm text-error">{error}</span>
             </div>
           </div>
@@ -292,12 +293,12 @@ export default function RepoStatusCard({ index = 0 }) {
               >
                 {pulling ? (
                   <>
-                    <Loader2 className="animate-spin" size={16} />
+                    <Loader2 className="animate-spin" size={ICON_SIZE.md} />
                     Refreshing...
                   </>
                 ) : (
                   <>
-                    <RefreshCw size={16} />
+                    <RefreshCw size={ICON_SIZE.md} />
                     Check for new apps
                   </>
                 )}
@@ -307,7 +308,7 @@ export default function RepoStatusCard({ index = 0 }) {
                 onClick={() => setShowAddModal(true)}
                 size="sm"
               >
-                <Plus size={16} />
+                <Plus size={ICON_SIZE.md} />
                 Add a source
               </Button>
             </div>
@@ -315,7 +316,7 @@ export default function RepoStatusCard({ index = 0 }) {
 
           {loading ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 size={20} className="animate-spin text-accent" />
+              <Loader2 size={ICON_SIZE.xl} className="animate-spin text-accent" />
             </div>
           ) : fetchError ? (
             <div className="flex items-center justify-center py-6">
@@ -341,7 +342,7 @@ export default function RepoStatusCard({ index = 0 }) {
                 size="sm"
                 onClick={() => setShowAddModal(true)}
               >
-                <Plus size={16} />
+                <Plus size={ICON_SIZE.md} />
                 Add your first app source
               </Button>
             </div>
@@ -355,9 +356,9 @@ export default function RepoStatusCard({ index = 0 }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       {repo.last_error ? (
-                        <AlertCircle size={14} className="text-error shrink-0" />
+                        <AlertCircle size={ICON_SIZE.sm} className="text-error shrink-0" />
                       ) : (
-                        <CheckCircle size={14} className="text-success shrink-0" />
+                        <CheckCircle size={ICON_SIZE.sm} className="text-success shrink-0" />
                       )}
                       <span className="text-sm text-primary truncate">{repo.url}</span>
                     </div>
@@ -378,7 +379,7 @@ export default function RepoStatusCard({ index = 0 }) {
                     aria-label="Remove app source"
                     className="hover:bg-error/10 hover:text-error"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={ICON_SIZE.md} />
                   </Button>
                 </div>
               ))}

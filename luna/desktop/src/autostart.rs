@@ -1,10 +1,57 @@
 //! Start Luna for Linux when you sign in (XDG autostart on Linux, HKCU Run on Windows).
 
+use std::path::PathBuf;
+
 fn exec_path() -> String {
+    if let Ok(appimage) = std::env::var("APPIMAGE") {
+        let appimage = appimage.trim();
+        if !appimage.is_empty() {
+            if appimage.contains(' ') && !appimage.starts_with('"') {
+                return format!("\"{appimage}\"");
+            }
+            return appimage.to_string();
+        }
+    }
+    if std::path::Path::new("/.flatpak-info").exists() {
+        return "flatpak run org.libreloom.LunaDesktop".into();
+    }
     if let Ok(p) = std::env::current_exe() {
-        return p.to_string_lossy().into_owned();
+        let s = p.to_string_lossy().into_owned();
+        if s.contains(' ') && !s.starts_with('"') {
+            return format!("\"{s}\"");
+        }
+        return s;
     }
     "luna-desktop".into()
+}
+
+fn disabled_marker_path() -> PathBuf {
+    crate::session::data_dir().join("autostart-disabled")
+}
+
+/// Returns true if the user explicitly turned off start on boot
+/// (either via Luna Settings or via desktop environment settings).
+pub fn is_explicitly_disabled() -> bool {
+    if disabled_marker_path().is_file() {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        let path = unix_impl::desktop_path();
+        if path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.eq_ignore_ascii_case("X-GNOME-Autostart-enabled=false")
+                        || line.eq_ignore_ascii_case("Hidden=true")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 #[cfg(unix)]
@@ -24,7 +71,7 @@ mod unix_impl {
         PathBuf::from(home).join(".config/autostart")
     }
 
-    fn desktop_path() -> PathBuf {
+    pub fn desktop_path() -> PathBuf {
         autostart_dir().join(DESKTOP_ID)
     }
 
@@ -115,10 +162,46 @@ mod windows_impl {
 }
 
 #[cfg(unix)]
-pub use unix_impl::{is_enabled, set_enabled};
+use unix_impl as platform_impl;
 
 #[cfg(windows)]
-pub use windows_impl::{is_enabled, set_enabled};
+use windows_impl as platform_impl;
+
+#[cfg(unix)]
+pub use unix_impl::desktop_path;
+
+pub fn is_enabled() -> bool {
+    if is_explicitly_disabled() {
+        return false;
+    }
+    platform_impl::is_enabled()
+}
+
+pub fn set_enabled(enabled: bool) -> Result<(), String> {
+    if enabled {
+        let marker = disabled_marker_path();
+        let _ = std::fs::remove_file(&marker);
+        platform_impl::set_enabled(true)?;
+    } else {
+        let dir = crate::session::data_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let marker = disabled_marker_path();
+        let _ = std::fs::write(&marker, b"");
+        platform_impl::set_enabled(false)?;
+    }
+    Ok(())
+}
+
+/// Ensure start on boot is enabled by default unless the user explicitly turned it off.
+pub fn init_default() -> Result<(), String> {
+    if is_explicitly_disabled() {
+        return Ok(());
+    }
+    if !is_enabled() {
+        set_enabled(true)?;
+    }
+    Ok(())
+}
 
 #[cfg(all(test, unix))]
 mod tests {
@@ -132,6 +215,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", dir.path());
+            std::env::set_var("LUNA_DESKTOP_DATA", dir.path());
         }
         assert!(!is_enabled());
         set_enabled(true).unwrap();
@@ -147,6 +231,100 @@ mod tests {
         assert!(!is_enabled());
         unsafe {
             std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("LUNA_DESKTOP_DATA");
+        }
+    }
+
+    #[test]
+    fn autostart_enabled_by_default_on_first_run() {
+        let _g = crate::session::test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", dir.path());
+            std::env::set_var("LUNA_DESKTOP_DATA", dir.path());
+        }
+
+        assert!(!is_enabled());
+        assert!(!is_explicitly_disabled());
+
+        // First run initialization enables autostart by default
+        init_default().unwrap();
+        assert!(is_enabled());
+        assert!(unix_impl::desktop_path().is_file());
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("LUNA_DESKTOP_DATA");
+        }
+    }
+
+    #[test]
+    fn autostart_explicitly_disabled_persists_across_runs() {
+        let _g = crate::session::test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", dir.path());
+            std::env::set_var("LUNA_DESKTOP_DATA", dir.path());
+        }
+
+        // Initially enabled by default
+        init_default().unwrap();
+        assert!(is_enabled());
+
+        // User explicitly disables start-on-boot
+        set_enabled(false).unwrap();
+        assert!(!is_enabled());
+        assert!(is_explicitly_disabled());
+        assert!(!unix_impl::desktop_path().is_file());
+
+        // Subsequent app run must NOT re-enable autostart
+        init_default().unwrap();
+        assert!(!is_enabled());
+        assert!(!unix_impl::desktop_path().is_file());
+
+        // User turns it back on
+        set_enabled(true).unwrap();
+        assert!(is_enabled());
+        assert!(!is_explicitly_disabled());
+        assert!(unix_impl::desktop_path().is_file());
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("LUNA_DESKTOP_DATA");
+        }
+    }
+
+    #[test]
+    fn autostart_respects_desktop_file_hidden_or_disabled() {
+        let _g = crate::session::test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", dir.path());
+            std::env::set_var("LUNA_DESKTOP_DATA", dir.path());
+        }
+
+        init_default().unwrap();
+        assert!(is_enabled());
+
+        // Simulate desktop environment (like GNOME Tweaks) setting X-GNOME-Autostart-enabled=false
+        let path = unix_impl::desktop_path();
+        let content = fs::read_to_string(&path).unwrap();
+        let disabled_content = content.replace(
+            "X-GNOME-Autostart-enabled=true",
+            "X-GNOME-Autostart-enabled=false",
+        );
+        fs::write(&path, disabled_content).unwrap();
+
+        assert!(!is_enabled());
+        assert!(is_explicitly_disabled());
+
+        // init_default does not re-enable
+        init_default().unwrap();
+        assert!(!is_enabled());
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("LUNA_DESKTOP_DATA");
         }
     }
 }

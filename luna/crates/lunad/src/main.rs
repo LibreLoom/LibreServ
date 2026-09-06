@@ -62,6 +62,8 @@ async fn main() -> anyhow::Result<()> {
 
     let connect_poll_wake = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
+    // DHCP link watcher: wake Connect poll on carrier rise *or* when IPv4 appears
+    // (late DHCP/internet with cable already in — carrier edge alone misses that).
     std::thread::Builder::new()
         .name("luna-dhcp-link".into())
         .spawn({
@@ -138,16 +140,6 @@ async fn main() -> anyhow::Result<()> {
                     }
                     if let Some(err) = st.tunnel_error.clone() {
                         problems.push(err);
-                    } else if st.connect_active
-                        && st.enabled
-                        && st.hostname.is_some()
-                        && !st.tunnel_active
-                        && st.device_token_error.is_none()
-                    {
-                        problems.push(
-                            "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying."
-                                .into(),
-                        );
                     }
 
                     if !net.ethernet_connected {
@@ -179,13 +171,12 @@ async fn main() -> anyhow::Result<()> {
 
                         if let Ok(drives) = lunad::db::list_drives(&conn) {
                             for drive in drives {
-                                match drive.state.as_str() {
-                                    "readonly" => problems.push(format!(
+                                // Unplugged is normal — not an HDMI-console problem.
+                                if drive.state.as_str() == "readonly" {
+                                    problems.push(format!(
                                         "Drive \"{}\" can be read but not written. This is usually the filesystem, or a write-lock switch on the stick.",
                                         drive.label
-                                    )),
-                                    // Unplugged is normal — not an HDMI-console problem.
-                                    _ => {}
+                                    ));
                                 }
                             }
                         }

@@ -8,6 +8,7 @@ import {
 	X,
 	User,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "../../hooks/useAuth";
@@ -332,7 +333,7 @@ export default function Navbar() {
       navButtons.map((item) => (
         <React.Fragment key={`desktopNav-${item.to}`}>
           <NavLink to={item.to} className={navButtonClasses}>
-            <item.icon size={18} aria-hidden="true" />
+            <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
             <span>{item.label}</span>
           </NavLink>
         </React.Fragment>
@@ -366,7 +367,7 @@ export default function Navbar() {
                 {user?.username || ""}
               </button>
               <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center" aria-hidden="true">
-                <User size={16} />
+                <User size={ICON_SIZE.md} />
               </div>
 
               <div
@@ -382,7 +383,7 @@ export default function Navbar() {
                       role="menuitem"
                       className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
                     >
-                      <Users size={16} aria-hidden="true" />
+                      <Users size={ICON_SIZE.md} aria-hidden="true" />
                       <span className="text-sm font-semibold">Manage Users</span>
                     </NavLink>
                   )}
@@ -391,7 +392,7 @@ export default function Navbar() {
                     role="menuitem"
                     className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
                   >
-                    <Settings size={16} aria-hidden="true" />
+                    <Settings size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">
                       Manage Profile
                     </span>
@@ -403,7 +404,7 @@ export default function Navbar() {
                     }}
                     className={cn(menuItemClasses, "hover:bg-accent", "hover:text-primary", "text-left")}
                   >
-                    <X size={16} aria-hidden="true" />
+                    <X size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign Out</span>
                   </button>
                 </div>
@@ -467,7 +468,7 @@ export default function Navbar() {
                   }}
                   ref={index === 0 ? firstNavLinkRef : null}
                 >
-                  <item.icon size={18} aria-hidden="true" />
+                  <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
                   <span>{item.label}</span>
                 </NavLink>
               </React.Fragment>
@@ -481,7 +482,7 @@ export default function Navbar() {
               }}
               className={cn("w-full", "justify-center", "border-6", "border-secondary", "py-4", navButtonClasses)}
             >
-              <X size={18} aria-hidden="true" />
+              <X size={ICON_SIZE.lg} aria-hidden="true" />
               <span>Sign Out</span>
             </button>
           </div>

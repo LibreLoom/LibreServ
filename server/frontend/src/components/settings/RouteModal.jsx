@@ -9,6 +9,7 @@ import ShakeTarget from "../ui/ShakeTarget";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { testBackend } from "../../lib/network-api";
+import { ICON_SIZE, PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
 
 // "Manual address" is the default app-picker option; choosing a running app
 // fills the destination for you. The route itself never requires an app.
@@ -356,7 +357,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={handleChange("subdomain")}
                     placeholder="e.g. nextcloud"
                     disabled={loading}
-                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed outline-none", errors.subdomain && "border-error focus:border-error", !errors.subdomain && "border-primary/20 focus:border-accent")}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.subdomain && "border-error focus:border-error", !errors.subdomain && "border-primary/20 focus:border-accent")}
                   />
                   {errors.subdomain && (
                     <p className="text-error text-xs mt-1">{errors.subdomain}</p>
@@ -379,7 +380,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={handleChange("domain")}
                     placeholder={defaultDomain || "e.g. example.com"}
                     disabled={loading}
-                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed outline-none", errors.domain && "border-error focus:border-error", !errors.domain && "border-primary/20 focus:border-accent")}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.domain && "border-error focus:border-error", !errors.domain && "border-primary/20 focus:border-accent")}
                   />
                   {errors.domain && (
                     <p className="text-error text-xs mt-1">{errors.domain}</p>
@@ -391,7 +392,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         ) : (
           route && (
             <div className="mb-5 flex items-center gap-2 px-4 py-2.5 rounded-large-element bg-primary/5">
-              <Globe size={16} className="text-accent shrink-0" />
+              <Globe size={ICON_SIZE.md} className="text-accent shrink-0" />
               <p className="font-mono text-sm text-primary truncate">
                 {route.subdomain ? `${route.subdomain}.${route.domain}` : route.domain}
               </p>
@@ -419,7 +420,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                   spellCheck={false}
                   autoComplete="off"
                   disabled={loading}
-                  className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed outline-none", errors.destination && "border-error focus:border-error", !errors.destination && "border-primary/20 focus:border-accent")}
+                  className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed outline-none", PLACEHOLDER_TEXT, errors.destination && "border-error focus:border-error", !errors.destination && "border-primary/20 focus:border-accent")}
                 />
                 <Button
                   type="button"
@@ -445,12 +446,12 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                 <div className={cn("flex items-center gap-1.5 text-xs mt-2", backendTestResult.reachable ? "text-success" : "text-error")}>
                   {backendTestResult.reachable ? (
                     <>
-                      <CheckCircle2 size={12} />
+                      <CheckCircle2 size={ICON_SIZE.xs} />
                       <span className="font-mono">Reachable</span>
                     </>
                   ) : (
                     <>
-                      <XCircle size={12} />
+                      <XCircle size={ICON_SIZE.xs} />
                       <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
                     </>
                   )}

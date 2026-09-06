@@ -42,7 +42,9 @@ struct TrashMeta {
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
-    #[error("Luna doesn't know this drive.")]
+    #[error(
+        "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+    )]
     UnknownDrive,
     #[error("{0}")]
     Path(luna_core::path::PathError),

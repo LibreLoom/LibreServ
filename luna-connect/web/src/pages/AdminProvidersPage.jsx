@@ -19,7 +19,7 @@ const SERVICE_FIELDS = {
   stripe: {
     label: "Billing (Stripe)",
     description:
-      "Takes card payments and monthly backup charges. Storage is $8 per TB per month ($0.008 per GB), billed on the month’s average amount stored — not a single day-end snapshot. Downloads are free up to 3× that average; extra download traffic is $0.01 per GB. In Stripe Dashboard → Billing → Meters, create two meters with aggregation Last: (1) event name luna_backup_gb for average storage GB, (2) event name luna_backup_egress_gb for egress overage GB. Link usage-based prices: $0.008/GB to the storage meter, $0.01/GB to the egress meter. Get API keys from Developers → API keys; webhook secret under Developers → Webhooks for this Luna Connect URL.",
+      "Takes card payments and monthly backup charges. Storage is $8 per TB per month ($0.008 per GB), billed on the month’s average amount stored — not a single day-end snapshot. Downloads are free up to 3× stored amount; extra download traffic is $0.01 per GB. In Stripe Dashboard → Billing → Meters, create two meters with aggregation Last: (1) event name luna_backup_gb for average storage GB, (2) event name luna_backup_egress_gb for egress overage GB. Link usage-based prices: $0.008/GB to the storage meter, $0.01/GB to the egress meter. Get API keys from Developers → API keys; webhook secret under Developers → Webhooks for this Luna Connect URL.",
     credentials: [
       { key: "secret_key", label: "Secret key", placeholder: "sk_live_… or sk_test_…", type: "password" },
       { key: "webhook_secret", label: "Webhook secret", placeholder: "whsec_…", type: "password" },

@@ -8,6 +8,7 @@ import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
 import { useApps } from "../../hooks/useApps";
 import { useIsNarrow } from "../../hooks/useIsNarrow";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -69,26 +70,26 @@ function AppCardInner({ app }) {
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="flex items-center gap-2">
-          <Cpu size={14} className="text-accent" aria-hidden="true" />
+          <Cpu size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
           <span className="text-accent">CPU:</span>
           <span className="font-mono">
             {app.cpu_percent != null ? `${app.cpu_percent.toFixed(1)}%` : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <MemoryStick size={14} className="text-accent" aria-hidden="true" />
+          <MemoryStick size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
           <span className="text-accent">RAM:</span>
           <span className="font-mono">
             {app.memory_usage != null ? formatBytes(app.memory_usage) : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Clock size={14} className="text-accent" aria-hidden="true" />
+          <Clock size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
           <span className="text-accent">{uptimeLabel}:</span>
           <span className="font-mono">{formatDuration(uptime)}</span>
         </div>
         <div className="flex items-center gap-2">
-          <TrendingUp size={14} className="text-accent" aria-hidden="true" />
+          <TrendingUp size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
           <span className="text-accent">Avail:</span>
           <span className="font-mono">
             {app.availability_pct != null ? `${app.availability_pct.toFixed(0)}%` : "-"}
@@ -124,7 +125,7 @@ function NoAppsCard() {
           className="w-14 h-14 rounded-pill bg-primary/10 flex items-center justify-center mb-5"
           aria-hidden="true"
         >
-          <Package size={22} className="text-accent" />
+          <Package size={ICON_SIZE.xxl} className="text-accent" />
         </div>
 
         <h3 className="font-mono text-xl font-normal tracking-tight text-primary mb-2">
@@ -138,7 +139,7 @@ function NoAppsCard() {
 
         <Button asChild variant="primary" size="md" className="font-mono">
           <Link to="/apps">
-            Install an App <ArrowRight size={16} className="ml-1" />
+            Install an Application <ArrowRight size={ICON_SIZE.md} className="ml-1" />
           </Link>
         </Button>
       </Card>
@@ -155,7 +156,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
       <Card className="self-start" data-slot="app-card-loading">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center animate-pulse" aria-hidden="true">
-            <Package size={22} className="text-primary/30" />
+            <Package size={ICON_SIZE.xxl} className="text-primary/30" />
           </div>
           <div className="text-left">
             <div className="font-mono font-normal text-accent">Loading apps...</div>
@@ -174,7 +175,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
       <Card className="self-start" data-slot="app-card-error">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center" aria-hidden="true">
-            <Package size={22} className="text-error" />
+            <Package size={ICON_SIZE.xxl} className="text-error" />
           </div>
           <div className="text-left">
             <div className="font-mono font-normal text-error">Failed to load apps</div>

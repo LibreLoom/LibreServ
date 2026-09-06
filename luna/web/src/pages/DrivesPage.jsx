@@ -340,9 +340,9 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, 
 
 /** Status line for non-ready drives, or the read-only note. Ready drives use Drive details instead. */
 function driveStatusMessage(drive) {
-  if (drive.state === "missing") return "Unplugged. Plug it back in.";
+  if (drive.state === "missing") return "Unplugged. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
-  if (drive.state === "failed") return "This drive ran into a problem.";
+  if (drive.state === "failed") return "This drive ran into a problem. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
   if (drive.state === "readonly") {
     return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
   }
@@ -495,7 +495,7 @@ export default function DrivesPage() {
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
-            Plug a USB drive into Luna. It will show up in a few seconds.
+            Plug a USB drive into Luna. It will show up in a few seconds. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.
           </p>
         </Card>
       )}

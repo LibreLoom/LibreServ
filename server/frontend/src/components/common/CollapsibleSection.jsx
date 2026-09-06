@@ -2,6 +2,7 @@ import PropTypes from "prop-types";
 import { ChevronDown } from "lucide-react";
 import { useState, useId } from "react";
 import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function CollapsibleSection({
   title,
@@ -40,7 +41,7 @@ export default function CollapsibleSection({
         aria-controls={contentId}
       >
         <ChevronDown
-          size={size === "xs" ? 12 : size === "md" ? 18 : 14}
+          size={size === "xs" ? ICON_SIZE.xs : size === "md" ? ICON_SIZE.lg : ICON_SIZE.sm}
           className={cn("motion-safe:transition-transform duration-200", open ? "rotate-180" : "rotate-0")}
           aria-hidden="true"
         />

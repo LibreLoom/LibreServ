@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Filter,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import Toggle from "../../common/Toggle";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
@@ -92,11 +93,11 @@ function getActivityColumns(use12HourTime) {
 function getSeverityIcon(severity) {
   switch (severity) {
     case "critical":
-      return <AlertTriangle size={12} className="text-error" />;
+      return <AlertTriangle size={ICON_SIZE.xs} className="text-error" />;
     case "warning":
-      return <AlertTriangle size={12} className="text-warning" />;
+      return <AlertTriangle size={ICON_SIZE.xs} className="text-warning" />;
     default:
-      return <Check size={12} className="text-accent" />;
+      return <Check size={ICON_SIZE.xs} className="text-accent" />;
   }
 }
 
@@ -190,7 +191,7 @@ export default function SecurityCategory() {
               disabled={activityLoading}
               aria-label="Refresh activity log"
             >
-              <RefreshCw size={14} className={cn("text-accent", activityLoading && "animate-spin")} aria-hidden="true" />
+              <RefreshCw size={ICON_SIZE.sm} className={cn("text-accent", activityLoading && "animate-spin")} aria-hidden="true" />
             </Button>
           </div>
         }

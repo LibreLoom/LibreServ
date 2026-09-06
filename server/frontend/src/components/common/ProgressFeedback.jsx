@@ -4,6 +4,7 @@ import { CheckCircle, XCircle, ChevronDown, Copy, Check, Loader2 } from "lucide-
 import { useScriptStream } from "../../hooks/useScriptStream";
 import { getFriendlyMessages } from "../../utils/outputPatterns";
 import { copyWithFeedback } from "../../utils/clipboard";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function getFullOutput(lines) {
   return lines
@@ -141,7 +142,7 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
         aria-expanded={detailsOpen}
       >
         <ChevronDown
-          size={14}
+          size={ICON_SIZE.sm}
           className={cn("motion-safe:transition-transform", detailsOpen && "rotate-180", !detailsOpen && "rotate-0")}
         />
         {detailsOpen ? "Hide details" : "View details"}
@@ -159,12 +160,12 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
             >
               {copied ? (
                 <>
-                  <Check size={12} />
+                  <Check size={ICON_SIZE.xs} />
                   Copied
                 </>
               ) : (
                 <>
-                  <Copy size={12} />
+                  <Copy size={ICON_SIZE.xs} />
                   Copy
                 </>
               )}

@@ -55,6 +55,7 @@ assert_file_lacks "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/init.sh" 'network-up.sh' "custom init must start DHCP"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/init.sh" '/dev/console' "custom init must attach the kernel console"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/network-up.sh" 'dhclient' "network-up must try DHCP"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/network-up.sh" 'ip link set lo up' "network-up must bring up loopback interface"
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'isc-dhcp-client' "live ISO must ship DHCP client"
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'coreutils' "live ISO must ship GNU timeout (coreutils)"
 assert_file_lacks "$OSROOT/rapidinstall.sh" 'show_access_instructions' "rapidinstall must not print connection help"

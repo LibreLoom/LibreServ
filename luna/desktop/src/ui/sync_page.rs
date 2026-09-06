@@ -23,7 +23,7 @@ impl SyncPage {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let blurb = gtk::Label::new(Some(
-            "Keep a Luna folder and a folder on this computer up to date with each other. Changes go both ways.",
+            "Keep a Luna folder, or a whole drive, and a folder on this computer up to date with each other. Changes sync both ways.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
@@ -45,7 +45,7 @@ impl SyncPage {
         list.set_visible(false);
 
         let empty = gtk::Label::new(Some(
-            "No syncs yet. Choose a Luna folder and a place for it on this computer.",
+            "No syncs yet. Choose a Luna folder or drive and a place for it on this computer.",
         ));
         empty.add_css_class("dim-label");
         empty.set_margin_top(24);
@@ -86,9 +86,10 @@ impl SyncPage {
                             .lock()
                             .map(|m| m.clone())
                             .unwrap_or_default();
-                        (pairs, progress)
+                        let drives = luna_desktop::list_drives(&state).unwrap_or_default();
+                        (pairs, progress, drives.is_empty())
                     },
-                    move |(pairs, progress)| {
+                    move |(pairs, progress, no_drives)| {
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
@@ -108,6 +109,15 @@ impl SyncPage {
                             ));
                         }
                         let is_empty = list.row_at_index(0).is_none();
+                        if is_empty {
+                            if no_drives {
+                                empty.set_text("No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.");
+                            } else {
+                                empty.set_text(
+                                    "No syncs yet. Create one to keep folders in sync with Luna.",
+                                );
+                            }
+                        }
                         empty.set_visible(is_empty);
                         list.set_visible(!is_empty);
                     },
@@ -165,9 +175,26 @@ fn human_remote_subtitle(remote_path: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect();
     if parts.is_empty() {
-        "Luna folder".to_string()
+        "Whole drive".to_string()
     } else {
         parts.join(" / ")
+    }
+}
+
+fn sync_row_title(pair: &SyncPair) -> String {
+    if pair.remote_path.trim_matches('/').is_empty() {
+        std::path::Path::new(&pair.local_path)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Drive".into())
+    } else {
+        let base = luna_desktop::dest::luna_folder_basename(&pair.remote_path);
+        if base.is_empty() {
+            "Sync".to_string()
+        } else {
+            base
+        }
     }
 }
 
@@ -179,14 +206,7 @@ fn build_row(
     progress: &luna_desktop::sync::SyncProgress,
     refresh: Rc<dyn Fn()>,
 ) -> adw::ActionRow {
-    let title = {
-        let base = luna_desktop::dest::luna_folder_basename(&pair.remote_path);
-        if base.is_empty() {
-            "Sync".to_string()
-        } else {
-            base
-        }
-    };
+    let title = sync_row_title(&pair);
     let subtitle = human_remote_subtitle(&pair.remote_path);
     let row = adw::ActionRow::builder()
         .title(&title)
@@ -272,6 +292,9 @@ fn plain_error(raw: &str) -> String {
     if t.is_empty() {
         return "Something went wrong with this sync. Try editing it and saving again.".into();
     }
+    if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
+        return "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into();
+    }
     if t == "unauthorized" {
         return "Your sign-in expired. Sign out and sign in again.".into();
     }
@@ -308,7 +331,7 @@ fn open_editor(
     page.set_margin_start(16);
     page.set_margin_end(16);
 
-    let dest_label = gtk::Label::new(Some("Select where this sync is stored on Luna"));
+    let dest_label = gtk::Label::new(Some("Select a Luna folder or whole drive to sync"));
     dest_label.set_halign(gtk::Align::Start);
     dest_label.set_wrap(true);
     dest_label.add_css_class("heading");
@@ -325,7 +348,7 @@ fn open_editor(
     page.append(browser.root());
 
     let parent_label = gtk::Label::new(Some(
-        "Folder on this computer (the synced folder will be created inside it)",
+        "Folder on this computer (the synced folder will be created inside it, named after the Luna folder or drive)",
     ));
     parent_label.set_wrap(true);
     parent_label.set_halign(gtk::Align::Start);

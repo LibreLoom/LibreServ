@@ -7,6 +7,7 @@ import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
 import Callout from "../common/Callout";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const PLAN_BADGES = {
   free: { label: "Connect Free", class: "bg-accent/10 text-accent" },
@@ -90,7 +91,7 @@ export default function ConnectStatusCard({
                   to="/troubleshoot?issue=connect-key"
                   className="mt-2 inline-flex items-center gap-1 text-xs whitespace-nowrap font-medium text-error hover:text-primary underline decoration-1 underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline rounded-pill motion-safe:transition-colors"
                 >
-                  <CircleHelp size={14} aria-hidden="true" />
+                  <CircleHelp size={ICON_SIZE.sm} aria-hidden="true" />
                   Get help fixing this
                 </Link>
               </Callout>
@@ -152,10 +153,10 @@ export default function ConnectStatusCard({
 
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button variant="primary" onClick={onOpenPlanPage} smoothResize={false} className="shrink-0 [&_svg]:shrink-0">
-            <ExternalLink size={16} /> Manage Plan
+            <ExternalLink size={ICON_SIZE.md} /> Manage Plan
           </Button>
           <Button variant="danger" onClick={onDeactivate} smoothResize={false} className="shrink-0 [&_svg]:shrink-0">
-            <LogOut size={16} /> Disconnect
+            <LogOut size={ICON_SIZE.md} /> Disconnect
           </Button>
         </div>
       </div>

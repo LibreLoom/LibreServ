@@ -52,7 +52,7 @@ impl LoginView {
         title.set_halign(gtk::Align::Start);
 
         let subtitle = gtk::Label::new(Some(
-            "Sign in with an access token from Luna. Open Luna in a browser → Settings → Apps and access tokens → Create access token, then paste it here.",
+            "Sign in with an access token from Luna. Open Luna in a browser → Settings → Security → Create access token, then paste it here.",
         ));
         subtitle.set_wrap(true);
         subtitle.set_halign(gtk::Align::Start);
@@ -133,7 +133,10 @@ impl LoginView {
                             sign_in.set_sensitive(true);
                             sign_in.set_label("Sign in");
                             match result {
-                                Ok(info) => on_signed_in(info),
+                                Ok(info) => {
+                                    let _ = luna_desktop::autostart::init_default();
+                                    on_signed_in(info);
+                                }
                                 Err(e) => {
                                     status.set_text(&e);
                                     status.set_visible(true);

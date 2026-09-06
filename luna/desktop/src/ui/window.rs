@@ -53,6 +53,7 @@ impl ShellView {
             let state = state.clone();
             spawn_blocking(
                 move || {
+                    let _ = luna_desktop::autostart::init_default();
                     luna_desktop::start_all_jobs(&state);
                 },
                 |_| {},

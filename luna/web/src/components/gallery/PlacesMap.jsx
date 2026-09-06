@@ -326,8 +326,10 @@ export default function PlacesMap({ places, loading = false, onSelect }) {
         scrollWheelZoom
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          referrerPolicy="strict-origin-when-cross-origin"
+          maxZoom={19}
         />
         <FitBounds points={markers} />
         <ClusterMarkers markers={markers} onSelect={onSelect} />

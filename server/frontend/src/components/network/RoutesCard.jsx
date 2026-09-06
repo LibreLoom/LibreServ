@@ -6,6 +6,7 @@ import {
   Trash2,
   HelpCircle,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import PropTypes from "prop-types";
 import Card from "../cards/Card";
 import Toggle from "../common/Toggle";
@@ -62,7 +63,7 @@ export default function RoutesCard({
           size="sm"
           onClick={onAdd}
         >
-          <Plus size={14} aria-hidden="true" />
+          <Plus size={ICON_SIZE.sm} aria-hidden="true" />
           Add Route
         </Button>
       }
@@ -89,7 +90,7 @@ export default function RoutesCard({
             <span className="opacity-50 block mb-2"><Globe className="w-10 h-10 text-primary mx-auto" /></span>
             <p className="text-sm text-accent">No routes configured</p>
             <Button onClick={onAdd} className="mt-3">
-              <Plus size={16} aria-hidden="true" />
+              <Plus size={ICON_SIZE.md} aria-hidden="true" />
               Add your first route
             </Button>
           </div>
@@ -109,7 +110,7 @@ export default function RoutesCard({
                       </div>
                     ) : (
                       <div className="rounded-large-element bg-primary/10 flex items-center justify-center" style={{ width: 28, height: 28 }}>
-                        <span className="opacity-50"><HelpCircle size={16} className="text-primary" /></span>
+                        <span className="opacity-50"><HelpCircle size={ICON_SIZE.md} className="text-primary" /></span>
                       </div>
                     )}
                     <div className="min-w-0">
@@ -137,7 +138,7 @@ export default function RoutesCard({
                       tooltip="Edit route"
                       aria-label="Edit route"
                     >
-                      <span className="opacity-50"><Pencil size={14} className="text-accent" aria-hidden="true" /></span>
+                      <span className="opacity-50"><Pencil size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" /></span>
                     </Button>
                     <Button
                       variant="ghost"
@@ -147,7 +148,7 @@ export default function RoutesCard({
                       aria-label="Delete route"
                       className="hover:bg-error/10 hover:text-error"
                     >
-                      <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
+                      <span className="opacity-50"><Trash2 size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" /></span>
                     </Button>
                   </div>
                 </div>

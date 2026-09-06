@@ -54,23 +54,15 @@ struct SaveBody {
     step_data: Option<Map<String, Value>>,
 }
 
-#[derive(Deserialize)]
-struct ValidateCodeBody {
-    code: String,
-}
-
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/setup/preflight", get(preflight))
-        .route("/api/v1/setup/validate-code", post(validate_code))
         .route("/api/v1/setup/fetch-mag", post(fetch_mag))
         .route("/api/v1/setup", get(get_setup).post(save_setup))
 }
 
 async fn preflight(
     State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     if !crate::auth::setup_wizard_open(&state) {
         return Err(json_error(
@@ -78,7 +70,6 @@ async fn preflight(
             "Setup is already finished.",
         ));
     }
-    crate::setup_access::check(&state, &addr, &headers)?;
     let data_dir = state.data_dir.clone();
     let db = state.db.clone();
     let resp = tokio::task::spawn_blocking(move || {
@@ -103,41 +94,8 @@ async fn preflight(
     ))
 }
 
-async fn validate_code(
-    State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    headers: HeaderMap,
-    Json(body): Json<ValidateCodeBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if crate::setup_access::is_lan_request(&addr, &headers) {
-        return Ok(Json(json!({ "ok": true })));
-    }
-    let ip = addr.ip().to_string();
-    if !state.login_limiter.allow(&format!("setup-code:{ip}")) {
-        return Err(json_error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many tries. Wait a few minutes and try again.",
-        ));
-    }
-    if state.connect.setup_prefix().is_none() {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Finish setup from a device on the same home network as Luna (same Wi‑Fi or ethernet). Luna works fully without Luna Connect.",
-        ));
-    }
-    if !state.connect.matches_setup_prefix(&body.code) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "That device token prefix doesn't match. Check the first eight characters (****-****) on your device card or Luna Connect page.",
-        ));
-    }
-    Ok(Json(json!({ "ok": true })))
-}
-
 async fn fetch_mag(
     State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
-    headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if !crate::auth::setup_wizard_open(&state) {
         return Err(json_error(
@@ -145,7 +103,6 @@ async fn fetch_mag(
             "Setup is already finished.",
         ));
     }
-    crate::setup_access::check(&state, &addr, &headers)?;
     let connect = state.connect.clone();
     let outcome = tokio::task::spawn_blocking(move || connect.ensure_device_code_from_mag())
         .await
@@ -182,6 +139,55 @@ fn maybe_fetch_mag(state: &AppState) {
     let _ = state.connect.ensure_device_code_from_mag();
 }
 
+fn setup_origin(addr: &std::net::SocketAddr, headers: &HeaderMap) -> &'static str {
+    if is_lan_request(addr, headers) {
+        "lan"
+    } else {
+        "remote"
+    }
+}
+
+fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if host.eq_ignore_ascii_case("localhost")
+        || host.eq_ignore_ascii_case("luna.local")
+        || host.ends_with(".local")
+    {
+        return true;
+    }
+    let ip = client_ip(addr, headers);
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std::net::IpAddr {
+    if let Some(ip) = headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse().ok())
+    {
+        return ip;
+    }
+    if let Some(ip) = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|raw| raw.split(',').next())
+        .and_then(|s| s.trim().parse().ok())
+    {
+        return ip;
+    }
+    addr.ip()
+}
+
 fn enrich_setup(
     setup: &mut SetupState,
     state: &AppState,
@@ -189,7 +195,7 @@ fn enrich_setup(
     headers: &HeaderMap,
 ) {
     setup.connect_active = state.connect.is_connect_active();
-    setup.setup_origin = crate::setup_access::setup_origin(addr, headers).into();
+    setup.setup_origin = setup_origin(addr, headers).into();
 }
 
 async fn get_setup(
@@ -198,7 +204,6 @@ async fn get_setup(
     headers: HeaderMap,
     current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
-    crate::setup_access::check(&state, &addr, &headers)?;
     maybe_fetch_mag(&state);
     let has_users = state.auth.count_users().unwrap_or(0) > 0;
     if has_users && current.is_none() {
@@ -233,7 +238,6 @@ async fn save_setup(
     current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
-    crate::setup_access::check(&state, &addr, &headers)?;
     let has_users = state.auth.count_users().unwrap_or(0) > 0;
     if has_users {
         let Some(Extension(user)) = current else {
@@ -302,13 +306,12 @@ async fn save_setup(
             "Luna couldn't save setup progress.",
         )
     })?;
-    crate::db::set_meta(&conn, SETUP_KEY, &raw)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save setup progress.",
-            )
-        })?;
+    crate::db::set_meta(&conn, SETUP_KEY, &raw).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save setup progress.",
+        )
+    })?;
     enrich_setup(&mut setup, &state, &addr, &headers);
     Ok(Json(setup))
 }

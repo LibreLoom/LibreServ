@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import Button from "../ui/Button";
 import ModalCard from "../cards/ModalCard";
 import ShakeTarget from "../ui/ShakeTarget";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const CONNECT_URL = "https://connect.serv.libreloom.org/onboarding";
 
@@ -78,7 +79,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
           {SERVICES.map(({ icon: Icon, label, desc }) => (
             <div key={label} className="flex items-start gap-3 text-left">
               <div className="flex-shrink-0 w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center mt-0.5">
-                <Icon size={14} className="text-accent" />
+                <Icon size={ICON_SIZE.sm} className="text-accent" />
               </div>
               <div>
                 <span className="font-mono text-sm text-primary">{label}</span>
@@ -99,7 +100,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             )}
           >
             <div className="flex-shrink-0 w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center">
-              <ExternalLink size={18} className="text-accent" />
+              <ExternalLink size={ICON_SIZE.lg} className="text-accent" />
             </div>
             <div className="flex-1 text-left">
               <div className="font-mono text-sm text-primary">Use LibreServ Connect</div>
@@ -107,7 +108,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
                 One signup handles all six services. Free plan available.
               </div>
             </div>
-            <ArrowRight size={16} className="text-accent flex-shrink-0" />
+            <ArrowRight size={ICON_SIZE.md} className="text-accent flex-shrink-0" />
           </button>
 
           <button
@@ -120,7 +121,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             )}
           >
             <div className="flex-shrink-0 w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center">
-              <ArrowRight size={18} className="text-accent" />
+              <ArrowRight size={ICON_SIZE.lg} className="text-accent" />
             </div>
             <div className="flex-1 text-left">
               <div className="font-mono text-sm text-primary">Set up on your own</div>
@@ -231,7 +232,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
         onClick={() => { setMode(null); setError(""); setPopupBlocked(false); }}
         className="flex items-center gap-1.5 text-sm text-accent hover:text-primary mt-6 motion-safe:transition-colors"
       >
-        <ArrowLeft size={14} /> Back
+        <ArrowLeft size={ICON_SIZE.sm} /> Back
       </button>
     </div>
   );

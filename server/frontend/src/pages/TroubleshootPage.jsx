@@ -15,6 +15,7 @@ import {
   Wrench,
   CircleHelp,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import api from "../lib/api";
 import Page from "../components/ui/Page.jsx";
 import PageNotice from "../components/common/PageNotice.jsx";
@@ -216,7 +217,7 @@ export default function TroubleshootPage() {
       <div className="space-y-6">
         {issue === "connect-key" && (
           <PageNotice variant="warning" className="flex items-start gap-3">
-            <CircleHelp size={18} className="text-warning shrink-0 mt-0.5" aria-hidden="true" />
+            <CircleHelp size={ICON_SIZE.lg} className="text-warning shrink-0 mt-0.5" aria-hidden="true" />
             <span>
               A Connect key didn&apos;t work. The check below shows the current state — then work through the steps to get things running again.
             </span>
@@ -236,7 +237,7 @@ export default function TroubleshootPage() {
               disabled={running}
               loading={running}
             >
-              <RefreshCw size={16} /> Re-run checks
+              <RefreshCw size={ICON_SIZE.md} /> Re-run checks
             </Button>
           }
         >
@@ -251,7 +252,7 @@ export default function TroubleshootPage() {
                   <SettingsRow
                     label={
                       <span className="inline-flex items-center gap-2">
-                        <row.icon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <row.icon size={ICON_SIZE.md} className="text-accent shrink-0" aria-hidden="true" />
                         {row.title}
                       </span>
                     }
@@ -292,7 +293,7 @@ export default function TroubleshootPage() {
                   {i === 0 && (
                     <div className="flex items-center gap-3 flex-wrap">
                       <Button onClick={() => setRestartModal(true)} loading={restarting} disabled={restarting}>
-                        {restarting ? <Loader2 className="animate-spin" size={16} /> : <Power size={16} />}
+                        {restarting ? <Loader2 className="animate-spin" size={ICON_SIZE.md} /> : <Power size={ICON_SIZE.md} />}
                         {restarting ? "Restarting…" : "Restart now"}
                       </Button>
                       {restartFailed && (
@@ -305,7 +306,7 @@ export default function TroubleshootPage() {
                   {i === 2 && (
                     <Button asChild variant="outline" size="sm" surface="secondary">
                       <Link to="/settings">
-                        <ExternalLink size={14} /> Go to System Updates in Settings
+                        <ExternalLink size={ICON_SIZE.sm} /> Go to System Updates in Settings
                       </Link>
                     </Button>
                   )}

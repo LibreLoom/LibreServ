@@ -7,6 +7,7 @@ import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import FieldLabel from "../components/common/forms/FieldLabel";
 import Alert from "../components/common/Alert";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 // Password rules mirror the backend + the rest of the app.
 function usePasswordStrength(password) {
@@ -119,7 +120,7 @@ export default function InviteeOnboardingPage() {
 
         {isAdmin && (
           <p className="text-accent text-xs flex items-center justify-center gap-2 mt-3">
-            <ShieldCheck size={14} /> Admin accounts need two-factor authentication —
+            <ShieldCheck size={ICON_SIZE.sm} /> Admin accounts need two-factor authentication —
             you'll set it up after this step.
           </p>
         )}

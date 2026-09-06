@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const variants = {
   default:
@@ -71,7 +72,7 @@ export default function CardButton({
   const label = children ?? actionLabel;
   const content = (
     <>
-      {Icon && <Icon size={16} className="shrink-0" />}
+      {Icon && <Icon size={ICON_SIZE.md} className="shrink-0" />}
       <span
         className={cn("text-sm font-medium", align !== "center" && "flex-1 text-left")}
       >

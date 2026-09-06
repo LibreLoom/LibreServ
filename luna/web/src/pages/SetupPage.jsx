@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
-import { getJson, postJson, setSetupToken, clearSetupToken, ApiError } from "../lib/api";
+import { getJson, postJson, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
 import {
   PASSWORD_POLICY_HINT,
@@ -24,7 +24,6 @@ import TextLink from "../components/ui/TextLink";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
-  SETUP_CODE: "setup_code",
   WELCOME:    "welcome",
   PREFLIGHT:  "preflight",
   NETWORK:    "network", // legacy saved progress only — no user-facing step (ethernet-only)
@@ -32,14 +31,6 @@ const STEP = {
   NAME:       "name",
   DONE:       "done",
 };
-
-/** Remote setup unlock: machine code from lunad, or resilient message match. */
-function isSetupTokenUnlockError(err) {
-  if (!(err instanceof ApiError) || err.status !== 403) return false;
-  if (err.code === "setup_token_required") return true;
-  // Live + legacy lunad copy: device token / first eight / older "setup code".
-  return /device token|first eight|setup code|Remote setup/i.test(err.message || "");
-}
 
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
@@ -56,6 +47,52 @@ function SetupShell({ children }) {
   );
 }
 SetupShell.propTypes = { children: PropTypes.node.isRequired };
+
+// One-shot slide-in wrapper. Chrome can replay CSS animations on :focus / style
+// recalculation while animation-name is still set, so we drop the animate-in /
+// slide-in-from-*-pop classes after the entrance finishes. Remount via `key`
+// (step or substep) to play again on the next transition.
+const ONE_SHOT_SLIDE_MS = 300;
+
+function OneShotSlide({ children, className = "", direction = "right", enabled = true }) {
+  const [done, setDone] = useState(false);
+  const animating = enabled && !done;
+
+  // Timeout fallback matches ModalCard: animationend can be skipped (reduced
+  // motion, jsdom) and must not leave animation-name live permanently.
+  useEffect(() => {
+    if (!animating) return undefined;
+    const id = window.setTimeout(() => setDone(true), ONE_SHOT_SLIDE_MS);
+    return () => window.clearTimeout(id);
+  }, [animating]);
+
+  return (
+    <div
+      data-slot="one-shot-slide"
+      className={cn(
+        className,
+        animating && "animate-in duration-300",
+        animating && (direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
+      )}
+      // backwards (not both): drop the transform after the slide so focused
+      // inputs inside don't jump on a leftover compositing layer.
+      style={animating ? { animationFillMode: "backwards" } : undefined}
+      onAnimationEnd={(event) => {
+        // Ignore bubbled animationend from children (fade-ins, etc.).
+        if (event.target !== event.currentTarget) return;
+        setDone(true);
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+OneShotSlide.propTypes = {
+  children:  PropTypes.node.isRequired,
+  className: PropTypes.string,
+  direction: PropTypes.oneOf(["left", "right"]),
+  enabled:   PropTypes.bool,
+};
 
 // ─── Card surface (bg-secondary = inverted, high contrast) ───────────────────
 // All step content lives on this card. Text inside uses text-primary (inverted).
@@ -79,15 +116,9 @@ function SetupCard({ children, className = "", header = null }) {
     >
       <div ref={innerRef} className="px-10 py-10">
         {header}
-        <div
-          key={tKey}
-          className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          // backwards (not both): drop the transform after the slide so focused
-          // inputs inside the card don't jump on a leftover compositing layer.
-          style={{ animationFillMode: "backwards" }}
-        >
+        <OneShotSlide key={tKey} className={className} direction={direction}>
           {children}
-        </div>
+        </OneShotSlide>
       </div>
     </div>
   );
@@ -194,99 +225,7 @@ WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
 };
 
-// ─── STEP: Setup token prefix (remote unlock) ─────────────────────────────────
-function SetupCodeStep({ onCodeVerified }) {
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const normalize = (raw) =>
-    String(raw || "")
-      .toUpperCase()
-      .replace(/[^0-9A-Z]/g, "");
-
-  const handleSubmit = async () => {
-    const trimmed = normalize(code);
-    if (trimmed.length !== 8) {
-      setError("Enter the first eight characters (****-****) from your device token.");
-      return;
-    }
-    const grouped = `${trimmed.slice(0, 4)}-${trimmed.slice(4)}`;
-    setLoading(true);
-    setError("");
-    try {
-      await postJson("/api/v1/setup/validate-code", { code: grouped });
-      setSetupToken(grouped);
-      onCodeVerified(grouped);
-    } catch (err) {
-      const msg =
-        err instanceof ApiError && err.status === 429
-          ? "Too many tries. Wait a minute and try again."
-          : err?.message ||
-            "That token doesn't match. Check the first eight characters on your device card.";
-      setError(msg);
-      clearSetupToken();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col items-center text-center">
-      <div className="mb-10">
-        <LogoMark size={120} />
-      </div>
-      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Your device token
-      </h1>
-      <p className="text-primary text-base leading-relaxed mb-10 max-w-[22rem]">
-        From a phone or another computer, Luna asks for the first eight characters of your device token (****-****). Find them on the card in your Luna box, or on the Luna Connect page.
-      </p>
-      <div className="w-full mb-6">
-        <ShakeTarget shake={error}>
-          <input
-            className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
-            placeholder="XXXX-XXXX"
-            value={code}
-            onChange={(e) => {
-              const raw = String(e.target.value || "");
-              const n = normalize(raw);
-              setCode(n.length > 4 ? `${n.slice(0, 4)}-${n.slice(4, 8)}` : n);
-              setError("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !loading) handleSubmit();
-            }}
-            autoComplete="off"
-            autoFocus
-            disabled={loading}
-            aria-label="Device token"
-            aria-invalid={Boolean(error)}
-          />
-        </ShakeTarget>
-      </div>
-      {error && (
-        <div className="flex items-center gap-2 text-error text-sm mb-6">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-      <Button
-        variant="primary"
-        onClick={handleSubmit}
-        loading={loading}
-        disabled={loading || normalize(code).length !== 8}
-        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
-      >
-        Continue
-        <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-      </Button>
-    </div>
-  );
-}
-SetupCodeStep.propTypes = {
-  onCodeVerified: PropTypes.func.isRequired,
-};
 
 // ─── Password strength (same policy as LibreServ + lunad) ─────────────────────
 // Acceptable = 12+ chars, a letter, and a digit. Symbols strengthen the bar but
@@ -358,7 +297,7 @@ FormField.propTypes = {
 // SetupCard already slides the whole account step in. Playing the same
 // slide-in-from-*-pop again on the first field stacked two scales on the
 // name input (and autoFocus hit mid-animation), so it jumped when selected.
-const ACCOUNT_STEP_SLIDE_MS = 300;
+// Wait for OneShotSlide's entrance (ONE_SHOT_SLIDE_MS) before focusing.
 
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
@@ -443,7 +382,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       hint: "Paste the device token from connect.luna.libreloom.org after you named this Luna. It confirms you finished setup there, so nobody else on the internet can create this first login.",
       name: "setup_secret",
       type: "text",
-      placeholder: "Paste from Luna Connect",
+      placeholder: "Paste the device token from Luna Connect",
       autoComplete: "off",
       valid: setupSecretOk,
     });
@@ -468,7 +407,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   // substeps focus immediately after the keyed field mounts.
   useEffect(() => {
     if (hasAdmin) return undefined;
-    const delay = animateAuthSub ? 0 : ACCOUNT_STEP_SLIDE_MS;
+    const delay = animateAuthSub ? 0 : ONE_SHOT_SLIDE_MS;
     const id = window.setTimeout(() => {
       fieldInputRef.current?.focus?.();
     }, delay);
@@ -594,13 +533,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
       <form onSubmit={handleSubSubmit} className="text-left">
         <ShakeTarget shake={fieldError}>
-          <div
+          <OneShotSlide
             key={`register-${authSubStep}`}
-            className={cn(
-              animateAuthSub && "animate-in duration-300",
-              animateAuthSub && (authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
-            )}
-            style={animateAuthSub ? { animationFillMode: "backwards" } : undefined}
+            enabled={animateAuthSub}
+            direction={authSubDir}
           >
             <label
               htmlFor={currentAuthField.id}
@@ -678,7 +614,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 Passwords don&rsquo;t match
               </p>
             )}
-          </div>
+          </OneShotSlide>
         </ShakeTarget>
 
         {fieldError && (
@@ -931,7 +867,7 @@ export default function SetupPage() {
           if (savedStep === STEP.WELCOME && savedData.preflight_passed) {
             next = STEP.ACCOUNT;
           }
-          if (!STEP_ORDER.includes(next) && next !== STEP.SETUP_CODE) {
+          if (!STEP_ORDER.includes(next)) {
             next = STEP.WELCOME;
           }
         }
@@ -949,12 +885,7 @@ export default function SetupPage() {
           next = STEP.NAME;
         }
         setStep(next);
-      } catch (err) {
-        if (isSetupTokenUnlockError(err)) {
-          clearSetupToken();
-          if (alive) setStep(STEP.SETUP_CODE);
-          return;
-        }
+      } catch {
         // After the first account exists, setup reads are signed-in only. If an
         // admin exists but this browser isn't signed in, land on the account
         // step so they can sign in and finish — not Welcome.
@@ -1001,13 +932,7 @@ export default function SetupPage() {
     savingRef.current = true;
     try {
       await saveProgress(nextStep, data);
-    } catch (err) {
-      if (isSetupTokenUnlockError(err)) {
-        clearSetupToken();
-        setStep(STEP.SETUP_CODE);
-        savingRef.current = false;
-        return;
-      }
+    } catch {
       try {
         await saveProgress(nextStep, data);
       } catch {
@@ -1021,9 +946,6 @@ export default function SetupPage() {
     setStep(nextStep);
   }, [saveProgress]);
 
-  const handleCodeVerified = useCallback(() => {
-    setStep(STEP.WELCOME);
-  }, []);
   const handleBegin = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };
     advanceStep(STEP.PREFLIGHT, data);
@@ -1064,11 +986,7 @@ export default function SetupPage() {
   }
 
   let renderedStep;
-  if (step === STEP.SETUP_CODE) {
-    renderedStep = (
-      <SetupCodeStep onCodeVerified={handleCodeVerified} />
-    );
-  } else if (step === STEP.WELCOME) {
+  if (step === STEP.WELCOME) {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
   } else if (step === STEP.PREFLIGHT) {
     renderedStep = <PreflightStep onPass={handlePreflightPass} />;
@@ -1091,11 +1009,10 @@ export default function SetupPage() {
   // active dot's width smoothly transitions (transition-all) and the card
   // resizes smoothly (useAnimatedHeight) as you move between steps — only the
   // inner content remounts and slides. Each step is content-only for this.
-  const showDots = step !== STEP.SETUP_CODE;
   return (
     <StepTransitionProvider stepKey={step} direction={animationDirection}>
       <SetupShell>
-        <SetupCard header={showDots ? <StepDots current={step} /> : null}>
+        <SetupCard header={<StepDots current={step} />}>
           {saveError && (
             <div className="mb-6 flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />

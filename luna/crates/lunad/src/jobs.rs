@@ -454,7 +454,7 @@ fn plain_job_error(err: &JobError) -> String {
         JobError::Conflict => "A file or folder with this name is already there.".into(),
         JobError::Symlink => "Luna can't copy links yet.".into(),
         JobError::Files(FilesError::UnknownDrive) => {
-            "Luna doesn't know one of these drives.".into()
+            "Luna doesn't know one of these drives. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into()
         }
         JobError::Files(FilesError::Path(_)) => "Luna can't use that path.".into(),
         JobError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {

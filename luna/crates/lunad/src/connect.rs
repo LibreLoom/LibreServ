@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
@@ -13,6 +14,13 @@ const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 pub const STEADY_POLL_SECS: u64 = 300;
 /// Fast pull while setup is open and the tunnel is not running yet.
 pub const AGGRESSIVE_POLL_SECS: u64 = 10;
+
+/// End-to-end Connect HTTP budget. ureq 3 defaults to *no* timeout — without this,
+/// wedged DNS/TCP during late network bring-up can freeze the Connect poll thread
+/// until reboot (sticky "Luna will keep trying").
+const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+/// TCP/TLS connect budget inside the global timeout.
+const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Permanent Luna Connect device token (`{data_dir}/device-token`).
 /// Connect is inactive until this file holds a valid token.
@@ -32,8 +40,10 @@ pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote 
 pub const TUNNEL_START_FAILED_MSG: &str =
     "Luna could not start remote access. Luna will keep trying.";
 /// Hostname is set but Connect has not given Luna a tunnel secret yet.
-pub const TUNNEL_TOKEN_MISSING_MSG: &str =
-    "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
+pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
+/// Hostname/token exist but lunad does not see a live connector yet.
+pub const TUNNEL_NOT_RUNNING_MSG: &str =
+    "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 const MIN_CLOUDFLARED_BYTES: u64 = 1024;
@@ -89,6 +99,9 @@ pub struct ConnectService {
     device_key: [u8; 32],
     child: Arc<Mutex<Option<Child>>>,
     active_tunnel_token: Arc<Mutex<Option<String>>>,
+    /// Serializes ensure/stop so concurrent poll + supervisor ticks cannot drop a
+    /// live `Child` handle and leave an orphaned connector Luna thinks is down.
+    tunnel_mu: Mutex<()>,
     /// Sticky until a later poll succeeds or the token is replaced/removed.
     rejected_token: Mutex<bool>,
     /// Sticky user-facing reachability/challenge message while a device token is present.
@@ -113,6 +126,7 @@ impl ConnectService {
             device_key,
             child: Arc::new(Mutex::new(None)),
             active_tunnel_token: Arc::new(Mutex::new(None)),
+            tunnel_mu: Mutex::new(()),
             rejected_token: Mutex::new(false),
             connect_unreachable: Mutex::new(None),
             tunnel_error: Mutex::new(None),
@@ -136,7 +150,7 @@ impl ConnectService {
         let mut status = self.status_inner();
         let token_error = self.device_token_error();
         let unreachable = self.connect_unreachable_message();
-        let tunnel_err = self.tunnel_error_message();
+        let mut tunnel_err = self.tunnel_error_message();
         if token_error.is_some() {
             status.enabled = false;
             status.paired = false;
@@ -146,6 +160,17 @@ impl ConnectService {
             status.domain = None;
             status.subdomain = None;
             status.setup_code = None;
+        }
+        // HDMI console and the web UI both read tunnel_error — synthesize the
+        // "not running yet" case so they stay in sync when the connector is down.
+        if tunnel_err.is_none()
+            && status.connect_active
+            && status.enabled
+            && status.hostname.is_some()
+            && !status.tunnel_active
+            && token_error.is_none()
+        {
+            tunnel_err = Some(TUNNEL_NOT_RUNNING_MSG.to_string());
         }
         status.device_token_error = token_error;
         status.connect_unreachable = unreachable;
@@ -159,7 +184,7 @@ impl ConnectService {
 
     /// True when `{data_dir}/device-token` exists and holds a valid device token.
     pub fn has_valid_device_code(&self) -> bool {
-        self.setup_prefix().is_some()
+        self.device_code().is_ok()
     }
 
     /// Alias for API clarity.
@@ -386,13 +411,17 @@ impl ConnectService {
     }
 
     /// Seconds until the next status pull. Aggressive while the tunnel connector is not
-    /// healthy yet (setup wizard open, or Connect already assigned a hostname/token).
+    /// healthy yet (setup wizard open, or Connect already assigned a hostname/token),
+    /// or while the last pull reported Connect unreachable/challenged.
     /// Steady 5 minutes once cloudflared is running (or Connect is inactive).
     pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
-        if self.tunnel_ready() {
+        if self.tunnel_ready() && self.connect_unreachable_msg().is_none() {
             return STEADY_POLL_SECS;
         }
-        if setup_wizard_open || self.expects_tunnel_connector() {
+        if setup_wizard_open
+            || self.expects_tunnel_connector()
+            || self.connect_unreachable_msg().is_some()
+        {
             AGGRESSIVE_POLL_SECS
         } else {
             STEADY_POLL_SECS
@@ -637,34 +666,6 @@ impl ConnectService {
             .ok_or_else(|| ConnectError::Other("This Luna has no device token yet.".into()))
     }
 
-    /// Setup unlock prefix: first eight Crockford characters (XXXX-XXXX).
-    /// None when the device-token file is missing or malformed (fail closed for remote setup).
-    pub fn setup_prefix(&self) -> Option<String> {
-        let code = self.read_device_token()?;
-        let norm = normalize_setup_code(&code);
-        if !is_device_token_format(&norm) || norm.len() < 8 {
-            return None;
-        }
-        Some(group_device_token(&norm[..8]))
-    }
-
-    /// Constant-time-ish compare of a submitted unlock code against the on-disk prefix.
-    pub fn matches_setup_prefix(&self, submitted: &str) -> bool {
-        let Some(expected) = self.setup_prefix() else {
-            return false;
-        };
-        let got = normalize_setup_code(submitted);
-        let exp = normalize_setup_code(&expected);
-        if got.len() != 8 || exp.len() != 8 {
-            return false;
-        }
-        got.as_bytes()
-            .iter()
-            .zip(exp.as_bytes())
-            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-            == 0
-    }
-
     pub fn token(&self) -> Result<String, ConnectError> {
         self.device_code()
     }
@@ -762,6 +763,10 @@ impl ConnectService {
             rel.trim_start_matches('/')
         );
         let result = ureq::put(&url)
+            .config()
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+            .build()
             .header("Authorization", format!("Bearer {token}"))
             .send(bytes);
         result.map(|_| ()).map_err(map_transport_error)
@@ -775,6 +780,10 @@ impl ConnectService {
             rel.trim_start_matches('/')
         );
         ureq::delete(&url)
+            .config()
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+            .build()
             .header("Authorization", format!("Bearer {token}"))
             .call()
             .map(|_| ())
@@ -797,6 +806,7 @@ impl ConnectService {
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
+        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.load();
         let token = state
             .get("tunnel_token")
@@ -826,7 +836,18 @@ impl ConnectService {
             self.clear_tunnel_error();
             return Ok(());
         }
-        self.stop_tunnel();
+        self.stop_tunnel_unlocked();
+
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        // Reap connectors left behind when a prior lunad lost its Child handle
+        // (hard kill / race). Without this, remote access stays up while
+        // tunnel_active stays false and HDMI complains.
+        reap_stale_cloudflared(&cloudflared_candidate_paths(&local));
 
         let bin = self.resolve_or_install_cloudflared()?;
 
@@ -890,7 +911,10 @@ impl ConnectService {
 
         self.clear_tunnel_error();
         *self.active_tunnel_token.lock().unwrap() = Some(token);
-        *self.child.lock().unwrap() = Some(child);
+        if let Some(mut old) = self.child.lock().unwrap().replace(child) {
+            let _ = old.kill();
+            let _ = old.wait();
+        }
         Ok(())
     }
 
@@ -939,11 +963,25 @@ impl ConnectService {
     }
 
     fn stop_tunnel(&self) {
+        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
+        self.stop_tunnel_unlocked();
+    }
+
+    fn stop_tunnel_unlocked(&self) {
         *self.active_tunnel_token.lock().unwrap() = None;
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        // Pairing off / token revoke must also clear orphans, or remote access
+        // stays up after Luna thinks Connect is gone.
+        reap_stale_cloudflared(&cloudflared_candidate_paths(&local));
     }
 
     /// Status pull reports Luna's HTTP listen port so Connect can aim the tunnel at the right origin.
@@ -958,6 +996,8 @@ impl ConnectService {
         let mut req = ureq::get(&url)
             .config()
             .http_status_as_error(false)
+            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
             .build()
             .header("Authorization", format!("Bearer {code}"));
         if self.local_port > 0 {
@@ -994,23 +1034,35 @@ impl ConnectService {
         if !(200..300).contains(&status) {
             return Err(ConnectError::Unreachable);
         }
-        serde_json::from_str(&body)
-            .map_err(|_| ConnectError::Other("Luna Connect answered, but Luna could not use the reply. Luna will try again.".into()))
+        serde_json::from_str(&body).map_err(|_| {
+            ConnectError::Other(
+                "Luna Connect answered, but Luna could not use the reply. Luna will try again."
+                    .into(),
+            )
+        })
     }
 
     fn tunnel_running(&self) -> bool {
         let mut g = self.child.lock().unwrap();
         if let Some(child) = g.as_mut() {
             match child.try_wait() {
-                Ok(None) => true,
+                Ok(None) => return true,
                 _ => {
                     *g = None;
-                    false
                 }
             }
-        } else {
-            false
         }
+        drop(g);
+        // Child handle can be lost (prior race / hard restart) while cloudflared
+        // keeps the tunnel up. Count those unmanaged connectors so HDMI/API match
+        // reality until ensure_tunnel reaps and re-owns them.
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        external_cloudflared_running(&cloudflared_candidate_paths(&local))
     }
 
     fn call_json(
@@ -1037,7 +1089,12 @@ impl ConnectService {
         // Allow reading non-2xx bodies (CF challenge HTML vs Connect JSON).
         let result = match (method, body) {
             ("GET", _) => {
-                let mut req = ureq::get(&url).config().http_status_as_error(false).build();
+                let mut req = ureq::get(&url)
+                    .config()
+                    .http_status_as_error(false)
+                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+                    .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
@@ -1047,6 +1104,8 @@ impl ConnectService {
                 let mut req = ureq::post(&url)
                     .config()
                     .http_status_as_error(false)
+                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1057,6 +1116,8 @@ impl ConnectService {
                 let mut req = ureq::post(&url)
                     .config()
                     .http_status_as_error(false)
+                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
+                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1096,8 +1157,12 @@ impl ConnectService {
         if !(200..300).contains(&status) {
             return Err(map_transport_error(ureq::Error::StatusCode(status)));
         }
-        serde_json::from_str(&body_text)
-            .map_err(|_| ConnectError::Other("Luna Connect answered, but Luna could not use the reply. Luna will try again.".into()))
+        serde_json::from_str(&body_text).map_err(|_| {
+            ConnectError::Other(
+                "Luna Connect answered, but Luna could not use the reply. Luna will try again."
+                    .into(),
+            )
+        })
     }
 
     fn load(&self) -> Value {
@@ -1148,6 +1213,64 @@ fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {
     ]
 }
 
+/// True when a /proc cmdline belongs to a Luna-managed `cloudflared tunnel run`.
+fn stale_cloudflared_cmdline(cmdline: &str, bin_path: &Path) -> bool {
+    let flat = cmdline.replace('\0', " ");
+    let marker = format!("{} tunnel --no-autoupdate run", bin_path.display());
+    flat.contains(&marker)
+}
+
+/// PIDs of cloudflared tunnel processes started from one of `bin_paths`.
+fn cloudflared_tunnel_pids(bin_paths: &[PathBuf]) -> Vec<i32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid_str) = name.to_str() else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<i32>() else {
+            continue;
+        };
+        let cmdline_path = entry.path().join("cmdline");
+        let Ok(raw) = std::fs::read(&cmdline_path) else {
+            continue;
+        };
+        let cmdline = String::from_utf8_lossy(&raw);
+        if bin_paths
+            .iter()
+            .any(|bin| stale_cloudflared_cmdline(&cmdline, bin))
+        {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+fn external_cloudflared_running(bin_paths: &[PathBuf]) -> bool {
+    !cloudflared_tunnel_pids(bin_paths).is_empty()
+}
+
+/// Send SIGINT to unmanaged cloudflared processes from our known binary paths.
+fn reap_stale_cloudflared(bin_paths: &[PathBuf]) {
+    for pid in cloudflared_tunnel_pids(bin_paths) {
+        tracing::info!(pid, "reaping stale cloudflared tunnel process");
+        let _ = nix_kill(pid);
+    }
+}
+
+fn nix_kill(pid: i32) -> std::io::Result<()> {
+    // Avoid depending on the `nix` crate — libc kill is enough here.
+    let rc = unsafe { libc::kill(pid, libc::SIGINT) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 fn cloudflared_arch() -> &'static str {
     match std::env::consts::ARCH {
         "aarch64" | "arm64" => "arm64",
@@ -1190,8 +1313,17 @@ fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
     let tmp = parent.join("cloudflared.tmp");
     let _ = std::fs::remove_file(&tmp);
 
+    // Bound downloads: an unbounded curl/wget on a half-up network stalls the
+    // Connect poll thread the same way an unbounded ureq call does.
     let downloaded = if Command::new("curl")
-        .args(["-fsSL", "-o"])
+        .args([
+            "-fsSL",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "120",
+            "-o",
+        ])
         .arg(&tmp)
         .arg(&url)
         .status()
@@ -1201,7 +1333,7 @@ fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
         true
     } else {
         Command::new("wget")
-            .args(["-q", "-O"])
+            .args(["-q", "--timeout=30", "--tries=2", "-O"])
             .arg(&tmp)
             .arg(&url)
             .status()
@@ -1361,7 +1493,7 @@ mod tests {
         let st = service.status();
         assert!(!st.connect_active);
         assert!(!st.enabled);
-        assert!(service.setup_prefix().is_none());
+        assert!(!service.has_valid_device_code());
         assert!(!service.poll_status());
     }
 
@@ -1403,27 +1535,23 @@ mod tests {
             service.set_oss_code("a1b2c3").is_err(),
             "short hex must be rejected"
         );
-        assert_eq!(service.setup_prefix().as_deref(), Some("3097-V4YK"));
-        assert!(service.matches_setup_prefix("3097-V4YK"));
-        assert!(service.matches_setup_prefix("3097v4yk"));
-        assert!(!service.matches_setup_prefix("3097-XXXX"));
+        assert!(service.has_valid_device_code());
     }
 
     #[test]
-    fn missing_device_code_refuses_prefix_match() {
+    fn missing_device_code_invalid() {
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(service.setup_prefix().is_none());
-        assert!(!service.matches_setup_prefix("ABCD-EFGH"));
+        assert!(!service.has_valid_device_code());
+        assert!(service.device_code().is_err());
     }
 
     #[test]
-    fn malformed_device_code_refuses_prefix() {
+    fn malformed_device_code_invalid() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(service.setup_prefix().is_none());
-        assert!(!service.matches_setup_prefix("ABCD-EFGH"));
+        assert!(!service.has_valid_device_code());
     }
 
     #[test]
@@ -1537,11 +1665,109 @@ mod tests {
             TUNNEL_HELPER_MISSING_MSG,
             TUNNEL_START_FAILED_MSG,
             TUNNEL_TOKEN_MISSING_MSG,
+            TUNNEL_NOT_RUNNING_MSG,
         ] {
             assert!(msg.contains("keep trying"), "{msg}");
             assert!(!msg.contains("cloudflared"), "{msg}");
             assert!(!msg.contains("1033"), "{msg}");
         }
+    }
+
+    #[test]
+    fn status_synthesizes_tunnel_not_running_when_hostname_without_connector() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "subdomain": "photos",
+                "tunnel_token": "real-looking-token-not-mock",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+        let st = service.status();
+        assert!(st.enabled);
+        assert!(!st.tunnel_active);
+        assert_eq!(st.tunnel_error.as_deref(), Some(TUNNEL_NOT_RUNNING_MSG));
+    }
+
+    #[test]
+    fn stale_cloudflared_cmdline_matches_token_and_env_forms() {
+        let bin = PathBuf::from("/var/lib/luna/bin/cloudflared");
+        assert!(stale_cloudflared_cmdline(
+            "/var/lib/luna/bin/cloudflared\0tunnel\0--no-autoupdate\0run\0--token\0abc",
+            &bin
+        ));
+        assert!(stale_cloudflared_cmdline(
+            "/var/lib/luna/bin/cloudflared tunnel --no-autoupdate run",
+            &bin
+        ));
+        assert!(!stale_cloudflared_cmdline(
+            "/usr/bin/cloudflared\0tunnel\0--no-autoupdate\0run\0--token\0abc",
+            &bin
+        ));
+        assert!(!stale_cloudflared_cmdline(
+            "/var/lib/luna/bin/cloudflared\0tunnel\0run",
+            &bin
+        ));
+    }
+
+    #[test]
+    fn tunnel_active_when_unmanaged_cloudflared_still_alive() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let fake = bin_dir.join("cloudflared");
+        let mut body = String::from(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\nsleep 3600\n",
+        );
+        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
+            body.push('#');
+        }
+        std::fs::write(&fake, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let mut orphan = Command::new(&fake)
+            .args([
+                "tunnel",
+                "--no-autoupdate",
+                "run",
+                "--token",
+                "orphan-token",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake cloudflared");
+
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "orphan-token",
+                "paired": true,
+                "bound": true,
+            }))
+            .unwrap();
+
+        // Give /proc a moment; then HDMI/API must see the unmanaged connector.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let st = service.status();
+        let _ = orphan.kill();
+        let _ = orphan.wait();
+        assert!(
+            st.tunnel_active,
+            "unmanaged cloudflared must count as tunnel_active so HDMI does not false-alarm"
+        );
+        assert!(st.tunnel_error.is_none());
     }
 
     #[test]
@@ -1625,6 +1851,54 @@ mod tests {
             service.poll_interval_secs(true),
             STEADY_POLL_SECS,
             "tunnel ready during setup should slow polling"
+        );
+    }
+
+    #[test]
+    fn poll_interval_aggressive_while_connect_unreachable() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        assert!(!service.poll_status());
+        assert_eq!(
+            service.status().connect_unreachable.as_deref(),
+            Some(CONNECT_UNREACHABLE_MSG)
+        );
+        assert_eq!(
+            service.poll_interval_secs(false),
+            AGGRESSIVE_POLL_SECS,
+            "after a failed reachability check Luna must keep trying quickly once the network is up"
+        );
+    }
+
+    #[test]
+    fn poll_hanging_peer_times_out_instead_of_blocking_forever() {
+        use std::time::Instant;
+        // Accept the TCP handshake in the kernel backlog but never speak HTTP.
+        // Without CONNECT_HTTP_TIMEOUT this used to freeze luna-connect-status.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _keeper = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            drop(listener);
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(format!("http://{addr}")));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        let started = Instant::now();
+        assert!(!service.poll_status());
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < CONNECT_HTTP_TIMEOUT + Duration::from_secs(10),
+            "poll must return within the HTTP timeout budget, got {elapsed:?}"
+        );
+        assert!(
+            elapsed >= Duration::from_secs(1),
+            "expected the hanging peer to consume some of the timeout, got {elapsed:?}"
+        );
+        assert_eq!(
+            service.status().connect_unreachable.as_deref(),
+            Some(CONNECT_UNREACHABLE_MSG)
         );
     }
 

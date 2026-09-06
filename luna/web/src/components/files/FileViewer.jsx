@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Check, Download, Maximize2, Minimize2, Save } from "lucide-react";
+import { Check, Download, Maximize2, Save, X } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
@@ -33,12 +34,45 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const previewKey = `${driveId}:${path}:${open}`;
   const [expandedScope, setExpandedScope] = useState(previewKey);
+  const exitButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const fullViewButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const wasExpandedRef = useRef(false);
 
   if (expandedScope !== previewKey) {
     setExpandedScope(previewKey);
     setExpanded(false);
     setError(null);
   }
+
+  useEffect(() => {
+    if (wasExpandedRef.current && !expanded) {
+      fullViewButtonRef.current?.focus();
+    }
+    wasExpandedRef.current = expanded;
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+
+    exitButtonRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        setExpanded(false);
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        exitButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [expanded]);
 
   useEffect(() => {
     if (!open || !path || kind !== "text") return undefined;
@@ -95,75 +129,77 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
           : name;
 
   const isDirty = text !== savedText;
-
-  const modalSize = kind === "image" && expanded ? "fullscreen" : "lg";
+  const canFullView = kind === "image" || kind === "video";
 
   return (
-    <ModalCard open={open} title={title} size={modalSize} onClose={onClose}>
-      {({ close }) => (
-        <>
-          {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
+    <>
+      <ModalCard
+        open={open}
+        title={title}
+        size="lg"
+        onClose={onClose}
+        overlayClassName={expanded ? "invisible pointer-events-none" : ""}
+      >
+        {({ close }) => (
+          <>
+            {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
-          {kind === "image" && (
-            <ImagePreviewPanel
-              key={contentHref(driveId, path)}
-              src={contentHref(driveId, path)}
-              alt={name}
-              expanded={expanded}
-            />
-          )}
-
-          {kind === "video" && (
-            <div className="rounded-large-element bg-primary text-secondary p-2">
-              <video
-                controls
-                className="w-full max-h-[65vh] rounded-large-element"
-                src={contentHref(driveId, path)}
-              >
-                Your browser cannot play this video. Download it instead.
-              </video>
-            </div>
-          )}
-
-          {kind === "text" && (
-            loading ? (
-              <p className="text-primary text-sm">Opening…</p>
-            ) : (
-              <ShakeTarget shake={error}>
-                <textarea
-                  className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm outline-none focus:border-accent"
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  spellCheck={false}
-                  readOnly={!canWrite}
-                  aria-label={`Contents of ${name}`}
-                />
-              </ShakeTarget>
-            )
-          )}
-
-          {!kind && (
-            <p className="text-primary text-sm">
-              Luna cannot open this kind of file yet. You can download it instead.
-            </p>
-          )}
-
-          <div className="mt-4 flex flex-wrap gap-3">
             {kind === "image" && (
-              <Button
-                variant="outline"
-                surface="secondary"
-                aria-label={expanded ? "Normal size" : "Full view"}
-                onClick={() => setExpanded((value) => !value)}
-              >
-                {expanded ? (
-                  <Minimize2 size={14} aria-hidden="true" />
-                ) : (
-                  <Maximize2 size={14} aria-hidden="true" />
-                )}
-                {expanded ? "Normal size" : "Full view"}
-              </Button>
+              <ImagePreviewPanel
+                key={contentHref(driveId, path)}
+                src={contentHref(driveId, path)}
+                alt={name}
+              />
             )}
+
+            {kind === "video" && (
+              <div className="rounded-large-element bg-primary text-secondary p-2">
+                <video
+                  controls
+                  className="w-full max-h-[65vh] rounded-large-element"
+                  src={contentHref(driveId, path)}
+                >
+                  Your browser cannot play this video. Download it instead.
+                </video>
+              </div>
+            )}
+
+            {kind === "text" && (
+              loading ? (
+                <p className="text-primary text-sm">Opening…</p>
+              ) : (
+                <ShakeTarget shake={error}>
+                  <textarea
+                    className="w-full min-h-[50vh] rounded-large-element bg-primary text-secondary border-2 border-secondary/30 p-4 font-mono text-sm outline-none focus:border-accent"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    spellCheck={false}
+                    readOnly={!canWrite}
+                    aria-label={`Contents of ${name}`}
+                  />
+                </ShakeTarget>
+              )
+            )}
+
+            {!kind && (
+              <p className="text-primary text-sm">
+                Luna cannot open this kind of file yet. You can download it instead.
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              {canFullView && (
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  aria-label="Full view"
+                  ref={fullViewButtonRef}
+                  onClick={() => setExpanded(true)}
+                >
+                  <Maximize2 size={14} aria-hidden="true" />
+                  Full view
+                </Button>
+              )}
             {kind === "text" && canWrite && (
               <Button
                 variant="accent"
@@ -198,6 +234,48 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
         </>
       )}
     </ModalCard>
+
+    {open && expanded && canFullView && createPortal(
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={name}
+        /* color-scan: ignore-next-line cinema full-screen backdrop */
+        className="fixed inset-0 z-[80] flex items-center justify-center bg-black motion-safe:transition-opacity motion-safe:duration-200"
+      >
+        <button
+          ref={exitButtonRef}
+          type="button"
+          /* color-scan: ignore-next-line cinema ghost exit button */
+          className="absolute top-4 right-4 md:top-6 md:right-6 z-10 flex h-10 w-10 items-center justify-center rounded-pill bg-white/10 text-white hover:bg-white/20 active:bg-white/30 motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black no-focus-outline"
+          onClick={() => setExpanded(false)}
+          aria-label="Exit full view"
+        >
+          <X size={22} aria-hidden="true" />
+        </button>
+
+        <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-4 md:p-6">
+          {kind === "video" ? (
+            <video
+              controls
+              autoPlay
+              className="max-h-full max-w-full rounded-large-element"
+              src={contentHref(driveId, path)}
+            >
+              Your browser cannot play this video. Download it instead.
+            </video>
+          ) : (
+            <img
+              src={contentHref(driveId, path)}
+              alt={name}
+              className="max-h-full max-w-full object-contain select-none motion-safe:animate-page-enter"
+            />
+          )}
+        </div>
+      </div>,
+      document.body,
+    )}
+  </>
   );
 }
 

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
 import { useState, useEffect, useCallback, useMemo, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
@@ -38,8 +39,10 @@ const LOGIN_GATE_STEPS = new Set([STEP.MFA]);
 
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
-const WIZARD_INPUT_CLASS =
-  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
+const WIZARD_INPUT_CLASS = cn(
+  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150",
+  PLACEHOLDER_TEXT,
+);
 
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {
@@ -68,6 +71,10 @@ SetupShell.propTypes = { children: PropTypes.node.isRequired };
 function SetupCard({ children, className = "", header = null }) {
   const { outerRef, innerRef } = useAnimatedHeight();
   const { key: tKey, direction } = useContext(StepTransitionContext);
+  // Drop the slide classes once the entrance animation finishes so that Chrome
+  // can't replay them when a child input receives :focus or a style-recalc
+  // fires (the animation-name stays live on the element otherwise).
+  const [sliding, setSliding] = useState(true);
   return (
     <div
       ref={outerRef}
@@ -78,10 +85,15 @@ function SetupCard({ children, className = "", header = null }) {
         {header}
         <div
           key={tKey}
-          className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
-          // backwards (not both): drop the transform after the slide so focused
-          // inputs inside the card don't jump on a leftover compositing layer.
-          style={{ animationFillMode: "backwards" }}
+          className={cn(
+            className,
+            sliding && "animate-in duration-300",
+            sliding && (direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"),
+          )}
+          // backwards (not both): during the slide, hold the from-state before
+          // the animation starts; once done the classes are removed entirely.
+          style={sliding ? { animationFillMode: "backwards" } : undefined}
+          onAnimationEnd={() => setSliding(false)}
         >
           {children}
         </div>
@@ -94,6 +106,7 @@ SetupCard.propTypes = {
   className: PropTypes.string,
   header:    PropTypes.node,
 };
+
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
 // The shared indicator across both products: a plain row of dots where the

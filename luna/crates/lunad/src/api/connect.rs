@@ -41,13 +41,11 @@ pub fn router() -> Router<AppState> {
 
 async fn config(State(state): State<AppState>) -> Json<Value> {
     let active = state.connect.is_connect_active();
-    let prefix = state.connect.setup_prefix().is_some();
     let st = state.connect.status();
     Json(json!({
         "connect_active": active,
         "device_token": {
             "present": active,
-            "prefix_available": prefix,
         },
         "cloud_bind": {
             "state": if !active { "n/a" } else if st.enabled { "claimed" } else { "unclaimed" },

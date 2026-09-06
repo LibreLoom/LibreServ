@@ -34,7 +34,6 @@ pub mod rate_limit;
 pub mod recovery;
 pub mod scrub;
 pub mod secrets;
-pub mod setup_access;
 pub mod smart;
 pub mod staticweb;
 pub mod summary;

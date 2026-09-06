@@ -21,7 +21,7 @@ pub mod sync;
 pub mod tray;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use dest::{ExistingJobs, LunaRef};
@@ -101,14 +101,16 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
     let Some(saved) = session::load() else {
         return RestoreOutcome::NoSession;
     };
-    match luna::list_drives(&saved.base_url, &saved.token) {
-        Ok(_) => {
+    match luna::auth_me(&saved.base_url, &saved.token) {
+        Ok((username, _)) => {
+            let mut session_data = saved.clone();
+            session_data.username = username.clone();
             if let Ok(mut slot) = state.session.lock() {
-                *slot = Some(saved.clone());
+                *slot = Some(session_data);
             }
             RestoreOutcome::Restored(SessionInfo {
                 base_url: saved.base_url,
-                username: saved.username,
+                username,
             })
         }
         Err(e) if luna::is_auth_failure(&e) => {
@@ -119,7 +121,17 @@ pub fn restore_session(state: &AppState) -> RestoreOutcome {
             }
             RestoreOutcome::AuthFailed { base_url }
         }
-        Err(e) => RestoreOutcome::Failed(e),
+        Err(_) => {
+            // Non-auth failure (e.g. offline, connection error, drive issue):
+            // preserve the saved session so the user is NOT kicked back to the login page.
+            if let Ok(mut slot) = state.session.lock() {
+                *slot = Some(saved.clone());
+            }
+            RestoreOutcome::Restored(SessionInfo {
+                base_url: saved.base_url,
+                username: saved.username,
+            })
+        }
     }
 }
 
@@ -130,11 +142,9 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
     }
     let token = access_token.trim().to_string();
     if token.is_empty() {
-        return Err("Paste an access token from Luna → Settings → Apps and access tokens.".into());
+        return Err("Paste an access token from Luna → Settings → Security.".into());
     }
     let (username, _) = luna::auth_me(&base_url, &token)?;
-    // Confirm the token can see drives (same check restore_session uses).
-    luna::list_drives(&base_url, &token)?;
     let data = session::SessionData {
         base_url: base_url.clone(),
         username: username.clone(),
@@ -287,19 +297,15 @@ pub fn stop_backup_job(state: &AppState, id: &str) -> Result<(), String> {
 }
 
 pub fn save_sync_pair(state: &AppState, pair: sync::SyncPair) -> Result<sync::SyncPair, String> {
-    let _ = require_session(state)?;
+    let s = require_session(state)?;
     let remote = dest::validate_luna_folder(&pair.drive_id, &pair.remote_path)?;
-    let basename = if remote.path.is_empty() {
-        return Err("Choose a folder on Luna to sync — not the whole drive.".into());
-    } else {
-        dest::luna_folder_basename(&remote.path)
-    };
+    let mut pairs = sync::load_pairs();
+    let basename = sync_pair_local_basename(&s, &remote, &pair, &pairs)?;
     let parent = PathBuf::from(&pair.local_parent);
     let local = dest::resolved_sync_local(&parent, &basename)?;
     let existing = existing_jobs(None, Some(&pair.id));
     dest::check_sync_against(&local, &remote, &existing, None)?;
 
-    let mut pairs = sync::load_pairs();
     let mut saved = sync::SyncPair {
         id: if pair.id.is_empty() {
             unique_id()
@@ -320,6 +326,38 @@ pub fn save_sync_pair(state: &AppState, pair: sync::SyncPair) -> Result<sync::Sy
     }
     sync::save_pairs(&pairs)?;
     Ok(saved)
+}
+
+/// Local folder name under the chosen parent. Whole-drive syncs use the drive label.
+/// When editing the same whole-drive sync in place, keep the existing local folder name
+/// so a drive rename does not orphan files already synced.
+fn sync_pair_local_basename(
+    session: &session::SessionData,
+    remote: &LunaRef,
+    pair: &sync::SyncPair,
+    pairs: &[sync::SyncPair],
+) -> Result<String, String> {
+    if !remote.path.is_empty() {
+        return Ok(dest::sync_local_basename(&remote.path, ""));
+    }
+    if let Some(existing) = pairs.iter().find(|p| p.id == pair.id)
+        && existing.drive_id == remote.drive_id
+        && existing.remote_path.is_empty()
+        && existing.local_parent == pair.local_parent
+        && let Some(name) = Path::new(&existing.local_path).file_name()
+    {
+        let name = name.to_string_lossy();
+        if !name.is_empty() {
+            return Ok(name.into_owned());
+        }
+    }
+    let drives = luna::list_drives(&session.base_url, &session.token)?;
+    let label = drives
+        .iter()
+        .find(|d| d.id == remote.drive_id)
+        .map(|d| d.label.as_str())
+        .unwrap_or("Luna Drive");
+    Ok(dest::sync_local_basename("", label))
 }
 
 pub fn delete_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
@@ -422,7 +460,16 @@ mod tests {
                 let mut s = stream;
                 let n = s.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let (code, body) = if req.contains("/api/v1/drives") {
+                let (code, body) = if req.contains("/api/v1/auth/me") {
+                    (
+                        status,
+                        if status == 200 {
+                            r#"{"id":"u1","username":"max","role":"admin"}"#.to_string()
+                        } else {
+                            "null".to_string()
+                        },
+                    )
+                } else if req.contains("/api/v1/drives") {
                     (status, "[]".to_string())
                 } else {
                     (404, "{}".to_string())
@@ -484,6 +531,38 @@ mod tests {
 
         let state = AppState::default();
         let outcome = restore_session(&state);
+        assert_eq!(
+            outcome,
+            RestoreOutcome::Restored(SessionInfo {
+                base_url: base.clone(),
+                username: "max".into(),
+            })
+        );
+        assert!(session::load().is_some());
+
+        stop.store(true, Ordering::Relaxed);
+        drop(handle);
+        unsafe { std::env::remove_var("LUNA_DESKTOP_DATA") };
+    }
+
+    #[test]
+    fn restore_session_does_not_kick_to_login_on_non_auth_failure() {
+        let _g = test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("LUNA_DESKTOP_DATA", dir.path()) };
+
+        // Mock server returns 500 (internal error, e.g. drive or database failure, NOT 401)
+        let (base, handle, stop) = spawn_drives_server(500);
+        session::save(&session::SessionData {
+            base_url: base.clone(),
+            username: "max".into(),
+            token: "saved-token".into(),
+        })
+        .unwrap();
+
+        let state = AppState::default();
+        let outcome = restore_session(&state);
+        // Must restore session, not kick to login or auth_failed!
         assert_eq!(
             outcome,
             RestoreOutcome::Restored(SessionInfo {

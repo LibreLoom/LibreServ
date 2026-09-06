@@ -819,7 +819,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 **Already running Luna:** Settings → Software updates → Install update. Luna applies the new \`lunad\` binary and, when this release includes a newer OS slot image, writes it to the inactive slot and reboots.
 
-**Factory install or recovery USB:** Download \`luna-rapidinstall-x86_64.iso.xz\`, decompress it (\`xz -dk luna-rapidinstall-x86_64.iso.xz\`), write the ISO to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and starts installing after a short countdown — press any key during the countdown to choose a different disk.
+**Factory install or recovery USB:** Download \`luna-rapidinstall-x86_64.iso.xz\`, decompress it (\`xz -dk luna-rapidinstall-x86_64.iso.xz\`), write the ISO to a USB stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the smallest built-in disk and waits through a short countdown — press any key during the countdown to choose a different disk. Once the disk is chosen, type \`INSTALL\` and press Enter to start installing.
 
 **Luna for Linux:** Install \`luna-desktop-x86_64.flatpak\` with Flatpak (\`flatpak install --user luna-desktop-x86_64.flatpak\`).
 
@@ -860,8 +860,8 @@ TEMPLATE
 <!-- Luna upgrade notes: see docs/RELEASE.md. Rapidinstall does NOT use "install luna".
      In-app: Settings → Software updates → Install update.
      Factory USB: decompress luna-rapidinstall-x86_64.iso.xz, write ISO to stick,
-     boot (Secure Boot off), countdown auto-installs to smallest built-in disk
-     (press a key during countdown to pick another disk). -->
+     boot (Secure Boot off), pick disk during short countdown, then type INSTALL
+     (anything else shuts the machine down). -->
 LUNA_HINT
     fi
     

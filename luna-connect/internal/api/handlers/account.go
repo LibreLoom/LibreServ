@@ -172,7 +172,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"avg_stored_bytes":       avgBytes,
 		"egress_bytes":           egressBytes,
 		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
-		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to three times that average; extra download traffic is $0.01 per GB.",
+		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to 3× stored amount; extra download traffic is $0.01 per GB.",
 		"backup_purge_after":     acct.BackupPurgeAfter,
 		"onboarding_path":        status["path"],
 		"onboarding_step":        status["step"],

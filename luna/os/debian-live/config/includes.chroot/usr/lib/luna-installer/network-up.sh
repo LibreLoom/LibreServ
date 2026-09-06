@@ -9,6 +9,14 @@ if ! command -v ip >/dev/null 2>&1; then
 	exit 0
 fi
 
+# Ensure loopback interface is active with standard localhost address.
+if ip link show lo >/dev/null 2>&1; then
+	ip link set lo up 2>/dev/null || true
+	if ! ip -4 addr show dev lo 2>/dev/null | grep -q 'inet '; then
+		ip addr add 127.0.0.1/8 dev lo brd + 2>/dev/null || true
+	fi
+fi
+
 for _sys in /sys/class/net/*; do
 	[ -e "$_sys" ] || continue
 	_iface="$(basename "$_sys")"

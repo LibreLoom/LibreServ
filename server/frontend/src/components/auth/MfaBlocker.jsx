@@ -2,6 +2,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { ShieldCheck, LogOut } from "lucide-react";
 import { MfaSetupWizard } from "../profile/MfaCard";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * Fullscreen gate shown to admins who have no MFA method enabled.
@@ -67,7 +68,7 @@ export default function MfaBlocker() {
               onClick={logout}
               className="inline-flex items-center gap-1 text-accent hover:text-primary no-underline hover:underline underline-offset-2 motion-safe:transition-colors"
             >
-              <LogOut size={12} aria-hidden="true" />
+              <LogOut size={ICON_SIZE.xs} aria-hidden="true" />
               Sign out
             </button>
           </div>

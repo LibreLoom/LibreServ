@@ -8,6 +8,7 @@ import Pill from "../common/Pill";
 import ModalCard from "../cards/ModalCard";
 import ShakeTarget from "../ui/ShakeTarget";
 import { TermHint } from "../ui/Tooltip";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const PICK_NETWORK_ERROR = "Pick your home network first.";
 
@@ -62,13 +63,13 @@ function BoardRow({ icon, label, ok, okText, offText }) {
     >
       <span className="flex items-center gap-2.5 min-w-0">
         <Icon
-          size={16}
+          size={ICON_SIZE.md}
           className={cn("shrink-0 motion-safe:transition-colors motion-safe:duration-300", ok ? "text-success" : "text-accent")}
         />
         <span className="font-mono text-sm text-primary">{label}</span>
       </span>
       <Pill variant={ok ? "success" : "muted"} className="shrink-0">
-        {ok ? <Check size={12} /> : <X size={12} />}
+        {ok ? <Check size={ICON_SIZE.xs} /> : <X size={ICON_SIZE.xs} />}
         <span className="max-w-44 truncate">{ok ? okText : offText}</span>
       </Pill>
     </div>
@@ -255,7 +256,7 @@ export default function NetworkStep({ name, onContinue }) {
             onClick={() => setWifiModalOpen(true)}
             className="py-4 font-mono"
           >
-            <Wifi size={16} />
+            <Wifi size={ICON_SIZE.md} />
             Connect to Wi-Fi
           </Button>
           <p className="text-sm text-primary text-left leading-relaxed">
@@ -269,7 +270,7 @@ export default function NetworkStep({ name, onContinue }) {
           className="w-full max-w-sm p-4 rounded-large-element border border-accent/25 bg-accent/10 flex items-start gap-3 text-left animate-in fade-in slide-in-from-bottom-2 duration-300"
           data-slot="network-cable-only"
         >
-          <Cable size={18} className="text-accent shrink-0 mt-0.5" />
+          <Cable size={ICON_SIZE.lg} className="text-accent shrink-0 mt-0.5" />
           <p className="text-sm text-primary leading-relaxed">
             Plug the included RJ45 (ethernet) cable into the back of {name}. This screen updates the moment it&rsquo;s connected, and you can continue right there.
           </p>
@@ -295,7 +296,7 @@ export default function NetworkStep({ name, onContinue }) {
               onClick={() => setWifiModalOpen(true)}
               className="flex items-center gap-1.5 text-sm text-accent hover:text-primary motion-safe:transition-colors"
             >
-              <Wifi size={14} />
+              <Wifi size={ICON_SIZE.sm} />
               Also connect Wi-Fi (optional)
             </button>
           )}
@@ -366,10 +367,10 @@ export default function NetworkStep({ name, onContinue }) {
                             : "border-primary/15 hover:border-primary/35"
                         )}
                       >
-                        <Wifi size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-accent")} />
+                        <Wifi size={ICON_SIZE.md} className={cn("shrink-0", isSelected ? "text-primary" : "text-accent")} />
                         <span className="flex-1 min-w-0 truncate text-sm text-primary font-mono">{net.ssid}</span>
                         <span className="flex items-center gap-1.5 text-[11px] text-primary/45 shrink-0">
-                          {net.encrypted && <Lock size={11} className="text-accent" />}
+                          {net.encrypted && <Lock size={ICON_SIZE.tight} className="text-accent" />}
                           {signalLabel(net.signal)}
                         </span>
                       </button>
@@ -380,7 +381,7 @@ export default function NetworkStep({ name, onContinue }) {
 
             {scanError && (
               <div className="flex items-start gap-2.5 p-3.5 rounded-large-element border border-accent/25 bg-accent/10">
-                <AlertCircle size={15} className="text-accent shrink-0 mt-0.5" />
+                <AlertCircle size={ICON_SIZE.md} className="text-accent shrink-0 mt-0.5" />
                 <p className="text-xs text-primary leading-relaxed">
                   We couldn&rsquo;t see any networks. Move {name} closer to your router or modem, or try again.
                 </p>
@@ -392,7 +393,7 @@ export default function NetworkStep({ name, onContinue }) {
               onClick={fetchScan}
               className="flex items-center gap-1.5 text-xs text-accent hover:text-primary motion-safe:transition-colors"
             >
-              <RefreshCw size={12} className={scanning ? "animate-spin" : ""} />
+              <RefreshCw size={ICON_SIZE.xs} className={scanning ? "animate-spin" : ""} />
               Scan again
             </button>
 
@@ -420,7 +421,7 @@ export default function NetworkStep({ name, onContinue }) {
                       aria-label={showPassword ? "Hide password" : "Show password"}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-accent hover:text-secondary motion-safe:transition-colors"
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPassword ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
                     </button>
                   </div>
                 </ShakeTarget>
@@ -432,7 +433,7 @@ export default function NetworkStep({ name, onContinue }) {
 
             {error && (
               <p className="flex items-center gap-1.5 text-sm text-error" role="alert">
-                <AlertCircle size={14} className="shrink-0" />
+                <AlertCircle size={ICON_SIZE.sm} className="shrink-0" />
                 {error}
               </p>
             )}

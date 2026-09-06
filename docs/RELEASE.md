@@ -161,8 +161,10 @@ user-focused.
 ### Luna upgrade notes (keep in sync with `luna/os/README.md`)
 
 The rapidinstall installer **does not** ask you to type `install luna`. It
-auto-picks the smallest built-in (non-USB) disk and starts after a short
+auto-picks the smallest built-in (non-USB) disk and waits through a short
 countdown; press any key during the countdown to choose a different disk.
+After the disk is chosen you must type `INSTALL` and press Enter — anything
+else shuts the machine down.
 
 Use this wording in Luna release **Upgrade Notes**:
 
@@ -176,8 +178,9 @@ it to the inactive slot and reboots.
 **Factory install or recovery USB:** Download `luna-rapidinstall-x86_64.iso.xz`,
 decompress it (`xz -dk luna-rapidinstall-x86_64.iso.xz`), write the ISO to a USB
 stick, boot the PC from it (BIOS or UEFI; turn Secure Boot off). Luna picks the
-smallest built-in disk and starts installing after a short countdown — press any key
-during the countdown to choose a different disk.
+smallest built-in disk and waits through a short countdown — press any key during
+the countdown to choose a different disk. Once the disk is chosen, type `INSTALL`
+and press Enter to start installing.
 ```
 
 `./release.sh --yes --luna` embeds the same text in its auto-generated notes. If

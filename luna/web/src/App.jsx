@@ -25,11 +25,12 @@ const queryClient = new QueryClient({
 });
 
 function RequireAuth({ children }) {
-  const { user, setup, loading } = useAuth();
+  const { user, setup, hasAdmin, loading } = useAuth();
   const location = useLocation();
   if (loading) return null;
-  // Not set up yet — the wizard is the only app there is.
-  if (setup && setup.setup_completed === false) return <Navigate to="/setup" replace />;
+  if (setup?.setup_completed === false || (!user && hasAdmin === false)) {
+    return <Navigate to="/setup" replace />;
+  }
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }
@@ -76,7 +77,7 @@ export default function App() {
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "remote" }} replace />} />
+                <Route path="/settings/remote" element={<Navigate to={{ pathname: "/settings", hash: "external_services" }} replace />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

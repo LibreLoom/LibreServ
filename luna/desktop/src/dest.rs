@@ -135,7 +135,39 @@ pub fn resolved_sync_local(parent: &Path, luna_folder_name: &str) -> Result<Path
 
 pub fn luna_folder_basename(path: &str) -> String {
     let norm = normalize_remote(path);
+    if norm.is_empty() {
+        return String::new();
+    }
     norm.rsplit('/').next().unwrap_or("Luna").to_string()
+}
+
+/// Folder name on this computer for a whole-drive sync (drive label, filesystem-safe).
+pub fn sanitize_sync_folder_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | '\0' => '-',
+            c => c,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        "Luna Drive".into()
+    } else {
+        cleaned
+    }
+}
+
+/// Local child folder name for a sync: Luna folder leaf, or a sanitized drive label for drive root.
+pub fn sync_local_basename(remote_path: &str, drive_label: &str) -> String {
+    let leaf = luna_folder_basename(remote_path);
+    if leaf.is_empty() {
+        sanitize_sync_folder_name(drive_label)
+    } else {
+        leaf
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -264,5 +296,31 @@ mod tests {
     fn basename_from_path() {
         assert_eq!(luna_folder_basename("Photos/Family"), "Family");
         assert_eq!(luna_folder_basename("Family"), "Family");
+        assert_eq!(luna_folder_basename(""), "");
+        assert_eq!(luna_folder_basename("/"), "");
+    }
+
+    #[test]
+    fn sanitize_drive_label_for_local_folder() {
+        assert_eq!(sanitize_sync_folder_name("Photos"), "Photos");
+        assert_eq!(
+            sanitize_sync_folder_name("Family / Media"),
+            "Family - Media"
+        );
+        assert_eq!(sanitize_sync_folder_name("  "), "Luna Drive");
+        assert_eq!(sanitize_sync_folder_name(".."), "Luna Drive");
+        assert_eq!(sanitize_sync_folder_name(".hidden."), "hidden");
+    }
+
+    #[test]
+    fn sync_basename_uses_drive_label_for_root() {
+        assert_eq!(sync_local_basename("", "Archive"), "Archive");
+        assert_eq!(sync_local_basename("Photos/Family", "Archive"), "Family");
+    }
+
+    #[test]
+    fn drive_root_overlaps_every_folder_on_drive() {
+        assert!(paths_overlap("", "photos"));
+        assert!(paths_overlap("photos", ""));
     }
 }

@@ -8,6 +8,7 @@ import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
+import Card from "../components/cards/Card";
 import PageNotice from "../components/common/PageNotice";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
 import { showPageLevelError } from "../lib/modalScopedError";
@@ -316,7 +317,7 @@ export default function GalleryPage() {
         <EmptyState
           icon={PlugZap}
           title="No drives yet"
-          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos."
+          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
           action={
             <Button variant="primary" asChild>
               <Link to="/drives">Go to Drives</Link>
@@ -343,13 +344,12 @@ export default function GalleryPage() {
       )}
 
       {looking && photos.length === 0 && activeSegment === "library" && (
-        <div className="rounded-large-element bg-secondary text-primary p-6 mb-4">
+        <Card className="mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">
-            Luna is finding photos in the background. Previews stay on your drive
-            — not on Luna&apos;s internal storage. Originals stay exactly where they are.
+            Luna is finding photos in the background. They&apos;ll show up here when ready.
           </p>
-        </div>
+        </Card>
       )}
 
       {noPhotos && (
@@ -543,9 +543,11 @@ export default function GalleryPage() {
                   {album.name}
                 </Button>
               ))}
-              <Button variant="ghost" onClick={close}>
-                Cancel
-              </Button>
+              <div className="pt-2 flex justify-end">
+                <Button variant="outline" surface="secondary" onClick={close}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </ModalCard>

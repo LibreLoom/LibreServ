@@ -427,7 +427,7 @@ describe("AppDetailPage", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Uninstall" }));
-    const dialog = screen.getByRole("dialog", { name: "Uninstall App" });
+    const dialog = screen.getByRole("dialog", { name: "Uninstall Application" });
     await user.type(
       within(dialog).getByPlaceholderText('Type "Notes"'),
       "Notes",

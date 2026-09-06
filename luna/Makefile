@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos
+.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -46,6 +46,12 @@ mock-pssd:
 mock-pssd-photos:
 	python3 scripts/generate-mock-pssd-photos.py
 
+mock-drive:
+	bash scripts/mock-drive.sh $(ARGS)
+
+mock-connect:
+	bash scripts/mock-connect.sh $(ARGS)
+
 dev-daemon: build-daemon mock-pssd
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)
 
@@ -64,6 +70,30 @@ iso:
 clean:
 	cargo clean
 	rm -rf web/node_modules web/dist crates/lunad/web/dist
+
+
+# Watch lunad: cargo-watch rebuild+restart on Rust save. Needs a one-time web dist.
+daemon-dev:
+	chmod +x scripts/dev-daemon.sh scripts/ensure-dev-token.sh
+	bash scripts/dev-daemon.sh
+
+# Android rapid-dev: installDebug + relaunch on save. Needs adb device/emulator + lunad.
+# First launch opens luna://pair; DEBUG builds auto-sign in. Token cache: mobile/.dev/
+mobile-dev:
+	chmod +x mobile/scripts/dev.sh mobile/scripts/ensure-dev-token.sh
+	cd mobile && bash scripts/dev.sh
+
+mobile-dev-repair:
+	LUNA_MOBILE_REPAIR=1 $(MAKE) mobile-dev
+
+# Print the three-terminal companion rapid-dev recipe.
+companion-dev:
+	@echo "Luna companion rapid-dev (three terminals):"
+	@echo "  1) cd luna && make daemon-dev          # lunad :8090, restarts on Rust save"
+	@echo "  2) cd luna && make desktop-dev         # GTK app, cargo-watch + auto sign-in"
+	@echo "  3) cd luna && make mobile-dev          # Android installDebug on save (adb)"
+	@echo "Optional: make dev-web                   # Vite HMR for the Luna web UI"
+	@echo "Emulator uses http://10.0.2.2:8090; phone needs LUNA_MOBILE_URL=http://<lan-ip>:8090"
 
 # Linux desktop (GTK 4 + libadwaita). See desktop/README.md for packages.
 # Ship: Flatpak on Linux, .exe installer on Windows. AppImage is demo/CI only.

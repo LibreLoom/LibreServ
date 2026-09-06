@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import Pill from "./Pill";
 import { statusConfig } from "../../data/statusConfig";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 // Map a runtime status string to the same token-based variant the rest of the
 // status-color system uses (bg-X/20 border-X/30 text-X). Replaces the separate
@@ -18,7 +19,7 @@ export default function StatusPill({ status, className = "", compact = false }) 
   const variant = STATUS_VARIANT[status] || "info";
   return (
     <Pill variant={variant} className={className}>
-      <Icon size={12} strokeWidth={2.5} aria-hidden="true" />
+      <Icon size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
       {!compact && <span className="font-medium">{config.label}</span>}
     </Pill>
   );

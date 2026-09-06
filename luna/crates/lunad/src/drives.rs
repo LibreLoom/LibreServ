@@ -1510,7 +1510,10 @@ mod tests {
         let err = mgr
             .adopt(&conn, &dev, "Lexar USB Flash Drive", false)
             .unwrap_err();
-        assert!(err.to_string().contains("installer"));
+        assert!(
+            err.to_string().contains("Erase and add this drive"),
+            "expected erase-and-add guidance, got: {err}"
+        );
         assert!(db::list_drives(&conn).unwrap().is_empty());
     }
 

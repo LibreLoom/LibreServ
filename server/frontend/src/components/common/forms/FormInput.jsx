@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import useShakeOnError from "../../../hooks/useShakeOnError";
 import FieldLabel from "./FieldLabel";
+import { ICON_SIZE, PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
 
 const ICONS = {
   username: User,
@@ -72,7 +73,8 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed",
+              PLACEHOLDER_TEXT,
               Icon ? "pl-11" : "pl-5",
               "pr-11",
               error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
@@ -84,14 +86,14 @@ export default function FormInput({
             className="absolute right-4 top-1/2 -translate-y-1/2 text-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary no-focus-outline rounded-pill p-1"
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
-            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            {showPassword ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
           </button>
         </div>
       ) : (
         <div className="relative">
           {Icon && (
             <Icon
-              size={16}
+              size={ICON_SIZE.md}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none z-10"
             />
           )}
@@ -111,7 +113,8 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-secondary text-primary disabled:opacity-50 disabled:cursor-not-allowed",
+              PLACEHOLDER_TEXT,
               Icon ? "pl-11" : "pl-5",
               "pr-11",
               error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",

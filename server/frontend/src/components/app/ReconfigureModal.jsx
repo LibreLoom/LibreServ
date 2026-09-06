@@ -4,6 +4,7 @@ import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
 import ConfigFieldRenderer from "./wizard/ConfigFieldRenderer";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
   const contentRef = useRef(null);
@@ -196,7 +197,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
       <form id="reconfigure-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Intro text — plain language per AGENTS.md conventions */}
         <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
-          <Settings className="text-accent shrink-0 mt-0.5" size={18} />
+          <Settings className="text-accent shrink-0 mt-0.5" size={ICON_SIZE.lg} />
           <div className="text-sm text-accent">
             <p>Change the settings for <strong>{app?.name}</strong>.</p>
             <p className="mt-1 text-accent">
@@ -207,13 +208,13 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
 
         {loadingFields && (
           <div className="flex items-center justify-center py-8">
-            <Loader2 size={24} className="animate-spin text-accent" />
+            <Loader2 size={ICON_SIZE.xxl} className="animate-spin text-accent" />
           </div>
         )}
 
         {submitError && (
           <div className="flex items-center gap-3 p-3 bg-error/10 rounded-large-element border border-error/30">
-            <AlertTriangle className="text-error shrink-0" size={18} />
+            <AlertTriangle className="text-error shrink-0" size={ICON_SIZE.lg} />
             <p className="text-sm text-error">{submitError}</p>
           </div>
         )}
@@ -258,7 +259,7 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center gap-2 text-xs font-mono text-accent uppercase tracking-wide hover:text-primary/70 motion-safe:transition-colors"
                 >
-                  {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {showAdvanced ? <ChevronUp size={ICON_SIZE.sm} /> : <ChevronDown size={ICON_SIZE.sm} />}
                   Advanced Settings
                 </button>
                 <AdvancedContent

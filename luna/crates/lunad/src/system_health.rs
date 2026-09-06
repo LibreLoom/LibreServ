@@ -473,4 +473,21 @@ mod tests {
         assert!(!resp.overall_pass);
         assert_eq!(resp.checks["drive_d1_read_write"].status, "failed");
     }
+
+    #[test]
+    fn comprehensive_omits_smart_check_when_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let now = crate::db::now_unix();
+        conn.execute(
+            "INSERT INTO drives (id, label, state, fs_type, device, mount_point, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params!["d1", "UDisk", "ready", "vfat", "nonexistent_dev", dir.path().to_str().unwrap(), now, now],
+        )
+        .unwrap();
+        let dm = DriveManager::new(shared_mock(), dir.path());
+        let resp = run_comprehensive(dir.path(), &conn, &dm);
+        assert!(!resp.checks.contains_key("drive_d1_smart"));
+        assert_eq!(resp.summary.skipped, 0);
+    }
 }

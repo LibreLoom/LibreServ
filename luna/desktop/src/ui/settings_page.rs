@@ -26,6 +26,7 @@ impl SettingsPage {
             .title("Start on boot")
             .subtitle("Start in the background after you sign in")
             .build();
+        let _ = autostart::init_default();
         row.set_active(autostart::is_enabled());
 
         row.connect_active_notify({

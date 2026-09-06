@@ -10,6 +10,7 @@ import {
   Mail,
   Pencil,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
@@ -194,7 +195,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
         {/* Enabled methods */}
         {loadingMethods ? (
           <p className="text-xs text-accent flex items-center gap-2">
-            <Loader2 size={12} className="animate-spin" /> Loading your methods…
+            <Loader2 size={ICON_SIZE.xs} className="animate-spin" /> Loading your methods…
           </p>
         ) : hasAny ? (
           <ul className="space-y-2">
@@ -210,7 +211,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                     className="flex items-center justify-between px-4 py-3 rounded-large-element bg-primary text-secondary border border-accent/40"
                   >
                     <span className="flex items-center gap-3 text-sm">
-                      <Icon size={16} className="text-accent shrink-0" />
+                      <Icon size={ICON_SIZE.md} className="text-accent shrink-0" />
                       {meta.label}
                       {(() => {
                         const lastUsed = m.last_used_at ? new Date(m.last_used_at) : null;
@@ -232,7 +233,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                       aria-label={`Remove ${meta.label}`}
                       tooltip="Remove this method"
                     >
-                      {removingId === m.id ? null : <Trash2 size={16} />}
+                      {removingId === m.id ? null : <Trash2 size={ICON_SIZE.md} />}
                     </Button>
                   </li>
                 );
@@ -269,7 +270,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                   className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
                   aria-label={`Add ${meta.label}`}
                 >
-                  <Icon size={22} className="text-accent flex-shrink-0" />
+                  <Icon size={ICON_SIZE.xxl} className="text-accent flex-shrink-0" />
                   <div className="flex-1 text-left">
                     <div className="font-mono text-sm text-primary">{meta.label}</div>
                     <div className="text-xs text-accent">{meta.desc}</div>
@@ -286,7 +287,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
         <div className="pt-4 border-t border-accent/30">
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-2 text-sm text-accent">
-              <LifeBuoy size={14} className="text-accent" />
+              <LifeBuoy size={ICON_SIZE.sm} className="text-accent" />
               Recovery codes
               {typeof remainingRecovery === "number" && (
                 <span className="text-xs text-accent">
@@ -321,7 +322,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                     onClick={copyCodes}
                     className="text-xs text-accent hover:text-secondary"
                   >
-                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    {copied ? <Check size={ICON_SIZE.xs} /> : <Copy size={ICON_SIZE.xs} />}
                   </Button>
                 ) : null}
               </div>
@@ -609,9 +610,9 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
       {/* Status line */}
       <div className="flex items-center gap-2 text-sm text-accent">
         {busy ? (
-          <Loader2 size={14} className="animate-spin text-accent" />
+          <Loader2 size={ICON_SIZE.sm} className="animate-spin text-accent" />
         ) : (
-          <ShieldCheck size={14} className="text-accent" />
+          <ShieldCheck size={ICON_SIZE.sm} className="text-accent" />
         )}
         <span>
           {isWebAuthn
@@ -627,7 +628,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
         <>
           {busy ? (
             <div className="flex items-center gap-2 text-sm text-accent">
-              <Loader2 size={14} className="animate-spin text-accent" /> Follow your browser's prompt…
+              <Loader2 size={ICON_SIZE.sm} className="animate-spin text-accent" /> Follow your browser's prompt…
             </div>
           ) : (
             <>
@@ -714,7 +715,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                     className="shrink-0 text-xs text-accent hover:text-primary"
                     aria-label="Copy manual key"
                   >
-                    <Copy size={12} />{" "}
+                    <Copy size={ICON_SIZE.xs} />{" "}
                     <span ref={copyLabelRef} className="inline-block whitespace-nowrap">
                       {secretCopied ? "Copied" : "Copy"}
                     </span>
@@ -743,8 +744,8 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
           {type === "email" && me?.email && (
             <>
               <LayeredPill
-              icon={<Mail size={12} />}
-              actionIcon={<Pencil size={11} />}
+              icon={<Mail size={ICON_SIZE.xs} />}
+              actionIcon={<Pencil size={ICON_SIZE.tight} />}
               actionLabel="Change"
               onAction={() => setChangeEmailOpen(true)}
               actionDisabled={busy}
@@ -835,7 +836,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                 disabled={busy}
                 className="flex items-center gap-1.5 text-xs text-primary hover:underline underline-offset-2 py-1 motion-safe:transition-colors disabled:opacity-50"
               >
-                <Mail size={12} /> Send a new code
+                <Mail size={ICON_SIZE.xs} /> Send a new code
               </button>
             </div>
           )}
@@ -1016,7 +1017,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
           </p>
           {loadingAvail && (
             <div className="flex items-center gap-2 text-sm text-accent mb-3">
-              <Loader2 size={16} className="animate-spin" /> Checking what's available on this device…
+              <Loader2 size={ICON_SIZE.md} className="animate-spin" /> Checking what's available on this device…
             </div>
           )}
           {!loadingAvail && availability == null && (
@@ -1056,12 +1057,12 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
                     className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
                     aria-label={`Add ${meta.label}`}
                   >
-                    <Icon size={22} className="text-accent flex-shrink-0" />
+                    <Icon size={ICON_SIZE.xxl} className="text-accent flex-shrink-0" />
                     <div className="flex-1 text-left">
                       <div className="font-mono text-sm text-primary">{meta.label}</div>
                       <div className="text-xs text-accent">{meta.desc}</div>
                     </div>
-                    <ArrowRight size={16} className="text-accent" />
+                    <ArrowRight size={ICON_SIZE.md} className="text-accent" />
                   </button>
                 );
               })}
@@ -1088,7 +1089,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
 
         {generating && (
           <p className="text-xs text-accent flex items-center gap-2">
-            <Loader2 size={12} className="animate-spin" /> Generating your codes…
+            <Loader2 size={ICON_SIZE.xs} className="animate-spin" /> Generating your codes…
           </p>
         )}
 
@@ -1109,7 +1110,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
                     onClick={copyCodes}
                     className="text-xs text-accent hover:text-secondary"
                   >
-                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    {copied ? <Check size={ICON_SIZE.xs} /> : <Copy size={ICON_SIZE.xs} />}
                   </Button>
                 ) : null}
               </div>

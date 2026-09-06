@@ -5,15 +5,14 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 
 ## What it does
 
-1. **Sign in** once with an **access token** from Luna (Settings → Apps and access
-   tokens → Create access token). Luna for Linux remembers it on this computer.
+1. **Sign in** once with an **access token** from Luna (Settings → Security → Create access token). Luna for Linux remembers it on this computer.
    Your Luna password is not stored.
 2. **Backup** — pick folders on this computer and a folder on Luna (create one
    if you need). You can run several backup jobs to different destinations.
 3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
    Desktop creates a child folder there and keeps both sides in sync. If both
    sides change the same file, both copies are kept with a clear conflict name.
-4. **Settings** — optional start on boot (XDG autostart on Linux).
+4. **Settings** — start on boot (enabled by default; XDG autostart on Linux).
 
 ## Distribution
 
@@ -40,8 +39,9 @@ sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 Two terminals:
 
 ```sh
-# Terminal A — Luna API (once)
-cd luna && make dev-daemon          # http://127.0.0.1:8090
+# Terminal A — Luna API (restarts on Rust save)
+cd luna && make daemon-dev          # http://127.0.0.1:8090
+# (or: make dev-daemon for a one-shot process without cargo-watch)
 
 # Terminal B — Desktop app (watch + inspector + auto sign-in)
 cd luna && make desktop-dev
@@ -88,4 +88,4 @@ cd desktop && cargo test
 ```
 
 Fake Luna HTTP coverage includes login, drive list, folder list, and mkdir.
-Autostart writes an XDG `.desktop` file under `$XDG_CONFIG_HOME/autostart`.
+Autostart writes an XDG `.desktop` file under `$XDG_CONFIG_HOME/autostart` (enabled by default on first run).

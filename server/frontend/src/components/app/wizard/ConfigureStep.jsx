@@ -3,6 +3,7 @@ import ConfigFieldRenderer from "./ConfigFieldRenderer";
 import Button from "../../ui/Button";
 import ShakeTarget from "../../ui/ShakeTarget";
 import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
   const contentRef = useRef(null);
@@ -156,7 +157,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
             className="flex items-center gap-2 text-xs font-mono text-accent uppercase tracking-wide hover:text-secondary/70 motion-safe:transition-colors"
           >
             <span>
-              {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {showAdvanced ? <ChevronUp size={ICON_SIZE.sm} /> : <ChevronDown size={ICON_SIZE.sm} />}
             </span>
             Advanced Settings
           </button>

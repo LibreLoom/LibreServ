@@ -56,13 +56,24 @@ impl FolderBrowser {
             let browse_path = browse_path.clone();
             let remote_path = remote_path.clone();
             Rc::new(move || {
+                let at_drive_root = browse_path.borrow().is_empty();
                 let using = *browse_path.borrow() == *remote_path.borrow();
+                let label_idle = if at_drive_root {
+                    "Use this drive"
+                } else {
+                    "Use this folder"
+                };
+                let label_active = if at_drive_root {
+                    "Using this drive"
+                } else {
+                    "Using this folder"
+                };
                 if using {
-                    use_btn.set_label("Using this folder");
+                    use_btn.set_label(label_active);
                     use_btn.remove_css_class("suggested-action");
                     use_btn.set_sensitive(false);
                 } else {
-                    use_btn.set_label("Use this folder");
+                    use_btn.set_label(label_idle);
                     use_btn.add_css_class("suggested-action");
                     use_btn.set_sensitive(true);
                 }
@@ -80,7 +91,7 @@ impl FolderBrowser {
                 if d.is_empty() {
                     selected_lbl.set_text("Select a drive and folder.");
                 } else if p.is_empty() {
-                    selected_lbl.set_text("Selected: drive root");
+                    selected_lbl.set_text("Selected: whole drive");
                 } else {
                     let leaf = p.rsplit('/').next().unwrap_or(p.as_str());
                     selected_lbl.set_text(&format!("Selected: {leaf}"));
@@ -209,7 +220,20 @@ impl FolderBrowser {
                                     }
                                 }
                             }
-                            Err(e) => toast_error(&toast, e),
+                            Err(e) => {
+                                folder_list.set_visible(true);
+                                let row = adw::ActionRow::builder()
+                                    .title("Luna can't find this drive.")
+                                    .subtitle("Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.")
+                                    .build();
+                                row.set_title_lines(1);
+                                row.set_subtitle_lines(2);
+                                let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+                                icon.set_icon_size(gtk::IconSize::Normal);
+                                row.add_prefix(&icon);
+                                folder_list.append(&row);
+                                toast_error(&toast, e);
+                            }
                         }
                     },
                 );
@@ -228,6 +252,14 @@ impl FolderBrowser {
                 move || luna_desktop::list_drives(&state),
                 move |result| match result {
                     Ok(drives) => {
+                        if drives.is_empty() {
+                            let empty_label = gtk::Label::new(Some(
+                                "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                            ));
+                            empty_label.set_wrap(true);
+                            empty_label.add_css_class("dim-label");
+                            drive_box.append(&empty_label);
+                        }
                         for d in drives {
                             let btn = gtk::ToggleButton::with_label(&d.label);
                             btn.add_css_class("pill");
@@ -270,7 +302,15 @@ impl FolderBrowser {
                             do_reload();
                         }
                     }
-                    Err(e) => toast_error(&toast, e),
+                    Err(e) => {
+                        let err_label = gtk::Label::new(Some(
+                            "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                        ));
+                        err_label.set_wrap(true);
+                        err_label.add_css_class("dim-label");
+                        drive_box.append(&err_label);
+                        toast_error(&toast, e);
+                    }
                 },
             );
         }

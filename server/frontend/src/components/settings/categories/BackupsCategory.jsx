@@ -21,6 +21,7 @@ import {
   HardDriveDownload,
   ArrowRight,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import AppIcon from "../../common/AppIcon";
 import Callout from "../../common/Callout";
 import CollapsibleSection from "../../common/CollapsibleSection";
@@ -365,9 +366,9 @@ export default function BackupsCategory({ connectStatus = null }) {
                 )}
               >
                 {heroTone === "success" ? (
-                  <ShieldCheck size={22} className="text-success shrink-0" aria-hidden="true" />
+                  <ShieldCheck size={ICON_SIZE.xxl} className="text-success shrink-0" aria-hidden="true" />
                 ) : (
-                  <ShieldAlert size={22} className="text-warning shrink-0" aria-hidden="true" />
+                  <ShieldAlert size={ICON_SIZE.xxl} className="text-warning shrink-0" aria-hidden="true" />
                 )}
                 <p className="text-sm text-primary font-mono">
                   {stats.protectedApps === 0
@@ -396,7 +397,7 @@ export default function BackupsCategory({ connectStatus = null }) {
 
             <SettingsRow label="Space used by backups" description="Total size of all saved copies on this device" hideDivider>
               <Pill variant="muted">
-                <HardDriveDownload size={12} aria-hidden="true" />
+                <HardDriveDownload size={ICON_SIZE.xs} aria-hidden="true" />
                 {stats.totalSize > 0 ? formatBytes(stats.totalSize) : "—"}
               </Pill>
             </SettingsRow>
@@ -448,7 +449,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                             </Pill>
                           ) : (
                             <Pill variant="muted" className="shrink-0">
-                              <CloudOff size={12} aria-hidden="true" />
+                              <CloudOff size={ICON_SIZE.xs} aria-hidden="true" />
                               No backups
                             </Pill>
                           )}
@@ -459,7 +460,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                         </span>
                       </span>
                       <ChevronDown
-                        size={16}
+                        size={ICON_SIZE.md}
                         className={cn("text-accent shrink-0 motion-safe:transition-transform", expanded && "rotate-180")}
                         aria-hidden="true"
                       />
@@ -471,7 +472,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                       loading={busy}
                       className="shrink-0"
                     >
-                      {!busy && <Plus size={14} aria-hidden="true" />}
+                      {!busy && <Plus size={ICON_SIZE.sm} aria-hidden="true" />}
                       {busy ? "Backing up…" : "Back up"}
                     </Button>
                   </div>
@@ -482,7 +483,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                         {schedule?.enabled ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
-                              <CalendarClock size={14} className="text-accent shrink-0" aria-hidden="true" />
+                              <CalendarClock size={ICON_SIZE.sm} className="text-accent shrink-0" aria-hidden="true" />
                               <p className="text-xs text-primary truncate">
                                 Automatic backups on
                                 {schedule.next_run ? ` · next ${formatRelativeTime(schedule.next_run)}` : ""}
@@ -496,7 +497,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                         ) : (
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
-                              <CalendarClock size={14} className="text-accent shrink-0" aria-hidden="true" />
+                              <CalendarClock size={ICON_SIZE.sm} className="text-accent shrink-0" aria-hidden="true" />
                               <p className="text-xs text-primary">Automatic backups are off for this app</p>
                             </div>
                             <Button
@@ -519,7 +520,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                             {appBackups.map((backup) => (
                               <li key={backup.id} className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <Clock size={13} className="text-accent shrink-0" aria-hidden="true" />
+                                  <Clock size={ICON_SIZE.sm} className="text-accent shrink-0" aria-hidden="true" />
                                   <span className="text-xs text-primary truncate">
                                     {formatRelativeTime(backup.created_at)}
                                   </span>
@@ -533,7 +534,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                                     tooltip="Put this copy back"
                                     aria-label="Restore this backup"
                                   >
-                                    <RotateCcw size={14} className="text-accent" aria-hidden="true" />
+                                    <RotateCcw size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -542,7 +543,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                                     tooltip="Delete this copy"
                                     aria-label="Delete this backup"
                                   >
-                                    <Trash2 size={14} className="text-accent" aria-hidden="true" />
+                                    <Trash2 size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
                                   </Button>
                                 </div>
                               </li>
@@ -559,7 +560,7 @@ export default function BackupsCategory({ connectStatus = null }) {
             {backups.some((b) => !apps.find((a) => a.id === b.app_id)) && (
               <div className="px-4 py-3">
                 <p className="text-xs text-accent mb-2 flex items-center gap-1.5">
-                  <HelpCircle size={13} aria-hidden="true" />
+                  <HelpCircle size={ICON_SIZE.sm} aria-hidden="true" />
                   Copies from apps that are no longer installed
                 </p>
                 <ul className="space-y-2">
@@ -580,7 +581,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                           tooltip="Delete this copy"
                           aria-label="Delete this backup"
                         >
-                          <Trash2 size={14} className="text-accent" aria-hidden="true" />
+                          <Trash2 size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
                         </Button>
                       </li>
                     ))}
@@ -611,7 +612,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                     loading={savingDb}
                     className="flex-1"
                   >
-                    {!savingDb && <Download size={16} aria-hidden="true" />}
+                    {!savingDb && <Download size={ICON_SIZE.md} aria-hidden="true" />}
                     {savingDb ? "Preparing file…" : "Download a system backup"}
                   </Button>
                   <Button
@@ -621,7 +622,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                     loading={uploadingDb}
                     className="flex-1"
                   >
-                    {!uploadingDb && <Upload size={16} aria-hidden="true" />}
+                    {!uploadingDb && <Upload size={ICON_SIZE.md} aria-hidden="true" />}
                     {uploadingDb ? "Restoring…" : "Restore from a file"}
                   </Button>
                   <input
@@ -652,7 +653,7 @@ export default function BackupsCategory({ connectStatus = null }) {
             <Button variant="outline" surface="secondary" size="sm" asChild>
               <a href="#external_services">
                 Set up in External Services
-                <ArrowRight size={14} aria-hidden="true" />
+                <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
               </a>
             </Button>
           </SettingsRow>

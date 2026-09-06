@@ -100,6 +100,7 @@ export default function PublicAlbumPage() {
                   <PhotoThumb
                     key={`${photo.drive_id}/${photo.path}`}
                     photo={photo}
+                    index={index}
                     onClick={() => setLightbox({ index })}
                   />
                 ))}

@@ -16,6 +16,7 @@ import {
   updateSecuritySettings,
   sendTestNotification,
 } from "../lib/security-api.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import {
   getNotifications,
   updateNotifications,
@@ -401,7 +402,7 @@ export default function SettingsPage() {
               onClick={handleBackToSidebar}
               className="mb-4 -ml-3"
             >
-              <ArrowLeft size={18} />
+              <ArrowLeft size={ICON_SIZE.lg} />
               <span>Back</span>
             </Button>
             <SettingsContent

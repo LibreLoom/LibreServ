@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import Card from "../cards/Card";
 import CollapsibleSection from "../common/CollapsibleSection";
 import PillGauge from "../ui/PillGauge";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** Stress level → semantic variant + plain-language label. */
 function stressLevel(pct) {
@@ -81,7 +82,7 @@ export default function StressIndexCard({ value, breakdownItems = [] }) {
                   <div key={item.label} className="space-y-1">
                     <div className="flex items-center gap-2">
                       <ItemIcon
-                        size={12}
+                        size={ICON_SIZE.xs}
                         className="text-accent shrink-0"
                         aria-hidden="true"
                       />

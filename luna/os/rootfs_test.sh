@@ -33,8 +33,10 @@ if grep -E 'wpa_supplicant|dnsmasq' "$BUILD" >/dev/null 2>&1; then
 	echo "FAIL: Luna OS is Ethernet-only; do not package wpa_supplicant or dnsmasq" >&2
 	exit 1
 fi
-assert_file_has "$BUILD" 'for svc in hwclock modules sysctl hostname bootmisc syslog luna-input luna-network;' \
+assert_file_has "$BUILD" 'for svc in hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network;' \
 	"boot runlevel must start luna-input before luna-network"
+assert_file_has "$BUILD" 'loopback' "boot runlevel must enable loopback service"
+assert_file_has "$BUILD" 'ip link set lo up' "luna-network-up must ensure lo interface is up"
 assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers;' \
 	"sysinit must enable Alpine hwdrivers coldplug (USB HID at boot)"
 assert_file_has "$BUILD" 'modules-load.d/luna-input.conf' "rootfs must ship keyboard module list"

@@ -23,6 +23,7 @@ import {
   getNetworkReport,
   getNetworkPlans,
 } from "../../../lib/network-api";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 // ─── Reachability — the one big status the page leads with ──────────────────
 
@@ -96,7 +97,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
           <span className={cn("font-mono text-sm font-semibold leading-snug", status.tone)}>{status.label}</span>
           {onRetry && report === null && !loading && (
             <Button type="button" variant="ghost" surface="secondary" size="sm" onClick={onRetry} className="ml-auto shrink-0">
-              <RefreshCw size={14} /> Retry
+              <RefreshCw size={ICON_SIZE.sm} /> Retry
             </Button>
           )}
         </div>
@@ -157,7 +158,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2"
                   >
-                    Learn more <ExternalLink size={12} />
+                    Learn more <ExternalLink size={ICON_SIZE.xs} />
                   </a>
                 </div>
 
@@ -172,7 +173,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2"
                   >
-                    Learn more <ExternalLink size={12} />
+                    Learn more <ExternalLink size={ICON_SIZE.xs} />
                   </a>
                 </div>
 
@@ -363,11 +364,11 @@ function AdvancedSection({ children }) {
         )}
       >
         <span className="font-mono text-sm font-semibold flex items-center gap-2">
-          <Layers size={16} />
+          <Layers size={ICON_SIZE.md} />
           Advanced
         </span>
         <ChevronDown
-          size={16}
+          size={ICON_SIZE.md}
           className={cn("motion-safe:transition-transform duration-200", open ? "rotate-180" : "rotate-0")}
           aria-hidden="true"
         />
@@ -430,7 +431,7 @@ function UPnPCard({ upnp, index }) {
 
         {upnp.available && !upnp.enabled && (
           <div className="flex items-start gap-2 px-3 py-2 rounded-large-element bg-warning/10 border border-warning/20">
-            <AlertTriangle size={14} className="text-warning mt-0.5 flex-shrink-0" />
+            <AlertTriangle size={ICON_SIZE.sm} className="text-warning mt-0.5 flex-shrink-0" />
             <p className="text-xs text-warning leading-relaxed">
               UPnP is available on your router but not enabled. Enable it for automatic port forwarding.
             </p>

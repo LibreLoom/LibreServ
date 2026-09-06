@@ -176,6 +176,40 @@ describe("GalleryPage", () => {
     expect(window.location.hash).toBe("#places");
   });
 
+  it("shows a pop-in card while Luna is still finding photos", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify({ scanning: true, pending: 3, busy: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.includes("/gallery?")) {
+          return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    renderGallery();
+    expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
+    expect(screen.getByText(/They'll show up here when ready/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Previews stay on your drive/i)).not.toBeInTheDocument();
+    const card = screen.getByText(/Looking through your drives/i).closest("[data-slot=card-clip]");
+    expect(card?.className).toMatch(/pop-in/);
+  });
+
   it("shows Places empty state with Card pop-in when there are no geotagged photos", async () => {
     window.history.replaceState(null, "", "/gallery#places");
     stubGalleryFetch({ places: [] });
@@ -388,5 +422,28 @@ describe("GalleryPage", () => {
     renderGallery();
     expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Look again/i })).not.toBeInTheDocument();
+  });
+
+  it("renders Add to album modal with an outline Cancel button that closes the modal", async () => {
+    stubGalleryFetch();
+    renderGallery();
+    const photo = await screen.findByLabelText("one.jpg");
+    fireEvent.click(photo);
+
+    const addToAlbumBtn = await screen.findByRole("button", { name: /Add to album/i });
+    fireEvent.click(addToAlbumBtn);
+
+    expect(await screen.findByRole("heading", { name: "Add to album" })).toBeInTheDocument();
+    expect(screen.getByText("Create an album first, then add photos to it.")).toBeInTheDocument();
+
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    expect(cancelBtn).toBeInTheDocument();
+    expect(cancelBtn.className).toContain("border-2");
+    expect(cancelBtn.className).toContain("border-primary");
+
+    fireEvent.click(cancelBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Add to album" })).not.toBeInTheDocument();
+    });
   });
 });
