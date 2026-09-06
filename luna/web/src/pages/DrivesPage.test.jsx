@@ -26,10 +26,10 @@ describe("inspectCountLine", () => {
 });
 
 function stubDrivesApi(extra = {}) {
-  vi.stubGlobal("fetch", vi.fn(async (url) => {
+  vi.stubGlobal("fetch", vi.fn(async (url, init) => {
     const u = String(url);
     if (extra.fetch) {
-      const hit = extra.fetch(u);
+      const hit = extra.fetch(u, init);
       if (hit) return hit;
     }
     if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
@@ -475,7 +475,52 @@ describe("DrivesPage", () => {
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
     expect(screen.getByText(/will not accept new files/i)).toBeInTheDocument();
+    expect(screen.getByText(/format button below/i)).toBeInTheDocument();
+    expect(screen.getByText(/delete all data on the drive/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Format$/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Format$/i }));
+    expect(screen.getByRole("button", { name: /Yes, format it/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/What should Luna call this drive/i)).toBeInTheDocument();
+  });
+
+  it("formats a write-locked drive through adopt erase", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const adoptBodies = [];
+    stubDrivesApi({
+      fetch: (u, init) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdc", model: "Locked Stick", size_bytes: 4000000000,
+            removable: true, usb: true, mount_point: "/mnt", fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdc/inspect")) {
+          return new Response(JSON.stringify({
+            device: "sdc", model: "Locked Stick", fs_type: "vfat",
+            mount_point: "/mnt", mounted_by_luna: false, has_marker: false,
+            folders: 0, files: 0, unreadable: 0, needs_erase: false,
+            readable: true, writable: false,
+            entries: [],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdc/adopt") && init?.method === "POST") {
+          adoptBodies.push(JSON.parse(init.body));
+          return new Response(JSON.stringify({
+            id: "formatted-1", label: "Locked Stick", state: "as_is",
+            fs_type: "exfat", device: "sdc", mount_point: "/mnt/drives/formatted-1",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
+    await screen.findByText(/will not accept new files/i);
+    await user.click(screen.getByRole("button", { name: /^Format$/i }));
+    await user.click(screen.getByRole("button", { name: /Yes, format it/i }));
+    expect(adoptBodies).toEqual([{ label: "Locked Stick", erase: true }]);
   });
 
   it("labels Browse files on adopted drives", async () => {
