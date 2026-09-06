@@ -85,12 +85,10 @@ assert_file_has "$BUILD" 'install -m 0755 "$CONSOLE_BIN" "$ROOTFS/usr/local/bin/
 	"rootfs build must install luna-console next to lunad"
 assert_file_lacks "$BUILD" 'tty1::respawn:/sbin/getty' \
 	"rootfs must not respawn BusyBox getty on tty1"
-assert_file_has "$BUILD" 'luna-pwreset' \
-	"rootfs must ship luna-pwreset as the pwreset login shell"
-assert_file_has "$BUILD" 'pwreset:x:1001' \
-	"rootfs must bake the pwreset Linux account"
-assert_file_has "$BUILD" '/usr/local/sbin/luna-pwreset' \
-	"pwreset account must use luna-pwreset as its login shell"
+assert_file_lacks "$BUILD" 'luna-pwreset' \
+	"rootfs must not ship luna-pwreset (recovery is USB flash drive)"
+assert_file_lacks "$BUILD" 'pwreset:x:' \
+	"rootfs must not bake a pwreset Linux account"
 assert_file_has "$BUILD" 'luna:x:1000' \
 	"rootfs must bake the luna Linux account"
 assert_file_has "$BUILD" '/sbin/nologin' \
@@ -101,14 +99,10 @@ assert_file_has "$BUILD" '/bin/ash' \
 	"root console account must use /bin/ash"
 assert_file_has "$BUILD" 'luna:!:' \
 	"luna must be locked in the baked shadow (not empty password)"
-assert_file_has "$BUILD" 'pwreset::' \
-	"pwreset may keep an empty password hash for local recovery login"
-assert_file_has "$BUILD" "tail -n 1" \
-	"luna-pwreset must capture HTTP code without a temp file"
+assert_file_lacks "$BUILD" 'pwreset::' \
+	"rootfs must not keep a pwreset shadow entry"
 assert_file_lacks "$BUILD" 'for u in root luna pwreset' \
 	"build must not empty passwords for root/luna/pwreset in one loop"
-assert_file_lacks "$BUILD" 'exec /bin/sh' \
-	"luna-pwreset must exit after success, not exec a shell"
 assert_file_lacks "$BUILD" 'openssh|dropbear' \
 	"rootfs must not package SSH (console accounts are local only)"
 

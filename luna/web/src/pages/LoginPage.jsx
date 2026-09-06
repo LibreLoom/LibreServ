@@ -35,6 +35,8 @@ export default function LoginPage() {
   // trying to reach, or home.
   const returnTo = location.state?.from?.pathname || "/";
 
+  // TODO: in luna web website, need wizard that asks users a set of questions, then gives them a pwreset-<device_token>.luna file to put onto the root of a flashdrive.
+
   function calculateErrorHTML() {
     if (errorStatus === 401) {
       return (

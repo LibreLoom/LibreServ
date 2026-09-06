@@ -79,7 +79,7 @@ printf 'Luna\n' > "$ROOTFS/etc/hostname"
 printf '127.0.0.1 luna localhost\n::1 luna localhost\n' > "$ROOTFS/etc/hosts"
 printf 'hostname="luna"\n' > "$ROOTFS/etc/conf.d/hostname"
 
-# tty1 luna-console for status + shell login (root / luna / pwreset). Device token + IP help is
+# tty1 luna-console for status + shell login (root / luna). Device token + IP help is
 # /var/lib/luna/issue (writable on LUNA_DATA); leave tty2–6 commented.
 if [ -f "$ROOTFS/etc/inittab" ]; then
     sed -i -E 's/^[[:space:]]*tty[0-9]+::.*getty/# &/' "$ROOTFS/etc/inittab"
@@ -334,61 +334,7 @@ fi
 install -m 0755 "$CONSOLE_BIN" "$ROOTFS/usr/local/bin/luna-console"
 mkdir -p "$ROOTFS/var/lib/luna"
 
-# Console password reset: Linux user `pwreset` runs this as its login shell.
-cat > "$ROOTFS/usr/local/sbin/luna-pwreset" <<'PWRESET'
-#!/bin/sh
-# Interactive admin password reset. Talks to lunad on loopback only.
-echo
-echo "Luna recovery"
-echo "Reset an admin password, then sign in from a phone or computer."
-echo
-printf "Admin username: "
-read -r _user || exit 1
-stty -echo 2>/dev/null || true
-printf "New password: "
-read -r _pass || { stty echo 2>/dev/null || true; exit 1; }
-echo
-printf "Type it again: "
-read -r _pass2 || { stty echo 2>/dev/null || true; exit 1; }
-echo
-stty echo 2>/dev/null || true
-if [ -z "$_user" ] || [ -z "$_pass" ]; then
-	echo "Username and password are required. Nothing was changed."
-	exit 1
-fi
-if [ "$_pass" != "$_pass2" ]; then
-	echo "Those didn't match. Nothing was changed."
-	exit 1
-fi
-# Soft client check: Luna rejects weak passwords; fail before curl when empty
-# or obviously short so the console stays free of API JSON.
-if [ "${#_pass}" -lt 12 ]; then
-	echo "Passwords need at least 12 characters with a letter and a number. Nothing was changed."
-	exit 1
-fi
-_port="${LUNA_PORT:-80}"
-_url="http://127.0.0.1:${_port}/api/v1/console/reset-password"
-_esc() {
-	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-_body=$(printf '{"username":"%s","password":"%s"}' "$(_esc "$_user")" "$(_esc "$_pass")")
-_resp=$(curl -sS -w '\n%{http_code}' -X POST "$_url" \
-	-H 'Content-Type: application/json' \
-	--data-binary "$_body" 2>/dev/null || printf '\n000')
-_code=$(printf '%s' "$_resp" | tail -n 1)
-case "$_code" in
-200)
-	echo "Password updated. Sign in on your phone or computer."
-	exit 0
-	;;
-*)
-	echo "Could not reset the password (HTTP ${_code}). Is Luna running?"
-	echo "Passwords must meet Luna's rules (12+ characters, letter and number)."
-	exit 1
-	;;
-esac
-PWRESET
-chmod 755 "$ROOTFS/usr/local/sbin/luna-pwreset"
+
 
 # Seed console issue file (lunad overwrites with live IP / setup code).
 cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
@@ -400,7 +346,7 @@ cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
 ISSUE
 
 # Console accounts (HDMI/USB keyboard only; no SSH).
-# `root` and `pwreset` keep an empty password for local tty1 login.
+# `root` keeps an empty password for local tty1 login.
 # `luna` stays locked (!). Rootfs is remounted read-only later.
 podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     if grep -q "^root:" /rootfs/etc/passwd; then
@@ -414,13 +360,7 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     else
         sed -i -E "s|^luna:([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):[^:]*$|luna:\1:\2:\3:\4:\5:/sbin/nologin|" /rootfs/etc/passwd
     fi
-    if ! grep -q "^pwreset:" /rootfs/etc/passwd; then
-        echo "pwreset:x:1001:1001:Luna recovery:/home/pwreset:/usr/local/sbin/luna-pwreset" >> /rootfs/etc/passwd
-        echo "pwreset:x:1001:" >> /rootfs/etc/group
-        mkdir -p /rootfs/home/pwreset
-        chown 1001:1001 /rootfs/home/pwreset
-    fi
-    # Empty hash for root and pwreset (blank password login); lock luna.
+    # Empty hash for root (blank password login); lock luna.
     if grep -q "^root:" /rootfs/etc/shadow; then
         sed -i -E "s|^root:[^:]*:|root::|" /rootfs/etc/shadow
     else
@@ -430,11 +370,6 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         sed -i -E "s|^luna:[^:]*:|luna:!:|" /rootfs/etc/shadow
     else
         echo "luna:!:19000:0:99999:7:::" >> /rootfs/etc/shadow
-    fi
-    if grep -q "^pwreset:" /rootfs/etc/shadow; then
-        sed -i -E "s|^pwreset:[^:]*:|pwreset::|" /rootfs/etc/shadow
-    else
-        echo "pwreset::19000:0:99999:7:::" >> /rootfs/etc/shadow
     fi
 '
 

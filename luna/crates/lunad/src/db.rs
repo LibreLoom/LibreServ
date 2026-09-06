@@ -589,6 +589,18 @@ pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
     Ok(rows.next().transpose()?)
 }
 
+pub fn list_admins(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE role = 'admin' ORDER BY username ASC",
+    )?;
+    let rows = stmt.query_map([], user_from_row)?;
+    let mut admins = Vec::new();
+    for r in rows {
+        admins.push(r?);
+    }
+    Ok(admins)
+}
+
 /// Invalidate every browser session JWT for this person. Device tokens are
 /// unchanged (those have their own revoke path).
 pub fn bump_user_token_version(conn: &Connection, user_id: &str) -> anyhow::Result<()> {

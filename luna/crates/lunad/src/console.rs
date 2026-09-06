@@ -118,15 +118,20 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     // local-only, and the code is the durable identity for recovery and re-bind.
     if !token_problem && let Some(code) = &snap.setup_code {
         lines.push(String::new());
-        lines.push("  Device code (purchased from LibreLoom):".into());
+        lines.push("  Device code (for Luna Connect):".into());
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
     }
 
     lines.push(String::new());
-    lines.push("  Most people use the web. Login below is only for recovery.".into());
+    lines.push(
+        "  Luna's main UI is accessible through the links above. Login below is only for recovery."
+            .into(),
+    );
     lines.push("  Local shell: type root, press Enter at password.".into());
-    lines.push("  Forgot Luna web password? type pwreset, press Enter at password.".into());
+    lines.push(
+        "  Forgot Luna password? Plug in a USB flash drive with pwreset-<token>.luna.".into(),
+    );
     lines.push("============================================================".into());
     lines.push(String::new());
     lines
@@ -287,7 +292,7 @@ mod tests {
             problems: vec![],
         });
         assert!(text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"));
-        assert!(text.contains("Device code (purchased from LibreLoom)"));
+        assert!(text.contains("Device code (for Luna Connect)"));
         assert!(text.contains("connect.luna.libreloom.org"));
         assert!(text.contains("photos.luna.servers.libreloom.org"));
     }

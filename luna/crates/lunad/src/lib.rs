@@ -32,6 +32,7 @@ pub mod password;
 pub mod protect;
 pub mod rate_limit;
 pub mod recovery;
+pub mod recovery_drive;
 pub mod scrub;
 pub mod secrets;
 pub mod smart;

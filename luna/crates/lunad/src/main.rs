@@ -57,9 +57,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Password recovery is the Linux `pwreset` login shell (luna-pwreset),
-    // which POSTs to /api/v1/console/reset-password on loopback.
-
     let connect_poll_wake = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // DHCP link watcher: wake Connect poll on carrier rise *or* when IPv4 appears
@@ -198,6 +195,22 @@ async fn main() -> anyhow::Result<()> {
                     // already shown).
                     let _ = lunad::console::write_issue(&data_dir, &snap);
                     std::thread::sleep(std::time::Duration::from_secs(2));
+                }
+            })
+            .ok();
+    }
+
+    {
+        let data_dir = cfg.data_dir.clone();
+        let db = state.db.clone();
+        std::thread::Builder::new()
+            .name("luna-flash-recovery".into())
+            .spawn(move || {
+                loop {
+                    if let Ok(conn) = db.lock() {
+                        lunad::recovery_drive::scan_candidate_dirs(&data_dir, &conn);
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(3));
                 }
             })
             .ok();

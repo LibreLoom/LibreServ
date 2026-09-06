@@ -42,7 +42,7 @@ fn run() -> io::Result<()> {
     // Keep the File alive so the fd is not closed after dup2.
     let _tty_keep = tty;
 
-    prepare_terminal()?;
+    let orig_term = prepare_terminal()?;
 
     let mut username = String::new();
     let mut last_paint = String::new();
@@ -86,7 +86,7 @@ fn run() -> io::Result<()> {
                 // Clear prompt area before handing off.
                 let _ = write!(io::stdout(), "\r\n");
                 let _ = io::stdout().flush();
-                exec_login(&login_bin, &name)?;
+                exec_login(&login_bin, &name, &orig_term)?;
                 // exec only returns on failure
             }
             Some(Key::CtrlC) | Some(Key::CtrlD) => {
@@ -137,22 +137,29 @@ fn dup_stdio(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-fn prepare_terminal() -> io::Result<()> {
+fn prepare_terminal() -> io::Result<libc::termios> {
     // Canonical line discipline with echo off — we paint the username ourselves.
     unsafe {
         let mut term = std::mem::MaybeUninit::<libc::termios>::uninit();
         if libc::tcgetattr(0, term.as_mut_ptr()) != 0 {
             return Err(io::Error::last_os_error());
         }
-        let mut term = term.assume_init();
+        let orig = term.assume_init();
+        let mut term = orig;
         term.c_lflag &= !(libc::ECHO | libc::ICANON);
         term.c_cc[libc::VMIN] = 0;
         term.c_cc[libc::VTIME] = 0;
         if libc::tcsetattr(0, libc::TCSANOW, &term) != 0 {
             return Err(io::Error::last_os_error());
         }
+        Ok(orig)
     }
-    Ok(())
+}
+
+fn restore_terminal(orig: &libc::termios) {
+    unsafe {
+        let _ = libc::tcsetattr(0, libc::TCSANOW, orig);
+    }
 }
 
 fn read_issue(path: &Path) -> (String, Option<SystemTime>) {
@@ -233,7 +240,8 @@ fn read_key(timeout: Duration) -> io::Result<Option<Key>> {
     }))
 }
 
-fn exec_login(login_bin: &str, username: &str) -> io::Result<()> {
+fn exec_login(login_bin: &str, username: &str, orig: &libc::termios) -> io::Result<()> {
+    restore_terminal(orig);
     // BusyBox / util-linux: `login -- USER` prompts for password.
     let err = Command::new(login_bin).arg("--").arg(username).exec();
     Err(io::Error::other(format!("exec {login_bin} failed: {err}")))

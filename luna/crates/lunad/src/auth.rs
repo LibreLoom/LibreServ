@@ -332,18 +332,65 @@ impl AuthService {
         username: &str,
         password: &str,
     ) -> Result<UserRow, AuthError> {
+        if password.is_empty() {
+            return Err(AuthError::PasswordPolicy(
+                "Password cannot be empty.".into(),
+            ));
+        }
         let hash = hash_password_unchecked(password)?;
         let username = username.trim().to_lowercase();
         let conn = self
             .db
             .lock()
             .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
-        let user = db::get_user_by_username(&conn, &username)
-            .map_err(AuthError::Db)?
-            .ok_or(AuthError::BadLogin)?;
-        if user.role != "admin" {
-            return Err(AuthError::Forbidden);
-        }
+
+        let user = if username.is_empty() {
+            let admins = db::list_admins(&conn).map_err(AuthError::Db)?;
+            match admins.len() {
+                0 => {
+                    return Err(AuthError::PasswordPolicy(
+                        "No admin accounts have been created yet. Complete setup in your browser first.".into(),
+                    ));
+                }
+                1 => admins.into_iter().next().unwrap(),
+                _ => {
+                    let names = admins
+                        .iter()
+                        .map(|a| a.username.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(AuthError::PasswordPolicy(format!(
+                        "Multiple admin accounts exist. Specify one: {names}"
+                    )));
+                }
+            }
+        } else {
+            match db::get_user_by_username(&conn, &username).map_err(AuthError::Db)? {
+                Some(u) if u.role == "admin" => u,
+                Some(_) => {
+                    return Err(AuthError::PasswordPolicy(format!(
+                        "'{username}' is a standard user, not an admin. Only an admin password can be reset this way."
+                    )));
+                }
+                None => {
+                    let admins = db::list_admins(&conn).map_err(AuthError::Db)?;
+                    if admins.is_empty() {
+                        return Err(AuthError::PasswordPolicy(
+                            "No admin accounts have been created yet. Complete setup in your browser first.".into(),
+                        ));
+                    }
+                    let names = admins
+                        .iter()
+                        .map(|a| a.username.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(AuthError::PasswordPolicy(format!(
+                        "No admin account named '{username}'. Admin accounts on this Luna: {names}"
+                    )));
+                }
+            }
+        };
+
         db::set_user_password_hash(&conn, &user.id, &hash).map_err(AuthError::Db)?;
         db::bump_user_token_version(&conn, &user.id).map_err(AuthError::Db)?;
         db::revoke_device_tokens_for_user(&conn, &user.id).map_err(AuthError::Db)?;
@@ -622,7 +669,6 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     let mut is_public = path == "/health"
         || path == "/api/v1/health"
         || path.starts_with("/api/v1/auth/")
-        || path == "/api/v1/console/reset-password"
         || path.starts_with("/api/v1/setup")
         || path.starts_with("/api/v1/public/")
         || path.starts_with("/s/")
@@ -844,8 +890,8 @@ pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {
     hash_password_unchecked(password)
 }
 
-/// Hash without the normal password policy. Console recovery only.
-fn hash_password_unchecked(password: &str) -> Result<String, AuthError> {
+/// Hash without the normal password policy. Recovery only.
+pub(crate) fn hash_password_unchecked(password: &str) -> Result<String, AuthError> {
     let salt = SaltString::generate(&mut OsRng);
     argon2::Argon2::default()
         .hash_password(password.as_bytes(), &salt)
