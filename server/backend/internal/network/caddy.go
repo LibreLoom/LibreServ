@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"math"
 	"math/big"
@@ -336,10 +335,10 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 		// not installed — common in dev). Rolling back would discard the
 		// route and break the app's public URL; a later reload attempt will
 		// pick the route up once Caddy is reachable.
-		log.Printf("Route added %s but Caddy reload failed (kept route): %v", route.FullDomain(), err)
+		slog.Warn("route added but Caddy reload failed (kept route)", "domain", route.FullDomain(), "error", err)
 	}
 
-	log.Printf("Route added: %s -> %s", route.FullDomain(), route.Backend)
+	slog.Info("route added", "domain", route.FullDomain(), "backend", route.Backend)
 	return route, nil
 }
 
@@ -401,7 +400,7 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 	if err := cm.reloadCaddy(); err != nil {
 		// Keep the route — reload failure (Caddy down/not installed) must not
 		// discard the route and break the app's public URL.
-		log.Printf("Route updated %s but Caddy reload failed (kept route): %v", route.FullDomain(), err)
+		slog.Warn("route updated but Caddy reload failed (kept route)", "domain", route.FullDomain(), "error", err)
 	}
 	return route, nil
 }
@@ -444,10 +443,10 @@ func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 
 	// Delete from database
 	if err := cm.deleteRoute(ctx, routeID); err != nil {
-		log.Printf("Warning: failed to delete route from database: %v", err)
+		slog.Warn("failed to delete route from database", "error", err)
 	}
 
-	log.Printf("Route removed: %s", route.FullDomain())
+	slog.Info("route removed", "domain", route.FullDomain())
 	return nil
 }
 
@@ -533,7 +532,7 @@ func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend
 
 	// Update in database
 	if err := cm.updateRouteInDB(ctx, route); err != nil {
-		log.Printf("Warning: failed to update route in database: %v", err)
+		slog.Warn("failed to update route in database", "error", err)
 	}
 
 	return route, nil
@@ -719,7 +718,7 @@ func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 {{if and .AutoHTTPS .HasRealDomains}}
 # HTTP to HTTPS redirect for all domains
 http:// {
-	redir https://{host}{uri} 308
+	re dir https://{host}{uri} 308
 }
 {{end}}
 
@@ -1147,7 +1146,7 @@ func (cm *CaddyManager) reloadCaddy() error {
 
 		// Fall through to CLI method as a last resort (if available).
 		if lastErr != nil {
-			log.Printf("Caddy admin reload failed after retries; attempting CLI reload: %v", lastErr)
+			slog.Warn("Caddy admin reload failed after retries; attempting CLI reload", "error", lastErr)
 		}
 	}
 
