@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Image as ImageIcon, Plus, PlugZap } from "lucide-react";
+import { Image as ImageIcon, Plus, PlugZap, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
@@ -78,6 +78,7 @@ export default function GalleryPage() {
   const [lightbox, setLightbox] = useState(null);
   const [sharePhoto, setSharePhoto] = useState(null);
   const [trashPhoto, setTrashPhoto] = useState(null);
+  const [trashAlbum, setTrashAlbum] = useState(null);
   const [albumPick, setAlbumPick] = useState(null);
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
@@ -251,6 +252,23 @@ export default function GalleryPage() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const deleteAlbum = useMutation({
+    /** @param {{ home_drive_id: string, id: string }} album */
+    mutationFn: (album) =>
+      deleteJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`),
+    onSuccess: (_data, album) => {
+      setTrashAlbum(null);
+      setAlbumView((current) =>
+        current && current.id === album.id && current.home_drive_id === album.home_drive_id
+          ? null
+          : current,
+      );
+      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
   const addToAlbum = useMutation({
     /** @param {{ album: { home_drive_id: string, id: string }, photo: { drive_id: string, path: string } }} args */
     mutationFn: ({ album, photo }) =>
@@ -374,6 +392,10 @@ export default function GalleryPage() {
           loading={albums.isLoading}
           onOpen={setAlbumView}
           onCreate={() => setNewAlbumOpen(true)}
+          onDelete={(album) => {
+            setError(null);
+            setTrashAlbum(album);
+          }}
           onShare={async (album) => {
             try {
               await patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, {
@@ -479,6 +501,22 @@ export default function GalleryPage() {
         overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
       />
 
+      <ConfirmModal
+        open={!!trashAlbum}
+        onClose={() => {
+          setTrashAlbum(null);
+          setError(null);
+        }}
+        onConfirm={() => trashAlbum && deleteAlbum.mutate(trashAlbum)}
+        title="Delete album?"
+        message={`Delete "${trashAlbum?.name || "this album"}"? Photos stay in your library — only this album is removed.`}
+        variant="danger"
+        confirmLabel="Delete album"
+        icon={Trash2}
+        loading={deleteAlbum.isPending}
+        error={trashAlbum ? error : null}
+      />
+
       {newAlbumOpen && (
         <ModalCard title="New album" onClose={() => {
           setNewAlbumOpen(false);
@@ -556,7 +594,7 @@ export default function GalleryPage() {
   );
 }
 
-function AlbumsPanel({ albums, loading, onOpen, onCreate, onShare }) {
+function AlbumsPanel({ albums, loading, onOpen, onCreate, onShare, onDelete }) {
   if (loading) {
     return (
       <div
@@ -612,9 +650,24 @@ function AlbumsPanel({ albums, loading, onOpen, onCreate, onShare }) {
                   </p>
                 </div>
               </button>
-              <div className="px-3 pb-3">
-                <Button variant="outline" size="sm" fullWidth onClick={() => onShare(album)}>
+              <div className="px-3 pb-3 flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-w-0 flex-1"
+                  onClick={() => onShare(album)}
+                >
                   Share album
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  surface="secondary"
+                  className="shrink-0"
+                  aria-label={`Delete album ${album.name}`}
+                  onClick={() => onDelete(album)}
+                >
+                  <Trash2 size={16} aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -631,5 +684,6 @@ AlbumsPanel.propTypes = {
   onOpen: PropTypes.func,
   onCreate: PropTypes.func,
   onShare: PropTypes.func,
+  onDelete: PropTypes.func,
 };
 

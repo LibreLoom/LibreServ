@@ -446,4 +446,139 @@ describe("GalleryPage", () => {
       expect(screen.queryByRole("heading", { name: "Add to album" })).not.toBeInTheDocument();
     });
   });
+
+  it("shows a delete control on album cards and removes the album after confirm", async () => {
+    const album = {
+      id: "alb1",
+      home_drive_id: "a",
+      name: "Vacation",
+      item_count: 2,
+      shared: false,
+    };
+    let albumsList = [album];
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums/a/alb1") && method === "DELETE") {
+        albumsList = [];
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums") && method === "GET") {
+        return new Response(JSON.stringify(albumsList), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/gallery#albums");
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Vacation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share album" })).toBeInTheDocument();
+    const deleteBtn = screen.getByRole("button", { name: "Delete album Vacation" });
+    expect(deleteBtn.className).toMatch(/shrink-0/);
+    await user.click(deleteBtn);
+
+    expect(await screen.findByRole("heading", { name: "Delete album?" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Photos stay in your library — only this album is removed/i),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Delete album$/i }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/gallery/albums/a/alb1") &&
+            (init?.method || "GET").toUpperCase() === "DELETE",
+        ),
+      ).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Vacation")).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
+  });
+
+  it("keeps the album when delete is cancelled", async () => {
+    const album = {
+      id: "alb1",
+      home_drive_id: "a",
+      name: "Keep me",
+      item_count: 0,
+      shared: false,
+    };
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums")) {
+        return new Response(JSON.stringify([album]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/gallery#albums");
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Keep me")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete album Keep me" }));
+    expect(await screen.findByRole("heading", { name: "Delete album?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Delete album?" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Keep me")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.every(
+        ([url, init]) => (init?.method || "GET").toUpperCase() !== "DELETE",
+      ),
+    ).toBe(true);
+  });
 });
