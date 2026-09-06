@@ -1,6 +1,7 @@
 /**
  * Build the Luna setup link shown at the end of Connect onboarding.
- * Display stays clean (no query string); href includes ?token= when available.
+ * Display is hostname-only (no /setup, no query); href still targets /setup
+ * and includes ?token= when available for click and copy.
  *
  * @param {string} hostname Public hostname or absolute URL for the Luna
  * @param {string} [deviceToken] Full device token to embed for silent WAN auth
@@ -29,10 +30,11 @@ export function buildLunaSetupLink(hostname, deviceToken = "") {
     /* keep setupUrl from string concat */
   }
 
-  let display = raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-  if (!/\/setup$/i.test(display)) {
-    display = `${display}/setup`;
-  }
+  // Visible label: hostname only. /setup stays on the href for click/copy.
+  const display = raw
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "")
+    .replace(/\/setup$/i, "");
 
   const token = String(deviceToken || "").trim();
   const href = token
