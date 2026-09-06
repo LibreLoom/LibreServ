@@ -205,6 +205,8 @@ async function mapPool(items, limit, worker) {
  *   driveLabel: string,
  *   path?: string,
  *   onPathChange?: (next: string) => void,
+ *   selectPath?: string | null,
+ *   onSelectPathApplied?: () => void,
  *   linkNavigation?: boolean,
  *   folderHref?: (driveId: string, folderPath: string) => string,
  *   isAdmin?: boolean,
@@ -218,6 +220,8 @@ export default function DriveFileExplorer({
   driveLabel,
   path: controlledPath,
   onPathChange,
+  selectPath = null,
+  onSelectPathApplied,
   linkNavigation = false,
   folderHref = defaultFolderHref,
   isAdmin = false,
@@ -557,6 +561,8 @@ export default function DriveFileExplorer({
         enableUploadDrop={folderWritable}
         dense={dense}
         multiSelect
+        selectPath={selectPath}
+        onSelectPathApplied={onSelectPathApplied}
         onSelectedPathsChange={(paths) => { selectedRef.current = paths; }}
         onUploadFiles={folderWritable ? uploadFiles : undefined}
         onInternalMove={folderWritable ? (paths, destFolder) =>
@@ -829,6 +835,8 @@ DriveFileExplorer.propTypes = {
   driveLabel: PropTypes.string.isRequired,
   path: PropTypes.string,
   onPathChange: PropTypes.func,
+  selectPath: PropTypes.string,
+  onSelectPathApplied: PropTypes.func,
   linkNavigation: PropTypes.bool,
   folderHref: PropTypes.func,
   isAdmin: PropTypes.bool,

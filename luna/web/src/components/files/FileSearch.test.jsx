@@ -137,8 +137,11 @@ describe("FileSearch", () => {
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     expect(screen.getByText(/Photos Drive \/ album/i)).toBeInTheDocument();
 
-    const open = await screen.findByRole("link", { name: /Go to folder for beach.jpg/i });
-    expect(open).toHaveAttribute("href", "/drives/d1?path=album");
+    const row = await screen.findByRole("link", { name: /Show beach.jpg in its folder/i });
+    expect(row).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fbeach.jpg");
+
+    const open = screen.getByRole("link", { name: /Go to folder for beach.jpg/i });
+    expect(open).toHaveAttribute("href", "/drives/d1?path=album&select=album%2Fbeach.jpg");
 
     const download = screen.getByRole("link", { name: /Download beach.jpg/i });
     expect(download).toHaveAttribute(
@@ -168,8 +171,11 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "alb" },
     });
-    const open = await screen.findByRole("link", { name: /Open album/i });
-    expect(open).toHaveAttribute("href", "/drives/d1?path=album");
+    const opens = await screen.findAllByRole("link", { name: /^Open album$/i });
+    expect(opens.length).toBeGreaterThanOrEqual(1);
+    for (const open of opens) {
+      expect(open).toHaveAttribute("href", "/drives/d1?path=album");
+    }
     const download = screen.getByRole("link", { name: /Download album/i });
     expect(download).toHaveAttribute(
       "href",
@@ -177,6 +183,50 @@ describe("FileSearch", () => {
     );
   });
 
+  it("closes the overlay when a result row is activated", async () => {
+    renderSearch([
+      {
+        drive_id: "d1",
+        path: "album/beach.jpg",
+        parent: "album",
+        name: "beach.jpg",
+        kind: "file",
+        size: 2048,
+        modified: 1,
+      },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+      target: { value: "beach" },
+    });
+    const row = await screen.findByRole("link", { name: /Show beach.jpg in its folder/i });
+    fireEvent.click(row);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 350));
+    });
+    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+  });
+
+  it("keeps action buttons from also triggering row navigation", async () => {
+    renderSearch([
+      {
+        drive_id: "d1",
+        path: "notes.txt",
+        parent: "",
+        name: "notes.txt",
+        kind: "file",
+        size: 10,
+        modified: 1,
+      },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
+      target: { value: "notes" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Copy notes.txt/i }));
+    expect(await screen.findByRole("dialog", { name: /Copy notes.txt/i })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+  });
   it("shows tooltips on search result action buttons", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

@@ -26,6 +26,7 @@ import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
 import FolderPickerModal from "./FolderPickerModal";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
+import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics";
 
@@ -39,23 +40,11 @@ function prefersReducedMotion() {
 }
 
 function folderOf(path) {
-  const idx = path.lastIndexOf("/");
-  return idx < 0 ? "" : path.slice(0, idx);
-}
-
-function openHref(item) {
-  if (item.kind === "dir") {
-    return item.path
-      ? `/drives/${item.drive_id}?path=${encodeURIComponent(item.path)}`
-      : `/drives/${item.drive_id}`;
-  }
-  const folder = item.parent != null ? item.parent : folderOf(item.path);
-  if (!folder) return `/drives/${item.drive_id}`;
-  return `/drives/${item.drive_id}?path=${encodeURIComponent(folder)}`;
+  return parentPath(path) ?? "";
 }
 
 function downloadHref(item) {
-  return `/api/v1/drives/${item.drive_id}/files/content?path=${encodeURIComponent(item.path)}&download=1`;
+  return fileDownloadHref(item.drive_id, item.path);
 }
 
 function fmtSize(bytes) {
@@ -100,30 +89,26 @@ function applyFlip(el, fromRect, direction) {
   const sy = fromRect.height / to.height;
   el.style.transformOrigin = "top left";
   el.style.willChange = "transform, opacity";
+  // Keep the panel's final border-radius for the whole FLIP — no pill→card morph.
   if (direction === "open") {
     el.style.transition = "none";
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
     el.style.opacity = "0.55";
-    el.style.borderRadius = "9999px";
     // Force layout so the invert sticks before we play forward.
     void el.offsetWidth;
     el.style.transition = [
       "transform var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate)",
       "opacity var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate)",
-      "border-radius var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate)",
     ].join(", ");
     el.style.transform = "none";
     el.style.opacity = "1";
-    el.style.borderRadius = "";
   } else {
     el.style.transition = [
       "transform var(--motion-duration-medium2) var(--motion-easing-emphasized-accelerate)",
       "opacity var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate)",
-      "border-radius var(--motion-duration-medium2) var(--motion-easing-emphasized-accelerate)",
     ].join(", ");
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
     el.style.opacity = "0";
-    el.style.borderRadius = "9999px";
   }
   return true;
 }
@@ -422,10 +407,30 @@ export default function FileSearch() {
                   {results.data.map((item) => {
                     const driveLabel = labels[item.drive_id] || "A drive";
                     const isDir = item.kind === "dir";
+                    const href = searchResultHref(item);
+                    const openLabel = isDir
+                      ? `Open ${item.name}`
+                      : `Show ${item.name} in its folder`;
+                    const iconOpenLabel = isDir
+                      ? `Open ${item.name}`
+                      : `Go to folder for ${item.name}`;
                     return (
                       <li key={`${item.drive_id}:${item.path}`}>
-                        <div className="rounded-large-element bg-primary text-secondary px-3 py-2 motion-safe:transition-shadow hover:ring-2 hover:ring-accent">
-                          <div className="flex items-center gap-2 min-w-0">
+                        <div
+                          className={cn(
+                            "relative rounded-large-element bg-primary text-secondary px-3 py-2",
+                            "motion-safe:transition-shadow hover:ring-2 hover:ring-accent",
+                            "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent",
+                          )}
+                        >
+                          {/* Stretched link: row body navigates; action icons sit above it. */}
+                          <Link
+                            to={href}
+                            aria-label={openLabel}
+                            className="absolute inset-0 z-0 rounded-large-element"
+                            onClick={beginClose}
+                          />
+                          <div className="relative z-10 flex items-center gap-2 min-w-0 pointer-events-none">
                             {isDir ? (
                               <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
                             ) : (
@@ -439,16 +444,25 @@ export default function FileSearch() {
                               </p>
                             </div>
                             <ActionTooltipGroup>
-                              <div className="flex items-center gap-1 shrink-0">
+                              <div
+                                className="flex items-center gap-1 shrink-0 pointer-events-auto"
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 <Tooltip content={isDir ? "Open" : "Go to folder"}>
                                   <Button
                                     variant="ghost"
                                     surface="primary"
                                     size="iconSm"
                                     asChild
-                                    aria-label={isDir ? `Open ${item.name}` : `Go to folder for ${item.name}`}
+                                    aria-label={iconOpenLabel}
                                   >
-                                    <Link to={openHref(item)} onClick={beginClose}>
+                                    <Link
+                                      to={href}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        beginClose();
+                                      }}
+                                    >
                                       <FolderOpen size={14} />
                                     </Link>
                                   </Button>

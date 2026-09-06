@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -218,6 +218,34 @@ describe("FileBrowser", () => {
       "/drives/d1?view=trash",
     );
     expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
+  });
+
+  it("selects and scrolls to a deep-linked selectPath", async () => {
+    const onSelectPathApplied = vi.fn();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    stubListing({
+      album: [
+        { name: "a.txt", kind: "file", size: 1, hidden: false },
+        { name: "beach.jpg", kind: "file", size: 2000, hidden: false },
+        { name: "z.txt", kind: "file", size: 1, hidden: false },
+      ],
+    });
+    renderBrowser({
+      path: "album",
+      multiSelect: true,
+      selectPath: "album/beach.jpg",
+      onSelectPathApplied,
+    });
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    const row = document.querySelector('[data-file-path="album/beach.jpg"]');
+    expect(row).toBeTruthy();
+    expect(row?.className).toMatch(/bg-accent\/20/);
+    expect(screen.getByLabelText("Select beach.jpg")).toBeChecked();
+    expect(onSelectPathApplied).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
   });
 
   it("hides trash folder row in subfolders", async () => {

@@ -16,6 +16,29 @@ export function folderHref(driveId, folderPath) {
   return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
 }
 
+/**
+ * Router href for a search hit: folders open into themselves; files open the
+ * parent folder and deep-link a `select=` path so the browser can highlight
+ * and scroll to the file.
+ *
+ * @param {{
+ *   drive_id: string,
+ *   path: string,
+ *   kind?: string,
+ *   parent?: string | null,
+ * }} item
+ */
+export function searchResultHref(item) {
+  if (item.kind === "dir") {
+    return folderHref(item.drive_id, item.path || "");
+  }
+  const folder = item.parent != null ? item.parent : (parentPath(item.path) ?? "");
+  const base = folderHref(item.drive_id, folder);
+  if (!item.path) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}select=${encodeURIComponent(item.path)}`;
+}
+
 /** Human-readable size (decimal). */
 export function fmtSize(bytes) {
   const n = Number(bytes) || 0;

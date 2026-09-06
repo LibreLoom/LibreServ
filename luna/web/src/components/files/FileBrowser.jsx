@@ -32,6 +32,20 @@ import {
   parentPath,
 } from "../../lib/paths.js";
 
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** CSS.escape polyfill for attribute selectors. */
+function cssEscape(value) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 /**
  * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean }} FileEntry
  * @typedef {{ entry: FileEntry, path: string, fullPath: string }} FileBrowserRowContext
@@ -55,6 +69,8 @@ import {
  *   multiSelect?: boolean,
  *   selectedPaths?: string[],
  *   onSelectedPathsChange?: (paths: string[]) => void,
+ *   selectPath?: string | null,
+ *   onSelectPathApplied?: () => void,
  *   onShare?: (ctx: FileBrowserRowContext) => void,
  *   onCopy?: (paths: string[]) => void,
  *   onMove?: (paths: string[]) => void,
@@ -96,6 +112,8 @@ export default function FileBrowser({
   multiSelect: multiSelectProp,
   selectedPaths: controlledSelected,
   onSelectedPathsChange,
+  selectPath = null,
+  onSelectPathApplied,
   onShare,
   onCopy,
   onMove,
@@ -131,6 +149,8 @@ export default function FileBrowser({
   const [lastClicked, setLastClicked] = useState(/** @type {string|null} */ (null));
   const dragPathsRef = useRef(/** @type {string[]} */ ([]));
   const filePicker = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const listRef = useRef(/** @type {HTMLUListElement|null} */ (null));
+  const appliedSelectRef = useRef(/** @type {string|null} */ (null));
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
@@ -186,6 +206,37 @@ export default function FileBrowser({
       return parent !== path;
     }));
   }, [entryPaths, path, controlledSelected]);
+
+  // Deep-link from search (`?select=`): select the file once the listing is
+  // ready, scroll it into view, then let the parent clear the query param.
+  useEffect(() => {
+    if (!selectPath) {
+      appliedSelectRef.current = null;
+      return;
+    }
+    if (listBusy) return;
+    if (appliedSelectRef.current === selectPath) return;
+    if (!entryPaths.includes(selectPath)) {
+      appliedSelectRef.current = selectPath;
+      onSelectPathApplied?.();
+      return;
+    }
+    appliedSelectRef.current = selectPath;
+    setSelectedPaths([selectPath]);
+    setLastClicked(selectPath);
+    const frame = window.requestAnimationFrame(() => {
+      const root = listRef.current;
+      if (!root) return;
+      const row = root.querySelector(`[data-file-path="${cssEscape(selectPath)}"]`);
+      if (row && typeof row.scrollIntoView === "function") {
+        row.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      }
+    });
+    onSelectPathApplied?.();
+    return () => window.cancelAnimationFrame(frame);
+    // setSelectedPaths is stable enough for this deep-link seed; listing/selectPath drive re-runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed-once-per-selectPath
+  }, [selectPath, entryPaths, listBusy, onSelectPathApplied]);
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
@@ -713,6 +764,7 @@ export default function FileBrowser({
           <div className="h-11" aria-hidden="true" />
         ) : (
           <ul
+            ref={listRef}
             className={["m-0 p-0 list-none", showingStaleListing ? "pointer-events-none" : ""]
               .filter(Boolean)
               .join(" ")}
@@ -764,6 +816,7 @@ export default function FileBrowser({
               return (
                 <li
                   key={entry.name}
+                  data-file-path={ctx.fullPath}
                   className={[
                     "flex items-center gap-2 px-3",
                     padY,
@@ -890,6 +943,8 @@ FileBrowser.propTypes = {
   multiSelect: PropTypes.bool,
   selectedPaths: PropTypes.arrayOf(PropTypes.string),
   onSelectedPathsChange: PropTypes.func,
+  selectPath: PropTypes.string,
+  onSelectPathApplied: PropTypes.func,
   onShare: PropTypes.func,
   onCopy: PropTypes.func,
   onMove: PropTypes.func,
