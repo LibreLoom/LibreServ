@@ -3,7 +3,7 @@ package monitoring
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"runtime"
 	"sync"
 	"time"
@@ -331,7 +331,7 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn("failed to close rows", "error", cerr)
 		}
 	}()
 
@@ -348,7 +348,7 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 			&metric.NetworkTx,
 		)
 		if err != nil {
-			log.Printf("failed to scan metrics row: %v", err)
+			slog.Warn("failed to scan metrics row", "error", err)
 			continue
 		}
 		metrics = append(metrics, metric)
@@ -456,7 +456,7 @@ func (m *Monitor) saveHealthCheck(appID string, result *CheckResult) {
 	`
 	_, err := m.db.Exec(query, appID, result.CheckType, string(result.Status), result.Message, result.Timestamp)
 	if err != nil {
-		log.Printf("Failed to save health check for %s: %v", appID, err)
+		slog.Warn("failed to save health check", "app_id", appID, "error", err)
 	}
 }
 
@@ -465,7 +465,7 @@ func (m *Monitor) updateAppHealth(appID string, status HealthStatus) {
 	query := `UPDATE apps SET health_status = ?, updated_at = ? WHERE id = ?`
 	_, err := m.db.Exec(query, string(status), time.Now(), appID)
 	if err != nil {
-		log.Printf("Failed to update app health for %s: %v", appID, err)
+		slog.Warn("failed to update app health", "app_id", appID, "error", err)
 	}
 }
 
@@ -485,7 +485,7 @@ func (m *Monitor) getRecentChecks(ctx context.Context, appID string, limit int) 
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn("failed to close rows", "error", cerr)
 		}
 	}()
 
@@ -495,7 +495,7 @@ func (m *Monitor) getRecentChecks(ctx context.Context, appID string, limit int) 
 		var status string
 		err := rows.Scan(&r.CheckType, &status, &r.Message, &r.Timestamp)
 		if err != nil {
-			log.Printf("failed to scan health check row: %v", err)
+			slog.Warn("failed to scan health check row", "error", err)
 			continue
 		}
 		r.Status = HealthStatus(status)
@@ -540,7 +540,7 @@ func (m *Monitor) collectAllMetrics() {
 	for _, appID := range appIDs {
 		metrics, err := m.metricsCollector.CollectAppMetrics(ctx, appID)
 		if err != nil {
-			log.Printf("Failed to collect metrics for %s: %v", appID, err)
+			slog.Warn("failed to collect metrics", "app_id", appID, "error", err)
 			continue
 		}
 
@@ -565,7 +565,7 @@ func (m *Monitor) saveMetrics(metrics *Metrics) {
 		metrics.NetworkTx,
 	)
 	if err != nil {
-		log.Printf("Failed to save metrics for %s: %v", metrics.AppID, err)
+		slog.Warn("failed to save metrics", "app_id", metrics.AppID, "error", err)
 	}
 }
 
