@@ -37,6 +37,7 @@ import {
 } from "../lib/passwordPolicy.js";
 import { DEVICE_ONLINE_POLL_MS, fetchDeviceSetupReady } from "../lib/deviceOnline.js";
 import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
+import { buildLunaSetupLink } from "../lib/lunaSetupLink.js";
 import { cn } from "../lib/utils.js";
 
 const VERIFY_POLL_MS = 2000;
@@ -1315,41 +1316,52 @@ export default function OnboardingPage() {
     </StepShell>
   );
 
-  const renderDone = () => (
-    <StepShell icon={Check} title="You're connected">
-      <div className="space-y-6 text-left">
-        <p className="text-sm text-foreground leading-relaxed text-pretty">
-          Luna is linked to your account. Open it at the address below when you are away from home.
-        </p>
-        <div>
-          <p className="text-sm text-foreground mb-2">Go here to continue setup directly on your Luna.</p>
-          <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
-            <a
-              href={hostname.startsWith("http") ? hostname : `https://${hostname}`}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-sm break-all flex-1 min-w-0 text-foreground underline hover:no-underline motion-safe:transition-colors"
-            >
-              {hostname}
-            </a>
-            <Button variant="ghost" size="icon" onClick={() => handleCopy("host", hostname)} aria-label="Copy address">
-              {copied === "host" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            </Button>
+  const renderDone = () => {
+    // Prefer the token the user entered (official) or minted (DIY). Href/copy
+    // include ?token= for silent WAN auth on Luna; the visible label stays clean.
+    const deviceToken = (code || diyCode || "").trim();
+    const { display: setupDisplay, href: setupHref } = buildLunaSetupLink(hostname, deviceToken);
+    return (
+      <StepShell icon={Check} title="You're connected">
+        <div className="space-y-6 text-left">
+          <p className="text-sm text-foreground leading-relaxed text-pretty">
+            Luna is linked to your account. Open it at the address below when you are away from home.
+          </p>
+          <div>
+            <p className="text-sm text-foreground mb-2">Go here to continue setup directly on your Luna.</p>
+            <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
+              <a
+                href={setupHref}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-sm break-all flex-1 min-w-0 text-foreground underline hover:no-underline motion-safe:transition-colors"
+              >
+                {setupDisplay}
+              </a>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleCopy("host", setupHref)}
+                aria-label="Copy address"
+              >
+                {copied === "host" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              </Button>
+            </div>
           </div>
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={() => {
+              clearProgress();
+              navigate("/");
+            }}
+          >
+            Done
+          </Button>
         </div>
-        <Button
-          size="lg"
-          className="w-full"
-          onClick={() => {
-            clearProgress();
-            navigate("/");
-          }}
-        >
-          Done
-        </Button>
-      </div>
-    </StepShell>
-  );
+      </StepShell>
+    );
+  };
 
   let body = null;
   if (step === "welcome" && path === "official") body = renderWelcome();

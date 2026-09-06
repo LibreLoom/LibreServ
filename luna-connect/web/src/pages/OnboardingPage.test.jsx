@@ -708,6 +708,10 @@ describe("OnboardingPage finish flow", () => {
     refresh.mockImplementation(async () => authState.me);
     updateAccountEmail.mockResolvedValue({});
     stripeLooksConfigured.mockReturnValue(false);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
       if (path === "/api/v1/devices/dev_1/domain") {
@@ -742,8 +746,12 @@ describe("OnboardingPage finish flow", () => {
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText(/Luna is linked to your account/i)).toBeTruthy();
     expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
-    const lunaLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
-    expect(lunaLink.getAttribute("href")).toBe("https://kitchen.luna.servers.libreloom.org");
+    const lunaLink = screen.getByRole("link", {
+      name: "kitchen.luna.servers.libreloom.org/setup",
+    });
+    expect(lunaLink.getAttribute("href")).toBe(
+      "https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV",
+    );
     expect(lunaLink.getAttribute("target")).toBe("_blank");
     expect(lunaLink.getAttribute("rel")).toBe("noreferrer");
     expect(lunaLink.className).toMatch(/underline/);
@@ -751,7 +759,15 @@ describe("OnboardingPage finish flow", () => {
     expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Plug in Luna/i })).toBeNull();
     expect(screen.queryByText(/one-time code/i)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\?token=/);
     expect(document.body.textContent).not.toMatch(/\?setup=/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Copy address/i }));
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        "https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV",
+      );
+    });
   });
 
   it("shows the plug-in step when Luna is offline after backup", async () => {
@@ -834,8 +850,11 @@ describe("OnboardingPage finish flow", () => {
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" }).getAttribute("href"),
-    ).toBe("https://kitchen.luna.servers.libreloom.org");
+      screen
+        .getByRole("link", { name: "kitchen.luna.servers.libreloom.org/setup" })
+        .getAttribute("href"),
+    ).toBe("https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV");
+    expect(document.body.textContent).not.toMatch(/\?token=/);
     vi.useRealTimers();
   });
 
