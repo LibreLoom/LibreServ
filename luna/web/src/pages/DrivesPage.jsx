@@ -444,8 +444,7 @@ export default function DrivesPage() {
   if (user?.role === "user") {
     const grants = memberAccessRoots(access.data || []);
     return (
-      <Page title="Files" titleId="drives-title">
-        <FileSearch />
+      <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
             <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
@@ -487,8 +486,7 @@ export default function DrivesPage() {
   const actionModalOpen = removeTarget != null || inspectFor != null;
 
   return (
-    <Page title="Files" titleId="drives-title">
-      <FileSearch />
+    <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
       {showPageLevelError(actionError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
       )}
@@ -623,12 +621,14 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
 
   const [label, setLabel] = useState(shownDrive?.model || "My Drive");
   const [confirmErase, setConfirmErase] = useState(false);
+  const [confirmFormat, setConfirmFormat] = useState(false);
 
   useEffect(() => {
     if (open && drive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setLabel(drive.model || "My Drive");
       setConfirmErase(false);
+      setConfirmFormat(false);
     }
   }, [open, drive]);
 
@@ -636,10 +636,11 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
 
   const needsErase = Boolean(result?.needs_erase);
   const canUse = Boolean(result) && result.readable && (result.writable || needsErase);
+  const offerFormat = Boolean(result) && result.readable && !result.writable && !needsErase;
   const blockedReason = result && !canUse
     ? (!result.readable
       ? "Luna could not read this drive. Make sure it is plugged in firmly and try again."
-      : "This drive will not accept new files right now. Usually that means a filesystem issue, or a write-lock switch on the stick. Check the lock switch, then try again.")
+      : "This drive will not accept new files right now. Usually that means a filesystem issue, or a write-lock switch on the stick. Check if there is a lock switch, flip it, then try again. If not, you can use the format button below to attempt formatting of the drive. This will delete all data on the drive.")
     : null;
 
   return (
@@ -729,9 +730,48 @@ function InspectModal({ open = true, drive, result, error, onClose, onAdopt, ado
               </p>
             </div>
           ) : blockedReason ? (
-            <div className="mt-4 flex items-center gap-3">
-              <TriangleAlert size={18} className="text-warning shrink-0" />
-              <p className="text-primary text-xs">{blockedReason}</p>
+            <div className="mt-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <TriangleAlert size={18} className="text-warning shrink-0 mt-0.5" />
+                <p className="text-primary text-xs">{blockedReason}</p>
+              </div>
+              {offerFormat && (
+                <>
+                  {confirmFormat && (
+                    <label className="block">
+                      <span className="text-primary text-xs">What should Luna call this drive?</span>
+                      <input
+                        className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
+                        value={label}
+                        maxLength={80}
+                        onChange={(e) => setLabel(e.target.value)}
+                      />
+                    </label>
+                  )}
+                  {adoptError && confirmFormat && (
+                    <PageNotice variant="error">{adoptError}</PageNotice>
+                  )}
+                  <div className="flex gap-3 flex-wrap">
+                    {!confirmFormat ? (
+                      <Button variant="danger" onClick={() => setConfirmFormat(true)}>
+                        Format
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="danger"
+                        loading={adopting}
+                        onClick={() => {
+                          Promise.resolve(onAdopt(label, true))
+                            .then(() => close())
+                            .catch(() => {});
+                        }}
+                      >
+                        Yes, format it
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           ) : result.has_marker ? (
             <p className="text-primary text-sm mt-2">

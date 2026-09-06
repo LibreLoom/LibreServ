@@ -4,7 +4,14 @@ import Card from "../cards/Card";
 
 /**
  * EmptyState — centered empty copy inside a Card (never on bare page bg).
- * @param {{ icon?: import('react').ElementType, title?: string, description?: string, action?: import('react').ReactNode, className?: string }} props
+ * @param {{
+ *   icon?: import('react').ElementType,
+ *   title?: string,
+ *   description?: string,
+ *   action?: import('react').ReactNode,
+ *   className?: string,
+ *   surface?: "primary" | "secondary",
+ * }} props
  */
 export default function EmptyState({
   icon: Icon,
@@ -12,9 +19,11 @@ export default function EmptyState({
   description,
   action,
   className = "",
+  surface = "secondary",
 }) {
+  const textClass = surface === "primary" ? "text-secondary" : "text-primary";
   return (
-    <Card className={cn("text-center", className)} data-slot="empty-state">
+    <Card surface={surface} className={cn("text-center", className)} data-slot="empty-state">
       <div className="flex flex-col items-center justify-center py-4 px-2">
         {Icon && (
           <div className="mb-3">
@@ -22,10 +31,10 @@ export default function EmptyState({
           </div>
         )}
         {title && (
-          <p className="font-mono text-primary mb-1">{title}</p>
+          <p className={cn("font-mono mb-1", textClass)}>{title}</p>
         )}
         {description && (
-          <p className="text-sm text-primary max-w-xs">{description}</p>
+          <p className={cn("text-sm max-w-xs", textClass)}>{description}</p>
         )}
         {action && <div className="mt-4">{action}</div>}
       </div>
@@ -39,4 +48,5 @@ EmptyState.propTypes = {
   description: PropTypes.string,
   action: PropTypes.node,
   className: PropTypes.string,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
 };

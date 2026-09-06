@@ -105,9 +105,8 @@ export default function FilesPage() {
     <Page
       title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
       titleId="files-title"
+      rightContent={<FileSearch />}
     >
-      <FileSearch />
-
       {activeJobs.length > 0 && (
         <div className="grid gap-3 mb-4">
           {activeJobs.map((job) => (
