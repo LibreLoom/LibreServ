@@ -83,11 +83,11 @@ function stubFetch({
   });
 }
 
-function renderSetup() {
+function renderSetup(initialEntry = "/setup") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/setup"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <AuthProvider>
           <SetupPage />
         </AuthProvider>
@@ -286,5 +286,71 @@ describe("SetupPage", () => {
     fireEvent.change(screen.getByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
     expect(screen.queryByLabelText(/Your device token/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Create account/i })).toBeTruthy();
+  });
+
+  it("consumes ?token= to skip the device-token step and still registers with that secret", async () => {
+    let registered = false;
+    const baseOpts = {
+      network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
+      connectActive: true,
+    };
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      const method = (init?.method || "GET").toUpperCase();
+      if (u.includes("/auth/register") && method === "POST") {
+        registered = true;
+        return jsonResponse({
+          id: "u1",
+          username: "alex",
+          display_name: "Alex",
+          role: "admin",
+        });
+      }
+      if (u.includes("/auth/login") && method === "POST") {
+        return jsonResponse({
+          id: "u1",
+          username: "alex",
+          display_name: "Alex",
+          role: "admin",
+        });
+      }
+      return stubFetch({
+        ...baseOpts,
+        hasAdmin: registered,
+        me: registered
+          ? { id: "u1", username: "alex", display_name: "Alex", role: "admin" }
+          : null,
+      })(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
+
+    renderSetup("/setup?token=ABCD-EFGH-IJKM-NPQR-STUV");
+    fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
+    expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Choose a password/i), { target: { value: "SecurePass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
+
+    expect(screen.queryByLabelText(/Your device token/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /Create account/i })).toBeTruthy();
+    expect(screen.getByText(/4\s*of\s*4/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Create account/i }));
+
+    await waitFor(() => {
+      const registerCall = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).includes("/auth/register") && (init?.method || "GET").toUpperCase() === "POST",
+      );
+      expect(registerCall).toBeTruthy();
+      const body = JSON.parse(registerCall[1].body);
+      expect(body.setup_secret).toBe("ABCD-EFGH-IJKM-NPQR-STUV");
+    });
   });
 });
