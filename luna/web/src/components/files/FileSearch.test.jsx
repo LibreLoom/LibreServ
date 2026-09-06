@@ -55,7 +55,38 @@ function renderSearch(hits, { searchHold } = {}) {
   );
 }
 
+async function openSearchOverlay() {
+  const trigger = await screen.findByRole("button", { name: "Search" });
+  fireEvent.click(trigger);
+  return screen.findByRole("dialog", { name: "Search for a file" });
+}
+
 describe("FileSearch", () => {
+  it("opens a morphing overlay from the header search button", async () => {
+    renderSearch([]);
+    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    const dialog = await openSearchOverlay();
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search for a file")).toHaveAttribute(
+      "aria-label",
+      "Search for a file",
+    );
+    expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
+  });
+
+  it("closes on Escape and restores focus to the header button", async () => {
+    renderSearch([]);
+    const trigger = await screen.findByRole("button", { name: "Search" });
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 350));
+    });
+    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it("shows Searching and a spinner inside the results card", async () => {
     /** @type {((value?: unknown) => void) | undefined} */
     let releaseSearch;
@@ -63,7 +94,8 @@ describe("FileSearch", () => {
       releaseSearch = resolve;
     });
     renderSearch([], { searchHold });
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "zz" },
     });
     const searching = await screen.findByText(/Searching/i);
@@ -78,7 +110,8 @@ describe("FileSearch", () => {
 
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
@@ -97,7 +130,8 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "beach" },
     });
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
@@ -130,7 +164,8 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "alb" },
     });
     const open = await screen.findByRole("link", { name: /Open album/i });
@@ -156,7 +191,9 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
+    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "notes" },
     });
     expect(await screen.findByText("notes.txt")).toBeInTheDocument();
@@ -185,11 +222,12 @@ describe("FileSearch", () => {
         modified: 1,
       },
     ]);
-    fireEvent.change(screen.getByLabelText("Search for a file"), {
+    await openSearchOverlay();
+    fireEvent.change(screen.getByPlaceholderText("Search for a file"), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Move notes.txt to trash/i }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", { name: /Move to trash/i });
     expect(within(dialog).getByText(/Move to trash\?/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Move to trash/i })).toBeInTheDocument();
   });

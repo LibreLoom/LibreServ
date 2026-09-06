@@ -200,6 +200,48 @@ select:focus:not(:focus-visible) {
     border: none !important;
 }
 
+/* File search overlay — backdrop fade; panel morph uses JS FLIP when motion is allowed. */
+@keyframes file-search-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes file-search-backdrop-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@keyframes file-search-panel-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.file-search-backdrop-enter {
+    animation: file-search-backdrop-in var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate) both;
+}
+
+.file-search-backdrop-exit {
+    animation: file-search-backdrop-out var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate) both;
+}
+
+.file-search-panel-enter {
+    animation: file-search-panel-in var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .file-search-backdrop-enter,
+    .file-search-backdrop-exit,
+    .file-search-panel-enter {
+        animation: none;
+    }
+}
+
 .skip-link {
     position: absolute;
     top: 0.75rem;
