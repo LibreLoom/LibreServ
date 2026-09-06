@@ -66,9 +66,9 @@ export default function VerifyEmail() {
             <Button
               size="lg"
               className="mt-2"
-              onClick={() => navigate(fromOnboarding ? "/onboarding" : "/", { replace: true })}
+              onClick={() => navigate("/onboarding", { replace: true })}
             >
-              {fromOnboarding ? "Back to Setup" : "Go to Luna Connect"}
+              Back to Setup
             </Button>
           </div>
         )}
