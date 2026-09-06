@@ -1,6 +1,7 @@
 import { Wrench, Play, AlertTriangle } from "lucide-react";
 import Button from "../../ui/Button";
 import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** @param {{ action: any, onExecute: any, disabled?: any, loading?: any }} _ */
 export function ActionCard({ action, onExecute, disabled, loading }) {
@@ -25,9 +26,9 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
           )}
         >
           {isConfirm ? (
-            <AlertTriangle className="text-warning" size={20} />
+            <AlertTriangle className="text-warning" size={ICON_SIZE.xl} />
           ) : (
-            <Wrench className="text-accent" size={20} />
+            <Wrench className="text-accent" size={ICON_SIZE.xl} />
           )}
         </div>
         <div>
@@ -50,7 +51,7 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
           "Running..."
         ) : (
           <>
-            <Play size={16} />
+            <Play size={ICON_SIZE.md} />
             Run
           </>
         )}

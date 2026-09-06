@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useToast } from "../../context/ToastContext";
 import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const TYPE_CONFIG = {
   success: { icon: CheckCircle2, ring: "stroke-success", track: "stroke-success/25" },
@@ -90,7 +91,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             }
           />
         </svg>
-        <Icon size={13} className="text-primary" strokeWidth={2.5} aria-hidden="true" />
+        <Icon size={ICON_SIZE.sm} className="text-primary" strokeWidth={2.5} aria-hidden="true" />
       </div>
 
       <div className="flex-1 min-w-0 py-0.5">
@@ -105,7 +106,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
           </div>
           {isTruncated && (
             <ChevronDown
-              size={13}
+              size={ICON_SIZE.sm}
               className={cn(
                 "flex-shrink-0 mt-0.5 text-accent motion-safe:transition-transform motion-safe:duration-200",
                 expanded && "rotate-180",
@@ -133,7 +134,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
         )}
         aria-label="Dismiss notification"
       >
-        <X size={13} aria-hidden="true" />
+        <X size={ICON_SIZE.sm} aria-hidden="true" />
       </button>
     </div>
   );

@@ -10,6 +10,7 @@ import {
   LifeBuoy,
   RotateCw,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
@@ -208,7 +209,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10 hover:border-accent motion-safe:transition-all text-left group"
                 >
-                  <Icon size={18} className="text-accent shrink-0" />
+                  <Icon size={ICON_SIZE.lg} className="text-accent shrink-0" />
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm">{meta.label}</span>
                     {meta.hint && (
@@ -216,7 +217,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
                     )}
                   </span>
                   <ChevronRight
-                    size={16}
+                    size={ICON_SIZE.md}
                     className="text-accent shrink-0 group-hover:translate-x-0.5 motion-safe:transition-transform"
                   />
                 </button>
@@ -234,7 +235,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
             }}
             className="flex items-center gap-2 text-xs text-accent hover:text-primary motion-safe:transition-colors"
           >
-            <LifeBuoy size={14} />
+            <LifeBuoy size={ICON_SIZE.sm} />
             Use a recovery code instead
           </button>
           {onBack && (
@@ -243,7 +244,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
               onClick={onBack}
               className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
             >
-              <ArrowLeft size={12} /> Back to password
+              <ArrowLeft size={ICON_SIZE.xs} /> Back to password
             </button>
           )}
         </div>
@@ -308,7 +309,7 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
             onClick={() => setSelected(null)}
             className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
           >
-            <ArrowLeft size={12} /> Choose another method
+            <ArrowLeft size={ICON_SIZE.xs} /> Choose another method
           </button>
         </div>
         </div>
@@ -386,7 +387,7 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
         onClick={onBack}
         className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
       >
-        <ArrowLeft size={12} /> Choose another method
+        <ArrowLeft size={ICON_SIZE.xs} /> Choose another method
       </button>
 
       <div>
@@ -396,8 +397,8 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
 
       {email && (
         <LayeredPill
-          icon={<Mail size={12} />}
-          actionIcon={<RotateCw size={11} />}
+          icon={<Mail size={ICON_SIZE.xs} />}
+          actionIcon={<RotateCw size={ICON_SIZE.tight} />}
           actionLabel={resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend"}
           onAction={onResend}
           actionDisabled={resendCooldown > 0 || loading}

@@ -7,6 +7,7 @@ import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import RecoveryKeyCard from "./RecoveryKeyCard.jsx";
 import api from "../../lib/api.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function BackupServiceModal({ open, onClose, onSaved, service, repos, connectStatus = null, csrfToken = "", loading = false }) {
   const [useConnect, setUseConnect] = useState(
@@ -52,7 +53,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
-            <Database size={18} className="text-accent" />
+            <Database size={ICON_SIZE.lg} className="text-accent" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-primary">
@@ -68,7 +69,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
         {backupOnPlan && connectStatus?.connected && (
           <div className="bg-primary/5 rounded-pill p-4">
             <p className="text-sm text-primary flex items-center gap-2">
-              <Check size={16} className="text-accent" />
+              <Check size={ICON_SIZE.md} className="text-accent" />
               Connect backup storage available on your plan
             </p>
           </div>
@@ -88,7 +89,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
         {useConnect && connectWarning.show ? (
           <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-secondary">
-              <AlertTriangle size={16} className="text-warning shrink-0" />
+              <AlertTriangle size={ICON_SIZE.md} className="text-warning shrink-0" />
               {connectWarning.label}
             </div>
             <p className="text-xs text-accent">
@@ -104,7 +105,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
               Backup Destinations
             </span>
             <Button variant="primary" size="sm" onClick={() => setShowAddRepo(true)}>
-              <Plus size={14} /> Add Destination
+              <Plus size={ICON_SIZE.sm} /> Add Destination
             </Button>
           </div>
 
@@ -121,7 +122,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
           {useConnect && (
             <>
               <div className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-accent/20">
-                <Check size={16} className="text-accent shrink-0" />
+                <Check size={ICON_SIZE.md} className="text-accent shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary font-medium">Connect Storage</p>
                   <p className="text-xs text-accent">S3-compatible</p>
@@ -152,7 +153,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                 key={repo.id || i}
                 className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10"
               >
-                <Database size={16} className="text-accent shrink-0" />
+                <Database size={ICON_SIZE.md} className="text-accent shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary">{repo.name || repo.repo_type}</p>
                   <p className="text-xs text-accent font-mono truncate">{repo.repo_path}</p>
@@ -161,7 +162,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                   {repo.repo_type}
                 </span>
                 <button className="text-accent hover:text-secondary motion-safe:transition-colors">
-                  <Trash2 size={14} />
+                  <Trash2 size={ICON_SIZE.sm} />
                 </button>
               </div>
             ))

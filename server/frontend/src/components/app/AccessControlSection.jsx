@@ -11,6 +11,7 @@ import {
   XCircle,
   Loader2,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import Card from "../cards/Card";
 import Toggle from "../common/Toggle";
 import Dropdown from "../common/Dropdown";
@@ -159,9 +160,9 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
         {/* Section header — matches AppDetailPage pattern */}
         <div className="flex items-center gap-2 mb-6">
           {isInternal ? (
-            <ShieldCheck size={20} className="text-accent" />
+            <ShieldCheck size={ICON_SIZE.xl} className="text-accent" />
           ) : (
-            <Lock size={20} className="text-accent" />
+            <Lock size={ICON_SIZE.xl} className="text-accent" />
           )}
           <h2 className="text-2xl font-mono font-normal">Access Control</h2>
         </div>
@@ -176,12 +177,12 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
               </p>
               {oidcLoading ? (
                 <div className="flex items-center justify-center py-4">
-                  <Loader2 size={24} className="animate-spin text-accent" />
+                  <Loader2 size={ICON_SIZE.xxl} className="animate-spin text-accent" />
                 </div>
               ) : oidcConfigured ? (
                 <div className="flex items-start gap-3 p-4 rounded-large-element bg-success/20 border border-success/30">
                   <div className="p-2 rounded-full bg-success/20">
-                    <CheckCircle size={18} className="text-success" />
+                    <CheckCircle size={ICON_SIZE.lg} className="text-success" />
                   </div>
                   <div>
                     <p className="text-sm font-medium text-secondary">
@@ -192,7 +193,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
               ) : (
                 <div className="flex items-start gap-3 p-4 rounded-large-element bg-error/20 border border-error/30">
                   <div className="p-2 rounded-full bg-error/20">
-                    <XCircle size={18} className="text-error" />
+                    <XCircle size={ICON_SIZE.lg} className="text-error" />
                   </div>
                   <div>
                     <p className="text-sm font-medium text-secondary">
@@ -226,7 +227,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
           {/* --- User access list (shared) --- */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <Users size={20} className="text-accent" />
+              <Users size={ICON_SIZE.xl} className="text-accent" />
               <h3 className="text-xl font-mono font-normal">
                 {isInternal ? "Who can sign in" : "Who can access"}
               </h3>
@@ -251,7 +252,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                 onClick={handleGrantAccess}
                 disabled={!selectedUser}
               >
-                <UserPlus size={18} />
+                <UserPlus size={ICON_SIZE.lg} />
                 Grant access
               </Button>
             </div>
@@ -259,7 +260,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
             {/* Access list — rounded-large-element rows, no dividers */}
             {accessLoading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 size={24} className="animate-spin text-accent" />
+                <Loader2 size={ICON_SIZE.xxl} className="animate-spin text-accent" />
               </div>
             ) : accessList.length === 0 ? (
               <div className="rounded-large-element bg-secondary/10 px-6 py-8 text-center">
@@ -280,7 +281,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="flex items-center justify-center h-8 w-8 rounded-full bg-secondary/20 shrink-0">
-                        <User size={14} className="text-accent" />
+                        <User size={ICON_SIZE.sm} className="text-accent" />
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-secondary truncate">
@@ -299,7 +300,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                       onClick={() => handleRevokeAccess(entry.user_id)}
                       className="border-error/40 text-error hover:bg-error/10 hover:text-error shrink-0"
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={ICON_SIZE.sm} />
                       Revoke
                     </Button>
                   </div>

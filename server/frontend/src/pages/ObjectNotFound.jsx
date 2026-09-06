@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useId } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Home, SearchX } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 import { objectnotfound as quips } from "../assets/greetings";
 
@@ -145,20 +146,20 @@ export default function ObjectNotFound({
 
             <div className="mt-6 flex flex-wrap gap-3 justify-center">
               <Button type="button" variant="primary" onClick={handleGoBack}>
-                <ArrowLeft size={18} aria-hidden="true" />
+                <ArrowLeft size={ICON_SIZE.lg} aria-hidden="true" />
                 Go back
               </Button>
 
               <Button asChild variant="primary">
                 <Link to={backTo}>
-                  {BackIcon ? <BackIcon size={18} aria-hidden="true" /> : null}
+                  {BackIcon ? <BackIcon size={ICON_SIZE.lg} aria-hidden="true" /> : null}
                   {backLabel}
                 </Link>
               </Button>
 
               <Button asChild variant="outline" surface="secondary">
                 <Link to="/">
-                  <Home size={18} aria-hidden="true" />
+                  <Home size={ICON_SIZE.lg} aria-hidden="true" />
                   Home
                 </Link>
               </Button>

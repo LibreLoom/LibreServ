@@ -2,6 +2,7 @@ import { memo } from "react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * @typedef {object} CardProps
@@ -64,7 +65,7 @@ function Card({
         {hasHeader && (
           <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
-              {Icon && <Icon size={18} className="text-accent" />}
+              {Icon && <Icon size={ICON_SIZE.lg} className="text-accent" />}
               {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
@@ -97,7 +98,7 @@ function Card({
         {hasHeader && (
           <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
-              {Icon && <Icon size={18} className="text-accent" />}
+              {Icon && <Icon size={ICON_SIZE.lg} className="text-accent" />}
               {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}

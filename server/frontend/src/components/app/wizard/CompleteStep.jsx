@@ -2,6 +2,7 @@ import { memo } from "react";
 import { CheckCircle, ExternalLink, ArrowLeft } from "lucide-react";
 import Button from "../../ui/Button";
 import CopyableValue from "../../ui/CopyableValue";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function CompleteStep({ app, instance, onDone }) {
   const subdomain = instance?.subdomain;
@@ -66,7 +67,7 @@ function CompleteStep({ app, instance, onDone }) {
           <Button asChild variant="secondary" surface="primary" className="px-6 font-mono">
             <a href={appUrl} target="_blank" rel="noopener noreferrer">
               Open App
-              <ExternalLink size={16} />
+              <ExternalLink size={ICON_SIZE.md} />
             </a>
           </Button>
         )}
@@ -76,7 +77,7 @@ function CompleteStep({ app, instance, onDone }) {
           onClick={onDone}
           className="px-6"
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={ICON_SIZE.md} />
           Back to Apps
         </Button>
       </div>

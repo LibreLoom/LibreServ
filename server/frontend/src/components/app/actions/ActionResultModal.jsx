@@ -4,6 +4,7 @@ import { copyWithFeedback } from "../../../utils/clipboard";
 import { cn } from "@/lib/utils";
 import ModalCard from "../../cards/ModalCard";
 import Button from "../../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** @param {{ result: any, onClose: any, action?: any }} _ */
 export function ActionResultModal({ result, onClose }) {
@@ -77,9 +78,9 @@ export function ActionResultModal({ result, onClose }) {
             )}
           >
             {result.success ? (
-              <CheckCircle className="text-success shrink-0" size={24} />
+              <CheckCircle className="text-success shrink-0" size={ICON_SIZE.xxl} />
             ) : (
-              <XCircle className="text-error shrink-0" size={24} />
+              <XCircle className="text-error shrink-0" size={ICON_SIZE.xxl} />
             )}
             <div className="flex-1">
               <p className="font-mono font-medium">
@@ -90,7 +91,7 @@ export function ActionResultModal({ result, onClose }) {
               </p>
             </div>
             <div className="flex items-center gap-1 text-sm text-accent">
-              <Clock size={14} />
+              <Clock size={ICON_SIZE.sm} />
               <span>{formatDuration(result.duration)}</span>
             </div>
           </div>
@@ -104,7 +105,7 @@ export function ActionResultModal({ result, onClose }) {
                   aria-expanded={showVerbose}
                   aria-controls="action-output"
                 >
-                  {showVerbose ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+                  {showVerbose ? <ChevronUp size={ICON_SIZE.md} aria-hidden="true" /> : <ChevronDown size={ICON_SIZE.md} aria-hidden="true" />}
                   {showVerbose ? "Hide output" : "View output"}
                 </button>
 
@@ -115,7 +116,7 @@ export function ActionResultModal({ result, onClose }) {
                   onClick={handleCopy}
                   aria-label="Copy output to clipboard"
                 >
-                  {copied ? <Check size={14} className="text-success" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                  {copied ? <Check size={ICON_SIZE.sm} className="text-success" aria-hidden="true" /> : <Copy size={ICON_SIZE.sm} aria-hidden="true" />}
                   {copied ? "Copied" : "Copy"}
                 </Button>
               </div>

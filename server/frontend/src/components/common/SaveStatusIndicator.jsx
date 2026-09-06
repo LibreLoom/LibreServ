@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { useEffect, useRef } from "react";
 import { Circle, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const STATUS_CONFIG = {
   idle: {
@@ -78,7 +79,7 @@ export default function SaveStatusIndicator({
       )}
       data-slot="save-status-indicator"
     >
-      <Icon size={14} className={config.iconClass} />
+      <Icon size={ICON_SIZE.sm} className={config.iconClass} />
       <span className={config.textClass}>{config.text}</span>
       {config.showRetry && onRetry && (
         <button

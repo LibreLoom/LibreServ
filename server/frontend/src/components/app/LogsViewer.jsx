@@ -9,6 +9,7 @@ import {
   Terminal,
   X,
 } from "lucide-react";
+import { ICON_SIZE, PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
 import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Toggle from "../common/Toggle";
@@ -204,11 +205,11 @@ export default function LogsViewer({
             className={showSearch || filter ? "text-accent" : ""}
             aria-label="Toggle search"
           >
-            <Search size={18} aria-hidden="true" />
+            <Search size={ICON_SIZE.lg} aria-hidden="true" />
           </Button>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary text-primary">
-            <ArrowDownToLine size={14} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-accent")} aria-hidden="true" />
+            <ArrowDownToLine size={ICON_SIZE.sm} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-accent")} aria-hidden="true" />
             <Toggle
               checked={autoScroll}
               onChange={setAutoScroll}
@@ -224,7 +225,7 @@ export default function LogsViewer({
             onClick={handleDownload}
             aria-label="Download logs"
           >
-            <Download size={18} aria-hidden="true" />
+            <Download size={ICON_SIZE.lg} aria-hidden="true" />
           </Button>
         </div>
 
@@ -232,14 +233,14 @@ export default function LogsViewer({
         {showSearch && (
           <div className="sm:hidden shrink-0 animate-fade-in-up">
             <div className="relative bg-secondary text-primary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-accent" />
+              <Search size={ICON_SIZE.md} className="absolute left-3 top-1/2 -translate-y-1/2 text-accent" />
               <input
                 ref={searchInputRef}
                 type="text"
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
                 placeholder="Filter logs"
-                className="w-full bg-transparent pl-10 pr-10 py-2 text-primary placeholder:text-primary/50 focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline"
+                className={cn("w-full bg-transparent pl-10 pr-10 py-2 text-primary focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline", PLACEHOLDER_TEXT)}
               />
               <button
                 type="button"
@@ -247,7 +248,7 @@ export default function LogsViewer({
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-accent hover:text-primary transition-colors"
                 aria-label="Close search"
               >
-                <X size={14} />
+                <X size={ICON_SIZE.sm} />
               </button>
             </div>
           </div>
@@ -256,13 +257,13 @@ export default function LogsViewer({
         {/* Desktop toolbar */}
         <div className="hidden sm:flex items-center justify-between shrink-0 gap-3">
           <div className="relative flex-1 min-w-0 w-full bg-secondary text-primary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" />
+            <Search size={ICON_SIZE.md} className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" />
             <input
               type="text"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter logs"
-              className="w-full bg-transparent pl-11 pr-4 py-2 text-primary placeholder:text-primary/50 focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline"
+              className={cn("w-full bg-transparent pl-11 pr-4 py-2 text-primary focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline", PLACEHOLDER_TEXT)}
             />
           </div>
 
@@ -285,7 +286,7 @@ export default function LogsViewer({
               tooltip="Download logs"
               className="border-accent hover:bg-accent/20 hover:text-primary"
             >
-              <Download size={16} className="inline -mt-0.5" />
+              <Download size={ICON_SIZE.md} className="inline -mt-0.5" />
               Download
             </Button>
           </div>
@@ -317,7 +318,7 @@ export default function LogsViewer({
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shrink-0 border-t border-primary/15 bg-secondary/50 text-primary px-3 sm:px-4 py-2">
             <div className="flex items-center gap-2 text-xs font-sans text-accent">
-              <Terminal size={14} />
+              <Terminal size={ICON_SIZE.sm} />
               <span>Showing last {lines.length} lines</span>
             </div>
 
@@ -330,14 +331,14 @@ export default function LogsViewer({
                   onClick={handleLoadMore}
                   className="flex-1 sm:flex-none"
                 >
-                  <ChevronDown size={14} />
+                  <ChevronDown size={ICON_SIZE.sm} />
                   Load {LOAD_MORE_INCREMENT} more
                 </Button>
               )}
 
               {isStreaming && filteredLines.length === 0 && (
                 <div className="flex items-center gap-2 text-xs font-sans text-accent">
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={ICON_SIZE.sm} className="animate-spin" />
                   <span>Streaming...</span>
                 </div>
               )}

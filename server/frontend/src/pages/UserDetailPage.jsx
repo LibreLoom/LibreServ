@@ -18,6 +18,7 @@ import SetPasswordForm from "../components/common/forms/SetPasswordForm";
 import MfaCard from "../components/profile/MfaCard";
 import { useAuth } from "../hooks/useAuth";
 import { useTimeFormat } from "../hooks/useTimeFormat";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 // Whole days between a timestamp and now. null when the timestamp is missing.
 // ponytail: tiny local helper — only this page needs relative-day math right now;
@@ -169,14 +170,14 @@ export default function UserDetailPage() {
       titleId="user-detail-title"
       leftContent={
         <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-secondary">
-          <User size={22} className="text-secondary" aria-hidden />
+          <User size={ICON_SIZE.xxl} className="text-secondary" aria-hidden />
         </span>
       }
       rightContent={
         user && (
           <span className="flex items-center gap-2">
             <Pill variant={user.role === "admin" ? "accent" : "default"}>
-              <Shield size={12} className="mr-1" aria-hidden="true" />
+              <Shield size={ICON_SIZE.xs} className="mr-1" aria-hidden="true" />
               {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
             </Pill>
             <Pill variant={tier.variant}>{tier.label}</Pill>
@@ -210,7 +211,7 @@ export default function UserDetailPage() {
           <section className="mt-4" aria-label="Profile details">
             <Card padding={false}>
               <div className="px-5 pt-4 pb-2 flex items-center gap-2">
-                <User size={18} className="text-accent" aria-hidden="true" />
+                <User size={ICON_SIZE.lg} className="text-accent" aria-hidden="true" />
                 <h2 className="text-lg font-mono font-normal">Profile</h2>
               </div>
               <div className="px-5 pb-5 flex flex-col gap-2">
@@ -240,17 +241,17 @@ export default function UserDetailPage() {
           <section className="mt-4" aria-label="User actions">
             <Card surface="primary">
               <div className="flex items-center gap-2 mb-3">
-                <Shield size={18} className="text-accent" aria-hidden="true" />
+                <Shield size={ICON_SIZE.lg} className="text-accent" aria-hidden="true" />
                 <h2 className="text-lg font-mono font-normal">Actions</h2>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" surface="primary" onClick={() => setShowEditModal(true)}>
-                  <Pencil size={14} aria-hidden="true" />
+                  <Pencil size={ICON_SIZE.sm} aria-hidden="true" />
                   Change Email
                 </Button>
                 {!isSelf && (
                   <Button variant="outline" surface="primary" onClick={() => setShowRoleModal(true)}>
-                    <Shield size={14} aria-hidden="true" />
+                    <Shield size={ICON_SIZE.sm} aria-hidden="true" />
                     Change Role
                   </Button>
                 )}
@@ -259,12 +260,12 @@ export default function UserDetailPage() {
                   surface="primary"
                   onClick={() => setShowSetPasswordModal(true)}
                 >
-                  <KeyRound size={14} aria-hidden="true" />
+                  <KeyRound size={ICON_SIZE.sm} aria-hidden="true" />
                   Set Password
                 </Button>
                 {!isSelf && (
                   <Button variant="danger" surface="primary" onClick={() => setShowDeleteConfirm(true)}>
-                    <Trash2 size={14} aria-hidden="true" />
+                    <Trash2 size={ICON_SIZE.sm} aria-hidden="true" />
                     Delete User
                   </Button>
                 )}

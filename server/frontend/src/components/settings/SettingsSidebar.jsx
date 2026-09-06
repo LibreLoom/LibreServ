@@ -4,6 +4,7 @@ import Card from "../cards/Card";
 import SettingsUserCard from "./SettingsUserCard";
 import CardButton from "../ui/CardButton";
 import { visibleCategories } from "./settingsCategories";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function SettingsSidebar({
   user,
@@ -49,7 +50,7 @@ export default function SettingsSidebar({
                   className="gap-3 px-3 py-2.5"
                   trailing={
                     <ChevronRight
-                      size={16}
+                      size={ICON_SIZE.md}
                       className={cn("shrink-0 transition-transform duration-200", isActive && "translate-x-1")}
                     />
                   }
@@ -61,7 +62,7 @@ export default function SettingsSidebar({
 
         {!isAdmin && (
           <p className="px-3 mt-3 flex items-center gap-1.5 text-xs text-primary">
-            <Lock size={12} aria-hidden="true" className="shrink-0" />
+            <Lock size={ICON_SIZE.xs} aria-hidden="true" className="shrink-0" />
             Some settings require an administrator.
           </p>
         )}

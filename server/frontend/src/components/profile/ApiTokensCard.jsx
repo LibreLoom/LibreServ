@@ -6,6 +6,7 @@ import ShakeTarget from "../ui/ShakeTarget";
 import CopyableValue from "../ui/CopyableValue";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function formatDate(iso) {
   if (!iso) return "never";
@@ -151,7 +152,7 @@ export default function ApiTokensCard() {
             />
           </ShakeTarget>
           <Button type="submit" disabled={creating || !name.trim()}>
-            {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+            {creating ? <Loader2 size={ICON_SIZE.md} className="animate-spin" /> : <Plus size={ICON_SIZE.md} />}
             Create
           </Button>
         </form>
@@ -182,9 +183,9 @@ export default function ApiTokensCard() {
                   aria-label={`Revoke token ${t.name}`}
                 >
                   {revokingId === t.id ? (
-                    <Loader2 size={16} className="animate-spin" />
+                    <Loader2 size={ICON_SIZE.md} className="animate-spin" />
                   ) : (
-                    <Trash2 size={16} />
+                    <Trash2 size={ICON_SIZE.md} />
                   )}
                 </Button>
               </li>

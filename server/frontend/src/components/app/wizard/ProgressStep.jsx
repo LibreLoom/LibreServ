@@ -5,6 +5,7 @@ import Button from "../../../components/ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { copyWithFeedback } from "../../../utils/clipboard";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const ALL_INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
@@ -355,7 +356,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 )}
               >
                 <ChevronDown
-                  size={18}
+                  size={ICON_SIZE.lg}
                   className={cn("motion-safe:transition-transform motion-safe:duration-300", detailsOpen && "rotate-180")}
                 />
               </span>
@@ -382,12 +383,12 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 >
                   {copied ? (
                     <>
-                      <Check size={14} />
+                      <Check size={ICON_SIZE.sm} />
                       Copied
                     </>
                   ) : (
                     <>
-                      <Copy size={14} />
+                      <Copy size={ICON_SIZE.sm} />
                       Copy error
                     </>
                   )}
@@ -444,7 +445,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 )}
               >
                 {isDone ? (
-                  <CheckCircle size={14} />
+                  <CheckCircle size={ICON_SIZE.sm} />
                 ) : isCurrent ? (
                   <div className="h-2 w-2 rounded-full bg-secondary animate-pulse" />
                 ) : (
@@ -495,7 +496,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               </span>
               <span className={cn("inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border motion-safe:transition-all motion-safe:duration-300", detailsOpen ? "border-primary/25 bg-primary/10" : "border-secondary/15 bg-primary/80 group-hover:scale-105")}>
                 <ChevronDown
-                  size={18}
+                  size={ICON_SIZE.lg}
                   className={cn("motion-safe:transition-transform motion-safe:duration-300", detailsOpen && "rotate-180")}
                 />
               </span>
@@ -521,12 +522,12 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 >
                   {streamCopied ? (
                     <>
-                      <Check size={12} />
+                      <Check size={ICON_SIZE.xs} />
                       Copied
                     </>
                   ) : (
                     <>
-                      <Copy size={12} />
+                      <Copy size={ICON_SIZE.xs} />
                       Copy
                     </>
                   )}

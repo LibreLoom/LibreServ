@@ -11,6 +11,7 @@ import Button from "../../ui/Button";
 import { InfoHint } from "../../ui/Tooltip";
 import { useToast } from "../../../context/ToastContext";
 import api from "../../../lib/api";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const FREQUENCY_OPTIONS = [
   {
@@ -145,7 +146,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent/10 border border-accent/20">
-                    <Mail size={16} className="text-accent" />
+                    <Mail size={ICON_SIZE.md} className="text-accent" />
                   </div>
                   <div>
                     <div className="font-medium text-primary text-sm">
@@ -165,7 +166,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                     "Sending..."
                   ) : (
                     <>
-                      <Mail size={14} />
+                      <Mail size={ICON_SIZE.sm} />
                       Send Test
                     </>
                   )}

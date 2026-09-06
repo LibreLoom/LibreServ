@@ -4,6 +4,7 @@ import { useAuth } from "../../../hooks/useAuth";
 import { Lock, KeyRound } from "lucide-react";
 import Button from "../../ui/Button";
 import ShakeTarget from "../../ui/ShakeTarget";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * Admin "set password" form — sets a user's password directly (no current
@@ -79,7 +80,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
     <form onSubmit={handleSubmit} className="space-y-4" data-slot="set-password-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
-          <KeyRound size={24} aria-hidden="true" />
+          <KeyRound size={ICON_SIZE.xxl} aria-hidden="true" />
         </div>
         <p className="text-sm text-accent">
           Set a new password for <strong>{user.username}</strong>
@@ -96,7 +97,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           </label>
           <div className="relative">
           <Lock
-            size={16}
+            size={ICON_SIZE.md}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
             aria-hidden="true"
           />
@@ -134,7 +135,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           </label>
           <div className="relative">
           <Lock
-            size={16}
+            size={ICON_SIZE.md}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
             aria-hidden="true"
           />

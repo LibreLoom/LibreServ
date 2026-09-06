@@ -13,6 +13,7 @@ import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useAuth } from "../hooks/useAuth";
 import MyProfile from "./MyProfile";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * @param {any} dateString
@@ -154,7 +155,7 @@ export default function UsersPage() {
                           className="inline-flex items-center gap-2"
                         >
                           <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            <User size={14} className="text-accent" />
+                            <User size={ICON_SIZE.sm} className="text-accent" />
                           </span>
                           <span className="font-semibold text-sm">{row.username}</span>
                         </Link>
@@ -177,7 +178,7 @@ export default function UsersPage() {
                       label: "Role",
                       render: (row) => (
                         <Pill variant={row.role === "admin" ? "accent" : "default"}>
-                          <Shield size={12} className="mr-1" />
+                          <Shield size={ICON_SIZE.xs} className="mr-1" />
                           {row.role.charAt(0).toUpperCase() + row.role.slice(1)}
                         </Pill>
                       ),
@@ -204,7 +205,7 @@ export default function UsersPage() {
                             aria-label={`Manage ${row.username}`}
                           >
                             <Link to={`/users/${row.id}`}>
-                              <Settings size={16} />
+                              <Settings size={ICON_SIZE.md} />
                             </Link>
                           </Button>
                           <Button
@@ -214,7 +215,7 @@ export default function UsersPage() {
                             onClick={() => handleDeleteClick(row.id, row.username)}
                             aria-label={`Delete ${row.username}`}
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={ICON_SIZE.md} />
                           </Button>
                         </span>
                       ),

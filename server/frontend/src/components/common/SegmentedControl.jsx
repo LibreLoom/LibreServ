@@ -2,6 +2,7 @@ import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics";
 import { Tooltip } from "../ui/Tooltip.jsx";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function SegmentedControl({
   options,
@@ -64,7 +65,7 @@ export default function SegmentedControl({
             aria-disabled={disabled || undefined}
             aria-label={label}
           >
-            {Icon && <Icon size={14} />}
+            {Icon && <Icon size={ICON_SIZE.sm} />}
             <span>{label}</span>
           </button>
         );

@@ -9,6 +9,7 @@ import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import ApiTokensCard from "../components/profile/ApiTokensCard";
 import MfaCard from "../components/profile/MfaCard";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * Self-service account page for non-admin users. They can view their profile,
@@ -135,7 +136,7 @@ export default function MyProfile() {
                 disabled={!emailDirty || emailSaving}
                 className="w-full"
               >
-                <Save size={16} aria-hidden="true" />
+                <Save size={ICON_SIZE.md} aria-hidden="true" />
                 Save Email
               </Button>
             </form>
@@ -187,7 +188,7 @@ export default function MyProfile() {
               className="w-full"
             >
               Change Password
-              <ArrowRight size={16} aria-hidden="true" />
+              <ArrowRight size={ICON_SIZE.md} aria-hidden="true" />
             </Button>
           </form>
         </Card>

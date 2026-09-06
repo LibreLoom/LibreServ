@@ -6,6 +6,7 @@ import { useToast } from "../../../context/ToastContext";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * Send an invitation email so someone can create their own account. The
@@ -118,7 +119,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
         ) : (
           <>
             Send Invitation
-            <Mail size={16} aria-hidden="true" />
+            <Mail size={ICON_SIZE.md} aria-hidden="true" />
           </>
         )}
       </Button>

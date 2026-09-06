@@ -4,6 +4,7 @@ import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import api from "../../lib/api.js";
 import { canUseClipboard, copyWithFeedback } from "../../utils/clipboard";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const [revealed, setRevealed] = useState(false);
@@ -64,7 +65,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
       data-slot="recovery-key-card"
       headerActions={
         <span className="text-xs px-2.5 py-1 rounded-pill bg-primary border-2 border-warning/30 text-warning font-medium flex items-center gap-1">
-          <AlertTriangle size={12} />
+          <AlertTriangle size={ICON_SIZE.xs} />
           Critical
         </span>
       }
@@ -78,7 +79,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
 
         {loading && (
           <div className="flex items-center gap-2 text-xs text-accent">
-            <Loader2 size={14} className="animate-spin" />
+            <Loader2 size={ICON_SIZE.sm} className="animate-spin" />
             Loading recovery key...
           </div>
         )}
@@ -113,7 +114,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
               onClick={() => setRevealed(!revealed)}
               tooltip={revealed ? "Hide key" : "Show key"}
             >
-              {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
+              {revealed ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
             </Button>
             {clipboardOk ? (
               <Button
@@ -122,7 +123,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
                 onClick={handleCopy}
                 tooltip={copied ? "Copied!" : "Copy to clipboard"}
               >
-                {copied ? <Check size={16} /> : <Copy size={16} />}
+                {copied ? <Check size={ICON_SIZE.md} /> : <Copy size={ICON_SIZE.md} />}
               </Button>
             ) : null}
             <Button
@@ -131,7 +132,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
               onClick={handleDownload}
               tooltip="Download key file"
             >
-              <Download size={16} />
+              <Download size={ICON_SIZE.md} />
             </Button>
           </div>
           {!clipboardOk && revealed && displayKey ? (
@@ -142,7 +143,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
         </div>
 
         <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">
-          <AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" />
+          <AlertTriangle size={ICON_SIZE.lg} className="text-warning shrink-0 mt-0.5" />
           <div className="text-xs text-accent space-y-1">
             <p className="font-medium text-secondary">Without this key:</p>
             <ul className="list-disc list-inside space-y-0.5">

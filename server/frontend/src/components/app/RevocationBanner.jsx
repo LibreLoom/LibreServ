@@ -3,6 +3,7 @@ import { ShieldAlert, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react
 import { useState } from "react";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function RevocationBanner({ notice, appName, acknowledged, onSeeDetails }) {
   const [expanded, setExpanded] = useState(false);
@@ -16,7 +17,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
       <div className="mb-8">
         <Card className={cn("border-2", isMalicious ? "border-error/50 bg-error/5" : "border-warning/50 bg-warning/5")} data-slot="revocation-banner">
           <div className="flex items-center gap-3">
-            <AlertTriangle size={18} className={isMalicious ? "text-error" : "text-warning"} />
+            <AlertTriangle size={ICON_SIZE.lg} className={isMalicious ? "text-error" : "text-warning"} />
             <p className="text-sm text-primary">
               Recalled version (you acknowledged this on {ackDate})
             </p>
@@ -32,9 +33,9 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
         <div className={cn("p-4 rounded-large-element", isMalicious ? "bg-error/10" : "bg-warning/10")}>
           <div className="flex items-start gap-3">
             {isMalicious ? (
-              <ShieldAlert size={24} className="text-error shrink-0 mt-0.5" />
+              <ShieldAlert size={ICON_SIZE.xxl} className="text-error shrink-0 mt-0.5" />
             ) : (
-              <AlertTriangle size={24} className="text-warning shrink-0 mt-0.5" />
+              <AlertTriangle size={ICON_SIZE.xxl} className="text-warning shrink-0 mt-0.5" />
             )}
             <div className="flex-1">
               <h2 className={cn("text-lg font-mono font-normal", isMalicious ? "text-error" : "text-warning")}>
@@ -56,7 +57,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
                 onClick={() => setExpanded(!expanded)}
                 className="flex items-center gap-1 mt-2 text-sm text-accent hover:text-primary transition-colors cursor-pointer"
               >
-                {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {expanded ? <ChevronUp size={ICON_SIZE.sm} /> : <ChevronDown size={ICON_SIZE.sm} />}
                 {expanded ? "Less" : "More"} details
               </button>
 

@@ -41,6 +41,7 @@ import {
   Settings,
   Terminal,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import StatusPill from "../components/common/StatusPill";
 import SegmentedControl from "../components/common/SegmentedControl";
 import { ActionCard } from "../components/app/actions/ActionCard";
@@ -63,7 +64,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
     <ModalCard title="Uninstall Application" onClose={onCancel}>
       <div className="space-y-4">
         <div className="flex items-center gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
-          <AlertTriangle className="text-primary shrink-0" size={24} />
+          <AlertTriangle className="text-primary shrink-0" size={ICON_SIZE.xxl} />
           <p className="text-sm">
             This action <strong>cannot be undone</strong>. All data will be
             permanently deleted.
@@ -76,15 +77,15 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
           </p>
           <ul className="text-sm space-y-1 ml-4">
             <li className="flex items-center gap-2">
-              <Folder size={14} className="text-accent" />
+              <Folder size={ICON_SIZE.sm} className="text-accent" />
               <span>The app's data and saved files</span>
             </li>
             <li className="flex items-center gap-2">
-              <Server size={14} className="text-accent" />
+              <Server size={ICON_SIZE.sm} className="text-accent" />
               <span>Configuration files</span>
             </li>
             <li className="flex items-center gap-2">
-              <Activity size={14} className="text-accent" />
+              <Activity size={ICON_SIZE.sm} className="text-accent" />
               <span>The app's program files</span>
             </li>
           </ul>
@@ -267,11 +268,11 @@ export default function AppDetailPage() {
   const getHealthIcon = (health) => {
     switch (health) {
       case "healthy":
-        return <CheckCircle className="text-success" size={20} />;
+        return <CheckCircle className="text-success" size={ICON_SIZE.xl} />;
       case "unhealthy":
-        return <XCircle className="text-error" size={20} />;
+        return <XCircle className="text-error" size={ICON_SIZE.xl} />;
       default:
-        return <Activity className="text-accent" size={20} />;
+        return <Activity className="text-accent" size={ICON_SIZE.xl} />;
     }
   };
 
@@ -350,7 +351,7 @@ export default function AppDetailPage() {
                   className="text-lg font-mono link-accent-card flex items-center gap-1"
                 >
                   Open App
-                  <ExternalLink size={14} aria-hidden="true" />
+                  <ExternalLink size={ICON_SIZE.sm} aria-hidden="true" />
                 </a>
               </MetricCard>
             )}
@@ -360,13 +361,13 @@ export default function AppDetailPage() {
             <section className="mb-8">
               <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
-                  <Server size={20} className="text-secondary" />
+                  <Server size={ICON_SIZE.xl} className="text-secondary" />
                   <h2 className="text-2xl font-mono font-normal">Resource Usage</h2>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <Cpu size={24} className="text-secondary" />
+                      <Cpu size={ICON_SIZE.xxl} className="text-secondary" />
                     </div>
                     <div>
                       <p className="text-xs font-mono uppercase tracking-wider text-secondary font-bold">
@@ -379,7 +380,7 @@ export default function AppDetailPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <Activity size={24} className="text-secondary" />
+                      <Activity size={ICON_SIZE.xxl} className="text-secondary" />
                     </div>
                     <div>
                       <p className="text-xs font-mono uppercase tracking-wider text-secondary font-bold">
@@ -392,7 +393,7 @@ export default function AppDetailPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <HardDrive size={24} className="text-secondary" />
+                      <HardDrive size={ICON_SIZE.xxl} className="text-secondary" />
                     </div>
                     <div>
                       <p className="text-xs font-mono uppercase tracking-wider text-secondary font-bold">
@@ -442,7 +443,7 @@ export default function AppDetailPage() {
                     disabled={actionLoading || availableUpdate.needs_config}
                     loading={actionLoading === "update"}
                   >
-                    {actionLoading === "update" ? <Loader2 size={18} className="animate-spin" /> : <ArrowUpCircle size={18} />}
+                    {actionLoading === "update" ? <Loader2 size={ICON_SIZE.lg} className="animate-spin" /> : <ArrowUpCircle size={ICON_SIZE.lg} />}
                     {availableUpdate.needs_config ? "Setup Required" : "Update Now"}
                   </Button>
                 </div>
@@ -453,7 +454,7 @@ export default function AppDetailPage() {
           <section>
             <Card surface="primary">
               <div className="flex items-center gap-2 mb-6">
-                <Settings size={20} className="text-secondary" />
+                <Settings size={ICON_SIZE.xl} className="text-secondary" />
                 <h2 className="text-2xl font-mono font-normal">Control</h2>
               </div>
 
@@ -480,7 +481,7 @@ export default function AppDetailPage() {
                   surface="primary"
                   onClick={() => setShowLogsViewer(true)}
                 >
-                  <Terminal size={18} />
+                  <Terminal size={ICON_SIZE.lg} />
                   View Logs
                 </Button>
                 <Button
@@ -490,7 +491,7 @@ export default function AppDetailPage() {
                   disabled={actionLoading}
                   loading={actionLoading}
                 >
-                  <Settings size={18} />
+                  <Settings size={ICON_SIZE.lg} />
                   Settings
                 </Button>
 
@@ -500,7 +501,7 @@ export default function AppDetailPage() {
                   variant="danger"
                   onClick={() => setShowUninstallModal(true)}
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={ICON_SIZE.lg} />
                   Uninstall
                 </Button>
               </div>
@@ -511,13 +512,13 @@ export default function AppDetailPage() {
             <section className="mt-8">
               <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
-                  <Wrench size={20} className="text-secondary" />
+                  <Wrench size={ICON_SIZE.xl} className="text-secondary" />
                   <h2 className="text-2xl font-mono font-normal">Actions</h2>
                 </div>
 
                 {actionsLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 size={24} className="animate-spin text-secondary" />
+                    <Loader2 size={ICON_SIZE.xxl} className="animate-spin text-secondary" />
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -4,6 +4,7 @@ import Card from "../cards/Card";
 import Button from "../ui/Button";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
 import { canUseClipboard, copyToClipboard as clipboardCopy } from "../../utils/clipboard";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const GROUP_LABELS = {
   credentials: { label: "Credentials", icon: Lock },
@@ -207,7 +208,7 @@ export function ExposedInfoCard({ info }) {
     return (
       <div key={groupKey} className="mb-8 last:mb-0">
         <div className="flex items-center gap-2 mb-4">
-          <GroupIcon size={16} className={isAdvanced ? "text-accent" : "text-accent"} />
+          <GroupIcon size={ICON_SIZE.md} className={isAdvanced ? "text-accent" : "text-accent"} />
           <h3
             className={cn("text-sm font-mono uppercase tracking-wider", isAdvanced ? "text-accent" : "text-accent")}
           >
@@ -251,7 +252,7 @@ export function ExposedInfoCard({ info }) {
                     onClick={() => toggleReveal(key)}
                     aria-label={revealed[key] ? `Hide ${field.label}` : `Reveal ${field.label}`}
                   >
-                    {revealed[key] ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {revealed[key] ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
                   </Button>
                 )}
                 {field.copyable && clipboardOk && (
@@ -263,9 +264,9 @@ export function ExposedInfoCard({ info }) {
                     aria-label={`Copy ${field.label} to clipboard`}
                   >
                     {copied[key] ? (
-                      <Check size={16} className="text-success" />
+                      <Check size={ICON_SIZE.md} className="text-success" />
                     ) : (
-                      <Copy size={16} />
+                      <Copy size={ICON_SIZE.md} />
                     )}
                   </Button>
                 )}
@@ -292,7 +293,7 @@ export function ExposedInfoCard({ info }) {
     <section className={cn("mt-8")} data-slot="exposed-info-card">
       <Card surface="primary">
         <div className="flex items-center gap-2 mb-8">
-          <Key size={20} className="text-accent" />
+          <Key size={ICON_SIZE.xl} className="text-accent" />
           <h2 className="text-2xl font-mono font-normal">Exposed Information</h2>
         </div>
 

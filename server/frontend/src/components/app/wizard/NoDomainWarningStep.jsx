@@ -3,6 +3,7 @@ import { AlertTriangle, Globe, ArrowRight, Check } from "lucide-react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
 import Button from "../../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function NoDomainWarningStep({ app, onBack, onContinue }) {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
 
         <div className="flex items-start gap-3 p-4 rounded-large-element bg-success/10 border border-success/30">
           <div className="flex-shrink-0 w-5 h-5 rounded-full bg-success flex items-center justify-center mt-0.5">
-            <Check size={12} className="text-primary" strokeWidth={3} />
+            <Check size={ICON_SIZE.xs} className="text-primary" strokeWidth={3} />
           </div>
           <p className="text-sm text-secondary">
             Setting up remote access takes just a few minutes and enables secure access to all your apps from anywhere.
@@ -55,9 +56,9 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
           fullWidth
           onClick={handleSetupRemoteAccess}
         >
-          <Globe size={18} />
+          <Globe size={ICON_SIZE.lg} />
           Set Up Remote Access
-          <ArrowRight size={18} />
+          <ArrowRight size={ICON_SIZE.lg} />
         </Button>
 
         <div className="flex gap-3">

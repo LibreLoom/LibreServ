@@ -2,6 +2,7 @@ import { FileCode, RefreshCw } from "lucide-react";
 import Card from "../cards/Card";
 import CollapsibleSection from "../common/CollapsibleSection";
 import Button from "../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function DebugCard({ content, onReload }) {
   const isEmpty = !content || content.trim().length === 0;
@@ -27,7 +28,7 @@ export default function DebugCard({ content, onReload }) {
                 tooltip="Reload configuration"
                 className="shrink-0"
               >
-                <RefreshCw size={14} aria-hidden="true" />
+                <RefreshCw size={ICON_SIZE.sm} aria-hidden="true" />
                 Reload
               </Button>
             </div>

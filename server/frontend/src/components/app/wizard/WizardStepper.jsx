@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { Check } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function WizardStepper({ currentStep, hasSubdomainStep }) {
   const steps = useMemo(() => {
@@ -49,7 +50,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                 >
                   {isComplete ? (
                     <Check 
-                      size={16} 
+                      size={ICON_SIZE.md} 
                       aria-hidden="true"
                       className="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-0 motion-safe:duration-200"
                     />

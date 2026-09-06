@@ -9,6 +9,7 @@ import CollapsibleSection from "../../common/CollapsibleSection";
 import ModalCard from "../../cards/ModalCard";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
 import { labelFor } from "../../../lib/healthChecks";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const inputClass =
   "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary outline-none focus:border-accent";
@@ -85,9 +86,9 @@ function SystemChecksCard({ index = 2 }) {
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   {ok ? (
-                    <CheckCircle2 size={15} className="text-success shrink-0" aria-hidden="true" />
+                    <CheckCircle2 size={ICON_SIZE.md} className="text-success shrink-0" aria-hidden="true" />
                   ) : (
-                    <XCircle size={15} className="text-error shrink-0" aria-hidden="true" />
+                    <XCircle size={ICON_SIZE.md} className="text-error shrink-0" aria-hidden="true" />
                   )}
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{labelFor(name)}</div>
@@ -168,14 +169,14 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Globe size={16} aria-hidden="true" />
+                <Globe size={ICON_SIZE.md} aria-hidden="true" />
                 Visit libreloom.org
               </a>
             </Button>
           </div>
           <div className="mt-4 pt-4 border-t border-primary/10">
             <div className="flex items-center gap-2 text-sm text-accent">
-              <Heart size={14} className="text-error" />
+              <Heart size={ICON_SIZE.sm} className="text-error" />
               <span>Made with love: for everyone, by everyone.</span>
             </div>
           </div>
@@ -196,7 +197,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Coffee size={16} aria-hidden="true" />
+                <Coffee size={ICON_SIZE.md} aria-hidden="true" />
                 Support us on Ko-fi
               </a>
             </Button>
@@ -223,7 +224,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
             >
               <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle size={18} className="text-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
+                  <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="text-sm text-primary space-y-1.5">
                     <p className="font-semibold">
                       Don't touch these during normal use.
@@ -246,7 +247,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
                 surface="secondary"
                 onClick={() => setModalOpen(true)}
               >
-                <GitBranch size={14} aria-hidden="true" />
+                <GitBranch size={ICON_SIZE.sm} aria-hidden="true" />
                 Edit update source
               </Button>
             </CollapsibleSection>

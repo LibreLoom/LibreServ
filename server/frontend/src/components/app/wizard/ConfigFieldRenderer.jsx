@@ -6,6 +6,7 @@ import { useState } from "react";
 import Dropdown from "../../common/Dropdown";
 import AnimatedCheckbox from "../../ui/AnimatedCheckbox";
 import FieldLabel from "../../common/forms/FieldLabel";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** @param {{ field: any, value: any, onChange: any, disabled?: any, surface?: "primary"|"secondary" }} _ */
 function ConfigFieldRenderer({ field, value, onChange, disabled, surface = "secondary" }) {
@@ -70,7 +71,7 @@ const inputBaseClasses = `
               aria-label={showPassword ? "Hide password" : "Show password"}
               tabIndex={-1}
             >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {showPassword ? <EyeOff size={ICON_SIZE.lg} /> : <Eye size={ICON_SIZE.lg} />}
             </button>
           </div>
         );

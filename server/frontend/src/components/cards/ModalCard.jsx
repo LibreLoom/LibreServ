@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import Card from "./Card";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 import { haptic } from "../../utils/haptics";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** @type {import('react').Context<(() => void) | null>} */
 const ModalCloseContext = createContext(null);
@@ -282,7 +283,7 @@ export default function ModalCard({
                     aria-label="Close"
                     ref={closeButtonRef}
                   >
-                    <X size={20} aria-hidden="true" />
+                    <X size={ICON_SIZE.xl} aria-hidden="true" />
                   </button>
                 )}
 

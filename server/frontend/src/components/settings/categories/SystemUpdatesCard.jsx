@@ -8,6 +8,7 @@ import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function SystemUpdatesCard({ index = 0 }) {
   const { request } = useAuth();
@@ -125,7 +126,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 "Checking..."
               ) : (
                 <>
-                  <RefreshCw size={16} />
+                  <RefreshCw size={ICON_SIZE.md} />
                   Check for Updates
                 </>
               )}
@@ -136,19 +137,19 @@ export default function SystemUpdatesCard({ index = 0 }) {
             <div className="text-sm text-accent">Status:</div>
             {notChecked && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary text-secondary">
-                <Info size={12} />
+                <Info size={ICON_SIZE.xs} />
                 Not checked
               </span>
             )}
             {isUpToDate && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-success text-primary">
-                <CheckCircle size={12} />
+                <CheckCircle size={ICON_SIZE.xs} />
                 Up to date
               </span>
             )}
             {hasUpdate && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-warning/20 border-2 border-warning/30 text-primary">
-                <AlertCircle size={12} />
+                <AlertCircle size={ICON_SIZE.xs} />
                 {updateInfo.latest_version} available
               </span>
             )}
@@ -157,7 +158,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           {error && (
             <div className="mb-4 p-3 bg-error/10 border border-error/20 rounded-large-element">
               <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-error flex-shrink-0 mt-0.5" />
+                <AlertCircle size={ICON_SIZE.md} className="text-error flex-shrink-0 mt-0.5" />
                 <span className="text-sm text-error">{error}</span>
               </div>
             </div>
@@ -170,7 +171,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 onClick={() => setShowReleaseNotesModal(true)}
                 className="w-full justify-center font-sans"
               >
-                <ExternalLink size={16} />
+                <ExternalLink size={ICON_SIZE.md} />
                 See what's new in {updateInfo.latest_version}
               </Button>
 
@@ -184,7 +185,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                   "Updating..."
                 ) : (
                   <>
-                    <Download size={16} />
+                    <Download size={ICON_SIZE.md} />
                     Update Now
                   </>
                 )}
@@ -192,11 +193,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
               <div className="flex flex-wrap gap-2">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
-                  <Info size={12} />
+                  <Info size={ICON_SIZE.xs} />
                   Auto-restart after update
                 </div>
                 <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
-                  <CheckCircle size={12} />
+                  <CheckCircle size={ICON_SIZE.xs} />
                   Re-login required
                 </div>
               </div>

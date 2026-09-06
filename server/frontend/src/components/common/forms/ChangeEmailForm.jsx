@@ -4,6 +4,7 @@ import { useAuth } from "../../../hooks/useAuth";
 import { Mail } from "lucide-react";
 import Button from "../../ui/Button";
 import ShakeTarget from "../../ui/ShakeTarget";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -50,7 +51,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
     <form onSubmit={handleSubmit} className="space-y-4" data-slot="change-email-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
-          <Mail size={24} aria-hidden="true" />
+          <Mail size={ICON_SIZE.xxl} aria-hidden="true" />
         </div>
         <p className="text-sm text-accent">
           Change email for <strong>{user.username}</strong>
@@ -67,7 +68,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
           </label>
           <div className="relative">
             <Mail
-              size={16}
+              size={ICON_SIZE.md}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-accent"
               aria-hidden="true"
             />

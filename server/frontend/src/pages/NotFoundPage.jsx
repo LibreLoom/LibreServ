@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useId, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronDown, Ghost, Home } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 import { notfound as quips } from "../assets/greetings";
 
@@ -185,13 +186,13 @@ export default function NotFoundPage({ includeMain = true }) {
 
             <div className="mt-6 flex flex-wrap gap-3 justify-center">
               <Button type="button" variant="primary" onClick={handleGoBack}>
-                <ArrowLeft size={18} aria-hidden="true" />
+                <ArrowLeft size={ICON_SIZE.lg} aria-hidden="true" />
                 Go back
               </Button>
 
               <Button asChild variant="primary">
                 <Link to="/">
-                  <Home size={18} aria-hidden="true" />
+                  <Home size={ICON_SIZE.lg} aria-hidden="true" />
                   Home
                 </Link>
               </Button>
@@ -223,7 +224,7 @@ export default function NotFoundPage({ includeMain = true }) {
               >
                 <span>Highly Scientific Investigation (Optional)</span>
                 <ChevronDown
-                  size={20}
+                  size={ICON_SIZE.xl}
                   aria-hidden="true"
                   className={cn(
                     "shrink-0 motion-safe:transition-transform duration-200",

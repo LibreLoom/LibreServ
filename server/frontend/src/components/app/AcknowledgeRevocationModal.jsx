@@ -5,6 +5,7 @@ import { useAuth } from "../../hooks/useAuth";
 import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledged }) {
   const { request } = useAuth();
@@ -53,9 +54,9 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
           <>
             <div className={cn("flex items-start gap-3 p-3 rounded-large-element border", isMalicious ? "bg-error/10 border-error/30" : "bg-warning/10 border-warning/30")}>
               {isMalicious ? (
-                <ShieldAlert size={20} className="text-error shrink-0 mt-0.5" />
+                <ShieldAlert size={ICON_SIZE.xl} className="text-error shrink-0 mt-0.5" />
               ) : (
-                <AlertTriangle size={20} className="text-warning shrink-0 mt-0.5" />
+                <AlertTriangle size={ICON_SIZE.xl} className="text-warning shrink-0 mt-0.5" />
               )}
               <div>
                 <p className="text-sm text-primary font-medium">
