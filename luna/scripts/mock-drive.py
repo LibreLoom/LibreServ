@@ -59,8 +59,31 @@ def create_mock_mp4(path: Path, size_kb: int = 250) -> None:
     mdat_header = (payload_len + 8).to_bytes(4, byteorder="big") + b"mdat"
     path.write_bytes(ftyp + mdat_header + (b"\x00" * payload_len))
 
-# Real JPEG generator with optional PIL + EXIF
+# Photo trees from the legacy mock-pssd fixtures (real JPEGs + EXIF/GPS).
+PHOTO_FIXTURE_ROOT = ROOT / "fixtures" / "mock-pssd"
+PHOTO_FIXTURE_DIRS = ("DCIM", "Photos", "Pictures", ".Trashes")
+PHOTO_SEED_MARKER = ".photo-seed-version"
+
+# Minimal valid 1x1 JPEG (last-resort fallback when fixtures and Pillow are absent)
+TINY_JPEG = bytes([
+    0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
+    0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
+    0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
+    0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12,
+    0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20,
+    0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29,
+    0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32,
+    0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01,
+    0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+    0x09, 0x0A, 0x0B, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F,
+    0x00, 0xBF, 0x00, 0xFF, 0xD9,
+])
+
+
 def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: str) -> None:
+    """Synthetic JPEG fallback (no EXIF). Prefer populate_photos fixture copy."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -71,7 +94,6 @@ def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: s
         )
         img = Image.new("RGB", (width, height), color=color)
         draw = ImageDraw.Draw(img)
-        # Geometric patterns
         draw.rectangle((20, 20, width - 20, height - 20), outline=(255, 255, 255), width=3)
         draw.ellipse((width // 4, height // 4, width * 3 // 4, height * 3 // 4), outline=(240, 240, 240), width=2)
         try:
@@ -80,29 +102,46 @@ def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: s
             draw.text((30, height - 50), dt_str, fill=(230, 230, 230), font=font)
         except Exception:
             pass
-
         img.save(path, format="JPEG", quality=85)
     except ImportError:
-        # Fallback tiny valid 1x1 JPEG
-        TINY_JPEG = bytes([
-            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
-            0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
-            0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
-            0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12,
-            0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20,
-            0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29,
-            0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32,
-            0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01,
-            0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00,
-            0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-            0x09, 0x0A, 0x0B, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F,
-            0x00, 0xBF, 0x00, 0xFF, 0xD9
-        ])
         path.write_bytes(TINY_JPEG)
 
 
-def populate_photos(dest: Path) -> int:
+def _count_files(path: Path) -> int:
+    return sum(1 for f in path.rglob("*") if f.is_file())
+
+
+def _populate_photos_from_fixtures(dest: Path) -> int | None:
+    """Copy rich mock-pssd photo trees (EXIF dates + GPS for Places)."""
+    if not (PHOTO_FIXTURE_ROOT / "DCIM").is_dir():
+        return None
+
+    count = 0
+    for name in PHOTO_FIXTURE_DIRS:
+        src = PHOTO_FIXTURE_ROOT / name
+        if not src.exists():
+            continue
+        target = dest / name
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(src, target)
+        count += _count_files(target)
+
+    seed_ver = PHOTO_FIXTURE_ROOT / ".seed-version"
+    if seed_ver.is_file():
+        shutil.copy2(seed_ver, dest / PHOTO_SEED_MARKER)
+    else:
+        (dest / PHOTO_SEED_MARKER).write_text("fixture\n", encoding="utf-8")
+    return count
+
+
+def _populate_photos_synthetic(dest: Path) -> int:
+    """Last-resort tiny/synthetic set when fixtures/mock-pssd is missing."""
+    print(
+        f"Warning: photo fixtures missing at {PHOTO_FIXTURE_ROOT}; "
+        "using synthetic JPEGs without EXIF/GPS. Run: make mock-pssd-photos",
+        file=sys.stderr,
+    )
     count = 0
     now = datetime(2025, 6, 15, 14, 0, 0)
     cameras = [("100CANON", "Canon EOS R5"), ("101APPLE", "iPhone 16 Pro"), ("102FUJI", "Fujifilm X-T5")]
@@ -110,7 +149,13 @@ def populate_photos(dest: Path) -> int:
         for i in range(1, 7):
             dt = now - timedelta(days=random.randint(1, 300), hours=random.randint(1, 10))
             fn = f"IMG_{1000 + i:04d}.JPG"
-            create_mock_image(dest / "DCIM" / folder / fn, 1920, 1080, f"{cam} - {fn}", dt.strftime("%Y-%m-%d %H:%M"))
+            create_mock_image(
+                dest / "DCIM" / folder / fn,
+                1920,
+                1080,
+                f"{cam} - {fn}",
+                dt.strftime("%Y-%m-%d %H:%M"),
+            )
             count += 1
 
     albums = [
@@ -122,9 +167,23 @@ def populate_photos(dest: Path) -> int:
     for album, num in albums:
         for i in range(1, num + 1):
             dt = now - timedelta(days=random.randint(50, 400))
-            create_mock_image(dest / album / f"photo_{i:02d}.jpg", 1600, 1200, f"{album} #{i}", dt.strftime("%Y-%m-%d %H:%M"))
+            create_mock_image(
+                dest / album / f"photo_{i:02d}.jpg",
+                1600,
+                1200,
+                f"{album} #{i}",
+                dt.strftime("%Y-%m-%d %H:%M"),
+            )
             count += 1
     return count
+
+
+def populate_photos(dest: Path) -> int:
+    """Seed photo content: prefer fixtures/mock-pssd (real JPEGs + EXIF/GPS)."""
+    from_fixtures = _populate_photos_from_fixtures(dest)
+    if from_fixtures is not None:
+        return from_fixtures
+    return _populate_photos_synthetic(dest)
 
 
 def populate_documents(dest: Path) -> int:
