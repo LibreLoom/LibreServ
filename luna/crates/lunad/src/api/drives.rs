@@ -584,9 +584,8 @@ mod tests {
             "Luna doesn't know this drive."
         );
 
-        let sticker = anyhow::anyhow!(
-            "Luna couldn't remove its sticker file from this drive. Try again."
-        );
+        let sticker =
+            anyhow::anyhow!("Luna couldn't remove its sticker file from this drive. Try again.");
         let plain = super::plain_remove_error(&sticker);
         assert!(plain.contains("sticker file"));
         assert!(!plain.contains("os error"));

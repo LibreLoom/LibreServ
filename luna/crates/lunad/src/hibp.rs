@@ -29,13 +29,7 @@ fn hibp_range_url() -> String {
     HIBP_RANGE_URL
         .lock()
         .ok()
-        .and_then(|g| {
-            if g.is_empty() {
-                None
-            } else {
-                Some(g.clone())
-            }
-        })
+        .and_then(|g| if g.is_empty() { None } else { Some(g.clone()) })
         .unwrap_or_else(|| {
             // Unit/integration tests stay hermetic: unreachable URL → fail open
             // unless a test installs a stub via set_hibp_range_url.
@@ -131,9 +125,7 @@ mod tests {
         let body = Arc::new(body.into());
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         // Accept with a short timeout so the thread can exit after tests.
-        listener
-            .set_nonblocking(false)
-            .expect("blocking listener");
+        listener.set_nonblocking(false).expect("blocking listener");
         let addr = listener.local_addr().unwrap();
         let (ready_tx, ready_rx) = mpsc::channel();
         let join = thread::spawn(move || {

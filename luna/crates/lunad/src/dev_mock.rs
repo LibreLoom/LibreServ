@@ -238,7 +238,11 @@ mod tests {
         }
         assert!(drives.iter().any(|d| d.name == "sdmock_photos"));
         assert!(drives.iter().any(|d| d.name == "sda"));
-        assert!(!drives.iter().any(|d| d.name == "sdmock" && d.model == "64GB PSSD"));
+        assert!(
+            !drives
+                .iter()
+                .any(|d| d.name == "sdmock" && d.model == "64GB PSSD")
+        );
     }
 
     #[test]

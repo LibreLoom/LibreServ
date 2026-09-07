@@ -587,9 +587,7 @@ impl DriveDbPool {
                 .inner
                 .lock()
                 .map_err(|_| anyhow::anyhow!("drive db pool poisoned"))?;
-            map.iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
+            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
         };
         for (id, arc) in snapshot {
             let conn = arc
@@ -609,9 +607,7 @@ impl DriveDbPool {
                 .inner
                 .lock()
                 .map_err(|_| anyhow::anyhow!("drive db pool poisoned"))?;
-            map.iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
+            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
         };
         for (drive_id, arc) in snapshot {
             let conn = arc
@@ -750,10 +746,7 @@ mod tests {
             )
             .unwrap();
         central
-            .execute(
-                "INSERT INTO indexed_dirs VALUES ('d1', '', 1, 2)",
-                [],
-            )
+            .execute("INSERT INTO indexed_dirs VALUES ('d1', '', 1, 2)", [])
             .unwrap();
         central
             .execute(

@@ -64,8 +64,8 @@ pub fn read_marker(root: &Path) -> Result<Option<Marker>, MarkerError> {
         Err(e) => return Err(MarkerError::Read(e)),
     };
     if bytes.first() == Some(&b'{') {
-        let marker: Marker = serde_json::from_slice(&bytes)
-            .map_err(|e| MarkerError::Parse(e.to_string()))?;
+        let marker: Marker =
+            serde_json::from_slice(&bytes).map_err(|e| MarkerError::Parse(e.to_string()))?;
         return Ok(Some(marker));
     }
     let conn = open_db(&marker_path)?;
@@ -172,8 +172,7 @@ pub fn write_marker(root: &Path, marker: &Marker) -> Result<(), MarkerError> {
         )
         .map_err(MarkerError::Db)?;
         // Ensure DELETE journal finished; no -wal left beside the temp file.
-        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
-            .ok();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok();
         drop(conn);
     }
     // fsync the temp file before rename.
@@ -228,10 +227,7 @@ mod tests {
     #[test]
     fn missing_root_is_an_error_not_a_write() {
         let root = Path::new("/nonexistent/luna/drive");
-        assert!(matches!(
-            read_marker(root),
-            Err(MarkerError::NotADirectory)
-        ));
+        assert!(matches!(read_marker(root), Err(MarkerError::NotADirectory)));
         assert!(write_marker(root, &Marker::new("id", "x")).is_err());
     }
 

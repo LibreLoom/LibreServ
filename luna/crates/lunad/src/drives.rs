@@ -444,10 +444,7 @@ impl DriveManager {
             }
             Err(e) => {
                 let root = Path::new(&drive.mount_point);
-                if !drive.mount_point.is_empty()
-                    && root.is_dir()
-                    && probe_writable(root).is_err()
-                {
+                if !drive.mount_point.is_empty() && root.is_dir() && probe_writable(root).is_err() {
                     // Became unwritable after adopt — leave `.luna`.
                 } else {
                     return Err(e);
@@ -475,9 +472,7 @@ impl DriveManager {
                     let _ = std::fs::remove_dir(&root);
                 }
                 // Keep raw I/O out of the toast — users get a plain next step.
-                anyhow::bail!(
-                    "Luna couldn't remove its sticker file from this drive. Try again."
-                );
+                anyhow::bail!("Luna couldn't remove its sticker file from this drive. Try again.");
             }
         }
     }
@@ -1165,7 +1160,10 @@ mod tests {
 
         mgr.remove(&conn, &row.id).unwrap();
         assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
-        assert!(marker.is_file(), ".luna stays when the stick cannot be written");
+        assert!(
+            marker.is_file(),
+            ".luna stays when the stick cannot be written"
+        );
 
         let mut perms = std::fs::metadata(&existing).unwrap().permissions();
         #[allow(clippy::permissions_set_readonly_false)]
@@ -1283,17 +1281,15 @@ mod tests {
         );
 
         // Drive back — must report gallery remount so callers re-arm watch_mount.
-        let remounted = mgr
-            .reconcile(&conn, &[detected("sdz", None)])
-            .unwrap();
+        let remounted = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
         );
         assert!(
-            remounted.iter().any(|(id, mp)| {
-                id == &row.id && mp == &PathBuf::from(&row.mount_point)
-            }),
+            remounted
+                .iter()
+                .any(|(id, mp)| { id == &row.id && mp == &PathBuf::from(&row.mount_point) }),
             "Ready restore must list the drive for gallery re-arm, got {remounted:?}"
         );
     }
@@ -1316,9 +1312,7 @@ mod tests {
         );
 
         mgr.reconcile(&conn, &[]).unwrap();
-        let remounted = mgr
-            .reconcile(&conn, &[detected("sdz", None)])
-            .unwrap();
+        let remounted = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
         assert_eq!(remounted.len(), 1);
         assert_eq!(remounted[0].0, row.id);
         assert_eq!(remounted[0].1, PathBuf::from(&row.mount_point));

@@ -35,7 +35,6 @@ pub struct TrashEntry {
 const TRASH_DIR_NAME: &str = ".luna-trash";
 const TRASH_META_DIR_NAME: &str = ".meta";
 
-
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
@@ -620,8 +619,6 @@ pub fn delete_to_trash(
         .to_string_lossy()
         .into_owned())
 }
-
-
 
 fn write_trash_meta(
     drive_root: &Path,

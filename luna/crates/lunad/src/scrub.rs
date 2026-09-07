@@ -59,7 +59,11 @@ pub fn hash_file(path: &Path) -> anyhow::Result<String> {
 /// still match are left untouched — they are the *baseline to verify against*
 /// on a later scrub. (The previous behaviour re-hashed and overwrote every
 /// file in the same pass it verified, so silent corruption was never detected.)
-pub fn hash_drive(central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+pub fn hash_drive(
+    central: &Connection,
+    drive_id: &str,
+    root: &Path,
+) -> anyhow::Result<ScrubReport> {
     let _ = crate::drive_db::open_migrating(root, central, drive_id)?;
     hash_drive_walk(drive_id, root)
 }
@@ -142,7 +146,11 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
 /// compared; a mismatch is reported (never auto-repaired). A file that changed
 /// is re-hashed and becomes the new baseline. Individual unreadable paths are
 /// skipped rather than aborting the whole drive.
-pub fn scrub_drive(central: &Connection, drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
+pub fn scrub_drive(
+    central: &Connection,
+    drive_id: &str,
+    root: &Path,
+) -> anyhow::Result<ScrubReport> {
     let _ = crate::drive_db::open_migrating(root, central, drive_id)?;
     scrub_drive_walk(drive_id, root)
 }

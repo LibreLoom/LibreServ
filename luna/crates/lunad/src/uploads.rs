@@ -162,7 +162,8 @@ pub fn create(
         .map_err(UploadError::Io)?;
 
     let drive_conn = drive_db_for(conn, drive_id)?;
-    db::insert_upload(&drive_conn, &id, drive_id, dest_path, &name, size).map_err(UploadError::Db)?;
+    db::insert_upload(&drive_conn, &id, drive_id, dest_path, &name, size)
+        .map_err(UploadError::Db)?;
     Ok(Upload {
         id,
         drive_id: drive_id.into(),
@@ -477,8 +478,6 @@ mod tests {
         assert!(up.temp.exists());
         cancel(&db, &up.id).unwrap();
         assert!(!up.temp.exists());
-        assert!(
-            find_upload(&db.lock().unwrap(), &up.id).is_err()
-        );
+        assert!(find_upload(&db.lock().unwrap(), &up.id).is_err());
     }
 }

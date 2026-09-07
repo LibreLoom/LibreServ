@@ -581,10 +581,7 @@ mod tests {
         let indexer = GalleryIndexer::start();
         indexer.watch_mount("d1", root.path().to_path_buf());
         assert!(indexer.is_watching("d1"));
-        assert_eq!(
-            indexer.watched_mount("d1").as_deref(),
-            Some(root.path())
-        );
+        assert_eq!(indexer.watched_mount("d1").as_deref(), Some(root.path()));
 
         // Simulate eject / missing: gallery stops watching.
         indexer.unwatch_mount("d1");
@@ -593,7 +590,10 @@ mod tests {
 
         // Remount / Ready restore must re-arm watcher + rescan.
         indexer.watch_mount("d1", root.path().to_path_buf());
-        assert!(indexer.is_watching("d1"), "remount must re-arm gallery watch");
+        assert!(
+            indexer.is_watching("d1"),
+            "remount must re-arm gallery watch"
+        );
         assert!(
             indexer.pending() || indexer.status().busy,
             "remount must enqueue a catch-up rescan"

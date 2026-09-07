@@ -24,7 +24,6 @@ pub const GALLERY_DIR_NAME: &str = ".lunagallery";
 /// Shared-album contribution uploads land here on the album's home drive.
 pub const SHARED_ALBUMS_DIR_NAME: &str = ".luna-shared-albums";
 
-
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
     pub drive_id: String,
