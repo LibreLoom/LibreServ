@@ -5,8 +5,44 @@ import { HEIGHT_SETTLE_MS } from "../../hooks/useAnimatedHeight";
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   document.body.style.overflow = "";
 });
+
+/**
+ * Stub ResizeObserver and pin dialog-measure offsetHeight for height/scroll tests.
+ * @returns {{ callbacks: ResizeObserverCallback[], setMeasureHeight: (n: number) => void, bindMeasure: (el: Element | null) => void }}
+ */
+function stubMeasureHeight(initialHeight = 80) {
+  /** @type {ResizeObserverCallback[]} */
+  const callbacks = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      /** @param {ResizeObserverCallback} cb */
+      constructor(cb) {
+        callbacks.push(cb);
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    },
+  );
+  let measureHeight = initialHeight;
+  return {
+    callbacks,
+    setMeasureHeight(n) {
+      measureHeight = n;
+    },
+    /** @param {Element | null} measure */
+    bindMeasure(measure) {
+      Object.defineProperty(/** @type {HTMLElement} */ (measure), "offsetHeight", {
+        configurable: true,
+        get: () => measureHeight,
+      });
+    },
+  };
+}
 
 describe("ModalCard", () => {
   it("delays onClose until exit animation finishes", () => {
@@ -106,6 +142,7 @@ describe("ModalCard", () => {
 
   it("hides scroller overflow as soon as close starts pop-out", () => {
     vi.useFakeTimers();
+    const { callbacks, setMeasureHeight, bindMeasure } = stubMeasureHeight(500);
     const onClose = vi.fn();
     render(
       <ModalCard title="Close overflow" onClose={onClose}>
@@ -117,11 +154,18 @@ describe("ModalCard", () => {
       </ModalCard>,
     );
 
+    const dialog = screen.getByRole("dialog");
+    dialog.style.maxHeight = "200px";
+    bindMeasure(dialog.querySelector("[data-slot=dialog-measure]"));
+    setMeasureHeight(500);
     act(() => {
-      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    act(() => {
+      vi.advanceTimersByTime(Math.max(POP_IN_ANIMATION_MS, HEIGHT_SETTLE_MS));
     });
 
-    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
     expect(scroller).toHaveClass("overflow-y-auto");
 
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -146,17 +190,25 @@ describe("ModalCard", () => {
 
   it("hides scroller overflow when controlled open becomes false", () => {
     vi.useFakeTimers();
+    const { callbacks, setMeasureHeight, bindMeasure } = stubMeasureHeight(500);
     const { rerender } = render(
       <ModalCard open title="Controlled overflow" onClose={() => {}}>
         Body
       </ModalCard>,
     );
 
+    const dialog = screen.getByRole("dialog");
+    dialog.style.maxHeight = "200px";
+    bindMeasure(dialog.querySelector("[data-slot=dialog-measure]"));
+    setMeasureHeight(500);
     act(() => {
-      vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    act(() => {
+      vi.advanceTimersByTime(Math.max(POP_IN_ANIMATION_MS, HEIGHT_SETTLE_MS));
     });
 
-    const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
     expect(scroller).toHaveClass("overflow-y-auto");
 
     rerender(
@@ -172,10 +224,10 @@ describe("ModalCard", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("unlocks scroller overflow after the pop-in fallback duration", () => {
+  it("keeps overflow hidden after pop-in when content fits (modal can still grow)", () => {
     vi.useFakeTimers();
     render(
-      <ModalCard title="Scroll fallback" onClose={() => {}}>
+      <ModalCard title="Fits" onClose={() => {}}>
         Body
       </ModalCard>,
     );
@@ -186,28 +238,39 @@ describe("ModalCard", () => {
       vi.advanceTimersByTime(POP_IN_ANIMATION_MS);
     });
 
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+  });
+
+  it("enables overflow-y-auto when content exceeds max-height after pop-in", () => {
+    vi.useFakeTimers();
+    const { callbacks, setMeasureHeight, bindMeasure } = stubMeasureHeight(500);
+    render(
+      <ModalCard title="Tall" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    dialog.style.maxHeight = "200px";
+    bindMeasure(dialog.querySelector("[data-slot=dialog-measure]"));
+    setMeasureHeight(500);
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    act(() => {
+      vi.advanceTimersByTime(Math.max(POP_IN_ANIMATION_MS, HEIGHT_SETTLE_MS));
+    });
+
     expect(scroller).toHaveClass("overflow-y-auto");
     expect(scroller).toHaveClass("overflow-x-hidden");
   });
 
-  it("hides scroller overflow while height animates to taller content", () => {
+  it("hides scroller overflow while height animates to taller content that still fits", () => {
     vi.useFakeTimers();
-    /** @type {ResizeObserverCallback[]} */
-    const callbacks = [];
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        /** @param {ResizeObserverCallback} cb */
-        constructor(cb) {
-          callbacks.push(cb);
-        }
-        observe() {}
-        disconnect() {}
-        unobserve() {}
-      },
-    );
+    const { callbacks, setMeasureHeight, bindMeasure } = stubMeasureHeight(80);
 
-    let measureHeight = 80;
     render(
       <ModalCard title="Growing" onClose={() => {}}>
         Body
@@ -215,14 +278,11 @@ describe("ModalCard", () => {
     );
 
     const dialog = screen.getByRole("dialog");
+    dialog.style.maxHeight = "800px";
     const measure = dialog.querySelector("[data-slot=dialog-measure]");
     expect(measure).toBeTruthy();
-    Object.defineProperty(/** @type {HTMLElement} */ (measure), "offsetHeight", {
-      configurable: true,
-      get: () => measureHeight,
-    });
+    bindMeasure(measure);
 
-    // Seed the initial measured height (first apply does not flag animating).
     act(() => {
       callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
@@ -231,9 +291,48 @@ describe("ModalCard", () => {
     });
 
     const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
-    expect(scroller).toHaveClass("overflow-y-auto");
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
 
-    measureHeight = 360;
+    setMeasureHeight(360);
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+
+    act(() => {
+      vi.advanceTimersByTime(HEIGHT_SETTLE_MS);
+    });
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+  });
+
+  it("allows overflow-y-auto after settle only when growth hits max-height", () => {
+    vi.useFakeTimers();
+    const { callbacks, setMeasureHeight, bindMeasure } = stubMeasureHeight(80);
+
+    render(
+      <ModalCard title="Cap" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    dialog.style.maxHeight = "200px";
+    bindMeasure(dialog.querySelector("[data-slot=dialog-measure]"));
+
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    act(() => {
+      vi.advanceTimersByTime(Math.max(POP_IN_ANIMATION_MS, HEIGHT_SETTLE_MS));
+    });
+
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-hidden");
+
+    setMeasureHeight(500);
     act(() => {
       callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
@@ -245,11 +344,9 @@ describe("ModalCard", () => {
     });
     expect(scroller).toHaveClass("overflow-y-auto");
     expect(scroller).toHaveClass("overflow-x-hidden");
-
-    vi.unstubAllGlobals();
   });
 
-  it("allows scroller overflow immediately when motion is reduced", () => {
+  it("keeps overflow hidden when motion is reduced and content fits", () => {
     const original = window.matchMedia;
     window.matchMedia = (query) => ({
       matches: String(query).includes("prefers-reduced-motion"),
@@ -268,8 +365,8 @@ describe("ModalCard", () => {
         </ModalCard>,
       );
       const scroller = screen.getByRole("dialog").querySelector("[data-slot=dialog-scroller]");
-      expect(scroller).toHaveClass("overflow-y-auto");
-      expect(scroller).not.toHaveClass("overflow-hidden");
+      expect(scroller).toHaveClass("overflow-hidden");
+      expect(scroller).not.toHaveClass("overflow-y-auto");
     } finally {
       window.matchMedia = original;
     }
@@ -298,7 +395,6 @@ describe("ModalCard", () => {
     expect(scroller).toBeTruthy();
     expect(measure).toBeTruthy();
     expect(scroller?.contains(measure)).toBe(true);
-    // Scroller may fill the clipped dialog; it must not be the measured node
     expect(measure).not.toBe(scroller);
     expect(dialog.className).toMatch(/transition-\[.*height.*\]/);
     expect(dialog.className).toMatch(/transition-\[.*max-width.*\]/);
@@ -328,7 +424,6 @@ describe("ModalCard", () => {
     );
     expect(dialog).toHaveClass("max-w-[95vw]");
   });
-
 
   it("Escape on a nested overlay closes only the top modal", () => {
     vi.useFakeTimers();

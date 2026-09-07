@@ -19,19 +19,25 @@ function prefersReducedMotion() {
  * `isAnimating` is true while a px→px height change is in flight — ModalCard uses
  * this to keep overflow clipped so scrollbars do not flash during the resize.
  *
+ * `needsVerticalScroll` is true only when content is taller than the outer's CSS
+ * max-height (modal already at its viewport cap). ModalCard enables overflow-y
+ * only then — never while the modal can still grow with the content.
+ *
  * @param {boolean} [enabled=true] When false, disconnects and clears the outer height.
  */
 export function useAnimatedHeight(enabled = true) {
   const outerRef = useRef(null);
   const innerRef = useRef(null);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [needsVerticalScroll, setNeedsVerticalScroll] = useState(false);
   const settleTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
 
   useLayoutEffect(() => {
     if (!enabled) {
       if (outerRef.current) outerRef.current.style.height = "";
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync anim flag when disabled
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync flags when disabled
       setIsAnimating(false);
+      setNeedsVerticalScroll(false);
       return undefined;
     }
 
@@ -75,14 +81,23 @@ export function useAnimatedHeight(enabled = true) {
       const contentHeight = Math.ceil(
         Math.max(inner.offsetHeight || 0, inner.getBoundingClientRect?.().height || 0)
       );
-      let targetHeight = contentHeight + margins;
+      const uncapped = contentHeight + margins;
+      let targetHeight = uncapped;
+      let constrained = false;
 
       // When outer has a CSS max-height (e.g. modal calc(95vh - 4rem)), cap the inline
       // height to avoid dead-zone delay when animating down from large content.
+      // Content taller than that cap is the only case that needs a vertical scrollbar.
       const computedMax = parseFloat(getComputedStyle(outer).maxHeight);
       if (!isNaN(computedMax) && computedMax > 0) {
-        targetHeight = Math.min(targetHeight, Math.ceil(computedMax));
+        const maxH = Math.ceil(computedMax);
+        if (uncapped > maxH) {
+          constrained = true;
+          targetHeight = maxH;
+        }
       }
+
+      if (!cancelled) setNeedsVerticalScroll(constrained);
 
       const prevHeight = outer.style.height ? parseFloat(outer.style.height) : Number.NaN;
       outer.style.height = `${targetHeight}px`;
@@ -138,8 +153,9 @@ export function useAnimatedHeight(enabled = true) {
         outerAtBind.style.height = "";
       }
       setIsAnimating(false);
+      setNeedsVerticalScroll(false);
     };
   }, [enabled]);
 
-  return { outerRef, innerRef, isAnimating };
+  return { outerRef, innerRef, isAnimating, needsVerticalScroll };
 }
