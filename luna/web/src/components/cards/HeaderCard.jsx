@@ -52,14 +52,14 @@ export default function HeaderCard({
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const probeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const titleRef = useRef(/** @type {HTMLHeadingElement | null} */ (null));
-  const [split, setSplit] = useState(false);
+  const [measuredSplit, setMeasuredSplit] = useState(false);
+  const split = hasSides && measuredSplit;
   const [isMultiline, setIsMultiline] = useState(false);
 
   const remeasure = useCallback(() => {
     const container = containerRef.current;
     const probe = probeRef.current;
     if (!container || !probe || !hasSides) {
-      setSplit(false);
       return;
     }
 
@@ -67,7 +67,7 @@ export default function HeaderCard({
     if (available <= 0) return;
 
     const needed = probe.scrollWidth;
-    setSplit((wasSplit) => {
+    setMeasuredSplit((wasSplit) => {
       if (wasSplit) {
         // Only reunite when there is clear spare room.
         return needed + UNSPLIT_SLACK > available;
@@ -85,7 +85,6 @@ export default function HeaderCard({
 
   useEffect(() => {
     if (!hasSides) {
-      setSplit(false);
       return;
     }
 

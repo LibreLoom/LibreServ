@@ -161,13 +161,14 @@ export default function FileBrowser({
   const appliedSelectRef = useRef(/** @type {string|null} */ (null));
   const folderChromeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const folderChromeProbeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
-  const [folderChromeSplit, setFolderChromeSplit] = useState(false);
+  const [measuredFolderChromeSplit, setMeasuredFolderChromeSplit] = useState(false);
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
   const isPicker = Boolean(pickerMode);
   const multiSelect = multiSelectProp ?? (!isPicker);
   const hasFolderActions = Boolean(folderActions || (enableUploadDrop && !isPicker));
+  const folderChromeSplit = hasFolderActions && showBreadcrumbs && measuredFolderChromeSplit;
 
   const selectedPaths = controlledSelected !== undefined ? controlledSelected : innerSelected;
 
@@ -271,7 +272,6 @@ export default function FileBrowser({
     const container = folderChromeRef.current;
     const probe = folderChromeProbeRef.current;
     if (!container || !probe || !hasFolderActions || !showBreadcrumbs) {
-      setFolderChromeSplit(false);
       return;
     }
 
@@ -279,7 +279,7 @@ export default function FileBrowser({
     if (available <= 0) return;
 
     const needed = probe.scrollWidth;
-    setFolderChromeSplit((wasSplit) => {
+    setMeasuredFolderChromeSplit((wasSplit) => {
       if (wasSplit) {
         return needed + FOLDER_UNSPLIT_SLACK > available;
       }
@@ -289,7 +289,6 @@ export default function FileBrowser({
 
   useEffect(() => {
     if (!hasFolderActions || !showBreadcrumbs) {
-      setFolderChromeSplit(false);
       return;
     }
 

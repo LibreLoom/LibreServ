@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- mapCreateUserApiError shared with tests */
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
@@ -61,12 +62,14 @@ export default function CreateUserForm({
   const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset draft when parent bumps resetKey (modal reopen)
     setFormData({ displayName: "", username: "", password: "", role: "user" });
     setErrors({});
   }, [resetKey]);
 
   useEffect(() => {
     if (!submitError) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- map API submitError onto field errors
     setErrors((prev) => ({ ...prev, ...mapCreateUserApiError(submitError) }));
   }, [submitError]);
 

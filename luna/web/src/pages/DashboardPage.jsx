@@ -332,13 +332,13 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
 
   const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const probeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
-  const [stacked, setStacked] = useState(false);
+  const [measuredStacked, setMeasuredStacked] = useState(false);
+  const stacked = showDomain && measuredStacked;
 
   const remeasure = useCallback(() => {
     const container = containerRef.current;
     const probe = probeRef.current;
     if (!container || !probe || !showDomain) {
-      setStacked(false);
       return;
     }
 
@@ -362,7 +362,7 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
       }
     }
 
-    setStacked((wasStacked) => {
+    setMeasuredStacked((wasStacked) => {
       if (wasStacked) {
         // Only reunite when there is clear spare room and content is one line.
         return needed + REMOTE_ACCESS_UNSPLIT_SLACK > available || wrapped;
@@ -373,7 +373,6 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
 
   useEffect(() => {
     if (!showDomain) {
-      setStacked(false);
       return;
     }
 

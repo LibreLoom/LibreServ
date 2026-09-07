@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- albumKey shared with GalleryPage tests */
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Search } from "lucide-react";
