@@ -684,6 +684,66 @@ describe("DrivesPage", () => {
     expect(screen.queryByText(/only removes its tiny/i)).not.toBeInTheDocument();
   });
 
+  it("removes an ejected drive without showing an error when the API succeeds", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const { waitFor } = await import("@testing-library/react");
+    stubDrivesApi({
+      fetch: (u, init) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Travel Stick", state: "ejected", fs_type: "exfat", device: "sda",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/d1/remove") && init?.method === "POST") {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /^Remove$/i }));
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/drives/d1/remove"))).toBe(true);
+    });
+    expect(screen.queryByText(/couldn't remove/i)).not.toBeInTheDocument();
+  });
+
+  it("removes a missing drive without showing an error when the API succeeds", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const { waitFor } = await import("@testing-library/react");
+    stubDrivesApi({
+      fetch: (u, init) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Travel Stick", state: "missing", fs_type: "exfat", device: "sda",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/d1/remove") && init?.method === "POST") {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /^Remove$/i }));
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/drives/d1/remove"))).toBe(true);
+    });
+    expect(screen.queryByText(/couldn't remove/i)).not.toBeInTheDocument();
+  });
+
   it("offers Browse files linking to the full files page", async () => {
     stubDrivesApi({
       fetch: (u) => {

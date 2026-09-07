@@ -279,12 +279,8 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
-    with_db(&state.db, |conn| state.drive_manager.remove(conn, &id)).map_err(|_| {
-        json_error(
-            StatusCode::BAD_REQUEST,
-            "Luna couldn't remove this drive. Try again.",
-        )
-    })?;
+    with_db(&state.db, |conn| state.drive_manager.remove(conn, &id))
+        .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
     state.gallery.unwatch_mount(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -468,6 +464,22 @@ fn plain_eject_error(err: &anyhow::Error) -> String {
     }
 }
 
+/// User-facing remove errors — DriveManager already returns plain copy for
+/// real failures; strip raw OS paths if anything else leaks through.
+fn plain_remove_error(err: &anyhow::Error) -> String {
+    let text = err.to_string();
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("doesn't know") {
+        "Luna doesn't know this drive.".into()
+    } else if lower.contains("sticker") {
+        "Luna couldn't remove its sticker file from this drive. Try again.".into()
+    } else if lower.contains("plug the drive") {
+        "Plug the drive back in so Luna can remove its sticker file, then try again.".into()
+    } else {
+        "Luna couldn't remove this drive. Try again.".into()
+    }
+}
+
 fn with_db<T>(
     db: &Arc<Mutex<Connection>>,
     f: impl FnOnce(&Connection) -> anyhow::Result<T>,
@@ -550,5 +562,29 @@ mod tests {
         assert!(!plain_raw.contains("4b8d8abb"));
         assert!(!plain_raw.contains("/var/lib"));
         assert!(!plain_raw.contains("umount"));
+    }
+
+    #[test]
+    fn remove_errors_stay_plain_language() {
+        let unknown = anyhow::anyhow!("Luna doesn't know this drive.");
+        assert_eq!(
+            super::plain_remove_error(&unknown),
+            "Luna doesn't know this drive."
+        );
+
+        let sticker = anyhow::anyhow!(
+            "Luna couldn't remove its sticker file from this drive. Try again."
+        );
+        let plain = super::plain_remove_error(&sticker);
+        assert!(plain.contains("sticker file"));
+        assert!(!plain.contains("os error"));
+
+        let raw = anyhow::anyhow!(
+            "remove_file /var/lib/luna/mounts/drives/aabbccdd/.luna: Permission denied (os error 13)"
+        );
+        let plain_raw = super::plain_remove_error(&raw);
+        assert_eq!(plain_raw, "Luna couldn't remove this drive. Try again.");
+        assert!(!plain_raw.contains("/var/lib"));
+        assert!(!plain_raw.contains("os error"));
     }
 }

@@ -424,32 +424,62 @@ impl DriveManager {
     /// Stop managing a drive: remove the `.luna` marker (when present) and
     /// forget the DB row. Files on the drive are left alone.
     ///
-    /// If Luna already ejected (unmounted) the drive, this remounts it long
-    /// enough to delete the sticker. If the drive is unplugged (`missing`),
-    /// Luna forgets the registry row and leaves the on-disk sticker alone —
-    /// it cannot reach the stick to delete `.luna`.
+    /// If the drive is unplugged (`missing`) or already ejected, Luna forgets
+    /// the registry row and leaves the on-disk `.luna` alone — matching the
+    /// remove UI. If the stick is plugged in but not writable, Luna still
+    /// unregisters when deleting `.luna` fails. Unexpected I/O on a writable,
+    /// plugged-in drive remains an error.
     pub fn remove(&self, conn: &Connection, id: &str) -> anyhow::Result<()> {
         let Some(drive) = db::get_drive(conn, id)? else {
             anyhow::bail!("Luna doesn't know this drive.");
         };
-        if drive.state == "missing" {
+        if drive.state == "missing" || drive.state == "ejected" {
             db::delete_drive_cascade(conn, id)?;
             return Ok(());
         }
-        let (root, remounted) = self.mount_for_remove(&drive)?;
-        remove_marker(&root).map_err(|e| {
-            if remounted {
-                let _ = self.mounter.unmount(&root);
-                let _ = std::fs::remove_dir(&root);
+        match self.clear_marker_for_remove(&drive) {
+            Ok(()) => {}
+            Err(_) if drive.state == "readonly" => {
+                // Write-locked / RO filesystem: leave `.luna`, still unregister.
             }
-            anyhow::anyhow!("Luna couldn't remove its sticker file from this drive. {e}")
-        })?;
-        if remounted || self.is_ours(&root) {
-            let _ = self.mounter.unmount(&root);
-            let _ = std::fs::remove_dir(&root);
+            Err(e) => {
+                let root = Path::new(&drive.mount_point);
+                if !drive.mount_point.is_empty()
+                    && root.is_dir()
+                    && probe_writable(root).is_err()
+                {
+                    // Became unwritable after adopt — leave `.luna`.
+                } else {
+                    return Err(e);
+                }
+            }
         }
         db::delete_drive_cascade(conn, id)?;
         Ok(())
+    }
+
+    /// Best-effort delete of `.luna` before unregistering a plugged-in drive.
+    fn clear_marker_for_remove(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
+        let (root, remounted) = self.mount_for_remove(drive)?;
+        match remove_marker(&root) {
+            Ok(_) => {
+                if remounted || self.is_ours(&root) {
+                    let _ = self.mounter.unmount(&root);
+                    let _ = std::fs::remove_dir(&root);
+                }
+                Ok(())
+            }
+            Err(_e) => {
+                if remounted {
+                    let _ = self.mounter.unmount(&root);
+                    let _ = std::fs::remove_dir(&root);
+                }
+                // Keep raw I/O out of the toast — users get a plain next step.
+                anyhow::bail!(
+                    "Luna couldn't remove its sticker file from this drive. Try again."
+                );
+            }
+        }
     }
 
     /// Return a live mount root for removing the marker. Remounts a
@@ -1033,7 +1063,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_after_eject_remounts_and_clears_marker() {
+    fn remove_after_eject_forgets_db_without_remount() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
@@ -1057,16 +1087,16 @@ mod tests {
 
         let mounts_before = mounter.mount_count();
         mgr.remove(&conn, &row.id).unwrap();
-        assert!(
-            mounter.mount_count() > mounts_before,
-            "remove must remount after eject to reach the sticker"
+        assert_eq!(
+            mounter.mount_count(),
+            mounts_before,
+            "ejected remove must not remount — leaving .luna is fine"
         );
         assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
-        assert!(!mount.exists() || !mount.join(".luna").exists());
     }
 
     #[test]
-    fn remove_after_eject_keeps_db_when_remount_fails() {
+    fn remove_after_eject_forgets_db_even_when_remount_would_fail() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
@@ -1078,12 +1108,48 @@ mod tests {
         mgr.eject(&conn, &row.id).unwrap();
         *mounter.fail_mount.lock().unwrap() = true;
 
-        let err = mgr.remove(&conn, &row.id).unwrap_err().to_string();
-        assert!(err.contains("Plug the drive back in"));
+        mgr.remove(&conn, &row.id).unwrap();
         assert!(
-            db::get_drive(&conn, &row.id).unwrap().is_some(),
-            "DB row must remain when the sticker cannot be removed"
+            db::get_drive(&conn, &row.id).unwrap().is_none(),
+            "ejected remove must unregister even if remounting .luna would fail"
         );
+    }
+
+    #[test]
+    fn remove_readonly_unregisters_when_marker_undeletable() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let existing = dir.join("ro-usb");
+        std::fs::create_dir_all(&existing).unwrap();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(
+                &conn,
+                &detected("sdz", existing.to_str()),
+                "Locked Stick",
+                false,
+            )
+            .unwrap();
+        db::set_drive_state(&conn, &row.id, "readonly").unwrap();
+        let marker = existing.join(".luna");
+        assert!(marker.is_file());
+        // Directory not writable → deleting `.luna` fails.
+        let mut perms = std::fs::metadata(&existing).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&existing, perms).unwrap();
+
+        mgr.remove(&conn, &row.id).unwrap();
+        assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
+        assert!(marker.is_file(), ".luna stays when the stick cannot be written");
+
+        let mut perms = std::fs::metadata(&existing).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        {
+            perms.set_readonly(false);
+        }
+        std::fs::set_permissions(&existing, perms).unwrap();
     }
 
     #[test]
