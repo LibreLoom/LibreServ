@@ -212,10 +212,10 @@ describe("UsersPage", () => {
         body: expect.stringContaining('"password":"hunter22hunter1"'),
       }),
     );
-    const createCall = fetch.mock.calls.find(
+    const createCall = vi.mocked(fetch).mock.calls.find(
       ([url, init]) => String(url).endsWith("/api/v1/users") && init?.method === "POST",
     );
-    expect(JSON.parse(createCall[1].body)).toMatchObject({
+    expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       username: "jamie",
       password: "hunter22hunter1",
       role: "admin",

@@ -5,7 +5,7 @@ import CreateUserForm, { mapCreateUserApiError } from "./CreateUserForm";
 
 vi.mock("../../ui/Button.jsx", () => ({
   default: ({ children, disabled, loading, onClick, type = "button" }) => (
-    <button type={type} disabled={disabled || loading} onClick={onClick}>
+    <button type={/** @type {"button" | "submit" | "reset"} */ (type)} disabled={disabled || loading} onClick={onClick}>
       {children}
     </button>
   ),
@@ -65,7 +65,7 @@ describe("CreateUserForm", () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     const animate = vi.fn(() => ({ cancel: vi.fn() }));
-    Element.prototype.animate = animate;
+    Element.prototype.animate = /** @type {any} */ (animate);
     Element.prototype.getAnimations = vi.fn(() => []);
 
     render(<CreateUserForm onSubmit={onSubmit} />);
@@ -144,6 +144,6 @@ describe("CreateUserForm", () => {
     render(<CreateUserForm onSubmit={vi.fn()} />);
     const form = document.querySelector('[data-slot="create-user-form"]');
     expect(form).toBeTruthy();
-    expect(within(form).getByLabelText(/What Admin means/i)).toBeTruthy();
+    expect(within(/** @type {HTMLElement} */ (form)).getByLabelText(/What Admin means/i)).toBeTruthy();
   });
 });

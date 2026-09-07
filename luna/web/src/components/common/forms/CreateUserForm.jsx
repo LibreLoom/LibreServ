@@ -103,7 +103,7 @@ export default function CreateUserForm({
       e.preventDefault();
       const validationErrors = validateForm();
       if (Object.keys(validationErrors).length > 0) {
-        setErrors(validationErrors);
+        setErrors(/** @type {any} */ (validationErrors));
         return;
       }
       setErrors({});
