@@ -111,51 +111,96 @@ fn hex_upper(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{Shutdown, TcpListener};
+    use std::sync::{Arc, Mutex, mpsc};
     use std::thread;
+    use std::time::Duration;
 
-    fn serve_range_once(body: &'static str) -> String {
+    /// Global HIBP URL is process-wide — serialize these tests.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct StubServer {
+        url: String,
+        // Drop closes the listener by connecting once after join signal… we
+        // just keep the join handle and abandon the thread at process end.
+        _join: Option<thread::JoinHandle<()>>,
+    }
+
+    /// Persistent stub: same body for every GET until the process ends.
+    fn start_stub(body: impl Into<String>) -> StubServer {
+        let body = Arc::new(body.into());
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        // Accept with a short timeout so the thread can exit after tests.
+        listener
+            .set_nonblocking(false)
+            .expect("blocking listener");
         let addr = listener.local_addr().unwrap();
-        thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut buf = [0u8; 1024];
-            let _ = stream.read(&mut buf);
-            let resp = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = stream.write_all(resp.as_bytes());
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            ready_tx.send(()).ok();
+            // Serve a handful of requests (retries + multiple asserts).
+            for _ in 0..32 {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 1024];
+                loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            buf.extend_from_slice(&chunk[..n]);
+                            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body.as_str()
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(Shutdown::Write);
+            }
         });
-        format!("http://{addr}/range/")
+        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        // Give the accept loop a beat to park on accept().
+        thread::sleep(Duration::from_millis(5));
+        StubServer {
+            url: format!("http://{addr}/range/"),
+            _join: Some(join),
+        }
     }
 
     #[test]
     fn detects_breached_password() {
-        // SHA-1("password123") prefix is 482C3; stub returns the matching suffix.
-        let full = {
-            let mut hasher = Sha1::new();
-            hasher.update(b"password123");
-            hex_upper(&hasher.finalize())
-        };
+        let _guard = TEST_LOCK.lock().unwrap();
+        let mut hasher = Sha1::new();
+        hasher.update(b"password123");
+        let full = hex_upper(&hasher.finalize());
         let suffix = &full[5..];
-        let url = serve_range_once(Box::leak(format!("{suffix}:999\nDEADBEEF:1\n").into_boxed_str()));
-        set_hibp_range_url(url);
+        let stub = start_stub(format!("{suffix}:999\nDEADBEEF:1\n"));
+        set_hibp_range_url(&stub.url);
         assert_eq!(check_breached_password("password123").unwrap(), true);
         set_hibp_range_url("");
     }
 
     #[test]
     fn clean_password_ok() {
-        let url = serve_range_once("DEADBEEF:1\nCAFEBABE:2\n");
-        set_hibp_range_url(url);
+        let _guard = TEST_LOCK.lock().unwrap();
+        let stub = start_stub("DEADBEEF:1\nCAFEBABE:2\n");
+        set_hibp_range_url(&stub.url);
         assert_eq!(check_breached_password("Tr0ub4dor&3-Good!").unwrap(), false);
         set_hibp_range_url("");
     }
 
     #[test]
     fn fails_open_on_unreachable() {
+        let _guard = TEST_LOCK.lock().unwrap();
         set_hibp_range_url("http://127.0.0.1:1/range/");
         assert!(ensure_password_not_breached("whatever12345").is_ok());
         set_hibp_range_url("");
@@ -163,16 +208,23 @@ mod tests {
 
     #[test]
     fn reject_message_matches_libreserv() {
-        let full = {
-            let mut hasher = Sha1::new();
-            hasher.update(b"password123");
-            hex_upper(&hasher.finalize())
-        };
+        let _guard = TEST_LOCK.lock().unwrap();
+        let mut hasher = Sha1::new();
+        hasher.update(b"password123");
+        let full = hex_upper(&hasher.finalize());
         let suffix = &full[5..];
-        let url = serve_range_once(Box::leak(format!("{suffix}:1\n").into_boxed_str()));
-        set_hibp_range_url(url);
+        let stub = start_stub(format!("{suffix}:1\n"));
+        set_hibp_range_url(&stub.url);
         let err = ensure_password_not_breached("password123").unwrap_err();
         assert_eq!(err.message(), BREACHED_PASSWORD_MESSAGE);
         set_hibp_range_url("");
+    }
+
+    #[test]
+    fn breached_copy_matches_libreserv_constant() {
+        assert_eq!(
+            BREACHED_PASSWORD_MESSAGE,
+            "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."
+        );
     }
 }
