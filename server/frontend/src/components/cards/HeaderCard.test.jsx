@@ -127,4 +127,17 @@ describe("HeaderCard auto-split", () => {
     expect(container.querySelector("[data-slot=header-card-split]")).toBeNull();
     expect(container.querySelector("[aria-hidden=true]")).toBeNull();
   });
+
+  it("clips the measure probe so it cannot widen page scroll", () => {
+    const { container } = render(
+      <HeaderCard title="Files" rightContent={<span>Search</span>} />,
+    );
+    const probe = container.querySelector("[data-slot=header-card-probe]");
+    expect(probe).toBeTruthy();
+    expect(probe?.className).toMatch(/\bw-0\b/);
+    expect(probe?.className).toMatch(/overflow-hidden/);
+    expect(container.querySelector("[data-slot=header-card-combined]")?.className).toMatch(
+      /overflow-x-hidden/,
+    );
+  });
 });
