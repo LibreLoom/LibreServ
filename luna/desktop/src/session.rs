@@ -1,4 +1,4 @@
-//! Persisted device-token session for Luna for Linux.
+//! Persisted device-token session for Luna Desktop.
 
 use std::fs;
 use std::io::Write;

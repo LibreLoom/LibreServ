@@ -584,7 +584,7 @@ mod tests {
                     );
                     (
                         200,
-                        r#"{"id":"dt-1","name":"Luna for Linux","token":"device-tok-456","revoked":false}"#.to_string(),
+                        r#"{"id":"dt-1","name":"Luna Desktop","token":"device-tok-456","revoked":false}"#.to_string(),
                     )
                 } else if req.contains("/api/v1/drives") && !req.contains("/files") {
                     (200, r#"[{"id":"a","label":"Photos Drive","state":"as_is","fs_type":"ext4","device":"sda","mount_point":"/x"}]"#.to_string())

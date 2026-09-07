@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Luna for Linux
+Name=Luna Desktop
 Comment=Back up and sync folders with Luna
 Exec=luna-desktop
 Icon=org.libreloom.LunaDesktop

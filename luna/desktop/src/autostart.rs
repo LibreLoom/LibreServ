@@ -1,4 +1,4 @@
-//! Start Luna for Linux when you sign in (XDG autostart on Linux, HKCU Run on Windows).
+//! Start Luna Desktop when you sign in (XDG autostart on Linux, HKCU Run on Windows).
 
 use std::path::PathBuf;
 
@@ -93,7 +93,7 @@ mod unix_impl {
         let body = format!(
             "[Desktop Entry]\n\
              Type=Application\n\
-             Name=Luna for Linux\n\
+             Name=Luna Desktop\n\
              Comment=Back up and sync folders with Luna\n\
              Exec={exec} --background\n\
              Icon=org.libreloom.LunaDesktop\n\
@@ -224,7 +224,7 @@ mod tests {
             PathBuf::from(dir.path()).join("autostart/org.libreloom.LunaDesktop.desktop"),
         )
         .unwrap();
-        assert!(text.contains("Name=Luna for Linux"));
+        assert!(text.contains("Name=Luna Desktop"));
         assert!(text.contains("--background"));
         assert!(text.contains("X-GNOME-UsesNotifications=true"));
         set_enabled(false).unwrap();

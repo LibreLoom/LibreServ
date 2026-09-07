@@ -37,7 +37,7 @@ export default function DevicesCategory() {
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild variant="primary">
             <a href={DESKTOP_APP_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
-              Download Luna for Linux
+              Download Luna Desktop
             </a>
           </Button>
           <Button asChild variant="outline">
