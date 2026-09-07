@@ -350,7 +350,9 @@ describe("DashboardPage", () => {
       const wrap = container.querySelector("[data-slot=remote-access-link]");
       expect(wrap).toHaveAttribute("data-stacked", "true");
       const link = screen.getByRole("link", { name: /Remote access on/i });
+      // Must be a card radius — rounded-pill must not remain (twMerge conflict bug).
       expect(link.className).toMatch(/rounded-large-element/);
+      expect(link.className).not.toMatch(/rounded-pill/);
       expect(link.className).toMatch(/items-stretch/);
       // Label and domain are in a column (not a cramped single-line pill).
       expect(link.querySelector(".flex-col")).toBeTruthy();

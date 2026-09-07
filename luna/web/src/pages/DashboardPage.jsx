@@ -345,12 +345,29 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
     const available = container.clientWidth;
     if (available <= 0) return;
 
+    // Natural single-line width of label + hostname + chevron (+ button pad).
     const needed = probe.scrollWidth;
+    const overflows = needed > available;
+
+    // Secondary signal: live control already taller than a one-line button.
+    const live = container.querySelector("[data-slot=button]");
+    let wrapped = false;
+    if (live instanceof HTMLElement && live.offsetHeight > 0) {
+      const style = window.getComputedStyle(live);
+      const lineHeight = parseFloat(style.lineHeight) || 0;
+      const padY =
+        (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+      if (lineHeight > 0 && live.offsetHeight > lineHeight + padY + 8) {
+        wrapped = true;
+      }
+    }
+
     setStacked((wasStacked) => {
       if (wasStacked) {
-        return needed + REMOTE_ACCESS_UNSPLIT_SLACK > available;
+        // Only reunite when there is clear spare room and content is one line.
+        return needed + REMOTE_ACCESS_UNSPLIT_SLACK > available || wrapped;
       }
-      return needed > available;
+      return overflows || wrapped;
     });
   }, [showDomain]);
 
@@ -410,9 +427,11 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
         asChild
         fullWidth
         className={cn(
+          // Button variants always include rounded-pill; cn()/twMerge must
+          // replace it with rounded-large-element when stacked (see utils.js).
           stacked
             ? "h-auto items-stretch justify-start rounded-large-element py-3 text-left"
-            : "justify-between",
+            : "justify-between rounded-pill",
         )}
       >
         <Link to="/settings#external_services" aria-label={label}>
@@ -426,7 +445,7 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
             </span>
           ) : (
             <>
-              <span>{label}</span>
+              <span className="shrink-0">{label}</span>
               <span className="flex min-w-0 items-center gap-2">
                 {showDomain ? (
                   <span className="font-mono truncate">{remoteDomain}</span>
