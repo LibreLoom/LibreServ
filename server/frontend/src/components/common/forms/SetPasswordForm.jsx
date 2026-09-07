@@ -118,7 +118,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             aria-describedby={errors.newPassword ? "new-password-error" : undefined}
           />
         </div>
-        <PasswordStrengthChecklist password={formData.newPassword} size="sm" />
+        <PasswordStrengthChecklist password={formData.newPassword} />
         {errors.newPassword && (
           <p id="new-password-error" className="text-error text-xs mt-1 px-5 animate-fade-in-up">
             {errors.newPassword}

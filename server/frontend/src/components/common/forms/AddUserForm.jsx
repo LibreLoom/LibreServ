@@ -6,7 +6,10 @@ import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
 import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
-import { passwordPolicyError, PASSWORD_POLICY_HINT } from "../../../lib/passwordPolicy";
+import {
+  passwordPolicyError,
+  PASSWORD_FIELD_PLACEHOLDER,
+} from "../../../lib/passwordPolicy";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
@@ -98,6 +101,15 @@ export default function AddUserForm({ onSuccess }) {
     [formData, request, validateForm, onSuccess],
   );
 
+  // Live unmet requirements are shown by the checklist. Hide the duplicate
+  // policy string under the field so the form height stays stable while typing.
+  const policyMessage = passwordPolicyError(formData.password);
+  const hidePolicyErrorUnderField =
+    formData.password.length > 0 &&
+    Boolean(errors.password) &&
+    (errors.password === policyMessage || errors.password === "Choose a stronger password.");
+  const passwordDisplayError = hidePolicyErrorUnderField ? null : errors.password || null;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4" data-slot="add-user-form">
       <FormInput
@@ -133,21 +145,14 @@ export default function AddUserForm({ onSuccess }) {
           type="password"
           value={formData.password}
           onChange={handleChange("password")}
-          placeholder={PASSWORD_POLICY_HINT}
-          error={
-            formData.password.length > 0 &&
-            errors.password &&
-            (errors.password === passwordPolicyError(formData.password) ||
-              errors.password === "Choose a stronger password.")
-              ? null
-              : errors.password
-          }
-          shake={errors.password || errors.form}
+          placeholder={PASSWORD_FIELD_PLACEHOLDER}
+          error={passwordDisplayError}
+          shake={passwordDisplayError || errors.form}
           icon="password"
           required
           disabled={loading}
         />
-        <PasswordStrengthChecklist password={formData.password} size="sm" />
+        <PasswordStrengthChecklist password={formData.password} />
       </div>
 
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">

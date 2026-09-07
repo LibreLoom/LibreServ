@@ -8,7 +8,7 @@ import ModalErrorNotice from "../ModalErrorNotice";
 import { InfoHint } from "../../ui/Tooltip";
 import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
 import {
-  PASSWORD_POLICY_HINT,
+  PASSWORD_FIELD_PLACEHOLDER,
   meetsPasswordPolicy,
   passwordPolicyError,
 } from "../../../lib/passwordPolicy";
@@ -162,16 +162,16 @@ export default function CreateUserForm({
           type="password"
           value={formData.password}
           onChange={handleChange("password")}
-          placeholder={PASSWORD_POLICY_HINT}
+          placeholder={PASSWORD_FIELD_PLACEHOLDER}
           error={passwordDisplayError}
-          shake={errors.password || errors.form}
+          shake={passwordDisplayError || errors.form}
           icon="password"
           required
           disabled={busy}
           autoComplete="new-password"
           surface="secondary"
         />
-        <PasswordStrengthChecklist password={formData.password} size="sm" />
+        <PasswordStrengthChecklist password={formData.password} />
       </div>
 
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">

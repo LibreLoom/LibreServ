@@ -177,7 +177,7 @@ export default function MyProfile() {
               required
               disabled={pwSaving}
             />
-            <PasswordStrengthChecklist password={pw.new} size="sm" />
+            <PasswordStrengthChecklist password={pw.new} />
             {pwErrors.form && (
               <div className="bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
                 {pwErrors.form}

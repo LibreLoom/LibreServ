@@ -7,6 +7,7 @@ import { getJson, postJson, ApiError } from "../lib/api";
 import { isPublicLunaHost } from "../lib/publicHost";
 import {
   PASSWORD_POLICY_HINT,
+  PASSWORD_FIELD_PLACEHOLDER,
   passwordChecks,
 } from "../lib/passwordPolicy";
 import {
@@ -353,7 +354,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       hint: PASSWORD_POLICY_HINT,
       name: "password",
       type: "password",
-      placeholder: 'Not "a1!", please.',
+      placeholder: PASSWORD_FIELD_PLACEHOLDER,
       autoComplete: "new-password",
       valid: meetsPolicy,
       showStrength: true,

@@ -6,9 +6,12 @@
 
 export const MIN_PASSWORD_LENGTH = 12;
 
-/** Placeholder / short hint for password fields. */
+/** Short policy hint (shown as helper copy when the live checklist is hidden). */
 export const PASSWORD_POLICY_HINT =
   "At least 12 characters, with a letter and a number";
+
+/** Password field placeholder — same witty nudge as Luna setup. */
+export const PASSWORD_FIELD_PLACEHOLDER = 'Not "a1!", please.';
 
 /**
  * @param {string} password

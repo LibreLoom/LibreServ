@@ -172,7 +172,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
               }
             />
           </div>
-          <PasswordStrengthChecklist password={formData.newPassword} size="sm" />
+          <PasswordStrengthChecklist password={formData.newPassword} />
           {errors.newPassword && (
             <p id="new-password-error" className="text-secondary text-xs mt-1 px-5">
               {errors.newPassword}

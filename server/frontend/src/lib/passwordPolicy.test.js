@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MIN_PASSWORD_LENGTH,
+  PASSWORD_FIELD_PLACEHOLDER,
   meetsPasswordPolicy,
   passwordChecks,
   passwordPolicyError,
@@ -9,6 +10,10 @@ import {
 describe("passwordPolicy", () => {
   it("matches backend minimum length", () => {
     expect(MIN_PASSWORD_LENGTH).toBe(12);
+  });
+
+  it("uses the setup password field placeholder", () => {
+    expect(PASSWORD_FIELD_PLACEHOLDER).toBe('Not "a1!", please.');
   });
 
   it("rejects short passwords", () => {

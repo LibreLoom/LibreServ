@@ -77,10 +77,15 @@ describe("account form coverage", () => {
     await user.type(screen.getByLabelText(/Username/), "ada");
     await user.type(screen.getByLabelText(/Email/), "ada@example.test");
     const password = screen.getByLabelText(/^Password/);
+    expect(password.getAttribute("placeholder")).toBe('Not "a1!", please.');
     await user.type(password, "LongPassword123!");
     expect(screen.getByText("✓ Acceptable")).toBeVisible();
     expect(screen.getByText("Strong")).toBeVisible();
     expect(screen.getByText("12+ chars")).toBeVisible();
+    expect(screen.getByText("symbols")).toBeVisible();
+    expect(
+      document.querySelector("[data-slot='password-strength-checklist']"),
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Show password" }));
     expect(password).toHaveAttribute("type", "text");
     await user.selectOptions(screen.getByLabelText("Role"), "admin");

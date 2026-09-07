@@ -77,14 +77,20 @@ describe("CreateUserForm", () => {
 
     await user.type(screen.getByLabelText(/^Username/i), "jamie");
     const password = screen.getByLabelText(/^Password/i);
+    expect(password.getAttribute("placeholder")).toBe('Not "a1!", please.');
 
     animate.mockClear();
     await user.type(password, "short1");
     expect(screen.getByText("12+ chars")).toBeVisible();
     expect(screen.getByText("Not strong enough yet")).toBeVisible();
+    expect(screen.getByText("Weak")).toBeVisible();
     expect(screen.queryByText(/Passwords need at least 12 characters/i)).toBeNull();
     // Live unmet requirements must not re-shake the field on each keystroke.
     expect(animate).not.toHaveBeenCalled();
+    // Full-size checklist (same as setup) — not the compact size=sm variant.
+    expect(
+      document.querySelector("[data-slot='password-strength-checklist']"),
+    ).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Add user/i }));
     expect(onSubmit).not.toHaveBeenCalled();

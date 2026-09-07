@@ -157,7 +157,6 @@ export default function InviteeOnboardingPage() {
               />
               <PasswordStrengthChecklist
                 password={password}
-                size="sm"
                 surface="primary"
               />
             </div>

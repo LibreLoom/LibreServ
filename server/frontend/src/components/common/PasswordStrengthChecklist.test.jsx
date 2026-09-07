@@ -15,18 +15,11 @@ describe("PasswordStrengthChecklist", () => {
     expect(screen.getByText("numbers")).toBeTruthy();
     expect(screen.getByText("symbols")).toBeTruthy();
     expect(screen.getByText("Not strong enough yet")).toBeTruthy();
+    expect(screen.getByText("Weak")).toBeTruthy();
   });
 
   it("marks the password acceptable when policy is met", () => {
     render(<PasswordStrengthChecklist password="hunter22hunter1" />);
     expect(screen.getByText("✓ Acceptable")).toBeTruthy();
-  });
-
-  it("supports the compact size used in modals", () => {
-    const { container } = render(
-      <PasswordStrengthChecklist password="abc" size="sm" />,
-    );
-    const root = container.querySelector("[data-slot='password-strength-checklist']");
-    expect(root?.getAttribute("data-size")).toBe("sm");
   });
 });
