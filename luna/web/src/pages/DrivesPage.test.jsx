@@ -623,7 +623,8 @@ describe("DrivesPage", () => {
 
     const dialog = screen.getByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: /Eject safely/i }));
-    await vi.waitFor(() => {
+    const { waitFor } = await import("@testing-library/react");
+    await waitFor(() => {
       expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/drives/d1/eject"))).toBe(true);
     });
   });
