@@ -223,6 +223,7 @@ export default function UsersPage() {
                   ]}
                   data={users}
                   rowKey="id"
+                  mobileCards
                   onRowClick={(row) => navigate(`/users/${row.id}`)}
                 />
               </div>

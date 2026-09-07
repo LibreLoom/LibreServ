@@ -200,6 +200,7 @@ export default function UsersPage() {
                   ]}
                   data={list}
                   rowKey="id"
+                  mobileCards
                 />
               </div>
             </Card>
