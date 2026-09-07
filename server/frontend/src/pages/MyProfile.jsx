@@ -9,6 +9,8 @@ import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import ApiTokensCard from "../components/profile/ApiTokensCard";
 import MfaCard from "../components/profile/MfaCard";
+import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from "../lib/passwordPolicy";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
@@ -59,9 +61,8 @@ export default function MyProfile() {
     /** @type {Record<string, string>} */
     const errs = {};
     if (!pw.old) errs.old = "Current password is required";
-    if (pw.new.length < 12) errs.new = "Password must be at least 12 characters";
-    else if (!/[a-zA-Z]/.test(pw.new) || !/[0-9]/.test(pw.new))
-      errs.new = "Password must include letters and numbers";
+    const newPwError = passwordPolicyError(pw.new);
+    if (newPwError) errs.new = newPwError;
     if (Object.keys(errs).length) {
       setPwErrors(errs);
       return;
@@ -169,13 +170,14 @@ export default function MyProfile() {
                 setPw((p) => ({ ...p, new: e.target.value }));
                 setPwErrors((x) => ({ ...x, new: "" }));
               }}
-              placeholder="Minimum 12 characters (letters and numbers)"
+              placeholder={PASSWORD_POLICY_HINT}
               error={pwErrors.new}
               shake={pwErrors.new || pwErrors.form}
               icon="password"
               required
               disabled={pwSaving}
             />
+            <PasswordStrengthChecklist password={pw.new} size="sm" />
             {pwErrors.form && (
               <div className="bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
                 {pwErrors.form}

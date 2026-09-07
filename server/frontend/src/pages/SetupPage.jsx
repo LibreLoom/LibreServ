@@ -18,6 +18,8 @@ import { MfaSetupWizard } from "../components/profile/MfaCard";
 import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import useLabelErrorState from "../hooks/useLabelErrorState";
+import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
+import { meetsPasswordPolicy, passwordChecks } from "../lib/passwordPolicy";
 import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -581,45 +583,6 @@ PreflightStep.propTypes = {
 };
 
 // ─── STEP: Account creation ───────────────────────────────────────────────────
-function strengthInfo(pw) {
-  if (!pw) return null;
-  const hasLength  = pw.length >= 12;
-  const hasLetter  = /[a-zA-Z]/.test(pw);
-  const hasDigit   = /[0-9]/.test(pw);
-  const hasSpecial = /[!@#$%^&*(),.?":{}|<>[\]\\;'`~\-_=+]/.test(pw);
-  const score = [hasLength, hasLetter, hasDigit, hasSpecial].filter(Boolean).length;
-  return { score, hasLength, hasLetter, hasDigit, hasSpecial };
-}
-
-const STRENGTH_LABEL = ["", "Weak", "Fair", "Good", "Strong"];
-const STRENGTH_COLOR = ["", "bg-error", "bg-warning", "bg-warning", "bg-success"];
-const STRENGTH_TEXT  = ["", "text-error", "text-warning", "text-warning", "text-success"];
-
-function PasswordStrengthBar({ score }) {
-  return (
-    <div className="flex gap-1 mt-2.5">
-      {[1, 2, 3, 4].map((lvl) => (
-        <div
-          key={lvl}
-          className={cn("h-1 flex-1 rounded-full motion-safe:transition-all motion-safe:duration-300", lvl <= score ? STRENGTH_COLOR[score] : "bg-primary/15")}
-        />
-      ))}
-    </div>
-  );
-}
-PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
-
-/** A single password requirement chip: green check when met, muted X when missing. */
-function ReqChip({ ok, label }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1 font-mono motion-safe:transition-colors motion-safe:duration-200", ok ? "text-success" : "text-accent")}>
-      {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-      {label}
-    </span>
-  );
-}
-ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isRequired };
-
 /** @param {{ id: any, label: any, hint?: any, children: any }} _ */
 function FormField({ id, label, hint, children, error, shake, loading = false }) {
   const { labelError, containerRef } = useLabelErrorState(error, shake, { loading });
@@ -662,11 +625,11 @@ function AccountStep({ onSuccess, onError }) {
 
   const pw       = form.admin_password;
   const confirm  = form.confirm_password;
-  const strength = strengthInfo(pw);
+  const strength = pw ? passwordChecks(pw) : null;
   // Acceptable matches the backend policy exactly: 12+ chars, a letter, and a
   // digit. Symbols strengthen the password but are NOT required — gating on
   // them would reject valid passwords the backend accepts.
-  const meetsPolicy = !!(strength?.hasLength && strength?.hasLetter && strength?.hasDigit);
+  const meetsPolicy = meetsPasswordPolicy(pw);
   const confirmOk   = confirm === pw && pw !== "";
   const isValid  =
     !!(form.admin_username.trim() &&
@@ -796,23 +759,7 @@ function AccountStep({ onSuccess, onError }) {
 
               {/* Strength bar + label */}
               {strength && (
-                <div className="mt-1">
-                  <PasswordStrengthBar score={strength.score} />
-                  <div className="flex items-center justify-between mt-1.5">
-                    <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
-                      {STRENGTH_LABEL[strength.score]}
-                    </p>
-                    <p className={cn("text-xs font-mono", meetsPolicy ? "text-success" : "text-accent")}>
-                      {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-                    <ReqChip ok={strength.hasLength}  label="12+ chars" />
-                    <ReqChip ok={strength.hasLetter}  label="letters" />
-                    <ReqChip ok={strength.hasDigit}   label="numbers" />
-                    <ReqChip ok={strength.hasSpecial} label="symbols" />
-                  </div>
-                </div>
+                <PasswordStrengthChecklist password={pw} />
               )}
             </FormField>
             </ShakeTarget>

@@ -4,6 +4,8 @@ import { useAuth } from "../../../hooks/useAuth";
 import { Lock, KeyRound } from "lucide-react";
 import Button from "../../ui/Button";
 import ShakeTarget from "../../ui/ShakeTarget";
+import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from "../../../lib/passwordPolicy";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
@@ -30,10 +32,9 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
   const validateForm = useCallback(() => {
     const newErrors = /** @type {Record<string, string>} */ ({});
     const { newPassword, confirm } = formData;
-    if (newPassword.length < 12) {
-      newErrors.newPassword = "Password must be at least 12 characters";
-    } else if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      newErrors.newPassword = "Password must include letters and numbers";
+    const passwordError = passwordPolicyError(newPassword);
+    if (passwordError) {
+      newErrors.newPassword = passwordError;
     }
     if (confirm !== newPassword) {
       newErrors.confirm = "Passwords don't match";
@@ -106,7 +107,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             type="password"
             value={formData.newPassword}
             onChange={handleChange("newPassword")}
-            placeholder="Minimum 12 characters (letters and numbers)"
+            placeholder={PASSWORD_POLICY_HINT}
             className={cn(
               "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
               errors.newPassword && "border-error focus:border-error",
@@ -117,6 +118,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             aria-describedby={errors.newPassword ? "new-password-error" : undefined}
           />
         </div>
+        <PasswordStrengthChecklist password={formData.newPassword} size="sm" />
         {errors.newPassword && (
           <p id="new-password-error" className="text-error text-xs mt-1 px-5 animate-fade-in-up">
             {errors.newPassword}

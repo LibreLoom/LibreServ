@@ -1,63 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
 import ModalErrorNotice from "../ModalErrorNotice";
 import { InfoHint } from "../../ui/Tooltip";
+import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
 import {
   PASSWORD_POLICY_HINT,
   meetsPasswordPolicy,
   passwordPolicyError,
 } from "../../../lib/passwordPolicy";
-
-/**
- * Password strength meter — ported from LibreServ AddUserForm.
- * Bars fill as length, mixed case, digits, and symbols accumulate.
- * Policy gate (12+ / letter / number) stays in passwordPolicy.js.
- */
-function PasswordStrengthIndicator({ password }) {
-  const strength = useMemo(() => {
-    if (!password) return { score: 0, label: "" };
-
-    let score = 0;
-    if (password.length >= 12) score += 1;
-    if (password.length >= 16) score += 1;
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
-    if (/[0-9]/.test(password)) score += 1;
-    if (/[^a-zA-Z0-9]/.test(password)) score += 1;
-
-    if (score <= 2) return { score, label: "Weak" };
-    if (score <= 3) return { score, label: "Fair" };
-    if (score <= 4) return { score, label: "Good" };
-    return { score, label: "Strong" };
-  }, [password]);
-
-  if (!password) return null;
-
-  return (
-    <div className="mt-2 px-5" data-slot="password-strength">
-      <div className="flex gap-1 mb-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            className={cn(
-              "h-1 flex-1 rounded-full motion-safe:transition-colors",
-              i <= strength.score ? "bg-accent" : "bg-primary/20",
-            )}
-          />
-        ))}
-      </div>
-      <p className="text-xs text-accent font-mono">{strength.label}</p>
-    </div>
-  );
-}
-
-PasswordStrengthIndicator.propTypes = {
-  password: PropTypes.string.isRequired,
-};
 
 /**
  * Map Luna API error copy onto the field that needs fixing (LibreServ AddUserForm pattern).
@@ -161,6 +115,15 @@ export default function CreateUserForm({
     [formData, onSubmit, validateForm],
   );
 
+  // Live unmet requirements are shown by the checklist. Hide the duplicate
+  // policy string under the field so the modal height stays stable while typing.
+  const policyMessage = passwordPolicyError(formData.password);
+  const hidePolicyErrorUnderField =
+    formData.password.length > 0 &&
+    Boolean(errors.password) &&
+    (errors.password === policyMessage || errors.password === "Choose a stronger password.");
+  const passwordDisplayError = hidePolicyErrorUnderField ? null : errors.password || null;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-1" data-slot="create-user-form">
       <FormInput
@@ -200,7 +163,7 @@ export default function CreateUserForm({
           value={formData.password}
           onChange={handleChange("password")}
           placeholder={PASSWORD_POLICY_HINT}
-          error={errors.password}
+          error={passwordDisplayError}
           shake={errors.password || errors.form}
           icon="password"
           required
@@ -208,7 +171,7 @@ export default function CreateUserForm({
           autoComplete="new-password"
           surface="secondary"
         />
-        <PasswordStrengthIndicator password={formData.password} />
+        <PasswordStrengthChecklist password={formData.password} size="sm" />
       </div>
 
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">

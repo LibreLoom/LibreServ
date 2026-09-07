@@ -61,9 +61,12 @@ describe("CreateUserForm", () => {
     });
   });
 
-  it("validates on submit with field errors and strength labels (LibreServ AddUserForm UX)", async () => {
+  it("validates on submit and shows the shared strength checklist while typing", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
+    const animate = vi.fn(() => ({ cancel: vi.fn() }));
+    Element.prototype.animate = animate;
+
     render(<CreateUserForm onSubmit={onSubmit} />);
 
     await user.click(screen.getByRole("button", { name: /Add user/i }));
@@ -73,21 +76,30 @@ describe("CreateUserForm", () => {
 
     await user.type(screen.getByLabelText(/^Username/i), "jamie");
     const password = screen.getByLabelText(/^Password/i);
+
+    animate.mockClear();
     await user.type(password, "short1");
-    expect(screen.getByText("Weak")).toBeVisible();
-    expect(screen.queryByText(/12\+ chars/i)).toBeNull();
+    expect(screen.getByText("12+ chars")).toBeVisible();
+    expect(screen.getByText("Not strong enough yet")).toBeVisible();
+    expect(screen.queryByText(/Passwords need at least 12 characters/i)).toBeNull();
+    // Live unmet requirements must not re-shake the field on each keystroke.
+    expect(animate).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /Add user/i }));
-    expect(screen.getByText(/Passwords need at least 12 characters/i)).toBeVisible();
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("12+ chars")).toBeVisible();
+    // Policy copy stays in the checklist — not a second error line under the field.
+    expect(screen.queryByText(/Passwords need at least 12 characters/i)).toBeNull();
 
     await user.clear(password);
     await user.type(password, "abcdefghijkl");
     await user.click(screen.getByRole("button", { name: /Add user/i }));
-    expect(screen.getByText(/Passwords need at least one letter and one number/i)).toBeVisible();
+    expect(screen.getByText("numbers")).toBeVisible();
+    expect(screen.queryByText(/Passwords need at least one letter and one number/i)).toBeNull();
 
     await user.clear(password);
     await user.type(password, "LongPassword123!");
+    expect(screen.getByText("✓ Acceptable")).toBeVisible();
     expect(screen.getByText("Strong")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Show password" }));
     expect(password).toHaveAttribute("type", "text");

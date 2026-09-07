@@ -1,49 +1,13 @@
-import { cn } from "@/lib/utils";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
+import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from "../../../lib/passwordPolicy";
 import { ICON_SIZE } from "@/lib/ui-tokens";
-
-function PasswordStrengthIndicator({ password }) {
-  const strength = useMemo(() => {
-    if (!password) return { score: 0, label: "" };
-
-    let score = 0;
-    if (password.length >= 12) score += 1;
-    if (password.length >= 16) score += 1;
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
-    if (/[0-9]/.test(password)) score += 1;
-    if (/[^a-zA-Z0-9]/.test(password)) score += 1;
-
-    if (score <= 2) return { score, label: "Weak" };
-    if (score <= 3) return { score, label: "Fair" };
-    if (score <= 4) return { score, label: "Good" };
-    return { score, label: "Strong" };
-  }, [password]);
-
-  if (!password) return null;
-
-  return (
-    <div className="mt-2 px-5">
-      <div className="flex gap-1 mb-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            className={cn(
-              "h-1 flex-1 rounded-full transition-colors",
-              i <= strength.score ? "bg-accent" : "bg-primary/20",
-            )}
-          />
-        ))}
-      </div>
-      <p className="text-xs text-accent">{strength.label}</p>
-    </div>
-  );
-}
 
 /**
  * @param {{ onSuccess?: any }} _
@@ -62,6 +26,8 @@ export default function AddUserForm({ onSuccess }) {
   const handleChange = useCallback(
     (field) => (e) => {
       setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+      // Clear submit-time field errors while typing — do not re-set live
+      // password policy errors (checklist covers those without shaking).
       setErrors((prev) => ({ ...prev, [field]: "" }));
     },
     [],
@@ -72,14 +38,9 @@ export default function AddUserForm({ onSuccess }) {
     if (!formData.username.trim()) {
       newErrors.username = "Username is required";
     }
-    if (formData.password.length < 12) {
-      newErrors.password = "Password must be at least 12 characters";
-    } else {
-      const hasLetter = /[a-zA-Z]/.test(formData.password);
-      const hasDigit = /[0-9]/.test(formData.password);
-      if (!hasLetter || !hasDigit) {
-        newErrors.password = "Password must include letters and numbers";
-      }
+    const passwordError = passwordPolicyError(formData.password);
+    if (passwordError) {
+      newErrors.password = passwordError;
     }
     return newErrors;
   }, [formData]);
@@ -172,14 +133,21 @@ export default function AddUserForm({ onSuccess }) {
           type="password"
           value={formData.password}
           onChange={handleChange("password")}
-          placeholder="Minimum 12 characters (letters and numbers)"
-          error={errors.password}
+          placeholder={PASSWORD_POLICY_HINT}
+          error={
+            formData.password.length > 0 &&
+            errors.password &&
+            (errors.password === passwordPolicyError(formData.password) ||
+              errors.password === "Choose a stronger password.")
+              ? null
+              : errors.password
+          }
           shake={errors.password || errors.form}
           icon="password"
           required
           disabled={loading}
         />
-        <PasswordStrengthIndicator password={formData.password} />
+        <PasswordStrengthChecklist password={formData.password} size="sm" />
       </div>
 
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">

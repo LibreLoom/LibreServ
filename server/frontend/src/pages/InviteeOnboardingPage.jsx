@@ -1,5 +1,4 @@
-import { cn } from "@/lib/utils";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2, AlertCircle, ShieldCheck } from "lucide-react";
 import api from "../lib/api";
@@ -7,23 +6,12 @@ import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import FieldLabel from "../components/common/forms/FieldLabel";
 import Alert from "../components/common/Alert";
+import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
+import {
+  meetsPasswordPolicy,
+  PASSWORD_POLICY_HINT,
+} from "../lib/passwordPolicy";
 import { ICON_SIZE } from "@/lib/ui-tokens";
-
-// Password rules mirror the backend + the rest of the app.
-function usePasswordStrength(password) {
-  return useMemo(() => {
-    if (!password) return { score: 0, label: "", ok: false };
-    let score = 0;
-    if (password.length >= 12) score += 1;
-    if (password.length >= 16) score += 1;
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
-    if (/[0-9]/.test(password)) score += 1;
-    if (/[^a-zA-Z0-9]/.test(password)) score += 1;
-    const label = score <= 2 ? "Weak" : score <= 3 ? "Fair" : score <= 4 ? "Good" : "Strong";
-    const ok = password.length >= 12 && /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
-    return { score, label, ok };
-  }, [password]);
-}
 
 /**
  * Public onboarding page reached via an invitation link (/invite/:token).
@@ -40,7 +28,7 @@ export default function InviteeOnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const strength = usePasswordStrength(password);
+  const passwordOk = meetsPasswordPolicy(password);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +42,7 @@ export default function InviteeOnboardingPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!username.trim() || !strength.ok || submitting) return;
+    if (!username.trim() || !passwordOk || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -162,33 +150,25 @@ export default function InviteeOnboardingPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Minimum 12 characters (letters and numbers)"
+                placeholder={PASSWORD_POLICY_HINT}
                 className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 outline-none focus:border-accent w-full"
                 autoComplete="new-password"
                 required
               />
+              <PasswordStrengthChecklist
+                password={password}
+                size="sm"
+                surface="primary"
+              />
             </div>
           </ShakeTarget>
-          {password && (
-            <div className="mt-2 px-5">
-              <div className="flex gap-1 mb-1">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className={cn("h-1 flex-1 rounded-full", i <= strength.score ? "bg-accent" : "bg-secondary/20")}
-                  />
-                ))}
-              </div>
-              <p className="text-xs text-accent">{strength.label}</p>
-            </div>
-          )}
 
           <Button
             type="submit"
             variant="secondary"
             surface="primary"
             loading={submitting}
-            disabled={submitting || !username.trim() || !strength.ok}
+            disabled={submitting || !username.trim() || !passwordOk}
             className="mt-6 p-2"
           >
             {submitting ? "Setting up…" : "Finish setup"}

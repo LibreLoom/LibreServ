@@ -4,6 +4,8 @@ import { useAuth } from "../../../hooks/useAuth";
 import { Lock } from "lucide-react";
 import Button from "../../ui/Button";
 import ShakeTarget from "../../ui/ShakeTarget";
+import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from "../../../lib/passwordPolicy";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
@@ -31,14 +33,9 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
     if (!formData.oldPassword) {
       newErrors.oldPassword = "Current password is required";
     }
-    if (formData.newPassword.length < 12) {
-      newErrors.newPassword = "Password must be at least 12 characters";
-    } else {
-      const hasLetter = /[a-zA-Z]/.test(formData.newPassword);
-      const hasDigit = /[0-9]/.test(formData.newPassword);
-      if (!hasLetter || !hasDigit) {
-        newErrors.newPassword = "Password must include letters and numbers";
-      }
+    const passwordError = passwordPolicyError(formData.newPassword);
+    if (passwordError) {
+      newErrors.newPassword = passwordError;
     }
     return newErrors;
   }, [formData]);
@@ -162,7 +159,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
               type="password"
               value={formData.newPassword}
               onChange={handleChange("newPassword")}
-              placeholder="Minimum 12 characters (letters and numbers)"
+              placeholder={PASSWORD_POLICY_HINT}
               className={cn(
                 "w-full pl-11 pr-4 py-2 border-2 rounded-pill outline-none",
                 errors.newPassword && "border-accent",
@@ -175,6 +172,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
               }
             />
           </div>
+          <PasswordStrengthChecklist password={formData.newPassword} size="sm" />
           {errors.newPassword && (
             <p id="new-password-error" className="text-secondary text-xs mt-1 px-5">
               {errors.newPassword}

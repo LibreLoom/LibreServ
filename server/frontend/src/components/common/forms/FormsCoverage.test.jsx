@@ -72,13 +72,15 @@ describe("account form coverage", () => {
 
     await user.click(screen.getByRole("button", { name: /Create User/ }));
     expect(screen.getByText("Username is required")).toBeVisible();
-    expect(screen.getByText("Password must be at least 12 characters")).toBeVisible();
+    expect(screen.getByText("Enter a password.")).toBeVisible();
 
     await user.type(screen.getByLabelText(/Username/), "ada");
     await user.type(screen.getByLabelText(/Email/), "ada@example.test");
     const password = screen.getByLabelText(/^Password/);
     await user.type(password, "LongPassword123!");
+    expect(screen.getByText("✓ Acceptable")).toBeVisible();
     expect(screen.getByText("Strong")).toBeVisible();
+    expect(screen.getByText("12+ chars")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Show password" }));
     expect(password).toHaveAttribute("type", "text");
     await user.selectOptions(screen.getByLabelText("Role"), "admin");

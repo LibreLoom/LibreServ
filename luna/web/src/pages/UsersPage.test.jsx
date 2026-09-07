@@ -158,7 +158,7 @@ describe("UsersPage", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
-  it("ports LibreServ add-user UX: strength meter, role, submit-time policy checks", async () => {
+  it("shows the shared password checklist and blocks weak passwords on submit", async () => {
     stubFetch();
     const user = userEvent.setup();
     renderPage();
@@ -177,13 +177,15 @@ describe("UsersPage", () => {
 
     await user.type(within(dialog).getByLabelText(/Username/i), "jamie");
     await user.type(password, "short1");
-    // LibreServ-style strength bars + label — not requirement checklist chips.
-    expect(within(dialog).getByText("Weak")).toBeTruthy();
-    expect(within(dialog).queryByText(/12\+ chars/i)).toBeNull();
+    expect(within(dialog).getByText("12+ chars")).toBeTruthy();
+    expect(within(dialog).getByText("Not strong enough yet")).toBeTruthy();
+    expect(within(dialog).queryByText(/Passwords need at least 12 characters/i)).toBeNull();
     expect(addBtn).not.toBeDisabled();
 
     await user.click(addBtn);
-    expect(within(dialog).getByText(/Passwords need at least 12 characters/i)).toBeTruthy();
+    // Checklist covers policy; no duplicate error line under the field.
+    expect(within(dialog).queryByText(/Passwords need at least 12 characters/i)).toBeNull();
+    expect(within(dialog).getByText("12+ chars")).toBeTruthy();
     expect(fetch).not.toHaveBeenCalledWith(
       expect.stringMatching(/\/api\/v1\/users$/),
       expect.objectContaining({ method: "POST" }),
@@ -192,10 +194,12 @@ describe("UsersPage", () => {
     await user.clear(password);
     await user.type(password, "abcdefghijkl");
     await user.click(addBtn);
-    expect(within(dialog).getByText(/Passwords need at least one letter and one number/i)).toBeTruthy();
+    expect(within(dialog).getByText("numbers")).toBeTruthy();
+    expect(within(dialog).queryByText(/Passwords need at least one letter and one number/i)).toBeNull();
 
     await user.clear(password);
     await user.type(password, "hunter22hunter1");
+    expect(within(dialog).getByText("✓ Acceptable")).toBeTruthy();
     expect(within(dialog).queryByText(/Passwords need at least/i)).toBeNull();
     await user.click(within(dialog).getByLabelText("Role"));
     await user.click(await screen.findByRole("option", { name: /^Admin$/i }));
