@@ -47,9 +47,10 @@ describe("InviteeOnboardingPage", () => {
     fireEvent.change(screen.getByPlaceholderText(/Choose a username/i), {
       target: { value: "newuser" },
     });
-    fireEvent.change(screen.getByPlaceholderText(/Minimum 12/i), {
+    fireEvent.change(screen.getByPlaceholderText(/At least 12 characters/i), {
       target: { value: "Password12345" },
     });
+    expect(screen.getByText("12+ chars")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Finish setup"));
     await waitFor(() =>
       expect(mockApi).toHaveBeenCalledWith(

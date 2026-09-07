@@ -66,6 +66,7 @@ describe("CreateUserForm", () => {
     const onSubmit = vi.fn();
     const animate = vi.fn(() => ({ cancel: vi.fn() }));
     Element.prototype.animate = animate;
+    Element.prototype.getAnimations = vi.fn(() => []);
 
     render(<CreateUserForm onSubmit={onSubmit} />);
 
