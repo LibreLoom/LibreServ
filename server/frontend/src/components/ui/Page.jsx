@@ -11,9 +11,9 @@ import Card from "../cards/Card";
  * optional HeaderCard. Use this on every routed page so the base text color
  * is always correct and the boilerplate isn't hand-copied.
  *
- * HeaderCard is always one line. `bottomContent` (taglines, leads) renders
- * BELOW the header card — never inside it as a stacked second card. Put
- * navigation in the bottom Navbar, not in the header.
+ * HeaderCard auto-splits when left/right chrome cannot fit beside the title
+ * on one pill. `bottomContent` (taglines, leads) renders BELOW the header —
+ * never as nav inside it. Put navigation in the bottom Navbar.
  *
  * @param {object} props
  * @param {import("react").ReactNode} [props.title] Page heading. Omit for pages that render their own header.

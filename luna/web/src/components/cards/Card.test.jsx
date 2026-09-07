@@ -32,4 +32,9 @@ describe("HeaderCard", () => {
     expect(clip.className).toMatch(/rounded-pill/);
     expect(clip.className).not.toMatch(/rounded-large-element/);
   });
+
+  it("wraps the title-only header in the combined slot", () => {
+    const { container } = render(<HeaderCard title="Drives" />);
+    expect(container.querySelector("[data-slot=header-card-combined]")).toBeTruthy();
+  });
 });
