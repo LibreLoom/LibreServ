@@ -173,6 +173,15 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Full-screen overlays (PhotoLightbox) lock page scroll via bodyScrollLock.
+   Attribute lock survives ModalCard clearing body.style.overflow when its
+   overlay stack empties — modal dialog-scroller rules stay separate. */
+html[data-scroll-lock],
+html[data-scroll-lock] body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 :focus-visible:not(.no-focus-outline) {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;

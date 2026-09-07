@@ -15,6 +15,7 @@ import {
 import Button from "../ui/Button.jsx";
 import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
 import { Link } from "react-router-dom";
+import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 
 /** Full-screen gallery lightbox layer. Modals opened from it must stack higher. */
 export const LIGHTBOX_Z_CLASS = "z-[80]";
@@ -54,6 +55,11 @@ export default function PhotoLightbox({
     return () => cancelAnimationFrame(id);
   }, []);
 
+  // Hide the Photos page scrollbar while this fullscreen layer is mounted.
+  // Restores on close/unmount. Nested ModalCards may clear body.style.overflow;
+  // data-scroll-lock on html keeps the page locked until we release.
+  useEffect(() => lockBodyScroll(), []);
+
   useEffect(() => {
     if (!photo) return undefined;
     function onKey(e) {
@@ -75,7 +81,8 @@ export default function PhotoLightbox({
       role="dialog"
       aria-modal="true"
       aria-label={photo.name}
-      className={`fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col bg-primary text-secondary motion-safe:transition-opacity motion-safe:duration-200 ${
+      data-slot="photo-lightbox"
+      className={`fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col overscroll-none bg-primary text-secondary motion-safe:transition-opacity motion-safe:duration-200 ${
         visible ? "opacity-100" : "opacity-0"
       }`}
     >
