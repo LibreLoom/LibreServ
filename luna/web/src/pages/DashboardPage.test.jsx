@@ -138,8 +138,8 @@ describe("DashboardPage", () => {
   it("greets the signed-in user and shows uptime and drives", async () => {
     stubFetch({ connectActive: true });
     renderPage();
-    expect(await screen.findByText("max")).toBeInTheDocument();
-    const heading = screen.getByRole("heading", { name: /max/i });
+    const heading = await screen.findByRole("heading", { name: /max/i });
+    expect(heading).toBeInTheDocument();
     const greetingBit = heading.textContent.replace(/,?\s*max\s*$/i, "").trim();
     const known = greetingMessages.some((g) => g.replace(/,\s*$/, "").trim() === greetingBit)
       || /Happy|Merry/.test(greetingBit);
@@ -152,7 +152,9 @@ describe("DashboardPage", () => {
       "href",
       "/settings#external_services",
     );
-    expect(screen.getByText("luna.example")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Remote access on/i }).textContent).toContain(
+      "luna.example",
+    );
     expect(screen.queryByText(/What to do next/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/No subscription/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Anywhere, free/i)).not.toBeInTheDocument();
@@ -262,20 +264,17 @@ describe("DashboardPage", () => {
           if (this.getAttribute?.("data-slot") === "remote-access-link") {
             return remoteContainer.clientWidth;
           }
-          return 800;
+          return 1200;
         },
       });
       Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
         configurable: true,
         get() {
-          if (this.getAttribute?.("data-slot") === "remote-access-probe") {
-            return remoteProbe.scrollWidth;
-          }
-          // Probe's inner measure row (w-max child of the clipped probe shell).
+          // Inner w-max row of the clipped remote-access probe.
           if (this.parentElement?.getAttribute?.("data-slot") === "remote-access-probe") {
             return remoteProbe.scrollWidth;
           }
-          return 800;
+          return 200;
         },
       });
 
@@ -324,7 +323,8 @@ describe("DashboardPage", () => {
       expect(link.className).toMatch(/rounded-pill/);
       expect(link.className).not.toMatch(/rounded-large-element/);
       expect(link.querySelector(".flex-col")).toBeNull();
-      expect(screen.getByText("max.luna.servers.libreloom.org")).toBeInTheDocument();
+      // Visible link + aria-hidden measure probe both render the hostname.
+      expect(screen.getAllByText("max.luna.servers.libreloom.org").length).toBeGreaterThanOrEqual(1);
     });
 
     it("stacks into a multilined card when hostname cannot fit beside the status", async () => {
@@ -354,7 +354,7 @@ describe("DashboardPage", () => {
       expect(link.className).toMatch(/items-stretch/);
       // Label and domain are in a column (not a cramped single-line pill).
       expect(link.querySelector(".flex-col")).toBeTruthy();
-      expect(screen.getByText("max.luna.servers.libreloom.org")).toBeInTheDocument();
+      expect(link.textContent).toContain("max.luna.servers.libreloom.org");
       const probe = container.querySelector("[data-slot=remote-access-probe]");
       expect(probe?.className).toMatch(/\bw-0\b/);
       expect(probe?.className).toMatch(/overflow-hidden/);
