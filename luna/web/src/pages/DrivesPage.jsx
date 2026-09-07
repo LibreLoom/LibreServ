@@ -597,7 +597,7 @@ export default function DrivesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              {removeTarget?.state === "missing" ? (
+              {removeTarget?.state === "missing" || removeTarget?.state === "ejected" ? (
                 <>
                   Luna will stop managing{" "}
                   <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
