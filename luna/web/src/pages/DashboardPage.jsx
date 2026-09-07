@@ -317,10 +317,134 @@ function connectionDotClass(net) {
   return "bg-warning";
 }
 
+/** Extra room before collapsing a stacked remote-access card back to one pill. */
+const REMOTE_ACCESS_UNSPLIT_SLACK = 24;
+
+/**
+ * Remote access settings link — single-line pill when status + hostname fit;
+ * multilined card (label, then domain) when they do not (typical on mobile).
+ *
+ * @param {{ remoteOn: boolean, remoteDomain?: string }} props
+ */
+function RemoteAccessLink({ remoteOn, remoteDomain }) {
+  const label = remoteOn ? "Remote access on" : "Remote access off";
+  const showDomain = Boolean(remoteOn && remoteDomain);
+
+  const containerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const probeRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const [stacked, setStacked] = useState(false);
+
+  const remeasure = useCallback(() => {
+    const container = containerRef.current;
+    const probe = probeRef.current;
+    if (!container || !probe || !showDomain) {
+      setStacked(false);
+      return;
+    }
+
+    const available = container.clientWidth;
+    if (available <= 0) return;
+
+    const needed = probe.scrollWidth;
+    setStacked((wasStacked) => {
+      if (wasStacked) {
+        return needed + REMOTE_ACCESS_UNSPLIT_SLACK > available;
+      }
+      return needed > available;
+    });
+  }, [showDomain]);
+
+  useEffect(() => {
+    if (!showDomain) {
+      setStacked(false);
+      return;
+    }
+
+    const container = containerRef.current;
+    const probe = probeRef.current;
+    if (!container) return;
+
+    const timeoutId = window.setTimeout(remeasure, 50);
+    /** @type {ResizeObserver | null} */
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(remeasure);
+      observer.observe(container);
+      if (probe) observer.observe(probe);
+    }
+    window.addEventListener("resize", remeasure);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      observer?.disconnect();
+      window.removeEventListener("resize", remeasure);
+    };
+  }, [showDomain, stacked, remeasure, label, remoteDomain]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative mt-4 w-full overflow-x-hidden"
+      data-slot="remote-access-link"
+      data-stacked={stacked ? "true" : "false"}
+    >
+      {showDomain ? (
+        <div
+          className="pointer-events-none absolute left-0 top-0 z-[-1] h-0 w-0 overflow-hidden opacity-0"
+          aria-hidden="true"
+          data-slot="remote-access-probe"
+        >
+          <div
+            ref={probeRef}
+            className="flex w-max items-center gap-2 whitespace-nowrap px-4 text-sm"
+          >
+            <span>{label}</span>
+            <span className="font-mono">{remoteDomain}</span>
+            <ChevronRight size={16} />
+          </div>
+        </div>
+      ) : null}
+      <Button
+        size="md"
+        variant="primary"
+        asChild
+        fullWidth
+        className={cn(
+          stacked
+            ? "h-auto items-stretch justify-start rounded-large-element py-3 text-left"
+            : "justify-between",
+        )}
+      >
+        <Link to="/settings#external_services" aria-label={label}>
+          {stacked && showDomain ? (
+            <span className="flex w-full min-w-0 flex-col gap-1">
+              <span className="flex items-center justify-between gap-2">
+                <span>{label}</span>
+                <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
+              </span>
+              <span className="font-mono break-all">{remoteDomain}</span>
+            </span>
+          ) : (
+            <>
+              <span>{label}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                {showDomain ? (
+                  <span className="font-mono truncate">{remoteDomain}</span>
+                ) : null}
+                <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
+              </span>
+            </>
+          )}
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
 /**
  * ConnectionCard — same metric language as UptimeCard: quiet eyebrow, live
- * dot, large mono status. Remote access is one full-width pill (status +
- * link), not a badge stacked on a separate button.
+ * dot, large mono status. Remote access is one full-width control (status +
+ * hostname): a pill when it fits, a multilined card when it does not.
  *
  * @param {{
  *   net: any,
@@ -367,26 +491,7 @@ function ConnectionCard({
           </Button>
         </div>
       ) : isAdmin && connectActive ? (
-        <Button
-          size="md"
-          variant="primary"
-          asChild
-          fullWidth
-          className="mt-4 justify-between"
-        >
-          <Link
-            to="/settings#external_services"
-            aria-label={remoteOn ? "Remote access on" : "Remote access off"}
-          >
-            <span>{remoteOn ? "Remote access on" : "Remote access off"}</span>
-            <span className="flex items-center gap-2">
-              {remoteOn && remoteDomain ? (
-                <span className="font-mono">{remoteDomain}</span>
-              ) : null}
-              <ChevronRight size={16} aria-hidden="true" />
-            </span>
-          </Link>
-        </Button>
+        <RemoteAccessLink remoteOn={remoteOn} remoteDomain={remoteDomain} />
       ) : null}
     </Card>
   );

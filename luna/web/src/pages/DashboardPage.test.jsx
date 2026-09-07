@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -231,6 +231,9 @@ describe("DashboardPage", () => {
       "/settings#external_services",
     );
     expect(screen.queryByRole("link", { name: /^Remote access$/i })).not.toBeInTheDocument();
+    const wrap = document.querySelector("[data-slot=remote-access-link]");
+    expect(wrap).toHaveAttribute("data-stacked", "false");
+    expect(document.querySelector("[data-slot=remote-access-probe]")).toBeNull();
   });
 
   it("hides remote access when Luna Connect is inactive on the device", async () => {
@@ -238,6 +241,124 @@ describe("DashboardPage", () => {
     renderPage();
     expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Remote access/i })).not.toBeInTheDocument();
+  });
+
+  describe("remote access fit-or-stack", () => {
+    /** @type {ResizeObserverCallback[]} */
+    let observers = [];
+    /** @type {{ clientWidth: number }} */
+    let remoteContainer;
+    /** @type {{ scrollWidth: number }} */
+    let remoteProbe;
+
+    beforeEach(() => {
+      observers = [];
+      remoteContainer = { clientWidth: 900 };
+      remoteProbe = { scrollWidth: 200 };
+
+      Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+        configurable: true,
+        get() {
+          if (this.getAttribute?.("data-slot") === "remote-access-link") {
+            return remoteContainer.clientWidth;
+          }
+          return 800;
+        },
+      });
+      Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+        configurable: true,
+        get() {
+          if (this.getAttribute?.("data-slot") === "remote-access-probe") {
+            return remoteProbe.scrollWidth;
+          }
+          // Probe's inner measure row (w-max child of the clipped probe shell).
+          if (this.parentElement?.getAttribute?.("data-slot") === "remote-access-probe") {
+            return remoteProbe.scrollWidth;
+          }
+          return 800;
+        },
+      });
+
+      globalThis.ResizeObserver = class {
+        /** @param {ResizeObserverCallback} cb */
+        constructor(cb) {
+          observers.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      };
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      // @ts-expect-error cleanup test polyfill
+      delete HTMLElement.prototype.clientWidth;
+      // @ts-expect-error cleanup test polyfill
+      delete HTMLElement.prototype.scrollWidth;
+    });
+
+    it("keeps a single-line pill when status and hostname fit", async () => {
+      remoteContainer = { clientWidth: 900 };
+      remoteProbe = { scrollWidth: 200 };
+      stubFetch({
+        connectActive: true,
+        connect: {
+          enabled: true,
+          tunnel_active: true,
+          domain: "max.luna.servers.libreloom.org",
+        },
+      });
+      const { container } = renderPage();
+      expect(await screen.findByRole("link", { name: /Remote access on/i })).toBeInTheDocument();
+
+      vi.useFakeTimers();
+      await act(async () => {
+        vi.advanceTimersByTime(60);
+        observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+      });
+
+      const wrap = container.querySelector("[data-slot=remote-access-link]");
+      expect(wrap).toHaveAttribute("data-stacked", "false");
+      const link = screen.getByRole("link", { name: /Remote access on/i });
+      expect(link.className).toMatch(/rounded-pill/);
+      expect(link.className).not.toMatch(/rounded-large-element/);
+      expect(link.querySelector(".flex-col")).toBeNull();
+      expect(screen.getByText("max.luna.servers.libreloom.org")).toBeInTheDocument();
+    });
+
+    it("stacks into a multilined card when hostname cannot fit beside the status", async () => {
+      remoteContainer = { clientWidth: 280 };
+      remoteProbe = { scrollWidth: 520 };
+      stubFetch({
+        connectActive: true,
+        connect: {
+          enabled: true,
+          tunnel_active: true,
+          domain: "max.luna.servers.libreloom.org",
+        },
+      });
+      const { container } = renderPage();
+      expect(await screen.findByRole("link", { name: /Remote access on/i })).toBeInTheDocument();
+
+      vi.useFakeTimers();
+      await act(async () => {
+        vi.advanceTimersByTime(60);
+        observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+      });
+
+      const wrap = container.querySelector("[data-slot=remote-access-link]");
+      expect(wrap).toHaveAttribute("data-stacked", "true");
+      const link = screen.getByRole("link", { name: /Remote access on/i });
+      expect(link.className).toMatch(/rounded-large-element/);
+      expect(link.className).toMatch(/items-stretch/);
+      // Label and domain are in a column (not a cramped single-line pill).
+      expect(link.querySelector(".flex-col")).toBeTruthy();
+      expect(screen.getByText("max.luna.servers.libreloom.org")).toBeInTheDocument();
+      const probe = container.querySelector("[data-slot=remote-access-probe]");
+      expect(probe?.className).toMatch(/\bw-0\b/);
+      expect(probe?.className).toMatch(/overflow-hidden/);
+    });
   });
 
   it("shows storage, root counts, and folder shortcuts on drive cards", async () => {
