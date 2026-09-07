@@ -243,7 +243,9 @@ describe("GalleryPage", () => {
     renderGallery();
     expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
     expect(screen.getByText(/as they're found/i)).toBeInTheDocument();
-    expect(screen.getByText(/Found 4 photos on Family/i)).toBeInTheDocument();
+    // Status (found_count / drive_label) can resolve after the Looking card
+    // already appears from gallery.isLoading — wait for progress text.
+    expect(await screen.findByText(/Found 4 photos on Family/i)).toBeInTheDocument();
     expect(screen.queryByText(/Previews stay on your drive/i)).not.toBeInTheDocument();
     const card = screen.getByText(/Looking through your drives/i).closest("[data-slot=card-clip]");
     expect(card?.className).toMatch(/pop-in/);
@@ -538,6 +540,9 @@ describe("GalleryPage", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
+    // Wait until indexing status is live so wasIndexingRef is armed; otherwise
+    // flipping busy before the first status resolve skips the final refresh.
+    expect(await screen.findByText(/Found 1 photo on Family/i)).toBeInTheDocument();
     const galleryCallsWhileBusy = fetchMock.mock.calls.filter(([url]) =>
       String(url).includes("/gallery?"),
     ).length;
