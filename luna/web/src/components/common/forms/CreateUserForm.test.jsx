@@ -83,7 +83,7 @@ describe("CreateUserForm", () => {
     await user.type(password, "short1");
     expect(screen.getByText("12+ chars")).toBeVisible();
     expect(screen.getByText("Not strong enough yet")).toBeVisible();
-    expect(screen.getByText("Weak")).toBeVisible();
+    expect(screen.getByText("Fair")).toBeVisible();
     expect(screen.queryByText(/Passwords need at least 12 characters/i)).toBeNull();
     // Live unmet requirements must not re-shake the field on each keystroke.
     expect(animate).not.toHaveBeenCalled();
