@@ -22,7 +22,14 @@ describe("devMockDrives", () => {
     expect(mockInspectResult().writable).toBe(true);
   });
 
-  it("stays off in Vitest by default so empty-state tests keep working", () => {
+  it("stays off by default (Vite review and Vitest) so empty-state tests keep working", () => {
+    expect(shouldShowMockUnknownDrive()).toBe(false);
+    expect(withDevMockDetected([])).toEqual([]);
+  });
+
+  it("stays off in development mode unless explicitly opted in", () => {
+    vi.stubEnv("MODE", "development");
+    vi.stubEnv("DEV", true);
     expect(shouldShowMockUnknownDrive()).toBe(false);
     expect(withDevMockDetected([])).toEqual([]);
   });

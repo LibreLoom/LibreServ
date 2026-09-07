@@ -21,7 +21,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("LUNA_DATA_DIR", ROOT / "dev"))
 MOCK_DRIVES_DIR = Path(os.environ.get("LUNA_MOCK_DRIVES_PATH", DATA_DIR / "mock-drives"))
-LEGACY_PSSD_DIR = Path(os.environ.get("LUNA_MOCK_PSSD_PATH", DATA_DIR / "mock-pssd-vol"))
 DB_PATH = DATA_DIR / "luna.db"
 
 # Minimal valid PDF generator
@@ -350,22 +349,6 @@ def cmd_list(args: argparse.Namespace) -> int:
         except Exception:
             pass
 
-    # 1. Legacy PSSD volume
-    if LEGACY_PSSD_DIR.exists():
-        unplugged = (LEGACY_PSSD_DIR / ".unplugged").exists()
-        adopted = adopted_map.get("sdmock", "Not Adopted (Available to Add)")
-        num_files = sum(1 for f in LEGACY_PSSD_DIR.rglob("*") if f.is_file() and not f.name.startswith("."))
-        drives.append({
-            "id": "mock-pssd (built-in)",
-            "device": "sdmock",
-            "model": "64GB PSSD",
-            "size": "64 GB",
-            "status": "UNPLUGGED" if unplugged else ("Adopted: " + adopted if "Adopted" not in adopted else adopted),
-            "files": num_files,
-            "path": str(LEGACY_PSSD_DIR),
-        })
-
-    # 2. Dynamic mock drives
     for entry in sorted(MOCK_DRIVES_DIR.iterdir()):
         if not entry.is_dir() or entry.name.startswith("."):
             continue
@@ -408,7 +391,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_unplug(args: argparse.Namespace) -> int:
     name = args.name.strip()
-    target_dir = LEGACY_PSSD_DIR if name in ("sdmock", "mock-pssd", "mock-pssd-vol") else (MOCK_DRIVES_DIR / name)
+    target_dir = MOCK_DRIVES_DIR / name
     if not target_dir.exists():
         print(f"Error: Mock drive '{name}' not found at {target_dir}", file=sys.stderr)
         return 1
@@ -419,7 +402,7 @@ def cmd_unplug(args: argparse.Namespace) -> int:
 
 def cmd_plug(args: argparse.Namespace) -> int:
     name = args.name.strip()
-    target_dir = LEGACY_PSSD_DIR if name in ("sdmock", "mock-pssd", "mock-pssd-vol") else (MOCK_DRIVES_DIR / name)
+    target_dir = MOCK_DRIVES_DIR / name
     if not target_dir.exists():
         print(f"Error: Mock drive '{name}' not found at {target_dir}", file=sys.stderr)
         return 1

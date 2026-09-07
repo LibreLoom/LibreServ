@@ -63,6 +63,12 @@ if [ -f "${LUNA_WEB}/package-lock.json" ]; then
   fi
 fi
 
+# Scrub legacy forced 64GB PSSD and ensure mock-drive presets are present/plugged.
+if [ -x "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh" ] || [ -f "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh" ]; then
+  chmod +x "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh"
+  bash "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh" || echo ">> seed-mock-drives.sh failed (non-fatal)"
+fi
+
 FORGE_HOST="gt.plainskill.net"
 
 install_fj_wrapper() {

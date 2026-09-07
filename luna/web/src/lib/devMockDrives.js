@@ -1,12 +1,12 @@
 /**
- * Dev-only fallback when lunad is not running the mock PSSD (UI-only review).
- * When lunad reports `sdmock` from `/api/v1/drives/detected`, the real API
- * handles inspect/adopt — this module only injects the card if the API is empty.
+ * Opt-in UI-only fallback when lunad is not reporting any detected drives.
+ * Prefer the real mock-drive system (`make mock-drive`) so lunad owns detection.
+ * This module only injects a review card when explicitly opted in and the API
+ * returns an empty detected list.
  *
  * Gating:
  * - Never in production builds (`import.meta.env.PROD`).
- * - On by default in Vite `npm run dev` (`MODE === "development"`).
- * - Off in Vitest (`MODE === "test"`) unless opted in.
+ * - Default OFF in Vite `npm run dev` and Vitest — opt in via query/localStorage.
  * - Toggle: `?mockUnknownDrive=1|0` or `localStorage.luna.mockUnknownDrive=1|0`.
  */
 
@@ -32,11 +32,11 @@ export function shouldShowMockUnknownDrive() {
     if (stored === "0" || stored === "false") return false;
     if (stored === "1" || stored === "true") return true;
   } catch {
-    // private mode / blocked storage — fall through to MODE default
+    // private mode / blocked storage — fall through to default off
   }
 
-  // Default on only for the Vite review server, not unit tests.
-  return import.meta.env.DEV && import.meta.env.MODE === "development";
+  // Default off — use `make mock-drive` / lunad mock-drives for fixtures.
+  return false;
 }
 
 /** @returns {{ name: string, model: string, size_bytes: number, removable: boolean, usb: boolean, mount_point: null, fs_type: string }} */

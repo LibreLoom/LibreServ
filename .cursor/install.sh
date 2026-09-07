@@ -245,8 +245,10 @@ npm ci
 npm run build
 cd "${REPO_ROOT}/luna"
 make build-daemon
-# Optional legacy PSSD fixture (make mock-pssd) is no longer auto-provisioned.
-# Spawn test drives on demand: make mock-drive ARGS="spawn <name> <preset>"
+# Optional legacy PSSD fixture (make mock-pssd) is for photo/EXIF unit tests only —
+# it is no longer auto-provisioned or injected into drive detection.
+# Seed the upgraded mock-drive system for Cloud Agents / local review.
+bash "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh"
 
 # ── 8. Luna for Linux (GTK 4 + libadwaita) ──────────────────────────────────────
 echo ">> Preparing Luna for Linux GTK deps"

@@ -1,25 +1,26 @@
-//! Dev-only mock portable SSD for UI and API review without hardware.
+//! Dev-only mock drives for UI and API review without hardware.
 //!
-//! When enabled, lunad reports a ~64 GB USB stick named `sdmock` with realistic
-//! fixture content under the dev data dir. The volume is a plain directory
-//! (not a loop device) so Cloud Agent VMs work without root block-device setup.
+//! When enabled, lunad reports dynamically spawned mock drives under
+//! `{LUNA_DATA_DIR}/mock-drives/` (see `make mock-drive`). Each folder is a
+//! plain directory (not a loop device) so Cloud Agent VMs work without root
+//! block-device setup.
+//!
+//! The legacy single-volume `mock-pssd-vol` / `sdmock` / "64GB PSSD" path is no
+//! longer injected into detection. Optional `make mock-pssd` fixtures remain
+//! for photo/EXIF unit tests only.
 
 use std::path::{Path, PathBuf};
 
 use crate::detect::DetectedDrive;
 
-/// Kernel block name — matches the frontend review fixture.
-pub const DEVICE_NAME: &str = "sdmock";
+/// Default reported size when a mock drive omits `size_bytes` in `.drive.json`.
+pub const DEFAULT_SIZE_BYTES: u64 = 64_000_000_000;
 
-/// Display model shown in the Drives UI.
-pub const MODEL: &str = "64GB PSSD";
-
-/// Decimal 64 GB, matching sizeLabel in the web UI.
-pub const SIZE_BYTES: u64 = 64_000_000_000;
-
-/// Relative to `LUNA_DATA_DIR` (typically `luna/dev/mock-pssd-vol`).
-pub const VOLUME_DIR_NAME: &str = "mock-pssd-vol";
+/// Relative to `LUNA_DATA_DIR` (typically `luna/dev/mock-drives`).
 pub const MOCK_DRIVES_DIR_NAME: &str = "mock-drives";
+
+/// Legacy volume dir name — kept for optional fixtures / env override cleanup.
+pub const VOLUME_DIR_NAME: &str = "mock-pssd-vol";
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct MockDriveConfig {
@@ -32,7 +33,7 @@ pub struct MockDriveConfig {
     pub mount_readonly: Option<bool>,
 }
 
-/// Whether the mock PSSD and mock drives should appear in drive detection.
+/// Whether mock drives should appear in drive detection.
 pub fn enabled() -> bool {
     match std::env::var("LUNA_MOCK_PSSD").ok().as_deref() {
         Some("0") | Some("false") | Some("no") | Some("off") => false,
@@ -54,7 +55,7 @@ fn dev_data_dir() -> bool {
         .unwrap_or(false)
 }
 
-/// Writable mock volume root. Created by `dev/setup-mock-pssd.sh`.
+/// Path to the legacy optional PSSD fixture volume (not auto-injected).
 pub fn volume_path() -> PathBuf {
     if let Ok(p) = std::env::var("LUNA_MOCK_PSSD_PATH") {
         return PathBuf::from(p);
@@ -74,12 +75,11 @@ pub fn mock_drives_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(MOCK_DRIVES_DIR_NAME))
 }
 
-/// Build the legacy mock PSSD drive when the volume exists and mock mode is on.
-pub fn detected_drive() -> Option<DetectedDrive> {
-    detected_drive_at(&volume_path(), enabled())
-}
-
-fn detected_drive_at(root: &Path, on: bool) -> Option<DetectedDrive> {
+/// Build a [`DetectedDrive`] from a directory when mock mode is on.
+///
+/// Used by unit tests and as the shared "directory-as-drive" helper. Detection
+/// no longer auto-injects the legacy `mock-pssd-vol` — only `scan_mock_drives`.
+pub fn detected_drive_at(root: &Path, on: bool, name: &str, model: &str) -> Option<DetectedDrive> {
     if !on {
         return None;
     }
@@ -87,9 +87,9 @@ fn detected_drive_at(root: &Path, on: bool) -> Option<DetectedDrive> {
         return None;
     }
     Some(DetectedDrive {
-        name: DEVICE_NAME.into(),
-        model: MODEL.into(),
-        size_bytes: SIZE_BYTES,
+        name: name.into(),
+        model: model.into(),
+        size_bytes: DEFAULT_SIZE_BYTES,
         removable: true,
         usb: true,
         mount_point: Some(root.to_string_lossy().into_owned()),
@@ -135,7 +135,7 @@ pub fn scan_mock_drives_at(parent: &Path, on: bool) -> Vec<DetectedDrive> {
         let model = config
             .model
             .unwrap_or_else(|| format!("Mock Drive ({folder_name})"));
-        let size_bytes = config.size_bytes.unwrap_or(SIZE_BYTES);
+        let size_bytes = config.size_bytes.unwrap_or(DEFAULT_SIZE_BYTES);
         let fs_type = config.fs_type.or_else(|| Some("exfat".into()));
         let removable = config.removable.unwrap_or(true);
         let usb = config.usb.unwrap_or(true);
@@ -162,14 +162,10 @@ pub fn scan_mock_drives() -> Vec<DetectedDrive> {
     scan_mock_drives_at(&mock_drives_path(), enabled())
 }
 
-/// Scan sysfs-backed drives and append dev mocks when active.
+/// Scan sysfs-backed drives and append spawned mock drives when active.
 pub fn scan_all(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
     let mut drives = crate::detect::scan(sys_block, proc_mounts);
     if enabled() {
-        if let Some(mock) = detected_drive() {
-            drives.retain(|d| d.name != mock.name);
-            drives.push(mock);
-        }
         for mock in scan_mock_drives() {
             drives.retain(|d| d.name != mock.name);
             drives.push(mock);
@@ -185,60 +181,78 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn mock_drive_uses_fixture_volume() {
+    fn directory_as_drive_when_present() {
         let dir = tempfile::tempdir().unwrap();
-        let vol = dir.path().join("mock-pssd-vol");
+        let vol = dir.path().join("fixture-vol");
         fs::create_dir_all(vol.join("DCIM")).unwrap();
         fs::write(vol.join("readme.txt"), b"fixture").unwrap();
 
-        let mock = detected_drive_at(&vol, true).expect("mock volume should be detected");
-        assert_eq!(mock.name, DEVICE_NAME);
-        assert_eq!(mock.model, MODEL);
-        assert_eq!(mock.size_bytes, SIZE_BYTES);
+        let mock = detected_drive_at(&vol, true, "sdmock_fixture", "Fixture Drive")
+            .expect("directory should be detected");
+        assert_eq!(mock.name, "sdmock_fixture");
+        assert_eq!(mock.model, "Fixture Drive");
+        assert_eq!(mock.size_bytes, DEFAULT_SIZE_BYTES);
         assert!(mock.usb);
         assert_eq!(mock.fs_type.as_deref(), Some("exfat"));
-        assert!(mock.mount_point.as_ref().unwrap().contains("mock-pssd-vol"));
+        assert!(mock.mount_point.as_ref().unwrap().contains("fixture-vol"));
     }
 
     #[test]
-    fn mock_disabled_when_volume_missing() {
+    fn directory_as_drive_disabled_when_missing_or_off() {
         let dir = tempfile::tempdir().unwrap();
         let vol = dir.path().join("missing");
-        assert!(detected_drive_at(&vol, true).is_none());
-        assert!(detected_drive_at(&vol, false).is_none());
+        assert!(detected_drive_at(&vol, true, "sdmock_x", "X").is_none());
+        assert!(detected_drive_at(&vol, false, "sdmock_x", "X").is_none());
     }
 
     #[test]
-    fn scan_all_injects_mock_over_real_sysfs() {
+    fn scan_all_injects_mock_drives_over_real_sysfs() {
         let dir = tempfile::tempdir().unwrap();
-        let vol = dir.path().join("mock-pssd-vol");
-        fs::create_dir_all(&vol).unwrap();
+        let mock_root = dir.path().join("mock-drives");
+        let photos = mock_root.join("photos");
+        fs::create_dir_all(&photos).unwrap();
+        fs::write(
+            photos.join(".drive.json"),
+            serde_json::to_string(&MockDriveConfig {
+                name: Some("sdmock_photos".into()),
+                model: Some("Mock Photos Drive".into()),
+                size_bytes: Some(128_000_000_000),
+                fs_type: Some("exfat".into()),
+                removable: Some(true),
+                usb: Some(true),
+                mount_readonly: Some(false),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
         let sys = dir.path().join("sys/block");
         fs::create_dir_all(sys.join("sda/device")).unwrap();
         fs::write(sys.join("sda/size"), "1000\n").unwrap();
         fs::write(sys.join("sda/removable"), "1\n").unwrap();
 
         let mut drives = crate::detect::scan(&sys, "proc /proc proc rw 0 0\n");
-        if let Some(mock) = detected_drive_at(&vol, true) {
+        for mock in scan_mock_drives_at(&mock_root, true) {
             drives.retain(|d| d.name != mock.name);
             drives.push(mock);
         }
-        assert!(drives.iter().any(|d| d.name == DEVICE_NAME));
+        assert!(drives.iter().any(|d| d.name == "sdmock_photos"));
         assert!(drives.iter().any(|d| d.name == "sda"));
+        assert!(!drives.iter().any(|d| d.name == "sdmock" && d.model == "64GB PSSD"));
     }
 
     #[test]
-    fn adopt_mock_fixture_as_is() {
+    fn adopt_directory_fixture_as_is() {
         use crate::drives::DriveManager;
         use crate::mount::CommandMounter;
         use std::sync::Arc;
 
         let root = tempfile::tempdir().unwrap();
-        let vol = root.path().join("mock-pssd-vol");
+        let vol = root.path().join("mock-drives/photos");
         fs::create_dir_all(vol.join("DCIM")).unwrap();
         fs::write(vol.join("hello.txt"), b"hi").unwrap();
 
-        let device = detected_drive_at(&vol, true).unwrap();
+        let device = detected_drive_at(&vol, true, "sdmock_photos", "Mock Photos Drive").unwrap();
         let mgr = DriveManager::new(Arc::new(CommandMounter), root.path());
         let conn = crate::db::open(&root.path().join("luna.db")).unwrap();
         let row = mgr.adopt(&conn, &device, "Portable SSD", false);
@@ -247,7 +261,7 @@ mod tests {
         }
         let row = row.unwrap();
         assert_eq!(row.label, "Portable SSD");
-        assert_eq!(row.device, DEVICE_NAME);
+        assert_eq!(row.device, "sdmock_photos");
         assert!(Path::new(&row.mount_point).join(".luna").exists());
     }
 
@@ -283,7 +297,7 @@ mod tests {
 
         let photos = drives.iter().find(|d| d.name == "sdmock_photos").unwrap();
         assert_eq!(photos.model, "Mock Drive (photos)");
-        assert_eq!(photos.size_bytes, SIZE_BYTES);
+        assert_eq!(photos.size_bytes, DEFAULT_SIZE_BYTES);
         assert_eq!(photos.fs_type.as_deref(), Some("exfat"));
 
         let docs = drives.iter().find(|d| d.name == "sdmock_workdocs").unwrap();
