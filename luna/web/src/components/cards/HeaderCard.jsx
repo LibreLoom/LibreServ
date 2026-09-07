@@ -123,10 +123,14 @@ export default function HeaderCard({
     className,
   );
 
+  // Clip the probe to a 0×0 box. An unconstrained absolute + `w-max` child
+  // expands document scrollWidth and shows a stray horizontal scrollbar until
+  // a modal locks body overflow. Inner scrollWidth still reports natural size.
   const probe = hasSides ? (
     <div
-      className="pointer-events-none absolute h-0 overflow-hidden opacity-0"
+      className="pointer-events-none absolute left-0 top-0 z-[-1] h-0 w-0 overflow-hidden opacity-0"
       aria-hidden="true"
+      data-slot="header-card-probe"
     >
       <div
         ref={probeRef}
@@ -149,7 +153,11 @@ export default function HeaderCard({
 
   if (hasSides && split) {
     return (
-      <div ref={containerRef} className="relative flex flex-col gap-3" data-slot="header-card-split">
+      <div
+        ref={containerRef}
+        className="relative flex flex-col gap-3 overflow-x-hidden"
+        data-slot="header-card-split"
+      >
         {probe}
         <Card className={titleCardClass}>
           <div className="flex items-center justify-center min-h-10">
@@ -183,7 +191,11 @@ export default function HeaderCard({
   }
 
   return (
-    <div ref={containerRef} className="relative w-full" data-slot="header-card-combined">
+    <div
+      ref={containerRef}
+      className="relative w-full overflow-x-hidden"
+      data-slot="header-card-combined"
+    >
       {probe}
       <Card className={titleCardClass}>
         <div
