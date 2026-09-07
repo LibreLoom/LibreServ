@@ -133,17 +133,29 @@ async fn detected(
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     let drives = crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
-    // ejected stays ejected while still plugged in.
-    let known_devices = with_db(&state.db, |conn| {
-        state.drive_manager.reconcile(conn, &drives)?;
+    // ejected stays ejected while still plugged in. Remounted Ready drives re-arm
+    // the gallery watcher (eject→replug / kernel remount).
+    let (known_devices, remounted) = with_db(&state.db, |conn| {
+        let remounted = state.drive_manager.reconcile(conn, &drives)?;
         let rows = crate::db::list_drives(conn)?;
-        Ok(rows
-            .into_iter()
-            .filter(|d| d.state == "as_is" || d.state == "readonly")
-            .map(|d| d.device)
-            .collect::<std::collections::HashSet<_>>())
+        // Drop gallery watches for drives that are no longer Ready.
+        for row in &rows {
+            if row.state != "as_is" && row.state != "readonly" {
+                state.gallery.unwatch_mount(&row.id);
+            }
+        }
+        Ok((
+            rows.into_iter()
+                .filter(|d| d.state == "as_is" || d.state == "readonly")
+                .map(|d| d.device)
+                .collect::<std::collections::HashSet<_>>(),
+            remounted,
+        ))
     })
     .unwrap_or_default();
+    for (id, mount) in remounted {
+        state.gallery.watch_mount(&id, mount);
+    }
     Ok(Json(
         drives
             .into_iter()

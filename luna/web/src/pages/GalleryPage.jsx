@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image as ImageIcon, Plus, PlugZap, Trash2 } from "lucide-react";
@@ -20,6 +20,7 @@ import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
 import PhotoLightbox, {
   ABOVE_LIGHTBOX_OVERLAY_CLASS,
 } from "../components/gallery/PhotoLightbox.jsx";
+import AddToAlbumModal from "../components/gallery/AddToAlbumModal.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
 import {
@@ -171,7 +172,17 @@ export default function GalleryPage() {
   );
 
   const indexing = !!galleryStatus.data?.busy;
+  const foundCount = Number(galleryStatus.data?.found_count) || 0;
+  const indexingDriveLabel =
+    typeof galleryStatus.data?.drive_label === "string" && galleryStatus.data.drive_label.trim()
+      ? galleryStatus.data.drive_label.trim()
+      : null;
+  const statusLastError =
+    typeof galleryStatus.data?.last_error === "string" && galleryStatus.data.last_error.trim()
+      ? galleryStatus.data.last_error.trim()
+      : null;
 
+  // While indexing, refresh the timeline so new photos appear progressively.
   useEffect(() => {
     if (!indexing) return undefined;
     const id = setInterval(() => {
@@ -182,6 +193,31 @@ export default function GalleryPage() {
     return () => clearInterval(id);
   }, [indexing, queryClient]);
 
+  // One final refresh when busy flips true → false so the last batch shows up
+  // without waiting for the next slow poll.
+  const wasIndexingRef = useRef(false);
+  useEffect(() => {
+    if (wasIndexingRef.current && !indexing) {
+      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
+    }
+    wasIndexingRef.current = indexing;
+  }, [indexing, queryClient]);
+
+  const rescan = useMutation({
+    mutationFn: () => postJson("/api/v1/gallery/rescan", {}),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
+      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+    },
+    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't look again. Try once more.")),
+  });
+
   const driveList = drives.data || [];
   const looking = gallery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
@@ -191,6 +227,7 @@ export default function GalleryPage() {
       : null;
   const noPhotos =
     !looking &&
+    !indexing &&
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
@@ -208,6 +245,13 @@ export default function GalleryPage() {
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "favorites";
+
+  const indexingProgress =
+    indexing && foundCount > 0
+      ? indexingDriveLabel
+        ? `Found ${foundCount} ${foundCount === 1 ? "photo" : "photos"} on ${indexingDriveLabel}`
+        : `Found ${foundCount} ${foundCount === 1 ? "photo" : "photos"}`
+      : null;
 
   const favorite = useMutation({
     /** @param {{ drive_id: string, path: string, favorited?: boolean }} photo */
@@ -270,13 +314,15 @@ export default function GalleryPage() {
   });
 
   const addToAlbum = useMutation({
-    /** @param {{ album: { home_drive_id: string, id: string }, photo: { drive_id: string, path: string } }} args */
+    /** @param {{ album: { home_drive_id: string, id: string }, photo: { drive_id: string, path: string }, close?: () => void }} args */
     mutationFn: ({ album, photo }) =>
       postJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/items`, {
         items: [{ drive_id: photo.drive_id, path: photo.path }],
       }),
-    onSuccess: () => {
-      setAlbumPick(null);
+    onSuccess: (_data, vars) => {
+      // Prefer close() so ModalCard plays its exit animation before unmount.
+      if (vars.close) vars.close();
+      else setAlbumPick(null);
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -365,16 +411,33 @@ export default function GalleryPage() {
         <Card className="mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">
-            Luna is finding photos in the background. They&apos;ll show up here when ready.
+            Luna is finding photos in the background. They&apos;ll show up here as they&apos;re found.
           </p>
+          {indexingProgress && <p className="mt-2 text-sm font-mono">{indexingProgress}</p>}
+          {statusLastError && <p className="mt-2 text-sm text-error">{statusLastError}</p>}
         </Card>
+      )}
+
+      {indexing && photos.length > 0 && activeSegment === "library" && indexingProgress && (
+        <p className="mb-3 text-sm font-mono" role="status" aria-live="polite">
+          {indexingProgress}
+        </p>
       )}
 
       {noPhotos && (
         <EmptyState
           icon={ImageIcon}
           title="No photos yet"
-          description="Luna looks through your drives automatically. Add pictures to a drive and they will show up here."
+          description="Add pictures to a drive and Luna will show them here. If you already added some, try looking again."
+          action={
+            <Button
+              variant="primary"
+              loading={rescan.isPending}
+              onClick={() => rescan.mutate()}
+            >
+              Look again
+            </Button>
+          }
         />
       )}
 
@@ -564,40 +627,22 @@ export default function GalleryPage() {
         </ModalCard>
       )}
 
-      {albumPick && (
-        <ModalCard
-          title="Add to album"
-          onClose={() => {
-            setAlbumPick(null);
-            setError(null);
-          }}
-          overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
-        >
-          {({ close }) => (
-            <div className="space-y-2">
-              <ModalErrorNotice error={error} />
-              {(albums.data || []).length === 0 && (
-                <p className="text-sm">Create an album first, then add photos to it.</p>
-              )}
-              {(albums.data || []).map((album) => (
-                <Button
-                  key={album.id}
-                  variant="outline"
-                  fullWidth
-                  onClick={() => addToAlbum.mutate({ album, photo: albumPick })}
-                >
-                  {album.name}
-                </Button>
-              ))}
-              <div className="pt-2 flex justify-end">
-                <Button variant="outline" surface="secondary" onClick={close}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </ModalCard>
-      )}
+      <AddToAlbumModal
+        open={!!albumPick}
+        albums={albums.data || []}
+        albumsLoading={!!albumPick && (albums.isLoading || albums.isPending || (albums.isFetching && !albums.data))}
+        adding={addToAlbum.isPending}
+        error={albumPick ? error : null}
+        overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
+        onClose={() => {
+          setAlbumPick(null);
+          setError(null);
+        }}
+        onAdd={(album, close) => {
+          if (!albumPick) return;
+          addToAlbum.mutate({ album, photo: albumPick, close });
+        }}
+      />
     </Page>
   );
 }

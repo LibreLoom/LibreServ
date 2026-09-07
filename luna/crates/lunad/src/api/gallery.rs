@@ -119,6 +119,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/gallery/places", get(places))
         .route("/api/v1/gallery/thumb", get(thumb))
         .route("/api/v1/gallery/status", get(status))
+        .route("/api/v1/gallery/rescan", post(rescan))
         .route(
             "/api/v1/gallery/favorites",
             put(put_favorite).delete(delete_favorite),
@@ -314,13 +315,61 @@ async fn places(
     Ok(Json(markers))
 }
 
-async fn status(State(state): State<AppState>) -> Json<Value> {
-    let (scanning, pending) = state.gallery.status();
+async fn status(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Json<Value> {
+    let st = state.gallery.status();
+    let mut drive_label: Option<String> = None;
+    let mut drive_id = st.drive_id.clone();
+    if let Ok(conn) = state.db.lock() {
+        if let Some(id) = drive_id.as_deref() {
+            if let Ok(Some(row)) = crate::db::get_drive(&conn, id) {
+                // Only expose a drive the caller can see.
+                if crate::auth::has_drive_access(&user, &conn, id) {
+                    drive_label = Some(row.label);
+                } else {
+                    drive_id = None;
+                }
+            }
+        }
+    }
     Json(json!({
-        "scanning": scanning,
-        "pending": pending,
-        "busy": scanning || pending > 0,
+        "scanning": st.scanning,
+        "pending": st.pending,
+        "busy": st.busy,
+        "phase": st.phase,
+        "drive_id": drive_id,
+        "drive_label": drive_label,
+        "found_count": st.found_count,
+        "last_error": st.last_error,
     }))
+}
+
+/// Enqueue a catch-up gallery scan for every drive the caller can access.
+/// Used by Photos → Look again and by `seed-mock-drives.sh` after refreshing fixtures.
+async fn rescan(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, ApiError> {
+    let mounts = accessible_mounts(&state, &user, None)?;
+    if mounts.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "No drives are ready to look through. Add a drive on the Drives page first.",
+        ));
+    }
+    let mut queued = 0usize;
+    for (id, mount) in mounts {
+        // Ensure the indexer knows this mount (idempotent re-arm) then rescan.
+        state.gallery.watch_mount(&id, mount);
+        queued += 1;
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "queued": queued,
+        "busy": true,
+    })))
 }
 
 async fn thumb(
@@ -1034,9 +1083,111 @@ async fn public_upload(
 #[cfg(test)]
 mod tests {
     use super::THUMB_CACHE_CONTROL;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use crate::{AppState, db};
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
     #[test]
     fn thumbs_are_private() {
         assert_eq!(THUMB_CACHE_CONTROL, "private, no-store");
         assert!(!THUMB_CACHE_CONTROL.contains("public"));
+    }
+
+    #[tokio::test]
+    async fn status_includes_phase_and_compat_busy_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Gale", "Gale", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/gallery/status")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["busy"].is_boolean());
+        assert!(v["scanning"].is_boolean());
+        assert!(v["pending"].is_number());
+        assert_eq!(v["phase"], "idle");
+        assert!(v.get("found_count").is_some());
+        assert!(v.get("drive_id").is_some());
+        assert!(v.get("drive_label").is_some());
+        assert!(v.get("last_error").is_some());
+    }
+
+    #[tokio::test]
+    async fn rescan_queues_accessible_mounts() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let mount = dir.path().join("photos-vol");
+        std::fs::create_dir_all(&mount).unwrap();
+        db::upsert_drive(
+            &conn,
+            "d-photos",
+            "Family Photos",
+            "as_is",
+            "ext4",
+            "sdz",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Rescan", "Rescan", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/gallery/rescan")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["queued"], 1);
+        assert!(state.gallery.is_watching("d-photos"));
+        assert!(state.gallery.pending() || state.gallery.status().busy);
     }
 }

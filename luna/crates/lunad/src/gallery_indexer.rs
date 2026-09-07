@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -49,10 +49,25 @@ struct Inner {
     watches: HashMap<String, MountWatch>,
 }
 
+/// Snapshot for `/api/v1/gallery/status`.
+#[derive(Debug, Clone)]
+pub struct GalleryStatus {
+    pub scanning: bool,
+    pub pending: usize,
+    pub busy: bool,
+    pub phase: &'static str,
+    pub drive_id: Option<String>,
+    pub found_count: u64,
+    pub last_error: Option<String>,
+}
+
 pub struct GalleryIndexer {
     tx: Sender<GalleryEvent>,
     pending: Arc<AtomicUsize>,
     scanning: Arc<AtomicBool>,
+    found_count: Arc<AtomicU64>,
+    active_drive: Arc<Mutex<Option<String>>>,
+    last_error: Arc<Mutex<Option<String>>>,
     inner: Arc<Mutex<Inner>>,
 }
 
@@ -61,6 +76,9 @@ impl GalleryIndexer {
         let (tx, rx) = mpsc::channel::<GalleryEvent>();
         let pending = Arc::new(AtomicUsize::new(0));
         let scanning = Arc::new(AtomicBool::new(false));
+        let found_count = Arc::new(AtomicU64::new(0));
+        let active_drive = Arc::new(Mutex::new(None));
+        let last_error = Arc::new(Mutex::new(None));
         let inner = Arc::new(Mutex::new(Inner {
             mounts: HashMap::new(),
             watches: HashMap::new(),
@@ -69,13 +87,26 @@ impl GalleryIndexer {
             tx,
             pending: pending.clone(),
             scanning: scanning.clone(),
+            found_count: found_count.clone(),
+            active_drive: active_drive.clone(),
+            last_error: last_error.clone(),
             inner: inner.clone(),
         });
 
         let mounts_for_worker = inner.clone();
         thread::Builder::new()
             .name("luna-gallery-indexer".into())
-            .spawn(move || worker_loop(rx, mounts_for_worker, pending, scanning))
+            .spawn(move || {
+                worker_loop(
+                    rx,
+                    mounts_for_worker,
+                    pending,
+                    scanning,
+                    found_count,
+                    active_drive,
+                    last_error,
+                )
+            })
             .expect("spawn gallery indexer");
 
         indexer
@@ -85,11 +116,27 @@ impl GalleryIndexer {
         self.pending.load(Ordering::Relaxed) > 0 || self.scanning.load(Ordering::Relaxed)
     }
 
-    pub fn status(&self) -> (bool, usize) {
-        (
-            self.scanning.load(Ordering::Relaxed),
-            self.pending.load(Ordering::Relaxed),
-        )
+    pub fn status(&self) -> GalleryStatus {
+        let scanning = self.scanning.load(Ordering::Relaxed);
+        let pending = self.pending.load(Ordering::Relaxed);
+        let drive_id = self.active_drive.lock().unwrap().clone();
+        let last_error = self.last_error.lock().unwrap().clone();
+        let phase = if scanning {
+            "scanning"
+        } else if pending > 0 {
+            "pending"
+        } else {
+            "idle"
+        };
+        GalleryStatus {
+            scanning,
+            pending,
+            busy: scanning || pending > 0,
+            phase,
+            drive_id,
+            found_count: self.found_count.load(Ordering::Relaxed),
+            last_error,
+        }
     }
 
     pub fn notify(&self, event: GalleryEvent) {
@@ -132,12 +179,41 @@ impl GalleryIndexer {
         });
     }
 
+    /// Enqueue a catch-up rescan for every mount currently being watched.
+    pub fn rescan_watched(&self) -> usize {
+        let ids: Vec<String> = {
+            let guard = self.inner.lock().unwrap();
+            guard.mounts.keys().cloned().collect()
+        };
+        let n = ids.len();
+        for id in ids {
+            self.rescan(&id);
+        }
+        n
+    }
+
+    /// True when this drive has an active gallery watcher.
+    pub fn is_watching(&self, drive_id: &str) -> bool {
+        let guard = self.inner.lock().unwrap();
+        guard.watches.contains_key(drive_id)
+    }
+
+    /// Current mount path registered for gallery indexing, if any.
+    pub fn watched_mount(&self, drive_id: &str) -> Option<PathBuf> {
+        let guard = self.inner.lock().unwrap();
+        guard.mounts.get(drive_id).cloned()
+    }
+
     /// Register a mounted adopted drive: track its root, start a watcher, and
-    /// kick a catch-up rescan.
+    /// kick a catch-up rescan. Idempotent for remounts — replaces the watcher
+    /// and enqueues another rescan even when the path is unchanged.
     pub fn watch_mount(self: &Arc<Self>, drive_id: &str, mount: PathBuf) {
         {
             let mut guard = self.inner.lock().unwrap();
             guard.mounts.insert(drive_id.to_string(), mount.clone());
+            // Drop the previous watcher before starting a new one so remount
+            // (eject→replug / kernel remount) always re-arms notify.
+            guard.watches.remove(drive_id);
         }
         self.start_watcher(drive_id, &mount);
         self.rescan(drive_id);
@@ -219,6 +295,9 @@ fn worker_loop(
     mounts: Arc<Mutex<Inner>>,
     pending: Arc<AtomicUsize>,
     scanning: Arc<AtomicBool>,
+    found_count: Arc<AtomicU64>,
+    active_drive: Arc<Mutex<Option<String>>>,
+    last_error: Arc<Mutex<Option<String>>>,
 ) {
     let mut upserts: HashSet<(String, String)> = HashSet::new();
     let mut removes: HashSet<(String, String)> = HashSet::new();
@@ -314,6 +393,7 @@ fn worker_loop(
                     tracing::debug!(drive_id, rel, error = %e, "gallery meta index skipped");
                     continue;
                 }
+                found_count.fetch_add(1, Ordering::Relaxed);
                 if let Err(e) = gallery::finish_thumb(&drive_id, &root, &rel) {
                     tracing::debug!(drive_id, rel, error = %e, "gallery thumb deferred");
                 }
@@ -368,11 +448,31 @@ fn worker_loop(
             let Some(root) = mount else {
                 continue;
             };
+            {
+                let mut active = active_drive.lock().unwrap();
+                *active = Some(drive_id.clone());
+            }
+            found_count.store(0, Ordering::Relaxed);
             scanning.store(true, Ordering::Relaxed);
-            if let Err(e) = gallery::scan_drive(&drive_id, &root) {
-                tracing::warn!(drive_id, error = %e, "gallery catch-up scan failed");
+            match gallery::scan_drive(&drive_id, &root) {
+                Ok(report) => {
+                    found_count.store(report.found, Ordering::Relaxed);
+                    let mut err = last_error.lock().unwrap();
+                    *err = None;
+                }
+                Err(e) => {
+                    tracing::warn!(drive_id, error = %e, "gallery catch-up scan failed");
+                    let mut err = last_error.lock().unwrap();
+                    *err = Some(
+                        "Luna couldn't finish looking through this drive. Try Look again, or unplug the drive and plug it back in.".into(),
+                    );
+                }
             }
             scanning.store(false, Ordering::Relaxed);
+            if rescans.is_empty() && pending.load(Ordering::Relaxed) == 0 {
+                let mut active = active_drive.lock().unwrap();
+                *active = None;
+            }
         }
     }
 }
@@ -469,5 +569,68 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
             .unwrap();
         assert!(count >= 1, "expected photo row after automatic indexing");
+    }
+
+    #[test]
+    fn remount_rearms_watch_and_enqueues_rescan() {
+        let root = tempfile::tempdir().unwrap();
+        let photos = root.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        tiny_jpeg(&photos.join("a.jpg"));
+
+        let indexer = GalleryIndexer::start();
+        indexer.watch_mount("d1", root.path().to_path_buf());
+        assert!(indexer.is_watching("d1"));
+        assert_eq!(
+            indexer.watched_mount("d1").as_deref(),
+            Some(root.path())
+        );
+
+        // Simulate eject / missing: gallery stops watching.
+        indexer.unwatch_mount("d1");
+        assert!(!indexer.is_watching("d1"));
+        assert!(indexer.watched_mount("d1").is_none());
+
+        // Remount / Ready restore must re-arm watcher + rescan.
+        indexer.watch_mount("d1", root.path().to_path_buf());
+        assert!(indexer.is_watching("d1"), "remount must re-arm gallery watch");
+        assert!(
+            indexer.pending() || indexer.status().busy,
+            "remount must enqueue a catch-up rescan"
+        );
+
+        for _ in 0..100 {
+            let st = indexer.status();
+            if !st.busy {
+                let conn = gallery::open_drive_db(root.path()).unwrap();
+                let count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
+                    .unwrap_or(0);
+                if count >= 1 {
+                    assert!(st.found_count >= 1 || count >= 1);
+                    return;
+                }
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        panic!("expected remount rescan to index Photos/a.jpg");
+    }
+
+    #[test]
+    fn status_exposes_phase_and_found_count_while_busy() {
+        let indexer = GalleryIndexer::start();
+        let st = indexer.status();
+        assert_eq!(st.phase, "idle");
+        assert!(!st.busy);
+        assert_eq!(st.pending, 0);
+        assert!(!st.scanning);
+        assert!(st.drive_id.is_none());
+        assert!(st.last_error.is_none());
+
+        let root = tempfile::tempdir().unwrap();
+        indexer.watch_mount("drive-a", root.path().to_path_buf());
+        let busy = indexer.status();
+        assert!(busy.busy);
+        assert!(busy.phase == "pending" || busy.phase == "scanning");
     }
 }

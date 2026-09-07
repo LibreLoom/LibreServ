@@ -214,10 +214,22 @@ describe("GalleryPage", () => {
           });
         }
         if (u.includes("/gallery/status")) {
-          return new Response(JSON.stringify({ scanning: true, pending: 3, busy: true }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              scanning: true,
+              pending: 3,
+              busy: true,
+              phase: "scanning",
+              drive_id: "a",
+              drive_label: "Family",
+              found_count: 4,
+              last_error: null,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
         }
         if (u.includes("/gallery?")) {
           return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
@@ -230,7 +242,8 @@ describe("GalleryPage", () => {
     );
     renderGallery();
     expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
-    expect(screen.getByText(/They'll show up here when ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/as they're found/i)).toBeInTheDocument();
+    expect(screen.getByText(/Found 4 photos on Family/i)).toBeInTheDocument();
     expect(screen.queryByText(/Previews stay on your drive/i)).not.toBeInTheDocument();
     const card = screen.getByText(/Looking through your drives/i).closest("[data-slot=card-clip]");
     expect(card?.className).toMatch(/pop-in/);
@@ -419,35 +432,126 @@ describe("GalleryPage", () => {
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
   });
 
-  it("does not offer a manual Look again control", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url) => {
-        const u = String(url);
-        if (u.endsWith("/drives")) {
-          return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/gallery/status")) {
-          return new Response(JSON.stringify(STATUS_OK), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (u.includes("/gallery?")) {
-          return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-      }),
-    );
+  it("offers Look again when the library is idle and empty", async () => {
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/rescan") && method === "POST") {
+        return new Response(JSON.stringify({ ok: true, queued: 1, busy: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     renderGallery();
     expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Look again/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Add pictures to a drive/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Look again/i }));
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/gallery/rescan") &&
+            (init?.method || "GET").toUpperCase() === "POST",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("refreshes gallery queries once when busy ends", async () => {
+    let busy = true;
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(
+          JSON.stringify({
+            scanning: busy,
+            pending: busy ? 2 : 0,
+            busy,
+            phase: busy ? "scanning" : "idle",
+            found_count: busy ? 1 : 2,
+            drive_id: busy ? "a" : null,
+            drive_label: busy ? "Family" : null,
+            last_error: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(
+          JSON.stringify({
+            items: busy
+              ? []
+              : [
+                  {
+                    drive_id: "a",
+                    path: "done.jpg",
+                    name: "done.jpg",
+                    taken_at: 1_700_000_000,
+                    thumb: "/td",
+                    kind: "image",
+                  },
+                ],
+            next_offset: 0,
+            has_more: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <GalleryPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
+    const galleryCallsWhileBusy = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/gallery?"),
+    ).length;
+
+    busy = false;
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["gallery-status"] });
+    });
+
+    expect(await screen.findByLabelText("done.jpg")).toBeInTheDocument();
+    await waitFor(() => {
+      const galleryCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/gallery?"));
+      expect(galleryCalls.length).toBeGreaterThan(galleryCallsWhileBusy);
+    });
   });
 
   it("shows a placeholder hint on the New album name field", async () => {
@@ -465,8 +569,25 @@ describe("GalleryPage", () => {
     );
   });
 
-  it("renders Add to album modal with an outline Cancel button that closes the modal", async () => {
-    stubGalleryFetch();
+  it("renders Add to album modal with search, selection, and outline Cancel", async () => {
+    stubGalleryFetch({
+      albums: [
+        {
+          id: "alb1",
+          home_drive_id: "a",
+          name: "test",
+          item_count: 0,
+          shared: false,
+        },
+        {
+          id: "alb2",
+          home_drive_id: "a",
+          name: "Vacation",
+          item_count: 2,
+          shared: false,
+        },
+      ],
+    });
     renderGallery();
     const photo = await screen.findByLabelText("one.jpg");
     fireEvent.click(photo);
@@ -475,7 +596,12 @@ describe("GalleryPage", () => {
     fireEvent.click(addToAlbumBtn);
 
     expect(await screen.findByRole("heading", { name: "Add to album" })).toBeInTheDocument();
-    expect(screen.getByText("Create an album first, then add photos to it.")).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Search albums/i)).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /test/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Vacation/i })).toBeInTheDocument();
+
+    const addBtn = screen.getByRole("button", { name: /^Add$/i });
+    expect(addBtn).toBeDisabled();
 
     const cancelBtn = screen.getByRole("button", { name: "Cancel" });
     expect(cancelBtn).toBeInTheDocument();
@@ -483,6 +609,91 @@ describe("GalleryPage", () => {
     expect(cancelBtn.className).toContain("border-primary");
 
     fireEvent.click(cancelBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Add to album" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("adds a photo to the selected album and closes the modal", async () => {
+    const albums = [
+      {
+        id: "alb1",
+        home_drive_id: "a",
+        name: "test",
+        item_count: 0,
+        shared: false,
+      },
+    ];
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums/a/alb1/items") && method === "POST") {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums") && method === "GET") {
+        return new Response(JSON.stringify(albums), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                drive_id: "a",
+                path: "one.jpg",
+                name: "one.jpg",
+                taken_at: 1_700_000_000,
+                thumb: "/t1",
+                kind: "image",
+              },
+            ],
+            next_offset: 1,
+            has_more: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderGallery();
+    fireEvent.click(await screen.findByLabelText("one.jpg"));
+    fireEvent.click(await screen.findByRole("button", { name: /Add to album/i }));
+
+    expect(await screen.findByRole("heading", { name: "Add to album" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: /test/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/i }));
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          String(url).includes("/gallery/albums/a/alb1/items")
+          && (init?.method || "GET").toUpperCase() === "POST",
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String(post[1].body))).toEqual({
+        items: [{ drive_id: "a", path: "one.jpg" }],
+      });
+    });
+
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "Add to album" })).not.toBeInTheDocument();
     });

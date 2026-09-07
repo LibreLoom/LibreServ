@@ -604,10 +604,18 @@ impl DriveManager {
     /// Ejected drives stay ejected while still plugged in (name or marker);
     /// once unplugged they become `missing` so a re-plug can restore Ready.
     /// If a Ready drive's Luna mount is already gone, mark it ejected.
-    pub fn reconcile(&self, conn: &Connection, detected: &[DetectedDrive]) -> anyhow::Result<()> {
+    ///
+    /// Returns drive ids + mount paths that need gallery `watch_mount` re-armed
+    /// (Ready restore / kernel remount). Callers must call `watch_mount` for each.
+    pub fn reconcile(
+        &self,
+        conn: &Connection,
+        detected: &[DetectedDrive],
+    ) -> anyhow::Result<Vec<(String, PathBuf)>> {
         // Cache marker ids per detected device for this pass so a missing-row
         // loop does not RO-mount the same stick once per registry entry.
         let mut marker_cache: HashMap<String, Option<String>> = HashMap::new();
+        let mut remounted: Vec<(String, PathBuf)> = Vec::new();
         for row in db::list_drives(conn)? {
             let present_by_name = detected.iter().any(|d| d.name == row.device);
             let marker_match = if present_by_name {
@@ -628,7 +636,10 @@ impl DriveManager {
                     let mut updated = row.clone();
                     updated.device = new_name.to_string();
                     let _ = self.dismiss_foreign(new_name);
-                    let _ = self.ensure_mounted(&updated);
+                    let did_mount = self.ensure_mounted(&updated).unwrap_or(false);
+                    if did_mount {
+                        push_remount(&mut remounted, conn, &updated.id);
+                    }
                 }
                 "as_is" | "readonly" if present && self.luna_mount_missing(&row) => {
                     // Mount already gone (prior eject, crash, or forced umount)
@@ -655,12 +666,15 @@ impl DriveManager {
                     }
                     let _ = self.dismiss_foreign(new_name);
                     let _ = self.ensure_mounted(&updated);
+                    // Always re-arm gallery on Ready restore (eject→replug /
+                    // missing→as_is). Prior unwatch left the indexer cold.
+                    push_remount(&mut remounted, conn, &updated.id);
                 }
                 // ejected + still plugged in (same name) → stay ejected
                 _ => {}
             }
         }
-        Ok(())
+        Ok(remounted)
     }
 
     /// Find a detected device whose `.luna` marker id matches `row_id`.
@@ -726,19 +740,20 @@ impl DriveManager {
     }
 
     /// Best-effort remount after a drive returns from `missing`.
-    fn ensure_mounted(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
+    /// Returns `true` when a mount was (re)created.
+    fn ensure_mounted(&self, drive: &db::DriveRow) -> anyhow::Result<bool> {
         if drive.mount_point.is_empty() || drive.device.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         let target = Path::new(&drive.mount_point);
         if !self.is_ours(target) {
-            return Ok(());
+            return Ok(false);
         }
         if self.mounter.is_mounted(target) {
-            return Ok(());
+            return Ok(false);
         }
         let (_, _) = self.mount_for_remove(drive)?;
-        Ok(())
+        Ok(true)
     }
 
     /// Stop looking at a foreign drive Luna mounted for inspection.
@@ -824,6 +839,14 @@ fn sanitize(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect()
+}
+
+fn push_remount(out: &mut Vec<(String, PathBuf)>, conn: &Connection, drive_id: &str) {
+    if let Ok(Some(fresh)) = db::get_drive(conn, drive_id)
+        && !fresh.mount_point.is_empty()
+    {
+        out.push((fresh.id, PathBuf::from(fresh.mount_point)));
+    }
 }
 
 fn device_path(name: &str) -> String {
@@ -1259,12 +1282,46 @@ mod tests {
             "missing"
         );
 
-        // Drive back.
-        mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        // Drive back — must report gallery remount so callers re-arm watch_mount.
+        let remounted = mgr
+            .reconcile(&conn, &[detected("sdz", None)])
+            .unwrap();
         assert_eq!(
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
         );
+        assert!(
+            remounted.iter().any(|(id, mp)| {
+                id == &row.id && mp == &PathBuf::from(&row.mount_point)
+            }),
+            "Ready restore must list the drive for gallery re-arm, got {remounted:?}"
+        );
+    }
+
+    #[test]
+    fn reconcile_ready_restore_lists_gallery_rearm() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Photos", false)
+            .unwrap();
+
+        let first = mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        assert!(
+            first.is_empty(),
+            "already-Ready drive must not re-arm every poll"
+        );
+
+        mgr.reconcile(&conn, &[]).unwrap();
+        let remounted = mgr
+            .reconcile(&conn, &[detected("sdz", None)])
+            .unwrap();
+        assert_eq!(remounted.len(), 1);
+        assert_eq!(remounted[0].0, row.id);
+        assert_eq!(remounted[0].1, PathBuf::from(&row.mount_point));
     }
 
     /// USB adopted as `sdc` comes back as `sdd` with the same `.luna` marker.
