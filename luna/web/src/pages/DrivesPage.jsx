@@ -597,13 +597,21 @@ export default function DrivesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              {removeTarget?.state === "missing" || removeTarget?.state === "ejected" ? (
+              {removeTarget?.state === "missing" ? (
                 <>
                   Luna will stop managing{" "}
                   <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
                   <span className="font-mono">.luna</span> drive database will stay on the
                   drive since it is currently unplugged. Your files stay exactly where
                   they are.
+                </>
+              ) : removeTarget?.state === "ejected" ? (
+                <>
+                  Luna will stop managing{" "}
+                  <span className="font-mono">{removeTarget?.label}</span>, but the{" "}
+                  <span className="font-mono">.luna</span> drive database will stay on the
+                  drive because it isn&apos;t writable after a safe eject. Your files stay
+                  exactly where they are.
                 </>
               ) : (
                 <>

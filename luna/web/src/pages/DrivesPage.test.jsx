@@ -580,7 +580,19 @@ describe("DrivesPage", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^Remove$/i }));
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
-    expect(screen.getByText(/drive database/i)).toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) =>
+        node?.tagName === "P"
+          && Boolean(
+            node.textContent?.includes("only removes its tiny")
+              && node.textContent?.includes(".luna")
+              && node.textContent?.includes("drive database"),
+          ),
+      ),
+    ).toBeInTheDocument();
+    const removeDialog = screen.getByRole("dialog");
+    expect(within(removeDialog).getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    expect(within(removeDialog).getByRole("button", { name: /Keep it/i })).toBeInTheDocument();
   });
 
   it("shows a confirm dialog before ejecting a drive", async () => {
@@ -654,15 +666,18 @@ describe("DrivesPage", () => {
           ),
       ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/isn't writable after a safe eject/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/only removes its tiny/i)).not.toBeInTheDocument();
   });
 
-  it("reuses unplugged remove copy for an ejected drive", async () => {
+  it("explains that an ejected remove leaves the marker because the drive is not writable", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives")) {
           return new Response(JSON.stringify([{
-            id: "d1", label: "General UDisk", state: "ejected", fs_type: "exfat", device: "sda",
+            id: "d1", label: "General UDisk", state: "ejected", fs_type: "vfat", device: "sda",
+            mount_point: "",
           }]), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return null;
@@ -677,11 +692,16 @@ describe("DrivesPage", () => {
         node?.tagName === "P"
           && Boolean(
             node.textContent?.includes("drive database will stay on the drive")
-              && node.textContent?.includes("currently unplugged"),
+              && node.textContent?.includes("isn't writable after a safe eject")
+              && node.textContent?.includes("Your files stay exactly where they are"),
           ),
       ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/currently unplugged/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/only removes its tiny/i)).not.toBeInTheDocument();
+    const ejectedDialog = screen.getByRole("dialog");
+    expect(within(ejectedDialog).getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    expect(within(ejectedDialog).getByRole("button", { name: /Keep it/i })).toBeInTheDocument();
   });
 
   it("offers Browse files linking to the full files page", async () => {
