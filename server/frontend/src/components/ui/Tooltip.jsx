@@ -23,8 +23,11 @@
  *    "primary"   page background → trigger uses text-secondary
  *    "secondary" card/modal      → trigger uses text-primary (default)
  *
- * Open on hover (short delay), keyboard focus, and click/tap (phones).
- * Escape, outside tap, and leaving both trigger and popup close it.
+ * Open on hover (short delay) when the pointer is actively over THAT trigger,
+ * keyboard focus (Tab — not mouse focus while already hovering), and click/tap
+ * for InfoHint/TermHint pin. Escape, outside tap, and leaving both trigger and
+ * popup close it. Action Tooltip open state is armed by pointerenter/leave on
+ * the trigger itself — never parent-row :hover or CSS group-hover.
  *
  * @typedef {object} HintSharedProps
  * @property {import("react").ReactNode} content Popup body.
@@ -494,6 +497,10 @@ ActionTooltipGroup.propTypes = {
  * steal clicks — the child still receives the action. Prefer wrapping
  * with ActionTooltipGroup when several icons sit in one toolbar row.
  *
+ * Hover open/close is driven only by pointerenter/pointerleave on THIS
+ * trigger (active hover on the given button) — never parent-row :hover or
+ * CSS group-hover. Delayed opens re-check that the pointer is still inside.
+ *
  * @param {{
  *   content: import("react").ReactNode,
  *   children: import("react").ReactNode,
@@ -513,9 +520,15 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
   const [soloOpen, setSoloOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
-  // Set by the outside-pointerdown handler so that a programmatic focus-restore
-  // (e.g. after a modal closes) does not re-open the tooltip. One-shot: real
-  // keyboard-Tab focus on subsequent navigation will not be suppressed.
+  // Active hover on this trigger — set only by pointerenter/leave on the
+  // trigger element itself (not the file row, not a CSS :hover ancestor).
+  const pointerInsideRef = useRef(false);
+  // Pointer over the portaled label (optional bridge during the leave grace).
+  const popupInsideRef = useRef(false);
+  // Keyboard focus (Tab) — mouse focus is ignored when pointerInside is set.
+  const keyboardFocusRef = useRef(false);
+  // One-shot: ignore the next focus show (click focus + modal focus-restore).
+  // Set on every hide so action-button modals do not leave a stuck tooltip.
   const suppressFocusShowRef = useRef(false);
 
   const open = group ? group.activeId === localId : soloOpen;
@@ -528,33 +541,54 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
     closeTimer.current = null;
   }, []);
 
+  const isActivelyArmed = useCallback(
+    () => pointerInsideRef.current || popupInsideRef.current || keyboardFocusRef.current,
+    [],
+  );
+
   const showNow = useCallback(() => {
+    // Never open from a stale timer after the pointer has already left.
+    if (!isActivelyArmed()) return;
     clearTimers();
     if (group) group.requestOpen(localId);
     else setSoloOpen(true);
-  }, [clearTimers, group, localId]);
+  }, [clearTimers, group, isActivelyArmed, localId]);
 
   const hideNow = useCallback(() => {
     clearTimers();
+    // Match HintShell: every hide suppresses the next focus-driven reopen
+    // (click focus and focus-restore after a sheet/modal closes).
+    suppressFocusShowRef.current = true;
+    keyboardFocusRef.current = false;
+    popupInsideRef.current = false;
     if (group) group.requestClose(localId);
     else setSoloOpen(false);
   }, [clearTimers, group, localId]);
 
   const scheduleShow = useCallback(() => {
     clearTimers();
+    if (!isActivelyArmed()) return;
     const warm = group ? group.isWarm() : false;
     const wait = warm ? 0 : resolvedDelay;
     if (wait <= 0) {
       showNow();
       return;
     }
-    openTimer.current = setTimeout(showNow, wait);
-  }, [clearTimers, group, resolvedDelay, showNow]);
+    openTimer.current = setTimeout(() => {
+      // Re-check active hover/focus — the delay may have outlived the pointer.
+      if (!isActivelyArmed()) return;
+      showNow();
+    }, wait);
+  }, [clearTimers, group, isActivelyArmed, resolvedDelay, showNow]);
 
   const scheduleHide = useCallback(() => {
     clearTimers();
-    closeTimer.current = setTimeout(hideNow, 120);
-  }, [clearTimers, hideNow]);
+    closeTimer.current = setTimeout(() => {
+      // Pointer may have returned (or keyboard focus remains) during the grace.
+      if (isActivelyArmed()) return;
+      hideNow();
+    }, 120);
+  }, [clearTimers, hideNow, isActivelyArmed]);
 
   const updatePosition = useCallback(() => {
     if (triggerRef.current && popupRef.current) {
@@ -575,10 +609,6 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
     function onPointerDown(event) {
       const t = event.target;
       if (triggerRef.current?.contains(t) || popupRef.current?.contains(t)) return;
-      // An outside pointerdown (e.g. opening a modal) closes the tooltip and
-      // suppresses the next focus event so that focus-restore after the modal
-      // closes does not re-open the tooltip.
-      suppressFocusShowRef.current = true;
       hideNow();
     }
     document.addEventListener("keydown", onKey);
@@ -603,29 +633,57 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
     }
   }, [group, localId, clearTimers]);
 
+  const onPointerEnter = () => {
+    pointerInsideRef.current = true;
+    scheduleShow();
+  };
+
+  const onPointerLeave = () => {
+    pointerInsideRef.current = false;
+    scheduleHide();
+  };
+
   return (
     <span
       ref={triggerRef}
       className={cn("relative inline-flex", className)}
       data-slot="tooltip"
-      onPointerEnter={scheduleShow}
-      onPointerLeave={scheduleHide}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       onFocusCapture={() => {
-        // Suppress programmatic focus-restores (e.g. after modal closes).
-        // One-shot: the flag is cleared here so the next real keyboard-Tab
-        // focus arrives with suppressFocusShowRef = false and shows normally.
         if (suppressFocusShowRef.current) {
           suppressFocusShowRef.current = false;
+          // Focus restored after a click/modal while the pointer never left —
+          // resume the hover-driven path instead of staying stuck closed.
+          if (pointerInsideRef.current) scheduleShow();
           return;
         }
+        // Mouse focus (pointer already inside): hover owns the tooltip.
+        // Opening here races click-hide and leaves sticky/wrong state.
+        if (pointerInsideRef.current) return;
+        keyboardFocusRef.current = true;
         showNow();
       }}
       onBlurCapture={(event) => {
         const next = event.relatedTarget;
         if (triggerRef.current?.contains(next) || popupRef.current?.contains(next)) return;
+        keyboardFocusRef.current = false;
+        // Stay armed while the pointer is still on this button.
+        if (pointerInsideRef.current) return;
         hideNow();
       }}
-      onClick={hideNow}
+      onClick={() => {
+        // Dismiss on activate. If the pointer is still on this button, active
+        // hover remains the source of truth — re-arm after hide so we do not
+        // stay stuck closed until an artificial leave/enter. Opening a modal
+        // typically covers the trigger and fires pointerleave, which cancels
+        // the pending reopen via isActivelyArmed().
+        hideNow();
+        if (pointerInsideRef.current) {
+          suppressFocusShowRef.current = false;
+          scheduleShow();
+        }
+      }}
     >
       {children}
       {open &&
@@ -635,8 +693,14 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
             id={tooltipId}
             role="tooltip"
             data-slot="tooltip-popup"
-            onPointerEnter={showNow}
-            onPointerLeave={scheduleHide}
+            onPointerEnter={() => {
+              popupInsideRef.current = true;
+              showNow();
+            }}
+            onPointerLeave={() => {
+              popupInsideRef.current = false;
+              scheduleHide();
+            }}
             style={{ position: "fixed", top: position.top, left: position.left }}
             className={cn(
               "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",

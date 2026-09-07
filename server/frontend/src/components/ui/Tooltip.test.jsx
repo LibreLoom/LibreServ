@@ -94,4 +94,91 @@ describe("Tooltip + ActionTooltipGroup", () => {
 
     vi.useRealTimers();
   });
+
+  it("opens only while the pointer is actively over that button", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <ActionTooltipGroup delayMs={400} leaveGraceMs={300}>
+        <div>
+          <Tooltip content="Copy">
+            <button type="button">Copy</button>
+          </Tooltip>
+          <Tooltip content="Move">
+            <button type="button">Move</button>
+          </Tooltip>
+        </div>
+      </ActionTooltipGroup>,
+    );
+
+    const copyBtn = screen.getByRole("button", { name: "Copy" });
+    const moveBtn = screen.getByRole("button", { name: "Move" });
+
+    await user.hover(copyBtn);
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+
+    await user.unhover(copyBtn);
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    await user.hover(moveBtn);
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Move");
+    expect(screen.queryByRole("tooltip")).not.toHaveTextContent("Copy");
+
+    vi.useRealTimers();
+  });
+
+  it("aborts a pending hover open when the pointer leaves during the delay", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <Tooltip delayMs={400} content="Copy">
+        <button type="button">Copy</button>
+      </Tooltip>,
+    );
+
+    const btn = screen.getByRole("button", { name: "Copy" });
+    await user.hover(btn);
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    await user.unhover(btn);
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it("resumes hover after click when the pointer never left the button", async () => {
+    const user = userEvent.setup();
+    const onCopy = vi.fn();
+    render(
+      <Tooltip delayMs={0} content="Copy">
+        <button type="button" aria-label="Copy note.txt" onClick={onCopy}>
+          copy-icon
+        </button>
+      </Tooltip>,
+    );
+
+    const btn = screen.getByRole("button", { name: /Copy note/i });
+    await user.hover(btn);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+
+    await user.click(btn);
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    // Click hides then re-arms from active hover (pointer still inside).
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy");
+  });
 });
