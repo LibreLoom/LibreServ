@@ -583,6 +583,51 @@ describe("DrivesPage", () => {
     expect(screen.getByText(/drive database/i)).toBeInTheDocument();
   });
 
+  it("shows a confirm dialog before ejecting a drive", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    stubDrivesApi({
+      fetch: (u, init) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: false, overall: "unknown",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/d1/eject") && init?.method === "POST") {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Eject safely/i }));
+    expect(await screen.findByRole("heading", { name: /Eject this drive safely/i })).toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) =>
+        node?.tagName === "P"
+          && Boolean(
+            node.textContent?.includes("physically unplug")
+              && node.textContent?.includes("plug it back in again to use it"),
+          ),
+      ),
+    ).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/eject"))).toBe(false);
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /Eject safely/i }));
+    await vi.waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/drives/d1/eject"))).toBe(true);
+    });
+  });
+
   it("explains that an unplugged remove leaves the marker on the drive", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({

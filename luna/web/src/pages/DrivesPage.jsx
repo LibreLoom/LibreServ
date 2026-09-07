@@ -273,7 +273,7 @@ function DetectedCard({ drive, onOpen }) {
   );
 }
 
-function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect }) {
   const state = STATE_PILLS[drive.state] || "info";
   const ready = drive.state === "as_is" || drive.state === "readonly";
   const health = useQuery({
@@ -318,7 +318,7 @@ function AdoptedCard({ drive, showHealth, onEject, ejecting, onRemove, onShare, 
           </Button>
         )}
         {showHealth && ready && (
-          <Button size="sm" variant="outline" loading={ejecting} onClick={() => onEject(drive)}>
+          <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
             Eject safely
           </Button>
         )}
@@ -381,6 +381,7 @@ export default function DrivesPage() {
     enabled: isAdmin,
   });
   const [inspectFor, setInspectFor] = useState(null);
+  const [ejectTarget, setEjectTarget] = useState(null);
   const [removeTarget, setRemoveTarget] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
@@ -483,7 +484,7 @@ export default function DrivesPage() {
     );
   }
 
-  const actionModalOpen = removeTarget != null || inspectFor != null;
+  const actionModalOpen = ejectTarget != null || removeTarget != null || inspectFor != null;
 
   return (
     <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
@@ -505,8 +506,7 @@ export default function DrivesPage() {
               key={drive.id}
               drive={drive}
               showHealth
-              onEject={(d) => eject.mutate(d)}
-              ejecting={eject.isPending}
+              onEject={(d) => setEjectTarget(d)}
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
@@ -552,6 +552,40 @@ export default function DrivesPage() {
         path={protectingDrive?.path || ""}
         onClose={() => setProtectingDrive(null)}
       />
+      <ModalCard
+        open={ejectTarget != null}
+        title="Eject this drive safely?"
+        onClose={() => {
+          setActionError(null);
+          setEjectTarget(null);
+        }}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              After a safe eject, you&apos;ll need to physically unplug{" "}
+              <span className="font-mono">{ejectTarget?.label}</span> and plug it back
+              in again to use it.
+            </p>
+            <ModalErrorNotice error={actionError} />
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="accent"
+                loading={eject.isPending}
+                onClick={() => {
+                  if (!ejectTarget) return;
+                  eject.mutateAsync(ejectTarget)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Eject safely
+              </Button>
+              <Button variant="outline" onClick={close}>Cancel</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
       <ModalCard
         open={removeTarget != null}
         title="Remove this drive?"
