@@ -73,7 +73,9 @@ export default function ModalCard({
   const previousFocusRef = useRef(null);
   // Rebind when the portal remounts after exit — a mount-only observer would
   // miss the second open and leave height:auto (content jumps instead of easing).
-  const { outerRef, innerRef } = useAnimatedHeight(present);
+  // isAnimating: keep overflow clipped while height eases to new content so the
+  // loading→form resize does not flash a scrollbar.
+  const { outerRef, innerRef, isAnimating: isAnimatingHeight } = useAnimatedHeight(present);
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -258,7 +260,11 @@ export default function ModalCard({
           data-slot="dialog-scroller"
           className={cn(
             "h-full max-h-full overscroll-contain",
-            scrollReady && !isClosing ? "overflow-y-auto" : "overflow-hidden",
+            // overflow-x-hidden when scrolling is allowed: a vertical scrollbar must
+            // not create a horizontal one. overflow-hidden while height is animating.
+            scrollReady && !isClosing && !isAnimatingHeight
+              ? "overflow-y-auto overflow-x-hidden"
+              : "overflow-hidden",
           )}
           onAnimationEnd={handlePopInEnd}
         >

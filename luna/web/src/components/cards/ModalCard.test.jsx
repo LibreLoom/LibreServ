@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import ModalCard, { useModalClose, EXIT_ANIMATION_MS, POP_IN_ANIMATION_MS } from "./ModalCard";
+import { HEIGHT_SETTLE_MS } from "../../hooks/useAnimatedHeight";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -186,6 +187,66 @@ describe("ModalCard", () => {
     });
 
     expect(scroller).toHaveClass("overflow-y-auto");
+    expect(scroller).toHaveClass("overflow-x-hidden");
+  });
+
+  it("hides scroller overflow while height animates to taller content", () => {
+    vi.useFakeTimers();
+    /** @type {ResizeObserverCallback[]} */
+    const callbacks = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        /** @param {ResizeObserverCallback} cb */
+        constructor(cb) {
+          callbacks.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+
+    let measureHeight = 80;
+    render(
+      <ModalCard title="Growing" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const measure = dialog.querySelector("[data-slot=dialog-measure]");
+    expect(measure).toBeTruthy();
+    Object.defineProperty(/** @type {HTMLElement} */ (measure), "offsetHeight", {
+      configurable: true,
+      get: () => measureHeight,
+    });
+
+    // Seed the initial measured height (first apply does not flag animating).
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    act(() => {
+      vi.advanceTimersByTime(Math.max(POP_IN_ANIMATION_MS, HEIGHT_SETTLE_MS));
+    });
+
+    const scroller = dialog.querySelector("[data-slot=dialog-scroller]");
+    expect(scroller).toHaveClass("overflow-y-auto");
+
+    measureHeight = 360;
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    expect(scroller).toHaveClass("overflow-hidden");
+    expect(scroller).not.toHaveClass("overflow-y-auto");
+
+    act(() => {
+      vi.advanceTimersByTime(HEIGHT_SETTLE_MS);
+    });
+    expect(scroller).toHaveClass("overflow-y-auto");
+    expect(scroller).toHaveClass("overflow-x-hidden");
+
+    vi.unstubAllGlobals();
   });
 
   it("allows scroller overflow immediately when motion is reduced", () => {

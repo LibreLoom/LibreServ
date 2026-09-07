@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRef } from "react";
 import { render, act, renderHook } from "@testing-library/react";
-import { useAnimatedHeight } from "./useAnimatedHeight.jsx";
+import { HEIGHT_SETTLE_MS, useAnimatedHeight } from "./useAnimatedHeight.jsx";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -11,11 +12,11 @@ afterEach(() => {
  * @param {{ enabled?: boolean, innerHeight?: number }} props
  */
 function Probe({ enabled = true, innerHeight = 80 }) {
-  const { outerRef, innerRef } = useAnimatedHeight(enabled);
+  const { outerRef, innerRef, isAnimating } = useAnimatedHeight(enabled);
   const heightRef = useRef(innerHeight);
   heightRef.current = innerHeight;
   return (
-    <div ref={outerRef} data-testid="outer">
+    <div ref={outerRef} data-testid="outer" data-animating={isAnimating ? "1" : "0"}>
       <div
         data-testid="inner"
         ref={(node) => {
@@ -37,8 +38,10 @@ describe("useAnimatedHeight", () => {
     const { result } = renderHook(() => useAnimatedHeight());
     expect(result.current).toHaveProperty("outerRef");
     expect(result.current).toHaveProperty("innerRef");
+    expect(result.current).toHaveProperty("isAnimating");
     expect(result.current.outerRef.current).toBeNull();
     expect(result.current.innerRef.current).toBeNull();
+    expect(result.current.isAnimating).toBe(false);
   });
 
   it("sets an explicit pixel height from the measured inner box", async () => {
@@ -62,6 +65,7 @@ describe("useAnimatedHeight", () => {
       await new Promise((r) => requestAnimationFrame(r));
     });
     expect(getByTestId("outer").style.height).toBe("96px");
+    expect(getByTestId("outer").getAttribute("data-animating")).toBe("0");
   });
 
   it("updates outer height when ResizeObserver reports a new inner size", async () => {
@@ -94,6 +98,45 @@ describe("useAnimatedHeight", () => {
       callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
     });
     expect(getByTestId("outer").style.height).toBe("240px");
+  });
+
+  it("flags isAnimating during px→px height changes until settle timeout", async () => {
+    vi.useFakeTimers();
+    /** @type {ResizeObserverCallback[]} */
+    const callbacks = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        /** @param {ResizeObserverCallback} cb */
+        constructor(cb) {
+          callbacks.push(cb);
+          this.cb = cb;
+        }
+        observe() {
+          this.cb([], this);
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+
+    const { getByTestId, rerender } = render(<Probe innerHeight={64} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(getByTestId("outer").getAttribute("data-animating")).toBe("0");
+
+    rerender(<Probe innerHeight={240} />);
+    act(() => {
+      callbacks.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+    expect(getByTestId("outer").style.height).toBe("240px");
+    expect(getByTestId("outer").getAttribute("data-animating")).toBe("1");
+
+    act(() => {
+      vi.advanceTimersByTime(HEIGHT_SETTLE_MS);
+    });
+    expect(getByTestId("outer").getAttribute("data-animating")).toBe("0");
   });
 
   it("rebinds observation when enabled flips back to true", async () => {
@@ -177,4 +220,3 @@ describe("useAnimatedHeight", () => {
     expect(getByTestId("outer").style.height).toBe("300px");
   });
 });
-
