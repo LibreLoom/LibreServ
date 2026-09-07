@@ -75,11 +75,12 @@ describe("UsersPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders users in a table list, not a card grid", async () => {
+  it("renders users in a table list on desktop, not a card grid", async () => {
     stubFetch();
     const { container } = renderPage();
 
     expect(await screen.findByRole("table")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: /Rows/i })).toBeNull();
     expect(container.querySelector(".md\\:grid-cols-2")).toBeNull();
 
     const list = await screen.findByRole("region", { name: /User list/i });
@@ -88,6 +89,38 @@ describe("UsersPage", () => {
     expect(within(list).getByText("Admin")).toBeTruthy();
     expect(within(list).getByText("Member")).toBeTruthy();
     expect(within(list).getByText("Alex")).toBeTruthy();
+  });
+
+  it("renders each user as a vertical card on mobile", async () => {
+    window.matchMedia = (query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    });
+    stubFetch();
+    renderPage();
+
+    expect(screen.queryByRole("table")).toBeNull();
+    const cards = await screen.findByRole("list", { name: /Rows/i });
+    const articles = within(cards).getAllByRole("article");
+    expect(articles).toHaveLength(2);
+
+    expect(within(articles[0]).getByText("Name")).toBeTruthy();
+    expect(within(articles[0]).getByText("Demo")).toBeTruthy();
+    expect(within(articles[0]).getByText("Username")).toBeTruthy();
+    expect(within(articles[0]).getByText("demouser")).toBeTruthy();
+    expect(within(articles[0]).getByText("Role")).toBeTruthy();
+    expect(within(articles[0]).getByText("Admin")).toBeTruthy();
+    expect(within(articles[0]).getByLabelText(/What Admin means/i)).toBeTruthy();
+
+    expect(within(articles[1]).getByText("Alex")).toBeTruthy();
+    expect(within(articles[1]).getByText("Member")).toBeTruthy();
+    expect(within(articles[1]).getByRole("button", { name: /Remove Alex/i })).toBeTruthy();
   });
 
   it("keeps Admin InfoHint plain-language copy", async () => {
@@ -125,7 +158,7 @@ describe("UsersPage", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
-  it("enforces the 12+ letter/number password policy in Add a user", async () => {
+  it("ports LibreServ add-user UX: strength meter, role, submit-time policy checks", async () => {
     stubFetch();
     const user = userEvent.setup();
     renderPage();
@@ -134,28 +167,40 @@ describe("UsersPage", () => {
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
-
     expect(within(dialog).getByLabelText(/^Name$/i)).toBeTruthy();
     expect(within(dialog).getByLabelText(/Username/i)).toBeTruthy();
+    expect(within(dialog).getByLabelText("Role")).toBeTruthy();
+    expect(within(dialog).getByLabelText(/What Admin means/i)).toBeTruthy();
+
     const password = within(dialog).getByLabelText(/^Password/i);
     const addBtn = within(dialog).getByRole("button", { name: /^Add user$/i });
 
     await user.type(within(dialog).getByLabelText(/Username/i), "jamie");
     await user.type(password, "short1");
+    // LibreServ-style strength bars + label — not requirement checklist chips.
+    expect(within(dialog).getByText("Weak")).toBeTruthy();
+    expect(within(dialog).queryByText(/12\+ chars/i)).toBeNull();
+    expect(addBtn).not.toBeDisabled();
+
+    await user.click(addBtn);
     expect(within(dialog).getByText(/Passwords need at least 12 characters/i)).toBeTruthy();
-    expect(addBtn).toBeDisabled();
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/users$/),
+      expect.objectContaining({ method: "POST" }),
+    );
 
     await user.clear(password);
     await user.type(password, "abcdefghijkl");
+    await user.click(addBtn);
     expect(within(dialog).getByText(/Passwords need at least one letter and one number/i)).toBeTruthy();
-    expect(addBtn).toBeDisabled();
 
     await user.clear(password);
     await user.type(password, "hunter22hunter1");
     expect(within(dialog).queryByText(/Passwords need at least/i)).toBeNull();
-    expect(addBtn).not.toBeDisabled();
-
+    await user.click(within(dialog).getByLabelText("Role"));
+    await user.click(await screen.findByRole("option", { name: /^Admin$/i }));
     await user.click(addBtn);
+
     expect(fetch).toHaveBeenCalledWith(
       expect.stringMatching(/\/api\/v1\/users$/),
       expect.objectContaining({
@@ -163,6 +208,14 @@ describe("UsersPage", () => {
         body: expect.stringContaining('"password":"hunter22hunter1"'),
       }),
     );
+    const createCall = fetch.mock.calls.find(
+      ([url, init]) => String(url).endsWith("/api/v1/users") && init?.method === "POST",
+    );
+    expect(JSON.parse(createCall[1].body)).toMatchObject({
+      username: "jamie",
+      password: "hunter22hunter1",
+      role: "admin",
+    });
   });
 
   it("shows a floating big plus add-user control below the list, not in the header", async () => {

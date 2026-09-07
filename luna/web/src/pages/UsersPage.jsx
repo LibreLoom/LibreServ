@@ -11,19 +11,11 @@ import Pill from "../components/common/Pill";
 import Table from "../components/common/Table";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import ModalErrorNotice from "../components/common/ModalErrorNotice";
 import { showPageLevelError } from "../lib/modalScopedError";
-import ShakeTarget from "../components/ui/ShakeTarget";
 import { InfoHint } from "../components/ui/Tooltip";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
-import {
-  PASSWORD_POLICY_HINT,
-  meetsPasswordPolicy,
-  passwordChecks,
-  passwordPolicyError,
-} from "../lib/passwordPolicy";
 import { useAuth } from "../context/AuthContext";
-import FieldLabel from "../components/common/forms/FieldLabel";
+import CreateUserForm from "../components/common/forms/CreateUserForm";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
@@ -257,111 +249,16 @@ export default function UsersPage() {
 }
 
 function CreateUserModal({ open = true, onClose, onSubmit, busy, submitError = null }) {
-  const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [password, setPassword] = useState("");
-  const [touchedPassword, setTouchedPassword] = useState(false);
-
-  const checks = passwordChecks(password);
-  const passwordOk = meetsPasswordPolicy(password);
-  const passwordError =
-    touchedPassword || password.length > 0 ? passwordPolicyError(password) : null;
-  const canSubmit =
-    username.trim().length > 0 && passwordOk && !busy;
-
   return (
     <ModalCard open={open} title="Add a user" onClose={onClose}>
       {({ close }) => (
-      <div className="space-y-3">
-        <div>
-          <FieldLabel htmlFor="add-user-name" surface="secondary">
-            Name
-          </FieldLabel>
-          <input
-            id="add-user-name"
-            className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-            placeholder="Their name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            autoComplete="name"
-          />
-        </div>
-        <div>
-          <FieldLabel htmlFor="add-user-username" surface="secondary" required>
-            Username
-          </FieldLabel>
-          <ShakeTarget shake={submitError}>
-            <input
-              id="add-user-username"
-              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-              placeholder="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-            />
-          </ShakeTarget>
-        </div>
-        <div>
-          <FieldLabel htmlFor="add-user-password" surface="secondary" required>
-            Password
-          </FieldLabel>
-          <ShakeTarget shake={submitError || passwordError}>
-            <input
-              id="add-user-password"
-              type="password"
-              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
-              placeholder={PASSWORD_POLICY_HINT}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onBlur={() => setTouchedPassword(true)}
-              autoComplete="new-password"
-              aria-invalid={passwordError ? true : undefined}
-              aria-describedby={passwordError ? "add-user-password-hint" : undefined}
-            />
-          </ShakeTarget>
-          {password.length > 0 && (
-            <div className="mt-2 px-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-mono">
-              <span className={checks.hasLength ? "text-success" : "text-primary"}>
-                {checks.hasLength ? "✓" : "·"} 12+ characters
-              </span>
-              <span className={checks.hasLetter ? "text-success" : "text-primary"}>
-                {checks.hasLetter ? "✓" : "·"} a letter
-              </span>
-              <span className={checks.hasDigit ? "text-success" : "text-primary"}>
-                {checks.hasDigit ? "✓" : "·"} a number
-              </span>
-            </div>
-          )}
-          {passwordError && (
-            <p id="add-user-password-hint" className="mt-1.5 px-1 text-xs text-error" role="alert">
-              {passwordError}
-            </p>
-          )}
-        </div>
-        <ModalErrorNotice error={submitError} />
-        <div className="flex gap-3">
-          <Button
-            variant="primary"
-            loading={busy}
-            disabled={!canSubmit}
-            onClick={() => {
-              if (!canSubmit) return;
-              onSubmit({
-                username: username.trim(),
-                display_name: displayName.trim() || username.trim(),
-                password,
-                role: "user",
-              });
-            }}
-          >
-            Add user
-          </Button>
-          <Button variant="outline" onClick={close}>
-            Cancel
-          </Button>
-        </div>
-      </div>
+        <CreateUserForm
+          onSubmit={onSubmit}
+          busy={busy}
+          submitError={submitError}
+          onCancel={close}
+          resetKey={open}
+        />
       )}
     </ModalCard>
   );

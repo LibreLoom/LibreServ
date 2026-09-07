@@ -34,6 +34,19 @@ export default function FormInput({
   const fieldRef = useRef(null);
   const Icon = icon ? ICONS[icon] : null;
   const isPassword = type === "password";
+  // On a secondary card/modal, field pills use primary (page) fill so they layer.
+  // On a primary panel (e.g. Login), field pills use secondary fill.
+  const onPrimaryPanel = surface === "primary";
+  const inputTone = onPrimaryPanel
+    ? "bg-secondary text-primary placeholder:text-primary/40"
+    : "bg-primary text-secondary placeholder:text-secondary/40";
+  const idleBorder = onPrimaryPanel
+    ? "border-primary/30 focus:border-accent"
+    : "border-secondary/30 focus:border-accent";
+  const iconTone = onPrimaryPanel ? "text-primary/60" : "text-secondary/60";
+  const eyeTone = onPrimaryPanel
+    ? "text-primary/60 hover:text-primary focus-visible:ring-offset-secondary"
+    : "text-secondary/60 hover:text-secondary focus-visible:ring-offset-primary";
 
   const shakeOptions = loading !== undefined ? { loading } : undefined;
 
@@ -60,7 +73,11 @@ export default function FormInput({
           {Icon && (
             <Icon
               size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60 pointer-events-none z-10"
+              className={cn(
+                "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10",
+                iconTone,
+              )}
+              aria-hidden="true"
             />
           )}
           <input
@@ -78,16 +95,20 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
+              inputTone,
+              "disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
               "pr-11",
-              error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
+              error ? "border-error focus:border-error" : idleBorder,
             )}
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/60 hover:text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary no-focus-outline rounded-pill p-1"
+            className={cn(
+              "absolute right-4 top-1/2 -translate-y-1/2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline rounded-pill p-1",
+              eyeTone,
+            )}
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
             {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -98,7 +119,11 @@ export default function FormInput({
           {Icon && (
             <Icon
               size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60 pointer-events-none z-10"
+              className={cn(
+                "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10",
+                iconTone,
+              )}
+              aria-hidden="true"
             />
           )}
           <input
@@ -117,10 +142,11 @@ export default function FormInput({
             aria-describedby={error ? `${name}-error` : undefined}
             className={cn(
               "w-full py-2 border-2 rounded-pill outline-none",
-              "bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed",
+              inputTone,
+              "disabled:opacity-50 disabled:cursor-not-allowed",
               Icon ? "pl-11" : "pl-5",
               "pr-11",
-              error ? "border-error focus:border-error" : "border-primary/30 focus:border-accent",
+              error ? "border-error focus:border-error" : idleBorder,
             )}
           />
         </div>
