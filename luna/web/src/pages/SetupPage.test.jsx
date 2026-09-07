@@ -243,6 +243,39 @@ describe("SetupPage", () => {
     });
   });
 
+  it("hides the password policy hint once the strength checklist is visible", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/i }));
+    fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+
+    const passwordInput = await screen.findByLabelText(/Choose a password/i);
+    expect(passwordInput.getAttribute("placeholder")).toBe('Not "a1!", please.');
+    expect(
+      screen.getByText("At least 12 characters, with a letter and a number"),
+    ).toBeTruthy();
+
+    fireEvent.change(passwordInput, { target: { value: "abc" } });
+    expect(
+      screen.queryByText("At least 12 characters, with a letter and a number"),
+    ).toBeNull();
+    expect(screen.getByText("12+ chars")).toBeTruthy();
+    expect(screen.getByText("Not strong enough yet")).toBeTruthy();
+  });
+
   it("asks for the Luna Connect setup code on a public hostname when Connect is active", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },

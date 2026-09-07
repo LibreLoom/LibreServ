@@ -502,7 +502,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(await screen.findByLabelText(/password/i)).toBeTruthy();
   });
 
-  it("shows Password placeholder, helper copy, and live requirement chips while typing", async () => {
+  it("shows Password placeholder and helper, then hides helper when requirement chips appear", async () => {
     mount("/diyonboarding");
     fireEvent.change(screen.getByLabelText(/email address/i), { target: { value: "me@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
@@ -514,6 +514,9 @@ describe("OnboardingPage DIY verify", () => {
     ).toBeTruthy();
 
     fireEvent.change(passwordInput, { target: { value: "abc" } });
+    expect(
+      screen.queryByText("Use at least 12 characters, including a letter and a number."),
+    ).toBeNull();
     expect(screen.getByText("12+ chars")).toBeTruthy();
     expect(screen.getByText("letters")).toBeTruthy();
     expect(screen.getByText("numbers")).toBeTruthy();

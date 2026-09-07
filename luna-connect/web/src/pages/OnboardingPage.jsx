@@ -871,7 +871,9 @@ export default function OnboardingPage() {
               autoComplete={currentAuthField.autoComplete}
               autoFocus
             />
-            {currentAuthField.hint && (
+            {/* Hide the short policy helper once live requirement chips are showing. */}
+            {currentAuthField.hint &&
+              !(currentAuthField.showPasswordRequirements && currentAuthField.value) && (
               <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{currentAuthField.hint}</p>
             )}
             {currentAuthField.showPasswordRequirements && (

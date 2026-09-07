@@ -614,7 +614,9 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
               />
             )}
 
-            {currentAuthField.hint && (
+            {/* Hide the short policy hint once the live strength checklist is showing —
+                the ReqChips already cover length / letter / number. */}
+            {currentAuthField.hint && !(currentAuthField.showStrength && strength) && (
               <p className="mt-2.5 text-xs text-primary leading-relaxed">{currentAuthField.hint}</p>
             )}
 
