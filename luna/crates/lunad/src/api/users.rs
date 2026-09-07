@@ -91,6 +91,14 @@ fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
+        AuthError::PasswordPolicy(msg) => json_error(StatusCode::BAD_REQUEST, &msg),
+        AuthError::Taken => {
+            json_error(StatusCode::CONFLICT, "That username is already taken.")
+        }
+        AuthError::BadUsername => json_error(
+            StatusCode::BAD_REQUEST,
+            "Usernames are 3-32 letters, numbers, dots, dashes, or underscores.",
+        ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't update users. Try again.",

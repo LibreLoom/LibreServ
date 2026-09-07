@@ -200,6 +200,10 @@ func (h *AdminAuthHandler) SeedAdmin(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "admin password must be at least 12 characters")
 		return
 	}
+	if msg := auth.RejectBreachedPassword(req.Password); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
+		return
+	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -243,6 +247,10 @@ func (h *AdminAuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 	}
 	if len(req.NewPassword) < 12 {
 		JSONError(w, http.StatusBadRequest, "new password must be at least 12 characters")
+		return
+	}
+	if msg := auth.RejectBreachedPassword(req.NewPassword); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -325,6 +333,10 @@ func (h *AdminAuthHandler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Password) < 12 {
 		JSONError(w, http.StatusBadRequest, "password must be at least 12 characters")
+		return
+	}
+	if msg := auth.RejectBreachedPassword(req.Password); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 

@@ -104,6 +104,10 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	if msg := auth.RejectBreachedPassword(req.Password); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
+		return
+	}
 	// Normalize username: lowercase, strip spaces, validate format
 	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
 	if req.Username == "" {

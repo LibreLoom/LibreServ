@@ -125,6 +125,10 @@ func (h AdminAuthHandler) Seed(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Passwords need at least 12 characters, with at least one letter and one number.")
 		return
 	}
+	if msg := auth.RejectBreachedPassword(req.Password); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
+		return
+	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not create the admin account. Try again.")
@@ -279,6 +283,10 @@ func (h AdminAuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusBadRequest, "New passwords need at least 12 characters, with at least one letter and one number.")
 		return
 	}
+	if msg := auth.RejectBreachedPassword(req.NewPassword); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
+		return
+	}
 	var hash string
 	err := h.DB.QueryRow(`SELECT password_hash FROM admin_accounts WHERE id = ?`, adminID).Scan(&hash)
 	if err != nil {
@@ -376,6 +384,10 @@ func (h AdminAuthHandler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := auth.ValidatePassword(req.Password); err != nil {
 		JSONError(w, http.StatusBadRequest, "Passwords need at least 12 characters, with at least one letter and one number.")
+		return
+	}
+	if msg := auth.RejectBreachedPassword(req.Password); msg != "" {
+		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)

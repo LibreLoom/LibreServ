@@ -87,6 +87,11 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if msg := auth.RejectBreachedPassword(req.Password); msg != "" {
+		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
+		JSONError(w, http.StatusBadRequest, msg)
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not create the account. Try again.")

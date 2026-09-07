@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 )
 
@@ -18,6 +21,13 @@ func TestMain(m *testing.M) {
 	config.C.Backup.BucketPrefix = "libreserv-backup"
 	config.C.Inference.BaseURL = "https://inference.neuralwatt.dev/v1"
 	config.C.Auth.AdminTokenSecret = "admin-test-token"
+
+	// Keep password-set tests offline: empty HIBP range → no breach matches.
+	hibpStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(""))
+	}))
+	defer hibpStub.Close()
+	auth.SetHIBPRangeURL(hibpStub.URL + "/range/")
 
 	os.Exit(m.Run())
 }

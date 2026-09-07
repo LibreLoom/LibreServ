@@ -111,6 +111,9 @@ impl AuthService {
         if let Err(err) = crate::password::validate_password(password) {
             return Err(AuthError::PasswordPolicy(err.message().into()));
         }
+        if let Err(err) = crate::hibp::ensure_password_not_breached(password) {
+            return Err(AuthError::PasswordPolicy(err.message().into()));
+        }
 
         let conn = self
             .db
@@ -414,6 +417,9 @@ impl AuthService {
     /// Never exposed on the network.
     pub fn reset_admin_password(&self, password: &str) -> Result<UserRow, AuthError> {
         if let Err(err) = crate::password::validate_password(password) {
+            return Err(AuthError::PasswordPolicy(err.message().into()));
+        }
+        if let Err(err) = crate::hibp::ensure_password_not_breached(password) {
             return Err(AuthError::PasswordPolicy(err.message().into()));
         }
         let hash = hash_password(password)?;
