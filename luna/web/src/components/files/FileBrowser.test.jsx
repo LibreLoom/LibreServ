@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -318,5 +318,133 @@ describe("FileBrowser", () => {
     });
     expect(await screen.findByRole("button", { name: "New folder" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("FileBrowser folder chrome auto-split", () => {
+  /** @type {ResizeObserverCallback[]} */
+  let observers = [];
+  /** @type {{ clientWidth: number, scrollWidth: number }} */
+  let defaultContainer;
+  /** @type {{ clientWidth: number, scrollWidth: number }} */
+  let defaultProbe;
+
+  beforeEach(() => {
+    observers = [];
+    defaultContainer = { clientWidth: 900, scrollWidth: 900 };
+    defaultProbe = { clientWidth: 200, scrollWidth: 200 };
+
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        if (this.getAttribute?.("data-slot")?.startsWith("file-browser-folder-chrome")) {
+          return defaultContainer.clientWidth;
+        }
+        if (this.parentElement?.getAttribute?.("aria-hidden") === "true") {
+          return defaultProbe.clientWidth;
+        }
+        return 800;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get() {
+        if (this.parentElement?.getAttribute?.("aria-hidden") === "true") {
+          return defaultProbe.scrollWidth;
+        }
+        if (this.getAttribute?.("data-slot")?.startsWith("file-browser-folder-chrome")) {
+          return defaultContainer.scrollWidth;
+        }
+        return 800;
+      },
+    });
+
+    globalThis.ResizeObserver = class {
+      /** @param {ResizeObserverCallback} cb */
+      constructor(cb) {
+        observers.push(cb);
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    // @ts-expect-error cleanup test polyfill
+    delete HTMLElement.prototype.clientWidth;
+    // @ts-expect-error cleanup test polyfill
+    delete HTMLElement.prototype.scrollWidth;
+  });
+
+  it("keeps New/Upload in the current-folder card when they fit", async () => {
+    stubListing({ "": [] });
+    defaultContainer = { clientWidth: 900, scrollWidth: 900 };
+    defaultProbe = { clientWidth: 200, scrollWidth: 200 };
+
+    const { container } = renderBrowser({
+      multiSelect: false,
+      enableUploadDrop: true,
+      onUploadFiles: vi.fn(),
+      folderActions: <button type="button">New</button>,
+    });
+
+    expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+
+    expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeTruthy();
+    expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeNull();
+    expect(screen.queryByRole("toolbar", { name: "Folder actions" })).not.toBeInTheDocument();
+  });
+
+  it("moves New/Upload into a toolbar below the card when they do not fit", async () => {
+    stubListing({ "": [] });
+    defaultContainer = { clientWidth: 280, scrollWidth: 280 };
+    defaultProbe = { clientWidth: 500, scrollWidth: 500 };
+
+    const { container } = renderBrowser({
+      multiSelect: false,
+      enableUploadDrop: true,
+      onUploadFiles: vi.fn(),
+      folderActions: <button type="button">New</button>,
+    });
+
+    expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      observers.forEach((cb) => cb([], /** @type {ResizeObserver} */ ({})));
+    });
+
+    expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeTruthy();
+    expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeNull();
+    const toolbar = screen.getByRole("toolbar", { name: "Folder actions" });
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: "New" }));
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: /Upload/i }));
+  });
+
+  it("clips the measure probe so it cannot widen page scroll", async () => {
+    stubListing({ "": [] });
+    const { container } = renderBrowser({
+      multiSelect: false,
+      enableUploadDrop: true,
+      onUploadFiles: vi.fn(),
+      folderActions: <button type="button">New</button>,
+    });
+    expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
+    const probe = container.querySelector("[data-slot=file-browser-folder-chrome-probe]");
+    expect(probe).toBeTruthy();
+    expect(probe?.className).toMatch(/\bw-0\b/);
+    expect(probe?.className).toMatch(/overflow-hidden/);
+    expect(
+      container.querySelector("[data-slot=file-browser-folder-chrome-combined]")?.className,
+    ).toMatch(/overflow-x-hidden/);
   });
 });

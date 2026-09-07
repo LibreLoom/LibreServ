@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
@@ -14,6 +14,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import TextLink from "../ui/TextLink.jsx";
@@ -31,6 +32,13 @@ import {
   joinPath,
   parentPath,
 } from "../../lib/paths.js";
+
+/** Card `p-5` on each side — folder chrome must fit inside the padded area. */
+const FOLDER_CARD_PAD_X = 40;
+/** `gap-3` between path and New/Upload in the combined row. */
+const FOLDER_ROW_GAP = 12;
+/** Extra room required before collapsing a split back to one card (anti-flicker). */
+const FOLDER_UNSPLIT_SLACK = 24;
 
 function prefersReducedMotion() {
   return typeof window !== "undefined"
@@ -151,11 +159,15 @@ export default function FileBrowser({
   const filePicker = useRef(/** @type {HTMLInputElement|null} */ (null));
   const listRef = useRef(/** @type {HTMLUListElement|null} */ (null));
   const appliedSelectRef = useRef(/** @type {string|null} */ (null));
+  const folderChromeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const folderChromeProbeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const [folderChromeSplit, setFolderChromeSplit] = useState(false);
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
   const isPicker = Boolean(pickerMode);
   const multiSelect = multiSelectProp ?? (!isPicker);
+  const hasFolderActions = Boolean(folderActions || (enableUploadDrop && !isPicker));
 
   const selectedPaths = controlledSelected !== undefined ? controlledSelected : innerSelected;
 
@@ -254,6 +266,64 @@ export default function FileBrowser({
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
+
+  const remeasureFolderChrome = useCallback(() => {
+    const container = folderChromeRef.current;
+    const probe = folderChromeProbeRef.current;
+    if (!container || !probe || !hasFolderActions || !showBreadcrumbs) {
+      setFolderChromeSplit(false);
+      return;
+    }
+
+    const available = container.clientWidth - FOLDER_CARD_PAD_X;
+    if (available <= 0) return;
+
+    const needed = probe.scrollWidth;
+    setFolderChromeSplit((wasSplit) => {
+      if (wasSplit) {
+        return needed + FOLDER_UNSPLIT_SLACK > available;
+      }
+      return needed > available;
+    });
+  }, [hasFolderActions, showBreadcrumbs]);
+
+  useEffect(() => {
+    if (!hasFolderActions || !showBreadcrumbs) {
+      setFolderChromeSplit(false);
+      return;
+    }
+
+    const container = folderChromeRef.current;
+    const probe = folderChromeProbeRef.current;
+    if (!container) return;
+
+    const timeoutId = window.setTimeout(remeasureFolderChrome, 50);
+    /** @type {ResizeObserver | null} */
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(remeasureFolderChrome);
+      observer.observe(container);
+      if (probe) observer.observe(probe);
+    }
+    window.addEventListener("resize", remeasureFolderChrome);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      observer?.disconnect();
+      window.removeEventListener("resize", remeasureFolderChrome);
+    };
+  }, [
+    hasFolderActions,
+    showBreadcrumbs,
+    folderChromeSplit,
+    remeasureFolderChrome,
+    driveLabel,
+    path,
+    folderActions,
+    enableUploadDrop,
+    isPicker,
+    breadcrumbExtra,
+  ]);
 
   function openFolder(folderPath) {
     setPath(folderPath);
@@ -493,6 +563,37 @@ export default function FileBrowser({
   const listDropHighlight = Boolean(enableUploadDrop && !isPicker && dragOver && !dropTarget);
   const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
 
+  const folderActionButtons = hasFolderActions ? (
+    <>
+      {folderActions}
+      {enableUploadDrop && !isPicker ? (
+        <>
+          <input
+            ref={filePicker}
+            type="file"
+            multiple
+            className="sr-only"
+            onChange={async (e) => {
+              const files = filesFromFileList(e.target.files);
+              e.target.value = "";
+              if (files.length && onUploadFiles) await onUploadFiles(files, path);
+            }}
+          />
+          <Button
+            variant="outline"
+            surface="secondary"
+            size="sm"
+            type="button"
+            onClick={() => filePicker.current?.click()}
+          >
+            <UploadCloud size={14} aria-hidden="true" />
+            Upload
+          </Button>
+        </>
+      ) : null}
+    </>
+  ) : null;
+
   return (
     <div
       className={className}
@@ -516,113 +617,154 @@ export default function FileBrowser({
       }}
     >
       {showBreadcrumbs && (
-        <Card className="mb-3" padding>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-mono uppercase tracking-widest text-primary mb-1">
-                Current folder
-              </p>
+        <div
+          ref={folderChromeRef}
+          className="relative mb-3 overflow-x-hidden"
+          data-slot={
+            folderChromeSplit
+              ? "file-browser-folder-chrome-split"
+              : "file-browser-folder-chrome-combined"
+          }
+        >
+          {hasFolderActions ? (
+            <div
+              className="pointer-events-none absolute left-0 top-0 z-[-1] h-0 w-0 overflow-hidden opacity-0"
+              aria-hidden="true"
+              data-slot="file-browser-folder-chrome-probe"
+            >
               <div
-                className="flex flex-wrap items-center gap-2 font-mono text-sm text-primary"
-                aria-live="polite"
+                ref={folderChromeProbeRef}
+                className="flex w-max items-start whitespace-nowrap"
+                style={{ gap: FOLDER_ROW_GAP }}
               >
-                {linkNavigation ? (
-                  <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all text-primary">
-                    {driveLabel}
-                  </TextLink>
-                ) : (
-                  <button
-                    type="button"
-                    className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
-                    onClick={() => openFolder("")}
-                  >
-                    {driveLabel}
-                  </button>
-                )}
-                {segments.map((segment, i) => {
-                  const segPath = segments.slice(0, i + 1).join("/");
-                  return (
-                    <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
-                      <span className="text-primary" aria-hidden="true">/</span>
-                      {linkNavigation ? (
-                        <TextLink
-                          to={folderHref(driveId, segPath)}
-                          surface="secondary"
-                          className="break-all text-primary"
-                        >
-                          {segment}
-                        </TextLink>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
-                          onClick={() => openFolder(segPath)}
-                        >
-                          {segment}
-                        </button>
-                      )}
-                    </span>
-                  );
-                })}
-                {listBusy ? (
-                  <Spinner size="sm" label="Loading folder" className="text-primary" />
-                ) : null}
-                {breadcrumbExtra}
+                <div className="shrink-0">
+                  <p className="text-xs font-mono uppercase tracking-widest text-primary mb-1">
+                    Current folder
+                  </p>
+                  <div className="flex items-center gap-2 font-mono text-sm text-primary">
+                    <span>{driveLabel}</span>
+                    {segments.map((segment, i) => (
+                      <span key={`probe-${segment}-${i}`} className="flex items-center gap-2">
+                        <span aria-hidden="true">/</span>
+                        <span>{segment}</span>
+                      </span>
+                    ))}
+                    {breadcrumbExtra}
+                  </div>
+                </div>
+                <div className="shrink-0 flex items-center gap-2">
+                  {folderActions}
+                  {enableUploadDrop && !isPicker ? (
+                    <Button variant="outline" surface="secondary" size="sm" type="button" tabIndex={-1}>
+                      <UploadCloud size={14} aria-hidden="true" />
+                      Upload
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
-            {folderActions || (enableUploadDrop && !isPicker) ? (
-              <div className="shrink-0 flex flex-wrap items-center justify-end gap-2">
-                {folderActions}
-                {enableUploadDrop && !isPicker ? (
-                  <>
-                    <input
-                      ref={filePicker}
-                      type="file"
-                      multiple
-                      className="sr-only"
-                      onChange={async (e) => {
-                        const files = filesFromFileList(e.target.files);
-                        e.target.value = "";
-                        if (files.length && onUploadFiles) await onUploadFiles(files, path);
-                      }}
-                    />
+          ) : null}
+
+          <Card padding>
+            <div
+              className={cn(
+                "flex items-start gap-3",
+                !folderChromeSplit && hasFolderActions && "justify-between",
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-mono uppercase tracking-widest text-primary mb-1">
+                  Current folder
+                </p>
+                <div
+                  className="flex flex-wrap items-center gap-2 font-mono text-sm text-primary"
+                  aria-live="polite"
+                >
+                  {linkNavigation ? (
+                    <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all text-primary">
+                      {driveLabel}
+                    </TextLink>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
+                      onClick={() => openFolder("")}
+                    >
+                      {driveLabel}
+                    </button>
+                  )}
+                  {segments.map((segment, i) => {
+                    const segPath = segments.slice(0, i + 1).join("/");
+                    return (
+                      <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
+                        <span className="text-primary" aria-hidden="true">/</span>
+                        {linkNavigation ? (
+                          <TextLink
+                            to={folderHref(driveId, segPath)}
+                            surface="secondary"
+                            className="break-all text-primary"
+                          >
+                            {segment}
+                          </TextLink>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
+                            onClick={() => openFolder(segPath)}
+                          >
+                            {segment}
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {listBusy ? (
+                    <Spinner size="sm" label="Loading folder" className="text-primary" />
+                  ) : null}
+                  {breadcrumbExtra}
+                </div>
+              </div>
+              {hasFolderActions && !folderChromeSplit ? (
+                <div className="shrink-0 flex flex-wrap items-center justify-end gap-2">
+                  {folderActionButtons}
+                </div>
+              ) : null}
+            </div>
+            {(showUpButton && up !== null) || headerExtra ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {showUpButton && up !== null && (
+                  linkNavigation ? (
+                    <Button variant="outline" surface="secondary" size="sm" asChild>
+                      <Link to={folderHref(driveId, up)}>↑ Up one folder</Link>
+                    </Button>
+                  ) : (
                     <Button
                       variant="outline"
                       surface="secondary"
                       size="sm"
-                      type="button"
-                      onClick={() => filePicker.current?.click()}
+                      onClick={() => openFolder(up)}
                     >
-                      <UploadCloud size={14} aria-hidden="true" />
-                      Upload
+                      ↑ Up one folder
                     </Button>
-                  </>
-                ) : null}
+                  )
+                )}
+                {headerExtra}
               </div>
             ) : null}
-          </div>
-          {(showUpButton && up !== null) || headerExtra ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {showUpButton && up !== null && (
-                linkNavigation ? (
-                  <Button variant="outline" surface="secondary" size="sm" asChild>
-                    <Link to={folderHref(driveId, up)}>↑ Up one folder</Link>
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    surface="secondary"
-                    size="sm"
-                    onClick={() => openFolder(up)}
-                  >
-                    ↑ Up one folder
-                  </Button>
-                )
-              )}
-              {headerExtra}
-            </div>
+          </Card>
+
+          {hasFolderActions && folderChromeSplit ? (
+            <Card className="mt-3" padding>
+              <div
+                className="flex flex-wrap items-center justify-center gap-2 min-h-10"
+                role="toolbar"
+                aria-label="Folder actions"
+              >
+                {folderActionButtons}
+              </div>
+            </Card>
           ) : null}
-        </Card>
+        </div>
       )}
 
       {/* Upload / move drop feedback uses the same accent/20 highlight as
