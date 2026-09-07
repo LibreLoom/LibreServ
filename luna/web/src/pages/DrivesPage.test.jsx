@@ -186,7 +186,12 @@ describe("DrivesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    const note = await screen.findByText(/drive database/i);
+    // Copy spans TermHint / mono spans — match via textContent on the note row.
+    const note = await screen.findByText((_content, el) => {
+      if (el?.tagName !== "P") return false;
+      const text = el.textContent || "";
+      return /writes a/.test(text) && /\.luna/.test(text) && /database/.test(text);
+    });
     const row = note.closest("div");
     expect(row?.querySelector(".text-accent")).toBeTruthy();
     expect(row?.querySelector(".text-warning")).toBeNull();

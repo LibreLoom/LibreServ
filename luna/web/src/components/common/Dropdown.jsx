@@ -184,7 +184,7 @@ export default function Dropdown({
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
               "bg-secondary text-primary font-mono ring-inset ring-2 ring-accent",
-              "rounded-large-element py-0 z-50 overflow-hidden min-w-[8rem]",
+              "rounded-large-element py-0 z-[100] overflow-hidden min-w-[8rem]",
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
             )}
             tabIndex={-1}

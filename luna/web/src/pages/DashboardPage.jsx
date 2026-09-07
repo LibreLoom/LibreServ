@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, ChevronRight, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
+import ModalCard from "../components/cards/ModalCard.jsx";
 import Button from "../components/ui/Button.jsx";
 import Pill from "../components/common/Pill.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
@@ -16,10 +17,12 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
-import { ApiError, getDrives, getHealth, getJson } from "../lib/api.js";
+import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, postJson } from "../lib/api.js";
 import { folderHref as driveFolderHref, pathBasename } from "../lib/paths.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import useConnectActive from "../hooks/useConnectActive.js";
+import InspectModal from "../components/files/InspectModal.jsx";
+import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
 
 const STATE_PILLS = {
   as_is: "success",
@@ -564,6 +567,7 @@ function RecentJobsCard({ jobs, drives }) {
 }
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
   const greeting = useMemo(() => getGreeting(), []);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -603,6 +607,35 @@ export default function DashboardPage() {
     queryFn: () => getJson("/api/v1/me/access"),
     enabled: !isAdmin,
   });
+
+  // "Add drive" modal state — shown when user clicks the dashboard banner button.
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const [inspectFor, setInspectFor] = useState(null);
+
+  const inspect = useMutation({
+    mutationFn: (/** @type {any} */ drive) => {
+      if (
+        isMockUnknownDrive(drive?.name)
+        && !detected.data?.some((real) => real.name === drive.name)
+      ) {
+        return Promise.resolve(mockInspectResult());
+      }
+      return postJson(`/api/v1/drives/${drive.name}/inspect`, {});
+    },
+  });
+
+  const adopt = useMutation({
+    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
+      postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["drives"] });
+      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
+    },
+  });
+
+  const adoptError = adopt.isError
+    ? apiErrorMessage(adopt.error, "Luna couldn't add this drive. Try again.")
+    : null;
 
   const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
   const getDisplayUptime = useCallback(() => {
@@ -647,7 +680,8 @@ export default function DashboardPage() {
   );
 
   const adopted = Array.isArray(drives.data) ? drives.data : [];
-  const pluggedIn = Array.isArray(detected.data) ? detected.data : [];
+  // Dev mock injects a review fixture when lunad reports nothing new.
+  const pluggedIn = withDevMockDetected(detected.data);
   // Unplugged is normal — only real failures need the "Needs a look" card.
   const attentionDrives = adopted.filter((drive) => drive.state === "failed");
   const recentJobs = Array.isArray(jobs.data) ? jobs.data : [];
@@ -702,12 +736,20 @@ export default function DashboardPage() {
           {isAdmin && pluggedIn.length > 0 && (
             <Card icon={PlugZap} title="New drive plugged in">
               <p className="text-primary text-sm">
-                Luna noticed a USB drive. Open Drives to add it — nothing
-                on the drive changes until you confirm.
+                Luna noticed a USB drive. Nothing on the drive changes until you confirm.
               </p>
               <div className="mt-3">
-                <Button size="sm" variant="primary" asChild>
-                  <Link to="/drives">Add drive</Link>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    inspect.reset();
+                    adopt.reset();
+                    setInspectFor(null);
+                    setDrivePickerOpen(true);
+                  }}
+                >
+                  Add drive
                 </Button>
               </div>
             </Card>
@@ -734,7 +776,7 @@ export default function DashboardPage() {
             <EmptyState
               icon={HardDrive}
               title="No drives yet"
-              description="Plug a USB drive into Luna. It will show up here in a few seconds, and Luna will not change anything on it until you ask. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              description="Plug a USB drive into Luna to get started."
               action={
                 <Button size="sm" variant="primary" asChild>
                   <Link to="/drives">Go to Drives</Link>
@@ -762,6 +804,92 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+
+      {/* Drive picker — lists unrecognized drives so the user can choose which to set up.
+          Unmount when inspect opens so we don't stack two overlays during ModalCard exit. */}
+      {inspectFor == null && (
+        <ModalCard
+          open={drivePickerOpen}
+          onClose={() => setDrivePickerOpen(false)}
+          title="New drive detected"
+        >
+          {({ close }) => (
+            <>
+              <p className="text-primary text-sm mb-4">
+                {pluggedIn.length === 1
+                  ? "Luna found a drive that hasn't been added yet. Select it to see what's on it before adding."
+                  : "Luna found drives that haven't been added yet. Select one to see what's on it before adding."}
+              </p>
+              <ul className="space-y-3" aria-label="Drives available to add">
+                {pluggedIn.map((drive) => {
+                  const meta = [
+                    drive.size_bytes
+                      ? `${(drive.size_bytes / 1_000_000_000).toFixed(0)} GB`
+                      : null,
+                    drive.usb || drive.removable ? "USB" : null,
+                    drive.fs_type ? drive.fs_type.toUpperCase() : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <li key={drive.name}>
+                      <button
+                        type="button"
+                        className={[
+                          "w-full text-left rounded-large-element bg-primary text-secondary p-4",
+                          "motion-safe:transition-all hover:bg-accent/10",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
+                        ].join(" ")}
+                        onClick={() => {
+                          inspect.reset();
+                          adopt.reset();
+                          setDrivePickerOpen(false);
+                          setInspectFor(drive);
+                          inspect.mutate(drive);
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <HardDrive
+                            size={18}
+                            className="text-accent shrink-0"
+                            aria-hidden="true"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-sm font-medium truncate">
+                              {drive.model || drive.name}
+                            </div>
+                            {meta ? (
+                              <div className="text-xs text-accent mt-0.5">{meta}</div>
+                            ) : null}
+                          </div>
+                          <span className="text-xs text-accent shrink-0">
+                            Tap to review →
+                          </span>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="mt-4">
+                <Button variant="outline" onClick={close}>Not now</Button>
+              </div>
+            </>
+          )}
+        </ModalCard>
+      )}
+
+      {/* Inspect / adopt wizard — reuses the same component as DrivesPage */}
+      <InspectModal
+        open={inspectFor != null}
+        drive={inspectFor}
+        result={inspect.data}
+        error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
+        onClose={() => { setInspectFor(null); inspect.reset(); adopt.reset(); }}
+        onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
+        adoptError={adoptError}
+        adopting={adopt.isPending}
+      />
     </Page>
   );
 }

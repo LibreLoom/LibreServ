@@ -303,6 +303,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
                     value={url}
                     copyLabel="Copy address"
                     ariaLabel="Share link address"
+                    surface="primary"
                   />
                 )}
               </div>

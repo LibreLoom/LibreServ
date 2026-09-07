@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -95,6 +96,24 @@ function stubFetch({
       }
       if (u.includes("/api/v1/jobs")) return jsonResponse(jobs);
       if (u.endsWith("/api/v1/me/access")) return jsonResponse(access);
+      const inspectMatch = u.match(/\/api\/v1\/drives\/([^/]+)\/inspect$/);
+      if (inspectMatch) {
+        return jsonResponse({
+          device: inspectMatch[1],
+          model: "SanDisk",
+          fs_type: "exfat",
+          readable: true,
+          writable: true,
+          needs_erase: false,
+          has_marker: false,
+          folders: 1,
+          files: 2,
+          entries: [
+            { kind: "folder", name: "Photos" },
+            { kind: "file", name: "readme.txt" },
+          ],
+        });
+      }
       return jsonResponse({}, 404);
     }),
   );
@@ -155,9 +174,45 @@ describe("DashboardPage", () => {
     });
     renderPage();
     expect(await screen.findByText(/New drive plugged in/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^Add drive$/i })).toHaveAttribute("href", "/drives");
-    expect(screen.getByText(/Open Drives to add it/i)).toBeInTheDocument();
+    // "Add drive" must be a button (opens modal) — not a navigation link.
+    const addBtn = screen.getByRole("button", { name: /^Add drive$/i });
+    expect(addBtn).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Add drive$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Nothing on the drive changes until you confirm/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Look inside/i })).not.toBeInTheDocument();
+  });
+
+  it("opens a drive-picker modal when 'Add drive' is clicked", async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      drives: [],
+      detected: [{ name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000, usb: true, fs_type: "exfat" }],
+    });
+    renderPage();
+    const addBtn = await screen.findByRole("button", { name: /^Add drive$/i });
+    await user.click(addBtn);
+    // Modal should open listing the drive
+    expect(await screen.findByText(/New drive detected/i)).toBeInTheDocument();
+    expect(screen.getByText("SanDisk")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Not now/i })).toBeInTheDocument();
+  });
+
+  it("opens the inspect wizard when a listed drive is selected", async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      drives: [],
+      detected: [{ name: "sdb", model: "SanDisk", size_bytes: 32_000_000_000, usb: true, fs_type: "exfat" }],
+    });
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
+    expect(await screen.findByText(/New drive detected/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /SanDisk/i }));
+    // Picker unmounts; shared InspectModal opens for setup.
+    expect(screen.queryByText(/New drive detected/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Add SanDisk/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Photos/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Add this drive$/i })).toBeInTheDocument();
   });
 
   it("loads network status for a household member, not only an admin", async () => {

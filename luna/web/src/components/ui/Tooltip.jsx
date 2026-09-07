@@ -118,6 +118,11 @@ function HintShell({
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const textClass = surface === "primary" ? "text-secondary" : "text-primary";
 
+  // Set by hide() so that the very next focus event caused by the same
+  // interaction (e.g. modal closes → focus restored to trigger) is ignored.
+  // Cleared after it fires once, so real subsequent keyboard-Tab focus works.
+  const suppressFocusShowRef = useRef(false);
+
   const clearTimers = useCallback(() => {
     if (openTimer.current) clearTimeout(openTimer.current);
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -134,6 +139,9 @@ function HintShell({
     clearTimers();
     setPinned(false);
     setOpen(false);
+    // Suppress the next focus event so that a programmatic focus-restore
+    // (e.g. after a modal closes) does not immediately re-open the tooltip.
+    suppressFocusShowRef.current = true;
   }, [clearTimers]);
 
   const scheduleShow = useCallback(() => {
@@ -202,6 +210,17 @@ function HintShell({
     }
   };
 
+  const onFocus = () => {
+    // Ignore focus if it was suppressed by a preceding hide() call (e.g.
+    // programmatic focus-restore when a modal closes). The flag is one-shot:
+    // real keyboard-Tab focus on the next navigation will not be suppressed.
+    if (suppressFocusShowRef.current) {
+      suppressFocusShowRef.current = false;
+      return;
+    }
+    show();
+  };
+
   const onBlur = (event) => {
     const next = event.relatedTarget;
     if (popupRef.current?.contains(next) || triggerRef.current?.contains(next)) return;
@@ -217,7 +236,7 @@ function HintShell({
         onClick,
         onPointerEnter: scheduleShow,
         onPointerLeave: pinned ? undefined : scheduleHide,
-        onFocus: show,
+        onFocus,
         onBlur,
         textClass,
       })}
@@ -493,6 +512,11 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
   const [soloOpen, setSoloOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
+  // Set by the outside-pointerdown handler so that a programmatic focus-restore
+  // (e.g. after a modal closes) does not re-open the tooltip. One-shot: real
+  // keyboard-Tab focus on subsequent navigation will not be suppressed.
+  const suppressFocusShowRef = useRef(false);
+
   const open = group ? group.activeId === localId : soloOpen;
   const resolvedDelay = delayMs ?? group?.delayMs ?? 400;
 
@@ -550,6 +574,10 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
     function onPointerDown(event) {
       const t = event.target;
       if (triggerRef.current?.contains(t) || popupRef.current?.contains(t)) return;
+      // An outside pointerdown (e.g. opening a modal) closes the tooltip and
+      // suppresses the next focus event so that focus-restore after the modal
+      // closes does not re-open the tooltip.
+      suppressFocusShowRef.current = true;
       hideNow();
     }
     document.addEventListener("keydown", onKey);
@@ -581,7 +609,16 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
       data-slot="tooltip"
       onPointerEnter={scheduleShow}
       onPointerLeave={scheduleHide}
-      onFocusCapture={showNow}
+      onFocusCapture={() => {
+        // Suppress programmatic focus-restores (e.g. after modal closes).
+        // One-shot: the flag is cleared here so the next real keyboard-Tab
+        // focus arrives with suppressFocusShowRef = false and shows normally.
+        if (suppressFocusShowRef.current) {
+          suppressFocusShowRef.current = false;
+          return;
+        }
+        showNow();
+      }}
       onBlurCapture={(event) => {
         const next = event.relatedTarget;
         if (triggerRef.current?.contains(next) || popupRef.current?.contains(next)) return;
