@@ -38,10 +38,17 @@ For local development and testing without connecting to the real Luna Connect cl
 
 ### Quick Start
 
-Start the mock server on `http://127.0.0.1:18765`:
+One-shot for Cloud Agents / local: start mock, unlock backup, set domain `max.luna.servers.libreloom.org`, mint `dev/device-token`:
+```sh
+bash scripts/seed-mock-connect.sh
+# (also run automatically from .cursor/start.sh)
+```
+
+Start the mock server alone on `http://127.0.0.1:18765`:
 ```sh
 make mock-connect
 # or: bash scripts/mock-connect.sh
+# background: make mock-connect ARGS="serve --daemon"
 ```
 
 Run `lunad` against the mock server:

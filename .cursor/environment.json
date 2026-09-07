@@ -15,8 +15,8 @@
     },
     {
       "name": "luna-backend",
-      "command": "cd luna && make dev-daemon",
-      "description": "Luna lunad API server on http://localhost:8090 (LUNA_DATA_DIR=luna/dev). Serves the REST API and, when built, the Luna web UI."
+      "command": "cd luna && LUNA_CONNECT_URL=http://127.0.0.1:18765 make dev-daemon",
+      "description": "Luna lunad API server on http://localhost:8090 (LUNA_DATA_DIR=luna/dev). Uses the local Connect mock from start.sh (LUNA_CONNECT_URL=http://127.0.0.1:18765) so External Services / cloud backup stay available."
     },
     {
       "name": "luna-frontend",
@@ -28,6 +28,7 @@
     { "name": "backend api", "port": 8080 },
     { "name": "frontend dev server", "port": 3000 },
     { "name": "luna backend api", "port": 8090 },
-    { "name": "luna frontend dev server", "port": 3001 }
+    { "name": "luna frontend dev server", "port": 3001 },
+    { "name": "luna mock connect", "port": 18765 }
   ]
 }
