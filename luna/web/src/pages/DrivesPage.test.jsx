@@ -654,41 +654,6 @@ describe("DrivesPage", () => {
           ),
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/isn't writable after a safe eject/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/only removes its tiny/i)).not.toBeInTheDocument();
-  });
-
-  it("explains that an ejected remove leaves the marker because the drive is not writable", async () => {
-    const { default: userEvent } = await import("@testing-library/user-event");
-    stubDrivesApi({
-      fetch: (u) => {
-        if (u.endsWith("/drives")) {
-          return new Response(JSON.stringify([{
-            id: "d1", label: "General UDisk", state: "ejected", fs_type: "vfat", device: "sda",
-            mount_point: "",
-          }]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        return null;
-      },
-    });
-    renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
-    expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) =>
-        node?.tagName === "P"
-          && Boolean(
-            node.textContent?.includes("drive database will stay on the drive")
-              && node.textContent?.includes("isn't writable after a safe eject")
-              && node.textContent?.includes("Your files stay exactly where they are"),
-          ),
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/currently unplugged/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/only removes its tiny/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Keep it/i })).toBeInTheDocument();
   });
 
   it("reuses unplugged remove copy for an ejected drive", async () => {
