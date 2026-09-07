@@ -322,6 +322,7 @@ describe("DashboardPage", () => {
       const link = screen.getByRole("link", { name: /Remote access on/i });
       expect(link.className).toMatch(/rounded-pill/);
       expect(link.className).not.toMatch(/rounded-large-element/);
+      expect(link.className).toMatch(/hover:ring-inset/);
       expect(link.querySelector(".flex-col")).toBeNull();
       // Visible link + aria-hidden measure probe both render the hostname.
       expect(screen.getAllByText("max.luna.servers.libreloom.org").length).toBeGreaterThanOrEqual(1);
@@ -349,13 +350,19 @@ describe("DashboardPage", () => {
 
       const wrap = container.querySelector("[data-slot=remote-access-link]");
       expect(wrap).toHaveAttribute("data-stacked", "true");
+      // Wrapper must stay overflow-visible so hover:ring is not axis-coupled clipped.
+      expect(wrap?.className).not.toMatch(/overflow-x-hidden|overflow-hidden/);
       const link = screen.getByRole("link", { name: /Remote access on/i });
       // Must be a card radius — rounded-pill must not remain (twMerge conflict bug).
       expect(link.className).toMatch(/rounded-large-element/);
       expect(link.className).not.toMatch(/rounded-pill/);
       expect(link.className).toMatch(/items-stretch/);
+      expect(link.className).toMatch(/hover:ring-inset/);
       // Label and domain are in a column (not a cramped single-line pill).
       expect(link.querySelector(".flex-col")).toBeTruthy();
+      const host = link.querySelector(".font-mono");
+      expect(host?.className).toMatch(/break-words/);
+      expect(host?.className).not.toMatch(/break-all/);
       expect(link.textContent).toContain("max.luna.servers.libreloom.org");
       const probe = container.querySelector("[data-slot=remote-access-probe]");
       expect(probe?.className).toMatch(/\bw-0\b/);

@@ -401,7 +401,10 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
   return (
     <div
       ref={containerRef}
-      className="relative mt-4 w-full overflow-x-hidden"
+      // Do NOT use overflow-x-hidden here: CSS couples axes, so a hidden X
+      // makes Y compute to auto and clips Button's hover:ring at top/bottom
+      // (only corner arcs remain). Probe is already self-clipped in a 0×0 box.
+      className="relative mt-4 w-full"
       data-slot="remote-access-link"
       data-stacked={stacked ? "true" : "false"}
     >
@@ -429,9 +432,11 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
         className={cn(
           // Button variants always include rounded-pill; cn()/twMerge must
           // replace it with rounded-large-element when stacked (see utils.js).
+          // ring-inset keeps the hover ring inside the control so ConnectionCard's
+          // overflow-hidden height clip cannot cut it either.
           stacked
-            ? "h-auto items-stretch justify-start rounded-large-element py-3 text-left"
-            : "justify-between rounded-pill",
+            ? "h-auto items-stretch justify-start rounded-large-element py-3 text-left hover:ring-inset focus-visible:ring-inset"
+            : "justify-between rounded-pill hover:ring-inset focus-visible:ring-inset",
         )}
       >
         <Link to="/settings#external_services" aria-label={label}>
@@ -441,7 +446,9 @@ function RemoteAccessLink({ remoteOn, remoteDomain }) {
                 <span>{label}</span>
                 <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
               </span>
-              <span className="font-mono break-all">{remoteDomain}</span>
+              <span className="font-mono break-words [overflow-wrap:anywhere]">
+                {remoteDomain}
+              </span>
             </span>
           ) : (
             <>
