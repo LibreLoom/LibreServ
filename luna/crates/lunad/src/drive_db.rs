@@ -19,15 +19,14 @@ use rusqlite::{Connection, OptionalExtension, params};
 /// Open or create `{root}/.luna` and apply the full drive schema.
 pub fn open(root: &Path) -> anyhow::Result<Connection> {
     let path = root.join(MARKER_FILE_NAME);
-    if path.is_file() {
-        if let Ok(bytes) = std::fs::read(&path) {
-            if bytes.first() == Some(&b'{') {
-                let marker: Marker = serde_json::from_slice(&bytes)
-                    .map_err(|e| anyhow::anyhow!("legacy .luna marker: {e}"))?;
-                luna_core::marker::write_marker(root, &marker)
-                    .map_err(|e| anyhow::anyhow!("upgrade .luna marker: {e}"))?;
-            }
-        }
+    if path.is_file()
+        && let Ok(bytes) = std::fs::read(&path)
+        && bytes.first() == Some(&b'{')
+    {
+        let marker: Marker = serde_json::from_slice(&bytes)
+            .map_err(|e| anyhow::anyhow!("legacy .luna marker: {e}"))?;
+        luna_core::marker::write_marker(root, &marker)
+            .map_err(|e| anyhow::anyhow!("upgrade .luna marker: {e}"))?;
     }
     let conn = Connection::open(&path)?;
     configure(&conn)?;
@@ -48,10 +47,10 @@ pub fn create(root: &Path, marker: &Marker) -> anyhow::Result<Connection> {
         // Open first so JSON stickers upgrade and the full schema exists, then
         // claim identity in place so index/gallery/hash/upload tables survive.
         let conn = open(root)?;
-        if let Some(old) = read_identity(&conn)? {
-            if old.id != marker.id {
-                rewrite_drive_ids(&conn, &old.id, &marker.id)?;
-            }
+        if let Some(old) = read_identity(&conn)?
+            && old.id != marker.id
+        {
+            rewrite_drive_ids(&conn, &old.id, &marker.id)?;
         }
         upsert_identity(&conn, marker)?;
         return Ok(conn);
@@ -556,11 +555,11 @@ impl DriveDbPool {
     }
 
     pub fn close(&self, drive_id: &str) {
-        if let Ok(mut map) = self.inner.lock() {
-            if let Some(arc) = map.remove(drive_id) {
-                // Checkpoint/close by dropping the last Arc when callers release.
-                drop(arc);
-            }
+        if let Ok(mut map) = self.inner.lock()
+            && let Some(arc) = map.remove(drive_id)
+        {
+            // Checkpoint/close by dropping the last Arc when callers release.
+            drop(arc);
         }
     }
 

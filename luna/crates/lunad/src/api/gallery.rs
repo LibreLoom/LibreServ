@@ -322,16 +322,15 @@ async fn status(
     let st = state.gallery.status();
     let mut drive_label: Option<String> = None;
     let mut drive_id = st.drive_id.clone();
-    if let Ok(conn) = state.db.lock() {
-        if let Some(id) = drive_id.as_deref() {
-            if let Ok(Some(row)) = crate::db::get_drive(&conn, id) {
-                // Only expose a drive the caller can see.
-                if crate::auth::has_drive_access(&user, &conn, id) {
-                    drive_label = Some(row.label);
-                } else {
-                    drive_id = None;
-                }
-            }
+    if let Ok(conn) = state.db.lock()
+        && let Some(id) = drive_id.as_deref()
+        && let Ok(Some(row)) = crate::db::get_drive(&conn, id)
+    {
+        // Only expose a drive the caller can see.
+        if crate::auth::has_drive_access(&user, &conn, id) {
+            drive_label = Some(row.label);
+        } else {
+            drive_id = None;
         }
     }
     Json(json!({

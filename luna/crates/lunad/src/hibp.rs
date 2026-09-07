@@ -70,10 +70,10 @@ pub fn check_breached_password(pw: &str) -> Result<bool, String> {
         .map_err(|e| e.to_string())?;
 
     for line in body.lines() {
-        if let Some((hash_suffix, _)) = line.split_once(':') {
-            if hash_suffix.eq_ignore_ascii_case(suffix) {
-                return Ok(true);
-            }
+        if let Some((hash_suffix, _)) = line.split_once(':')
+            && hash_suffix.eq_ignore_ascii_case(suffix)
+        {
+            return Ok(true);
         }
     }
     Ok(false)
@@ -177,7 +177,7 @@ mod tests {
         let suffix = &full[5..];
         let stub = start_stub(format!("{suffix}:999\nDEADBEEF:1\n"));
         set_hibp_range_url(&stub.url);
-        assert_eq!(check_breached_password("password123").unwrap(), true);
+        assert!(check_breached_password("password123").unwrap());
         set_hibp_range_url("");
     }
 
@@ -186,7 +186,7 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap();
         let stub = start_stub("DEADBEEF:1\nCAFEBABE:2\n");
         set_hibp_range_url(&stub.url);
-        assert_eq!(check_breached_password("Tr0ub4dor&3-Good!").unwrap(), false);
+        assert!(!check_breached_password("Tr0ub4dor&3-Good!").unwrap());
         set_hibp_range_url("");
     }
 

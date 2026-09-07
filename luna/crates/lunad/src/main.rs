@@ -226,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
             .spawn(move || {
                 loop {
                     if let Ok(conn) = db.lock() {
-                        lunad::recovery_drive::scan_candidate_dirs(&data_dir, &conn);
+                        let _ = lunad::recovery_drive::scan_candidate_dirs(&data_dir, &conn);
                     }
                     std::thread::sleep(std::time::Duration::from_secs(3));
                 }
