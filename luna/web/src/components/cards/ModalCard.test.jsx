@@ -401,6 +401,18 @@ describe("ModalCard", () => {
     expect(dialog.className).toMatch(/motion-reduce:transition-none/);
   });
 
+  it("uses a viewport-absolute max-height instead of max-h-full", () => {
+    render(
+      <ModalCard title="Cap" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(95vh-4rem\)\]/);
+    expect(dialog.className).not.toMatch(/\bmax-h-full\b/);
+  });
+
   it("updates width classes when size changes", () => {
     const { rerender } = render(
       <ModalCard size="sm" title="Size test" onClose={() => {}}>

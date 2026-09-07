@@ -10,6 +10,21 @@ function prefersReducedMotion() {
 }
 
 /**
+ * Used CSS max-height in px, or null when missing / unusable.
+ * `parseFloat("100%")` is 100 — that falsely capped modals at 100px when
+ * `max-h-full` did not resolve. Only trust computed values that end in `px`.
+ * @param {HTMLElement} outer
+ * @returns {number | null}
+ */
+export function resolvedMaxHeightPx(outer) {
+  const raw = getComputedStyle(outer).maxHeight;
+  if (!raw || raw === "none" || !raw.endsWith("px")) return null;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.ceil(n);
+}
+
+/**
  * useAnimatedHeight - smooth height transitions for cards and modals with changing content.
  *
  * CSS `transition` cannot animate `height: auto`. This hook measures the inner
@@ -85,16 +100,14 @@ export function useAnimatedHeight(enabled = true) {
       let targetHeight = uncapped;
       let constrained = false;
 
-      // When outer has a CSS max-height (e.g. modal calc(95vh - 4rem)), cap the inline
-      // height to avoid dead-zone delay when animating down from large content.
-      // Content taller than that cap is the only case that needs a vertical scrollbar.
-      const computedMax = parseFloat(getComputedStyle(outer).maxHeight);
-      if (!isNaN(computedMax) && computedMax > 0) {
-        const maxH = Math.ceil(computedMax);
-        if (uncapped > maxH) {
-          constrained = true;
-          targetHeight = maxH;
-        }
+      // When outer has a resolved CSS max-height in px (e.g. modal calc(95vh - 4rem)),
+      // cap the inline height to avoid dead-zone delay when animating down from large
+      // content. Content taller than that cap is the only case that needs a vertical
+      // scrollbar. Ignore % / keywords — parseFloat("100%") === 100 is not a real cap.
+      const maxH = resolvedMaxHeightPx(outer);
+      if (maxH != null && uncapped > maxH) {
+        constrained = true;
+        targetHeight = maxH;
       }
 
       if (!cancelled) setNeedsVerticalScroll(constrained);

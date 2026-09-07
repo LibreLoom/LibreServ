@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRef } from "react";
 import { render, act, renderHook } from "@testing-library/react";
-import { HEIGHT_SETTLE_MS, useAnimatedHeight } from "./useAnimatedHeight.jsx";
+import { HEIGHT_SETTLE_MS, resolvedMaxHeightPx, useAnimatedHeight } from "./useAnimatedHeight.jsx";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -251,5 +251,31 @@ describe("useAnimatedHeight", () => {
     });
     expect(getByTestId("outer").style.height).toBe("180px");
     expect(getByTestId("outer").getAttribute("data-needs-scroll")).toBe("0");
+  });
+
+  it("ignores percentage max-height so parseFloat('100%') cannot lock height at 100px", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        /** @param {ResizeObserverCallback} cb */
+        constructor(cb) {
+          this.cb = cb;
+        }
+        observe() {
+          this.cb([], this);
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+
+    const { getByTestId } = render(<Probe innerHeight={312} maxHeight="100%" />);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
+    // Unresolved % must not cap via parseFloat("100%") === 100.
+    expect(getByTestId("outer").style.height).toBe("312px");
+    expect(getByTestId("outer").getAttribute("data-needs-scroll")).toBe("0");
+    expect(resolvedMaxHeightPx(getByTestId("outer"))).toBeNull();
   });
 });
