@@ -31,10 +31,10 @@ describe("GalleryToolbar", () => {
   it("keeps search hidden until the search icon is clicked", async () => {
     const user = userEvent.setup();
     renderToolbar();
-    expect(screen.queryByLabelText(/Search photos/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: /Search photos/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Search photos/i })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Search photos/i }));
-    expect(screen.getByLabelText(/Search photos/i)).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: /Search photos/i })).toBeInTheDocument();
   });
 
   it("shows a Filters button", () => {
