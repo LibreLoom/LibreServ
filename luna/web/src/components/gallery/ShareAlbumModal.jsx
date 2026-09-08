@@ -7,6 +7,7 @@ import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
 import Dropdown from "../common/Dropdown";
 import ModalErrorNotice from "../common/ModalErrorNotice";
+import Toggle from "../common/Toggle";
 import Spinner from "../ui/Spinner";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../lib/api";
 
@@ -26,8 +27,8 @@ function formatExpiration(ts) {
 }
 
 /**
- * Modal to create and manage RO (view only) and RU (view and add photos)
- * sharing links for a photo album.
+ * Modal to create and manage share links for a photo album.
+ * Defaults: viewer role, 30-day expiry (required). Contributor + uploads is opt-in.
  *
  * @param {object} props
  * @param {boolean} props.open
@@ -42,8 +43,9 @@ export default function ShareAlbumModal({
   overlayClassName,
 }) {
   const queryClient = useQueryClient();
-  const [role, setRole] = useState("contributor");
+  const [role, setRole] = useState("viewer");
   const [days, setDays] = useState("30");
+  const [allowUploads, setAllowUploads] = useState(false);
   const [newLinkUrl, setNewLinkUrl] = useState(null);
   const [error, setError] = useState(null);
 
@@ -59,10 +61,16 @@ export default function ShareAlbumModal({
   const createInvite = useMutation({
     mutationFn: async () => {
       setError(null);
+      if (!days) {
+        throw new Error("Pick how long this link should last.");
+      }
       const body = {
         role,
-        expires_in_days: days ? Number(days) : undefined,
+        expires_in_days: Number(days),
       };
+      if (role === "contributor") {
+        body.allow_uploads = allowUploads;
+      }
       return postJson(
         `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/invites`,
         body,
@@ -103,15 +111,17 @@ export default function ShareAlbumModal({
       onClose={() => {
         setNewLinkUrl(null);
         setError(null);
+        setRole("viewer");
+        setDays("30");
+        setAllowUploads(false);
         onClose();
       }}
       overlayClassName={overlayClassName}
     >
       {({ close }) => (
-        <div className="space-y-5">
+        <div className="space-y-5" data-slot="share-album-modal">
           <ModalErrorNotice error={error} />
 
-          {/* New link creation form */}
           <div className="rounded-large-element bg-primary text-secondary p-4 space-y-3">
             <p className="font-mono text-xs uppercase tracking-wider text-accent">
               Create a link
@@ -121,11 +131,14 @@ export default function ShareAlbumModal({
                 Permission
                 <Dropdown
                   options={[
-                    { value: "contributor", label: "Can view and add photos" },
                     { value: "viewer", label: "Can view only" },
+                    { value: "contributor", label: "Can view and add photos" },
                   ]}
                   value={role}
-                  onChange={setRole}
+                  onChange={(next) => {
+                    setRole(next);
+                    if (next !== "contributor") setAllowUploads(false);
+                  }}
                   fullWidth
                   surface="secondary"
                   className="mt-1"
@@ -138,8 +151,8 @@ export default function ShareAlbumModal({
                   options={[
                     { value: "7", label: "Expires in 7 days" },
                     { value: "30", label: "Expires in 30 days" },
+                    { value: "90", label: "Expires in 90 days" },
                     { value: "365", label: "Expires in a year" },
-                    { value: "", label: "Never expires" },
                   ]}
                   value={days}
                   onChange={setDays}
@@ -148,6 +161,16 @@ export default function ShareAlbumModal({
                   className="mt-1"
                 />
               </label>
+
+              {role === "contributor" && (
+                <Toggle
+                  checked={allowUploads}
+                  onChange={setAllowUploads}
+                  label="Allow uploads"
+                  description="People with this link can add photos to a shared folder on this album."
+                  surface="primary"
+                />
+              )}
 
               <Button
                 variant="accent"
@@ -161,7 +184,6 @@ export default function ShareAlbumModal({
             </div>
           </div>
 
-          {/* Newly generated link banner */}
           {newLinkUrl && (
             <div className="rounded-large-element bg-primary text-secondary p-4 space-y-2 border-2 border-accent">
               <p className="font-mono text-xs uppercase tracking-wider text-success">
@@ -176,7 +198,6 @@ export default function ShareAlbumModal({
             </div>
           )}
 
-          {/* Existing links list */}
           <div className="space-y-2">
             <p className="font-mono text-xs uppercase tracking-wider text-accent">
               Active links ({inviteList.length})
