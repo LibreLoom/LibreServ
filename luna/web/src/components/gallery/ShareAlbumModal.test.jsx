@@ -31,6 +31,43 @@ describe("ShareAlbumModal", () => {
     vi.restoreAllMocks();
   });
 
+  it("defaults to viewer role and required 30-day expiry", async () => {
+    const fetchMock = vi.fn(async (url, options) => {
+      const u = String(url);
+      const method = (options?.method || "GET").toUpperCase();
+      if (u.includes("/invites") && method === "GET") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/invites") && method === "POST") {
+        const body = JSON.parse(String(options?.body || "{}"));
+        expect(body.role).toBe("viewer");
+        expect(body.expires_in_days).toBe(30);
+        return new Response(
+          JSON.stringify({
+            id: "inv-new",
+            album_id: "alb-test-1",
+            token: "toknew",
+            url: "/a/toknew",
+            role: "viewer",
+            expires_at: Math.floor(Date.now() / 1000) + 30 * 86400,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderModal();
+    expect(screen.getByText("Can view only")).toBeInTheDocument();
+    expect(screen.getByText("Expires in 30 days")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Generate link/i }));
+    expect(await screen.findByText("Link ready to share")).toBeInTheDocument();
+  });
+
   it("renders active invites and allows creating a link", async () => {
     const fetchMock = vi.fn(async (url, options) => {
       const u = String(url);

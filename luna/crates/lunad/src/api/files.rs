@@ -405,6 +405,17 @@ async fn delete_entry(
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
     state.gallery.remove(&id, &rel);
+    // Eagerly drop album refs so shared albums update without waiting on the indexer.
+    if let Ok(conn) = state.db.lock()
+        && let Ok(drives) = crate::db::list_drives(&conn)
+    {
+        let mounts: Vec<(String, std::path::PathBuf)> = drives
+            .into_iter()
+            .filter(|d| d.state == "as_is" && !d.mount_point.is_empty())
+            .map(|d| (d.id, std::path::PathBuf::from(d.mount_point)))
+            .collect();
+        crate::gallery::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
+    }
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
 }

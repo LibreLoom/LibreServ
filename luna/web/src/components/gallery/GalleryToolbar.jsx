@@ -1,120 +1,333 @@
 import PropTypes from "prop-types";
-import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  CalendarDays,
+  Filter,
+  MoreHorizontal,
+  Search,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import SegmentedControl from "../common/SegmentedControl";
-
-function useIsDesktop() {
-  const read = () => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return true;
-    }
-    return window.matchMedia("(min-width: 768px)").matches;
-  };
-  const [desktop, setDesktop] = useState(read);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return undefined;
-    const mq = window.matchMedia("(min-width: 768px)");
-    const onChange = () => setDesktop(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return desktop;
-}
+import Button from "../ui/Button.jsx";
 
 const pillShell =
   "flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 border-2 border-primary/20 focus-within:border-accent transition-colors";
 
-const searchFieldShell = "relative flex-1 min-w-0 bg-primary text-secondary rounded-pill";
-
 const searchInputClass =
-  "w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm";
+  "w-full pl-11 pr-10 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm";
 
 /**
- * @param {{ id: string, value: string, onChange: (e: any) => void, placeholder: string, className?: string }} props
+ * Calm Photos chrome: segments + a few icon buttons. Search and filters stay tucked away.
+ *
+ * @param {{
+ *   segments: Array<{value:string,label:string}>,
+ *   segment: string,
+ *   onSegmentChange: (v: string) => void,
+ *   query: string,
+ *   onQueryChange: (e: any) => void,
+ *   searchOpen?: boolean,
+ *   onSearchOpenChange?: (open: boolean) => void,
+ *   selectMode?: boolean,
+ *   onSelectModeChange?: (on: boolean) => void,
+ *   onOpenDates?: () => void,
+ *   onOpenFilters?: () => void,
+ *   filterActiveCount?: number,
+ *   columns?: number,
+ *   onColumnsChange?: (n: number) => void,
+ *   showSelect?: boolean,
+ *   onRescan?: () => void,
+ *   rescanPending?: boolean,
+ *   onOpenShortcuts?: () => void,
+ * }} props
  */
-function GallerySearchInput({ id, value, onChange, placeholder, className }) {
-  return (
-    <div className={cn(searchFieldShell, className)}>
-      <Search
-        size={18}
-        className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
-        aria-hidden="true"
-      />
-      <input
-        id={id}
-        type="search"
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        aria-label="Search photos"
-        className={searchInputClass}
-      />
-    </div>
-  );
-}
-
-GallerySearchInput.propTypes = {
-  id: PropTypes.string.isRequired,
-  value: PropTypes.string.isRequired,
-  onChange: PropTypes.func.isRequired,
-  placeholder: PropTypes.string.isRequired,
-  className: PropTypes.string,
-};
-
 export default function GalleryToolbar({
   segments,
   segment,
   onSegmentChange,
   query,
   onQueryChange,
-  className,
+  searchOpen: searchOpenProp,
+  onSearchOpenChange,
+  selectMode = false,
+  onSelectModeChange,
+  onOpenDates,
+  onOpenFilters,
+  filterActiveCount = 0,
+  columns = 6,
+  onColumnsChange,
+  showSelect = true,
+  onRescan,
+  rescanPending = false,
+  onOpenShortcuts,
 }) {
-  const isDesktop = useIsDesktop();
+  const [internalSearchOpen, setInternalSearchOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const searchInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const moreRef = useRef(/** @type {HTMLDivElement|null} */ (null));
 
-  if (isDesktop) {
-    return (
-      <div
-        data-slot="gallery-toolbar"
-        className={cn(pillShell, "mb-6 flex whitespace-nowrap", className)}
+  const controlled = typeof onSearchOpenChange === "function";
+  const searchOpen = controlled ? !!searchOpenProp : internalSearchOpen;
+
+  function setSearchOpen(open) {
+    if (controlled) onSearchOpenChange?.(open);
+    else setInternalSearchOpen(open);
+  }
+
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    const id = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    function onDoc(e) {
+      if (moreRef.current && !moreRef.current.contains(e.target)) {
+        setMoreOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [moreOpen]);
+
+  function clearAndCloseSearch() {
+    if (query) {
+      onQueryChange({ target: { value: "" } });
+    }
+    setSearchOpen(false);
+  }
+
+  function onSearchKeyDown(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      clearAndCloseSearch();
+    }
+  }
+
+  const selectButton =
+    showSelect && onSelectModeChange ? (
+      <Button
+        type="button"
+        size="sm"
+        variant={selectMode ? "accent" : "ghost"}
+        className="shrink-0"
+        onClick={() => onSelectModeChange(!selectMode)}
       >
-        <GallerySearchInput
-          id="photo-search"
-          value={query}
-          onChange={onQueryChange}
-          placeholder="Search photos…"
-        />
-        <div className="pr-1.5 py-1 shrink-0">
+        {selectMode ? "Cancel" : "Select"}
+      </Button>
+    ) : null;
+
+  const iconButtons = (
+    <div className="flex items-center gap-0.5 shrink-0 pr-0.5">
+      <Button
+        type="button"
+        size="iconSm"
+        variant={searchOpen || query ? "accent" : "ghost"}
+        className="shrink-0"
+        aria-label="Search photos"
+        aria-pressed={searchOpen}
+        onClick={() => setSearchOpen(!searchOpen)}
+      >
+        <Search size={16} />
+      </Button>
+      {onOpenFilters && (
+        <Button
+          type="button"
+          size="iconSm"
+          variant={filterActiveCount > 0 ? "accent" : "ghost"}
+          className="relative shrink-0"
+          aria-label={
+            filterActiveCount > 0
+              ? `Filters, ${filterActiveCount} active`
+              : "Filters"
+          }
+          onClick={onOpenFilters}
+        >
+          <Filter size={16} />
+          {filterActiveCount > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-pill bg-primary text-secondary text-[10px] font-mono leading-[1.1rem] text-center"
+              aria-hidden="true"
+            >
+              {filterActiveCount > 9 ? "9+" : filterActiveCount}
+            </span>
+          )}
+        </Button>
+      )}
+      {selectButton}
+      <div className="relative" ref={moreRef}>
+        <Button
+          type="button"
+          size="iconSm"
+          variant={moreOpen ? "accent" : "ghost"}
+          className="shrink-0"
+          aria-label="More options"
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((v) => !v)}
+        >
+          <MoreHorizontal size={16} />
+        </Button>
+        {moreOpen && (
+          <div
+            role="menu"
+            className="absolute right-0 top-full z-40 mt-2 min-w-[12rem] rounded-large-element bg-secondary text-primary border-2 border-primary/20 p-2 shadow-lg animate-nav-slide-in"
+          >
+            {onColumnsChange && (
+              <div className="px-2 py-1.5 space-y-1">
+                <p className="text-xs font-mono">Grid density</p>
+                <div className="flex gap-1">
+                  {[3, 4, 5, 6].map((n) => (
+                    <Button
+                      key={n}
+                      type="button"
+                      size="sm"
+                      variant={columns === n ? "accent" : "outline"}
+                      className="min-w-[2rem]"
+                      aria-label={`${n} columns`}
+                      onClick={() => {
+                        onColumnsChange(n);
+                        setMoreOpen(false);
+                      }}
+                    >
+                      {n}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {onOpenDates && (
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onOpenDates();
+                }}
+              >
+                <CalendarDays size={16} aria-hidden="true" />
+                Jump to date
+              </button>
+            )}
+            {onRescan && (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={rescanPending}
+                className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors disabled:opacity-50"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onRescan();
+                }}
+              >
+                Look again
+              </button>
+            )}
+            {onOpenShortcuts && (
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onOpenShortcuts();
+                }}
+              >
+                Keyboard shortcuts
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mb-6 space-y-3" data-slot="gallery-toolbar">
+      <div className={cn(pillShell, "flex flex-wrap justify-between gap-1")}>
+        <div className="min-w-0 flex-1 overflow-x-auto py-1 pl-1.5 pr-1">
           <SegmentedControl
             options={segments}
             value={segment}
             onChange={onSegmentChange}
             surface="secondary"
+            className="w-max min-w-full sm:w-auto"
           />
         </div>
+        {iconButtons}
       </div>
-    );
-  }
 
-  return (
-    <div data-slot="gallery-toolbar" className={cn("mb-6 space-y-3", className)}>
-      <div className={pillShell}>
-        <GallerySearchInput
-          id="photo-search-mobile"
-          value={query}
-          onChange={onQueryChange}
-          placeholder="Search photos…"
-        />
-      </div>
-      <div className={cn(pillShell, "justify-center py-1 px-1.5")}>
-        <SegmentedControl
-          options={segments}
-          value={segment}
-          onChange={onSegmentChange}
-          surface="secondary"
-          className="w-full"
-        />
-      </div>
+      {searchOpen && (
+        <div
+          className={cn(pillShell, "animate-nav-slide-in")}
+          data-slot="gallery-search-row"
+        >
+          <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
+            <Search
+              size={18}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              ref={searchInputRef}
+              id="photo-search"
+              type="search"
+              placeholder="Search photos…"
+              value={query}
+              onChange={onQueryChange}
+              onKeyDown={onSearchKeyDown}
+              aria-label="Search photos"
+              className={searchInputClass}
+            />
+            <Button
+              type="button"
+              size="iconSm"
+              variant="ghost"
+              surface="primary"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
+              aria-label="Close search"
+              onClick={clearAndCloseSearch}
+            >
+              <X size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!searchOpen && !!query && (
+        <div className="flex flex-wrap gap-2" data-slot="gallery-search-chip">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
+            onClick={() => setSearchOpen(true)}
+            aria-label={`Search: ${query}. Click to edit.`}
+          >
+            <Search size={14} aria-hidden="true" />
+            <span className="max-w-[14rem] truncate">{query}</span>
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Clear search"
+              className="rounded-pill p-0.5 hover:bg-primary hover:text-secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQueryChange({ target: { value: "" } });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onQueryChange({ target: { value: "" } });
+                }
+              }}
+            >
+              <X size={14} />
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -130,5 +343,17 @@ GalleryToolbar.propTypes = {
   onSegmentChange: PropTypes.func.isRequired,
   query: PropTypes.string.isRequired,
   onQueryChange: PropTypes.func.isRequired,
-  className: PropTypes.string,
+  searchOpen: PropTypes.bool,
+  onSearchOpenChange: PropTypes.func,
+  selectMode: PropTypes.bool,
+  onSelectModeChange: PropTypes.func,
+  onOpenDates: PropTypes.func,
+  onOpenFilters: PropTypes.func,
+  filterActiveCount: PropTypes.number,
+  columns: PropTypes.number,
+  onColumnsChange: PropTypes.func,
+  showSelect: PropTypes.bool,
+  onRescan: PropTypes.func,
+  rescanPending: PropTypes.bool,
+  onOpenShortcuts: PropTypes.func,
 };

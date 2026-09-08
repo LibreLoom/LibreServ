@@ -133,7 +133,10 @@ mod tests {
         }
         inject_exif_jpeg(&path, "2023:07:14 09:15:22", Some((37.8651, -119.5383))).unwrap();
         let meta = crate::exif::capture_meta(&path).expect("read injected exif");
-        assert!(meta.0.is_some());
-        assert!(meta.1.is_some() && meta.2.is_some(), "{meta:?}");
+        assert!(meta.taken_at.is_some());
+        assert!(
+            meta.lat.is_some() && meta.lon.is_some(),
+            "{meta:?}"
+        );
     }
 }
