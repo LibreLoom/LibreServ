@@ -7,8 +7,8 @@ import GalleryPage, { galleryUrl } from "./GalleryPage";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
-/** @param {{ places?: unknown[], albums?: unknown[], albumsHold?: Promise<void> }} [options] */
-function stubGalleryFetch({ places = [], albums = [], albumsHold } = {}) {
+/** @param {{ places?: unknown[], albums?: unknown[], albumsHold?: Promise<void>, galleryHold?: Promise<void>, galleryItems?: unknown[] | null }} [options] */
+function stubGalleryFetch({ places = [], albums = [], albumsHold, galleryHold, galleryItems } = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url) => {
@@ -42,27 +42,32 @@ function stubGalleryFetch({ places = [], albums = [], albumsHold } = {}) {
         });
       }
       if (u.includes("/gallery")) {
+        if (galleryHold) await galleryHold;
+        const items =
+          galleryItems !== undefined
+            ? galleryItems
+            : [
+                {
+                  drive_id: "a",
+                  path: "one.jpg",
+                  name: "one.jpg",
+                  taken_at: 1_700_000_000,
+                  thumb: "/t1",
+                  kind: "image",
+                },
+                {
+                  drive_id: "b",
+                  path: "two.jpg",
+                  name: "two.jpg",
+                  taken_at: 1_700_000_100,
+                  thumb: "/t2",
+                  kind: "image",
+                },
+              ];
         return new Response(
           JSON.stringify({
-            items: [
-              {
-                drive_id: "a",
-                path: "one.jpg",
-                name: "one.jpg",
-                taken_at: 1_700_000_000,
-                thumb: "/t1",
-                kind: "image",
-              },
-              {
-                drive_id: "b",
-                path: "two.jpg",
-                name: "two.jpg",
-                taken_at: 1_700_000_100,
-                thumb: "/t2",
-                kind: "image",
-              },
-            ],
-            next_offset: 2,
+            items: items || [],
+            next_offset: (items || []).length,
             has_more: false,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -187,6 +192,39 @@ describe("GalleryPage", () => {
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
     releaseAlbums?.();
     expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
+  });
+
+  it("shows a centered spinner while the library list is still loading", async () => {
+    /** @type {((value?: unknown) => void) | undefined} */
+    let releaseGallery;
+    const galleryHold = new Promise((resolve) => {
+      releaseGallery = resolve;
+    });
+    stubGalleryFetch({ galleryHold });
+    renderGallery();
+    expect(await screen.findByText(/Loading library/i)).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
+    expect(screen.queryByText(/Looking through your drives/i)).not.toBeInTheDocument();
+    releaseGallery?.();
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    expect(screen.queryByText(/Loading library/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a centered spinner while favorites are still loading", async () => {
+    /** @type {((value?: unknown) => void) | undefined} */
+    let releaseGallery;
+    const galleryHold = new Promise((resolve) => {
+      releaseGallery = resolve;
+    });
+    window.history.replaceState(null, "", "/gallery#favorites");
+    stubGalleryFetch({ galleryHold, galleryItems: [] });
+    renderGallery();
+    expect(await screen.findByText(/Loading favorites/i)).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
+    expect(screen.queryByText(/No favorites yet/i)).not.toBeInTheDocument();
+    releaseGallery?.();
+    expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading favorites/i)).not.toBeInTheDocument();
   });
 
   it("opens Places when loaded with #places", async () => {
