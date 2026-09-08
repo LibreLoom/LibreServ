@@ -44,6 +44,10 @@ pub struct Photo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_label: Option<String>,
     #[serde(default)]
+    pub camera_make: String,
+    #[serde(default)]
+    pub camera_model: String,
+    #[serde(default)]
     pub duration_secs: u32,
     #[serde(default)]
     pub favorited: bool,
@@ -75,6 +79,10 @@ pub struct ListFilter {
     pub exclude_archived_user: Option<String>,
     /// Restrict to `"image"` or `"video"` when set.
     pub kind: Option<String>,
+    /// Exact camera make filter (case-insensitive).
+    pub camera_make: Option<String>,
+    /// Exact camera model filter (case-insensitive).
+    pub camera_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,6 +111,14 @@ pub struct PlaceMarker {
     pub lat: f64,
     pub lon: f64,
     pub cover_thumb: String,
+}
+
+/// Distinct camera make/model pair with how many indexed photos use it.
+#[derive(Debug, Clone, Serialize)]
+pub struct CameraCount {
+    pub make: String,
+    pub model: String,
+    pub count: u64,
 }
 
 pub fn is_image(path: &Path) -> bool {
@@ -180,6 +196,8 @@ struct PendingUpsert {
     lat: Option<f64>,
     lon: Option<f64>,
     place_label: String,
+    camera_make: String,
+    camera_model: String,
     duration_secs: u32,
     has_thumb: bool,
 }
@@ -274,6 +292,8 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                     lat: None,
                     lon: None,
                     place_label: String::new(),
+                    camera_make: String::new(),
+                    camera_model: String::new(),
                     duration_secs: 0,
                     has_thumb: false,
                 });
@@ -281,9 +301,12 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 continue;
             }
 
-            let (taken_at, lat, lon) = crate::exif::capture_meta(&path_buf)
-                .map(|(ts, lat, lon)| (ts.unwrap_or(mtime), lat, lon))
-                .unwrap_or((mtime, None, None));
+            let meta = crate::exif::capture_meta(&path_buf).unwrap_or_default();
+            let taken_at = meta.taken_at.unwrap_or(mtime);
+            let lat = meta.lat;
+            let lon = meta.lon;
+            let camera_make = meta.camera_make.unwrap_or_default();
+            let camera_model = meta.camera_model.unwrap_or_default();
             let place_label = match (lat, lon) {
                 (Some(la), Some(lo)) => place_label_for(la, lo),
                 _ => String::new(),
@@ -320,6 +343,8 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 lat,
                 lon,
                 place_label,
+                camera_make,
+                camera_model,
                 duration_secs: 0,
                 has_thumb,
             });
@@ -365,8 +390,8 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
     let tx = conn.unchecked_transaction()?;
     for row in pending.drain(..) {
         tx.execute(
-            "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, duration_secs, has_thumb)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, camera_make, camera_model, duration_secs, has_thumb)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT(path) DO UPDATE SET
                name = excluded.name,
                size = excluded.size,
@@ -378,6 +403,8 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                lat = excluded.lat,
                lon = excluded.lon,
                place_label = excluded.place_label,
+               camera_make = excluded.camera_make,
+               camera_model = excluded.camera_model,
                duration_secs = excluded.duration_secs,
                has_thumb = excluded.has_thumb",
             params![
@@ -392,6 +419,8 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                 row.lat,
                 row.lon,
                 row.place_label,
+                row.camera_make,
+                row.camera_model,
                 row.duration_secs as i64,
                 if row.has_thumb { 1 } else { 0 },
             ],
@@ -444,9 +473,12 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
             return Ok(Some(()));
         }
     }
-    let (taken_at, lat, lon) = crate::exif::capture_meta(&path_buf)
-        .map(|(ts, lat, lon)| (ts.unwrap_or(mtime), lat, lon))
-        .unwrap_or((mtime, None, None));
+    let meta = crate::exif::capture_meta(&path_buf).unwrap_or_default();
+    let taken_at = meta.taken_at.unwrap_or(mtime);
+    let lat = meta.lat;
+    let lon = meta.lon;
+    let camera_make = meta.camera_make.unwrap_or_default();
+    let camera_model = meta.camera_model.unwrap_or_default();
     let place_label = match (lat, lon) {
         (Some(la), Some(lo)) => place_label_for(la, lo),
         _ => String::new(),
@@ -463,6 +495,8 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
         lat,
         lon,
         place_label,
+        camera_make,
+        camera_model,
         duration_secs: 0,
         has_thumb: false,
     }];
@@ -508,7 +542,8 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
     let _ = finish_thumb(drive_id, root, rel);
     let conn = open_drive_db(root)?;
     let mut stmt = conn.prepare(
-        "SELECT path, name, size, taken_at, kind, width, height, lat, lon, place_label, duration_secs, has_thumb
+        "SELECT path, name, size, taken_at, kind, width, height, lat, lon, place_label,
+                camera_make, camera_model, duration_secs, has_thumb
          FROM photos WHERE path = ?1",
     )?;
     let photo = stmt
@@ -523,8 +558,10 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
             let lat: Option<f64> = row.get(7)?;
             let lon: Option<f64> = row.get(8)?;
             let place_label: String = row.get(9)?;
-            let duration_secs: i64 = row.get(10)?;
-            let has_thumb: i64 = row.get(11)?;
+            let camera_make: String = row.get(10)?;
+            let camera_model: String = row.get(11)?;
+            let duration_secs: i64 = row.get(12)?;
+            let has_thumb: i64 = row.get(13)?;
             Ok(Photo {
                 drive_id: drive_id.to_string(),
                 path: path.clone(),
@@ -546,6 +583,8 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
                 } else {
                     Some(place_label)
                 },
+                camera_make,
+                camera_model,
                 duration_secs: duration_secs.max(0) as u32,
                 favorited: false,
             })
@@ -881,16 +920,30 @@ fn query_drive_photos(
         .map(str::trim)
         .filter(|s| *s == "image" || *s == "video")
         .unwrap_or("");
+    let camera_make = filter
+        .camera_make
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let camera_model = filter
+        .camera_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
 
     let mut stmt = conn.prepare(
         "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
                 p.width, p.height, p.kind, p.lat, p.lon, p.place_label, p.has_thumb,
                 CASE WHEN f.path IS NOT NULL THEN 1 ELSE 0 END,
-                COALESCE(p.duration_secs, 0)
+                COALESCE(p.duration_secs, 0),
+                COALESCE(p.camera_make, ''), COALESCE(p.camera_model, '')
          FROM photos p
          LEFT JOIN favorites f ON f.path = p.path AND f.user_id = ?1
          LEFT JOIN archive ar ON ar.path = p.path AND ar.user_id = ?1
-         WHERE (?2 = '' OR p.name LIKE ?2 COLLATE NOCASE OR p.path LIKE ?2 COLLATE NOCASE)
+         WHERE (?2 = '' OR p.name LIKE ?2 COLLATE NOCASE OR p.path LIKE ?2 COLLATE NOCASE
+                OR p.camera_make LIKE ?2 COLLATE NOCASE OR p.camera_model LIKE ?2 COLLATE NOCASE)
            AND (?3 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) >= ?3)
            AND (?4 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) <= ?4)
            AND (?5 = '' OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
@@ -900,7 +953,9 @@ fn query_drive_photos(
                 AND p.lon >= ?8 AND p.lon <= ?9 AND p.lat >= ?10 AND p.lat <= ?11))
            AND (?12 = 0 OR ar.path IS NOT NULL)
            AND (?13 = 0 OR ar.path IS NULL)
-           AND (?14 = '' OR p.kind = ?14)",
+           AND (?14 = '' OR p.kind = ?14)
+           AND (?15 = '' OR lower(p.camera_make) = lower(?15))
+           AND (?16 = '' OR lower(p.camera_model) = lower(?16))",
     )?;
     let rows = stmt.query_map(
         params![
@@ -918,6 +973,8 @@ fn query_drive_photos(
             archived_only,
             exclude_archived,
             kind,
+            camera_make,
+            camera_model,
         ],
         |row| {
             let path: String = row.get(0)?;
@@ -925,6 +982,8 @@ fn query_drive_photos(
             let favorited: i64 = row.get(11)?;
             let place_label: String = row.get(9)?;
             let duration_secs: i64 = row.get(12)?;
+            let camera_make: String = row.get(13)?;
+            let camera_model: String = row.get(14)?;
             Ok(Photo {
                 drive_id: drive_id.to_string(),
                 path: path.clone(),
@@ -946,6 +1005,8 @@ fn query_drive_photos(
                 } else {
                     Some(place_label)
                 },
+                camera_make,
+                camera_model,
                 duration_secs: duration_secs.max(0) as u32,
                 favorited: favorited != 0,
             })
@@ -1063,6 +1124,49 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
             });
         }
     }
+    Ok(out)
+}
+
+/// Distinct non-empty camera make/model pairs across mounts, ordered by count desc.
+pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCount>> {
+    use std::collections::HashMap;
+    let mut map: HashMap<(String, String), u64> = HashMap::new();
+    for (_, root) in mounts {
+        if !gallery_db_path(root).exists() {
+            continue;
+        }
+        let conn = match open_drive_db(root) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), COUNT(*)
+             FROM photos
+             WHERE COALESCE(camera_make, '') != '' OR COALESCE(camera_model, '') != ''
+             GROUP BY COALESCE(camera_make, ''), COALESCE(camera_model, '')",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        for row in rows.flatten() {
+            let (make, model, count) = row;
+            *map.entry((make, model)).or_insert(0) += count.max(0) as u64;
+        }
+    }
+    let mut out: Vec<CameraCount> = map
+        .into_iter()
+        .map(|((make, model), count)| CameraCount { make, model, count })
+        .collect();
+    out.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.make.cmp(&b.make))
+            .then_with(|| a.model.cmp(&b.model))
+    });
     Ok(out)
 }
 
@@ -2142,6 +2246,70 @@ mod tests {
         let mounts = vec![("da".into(), a), ("db".into(), b)];
         let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
         assert_eq!(page.items.len(), 2);
+    }
+
+    #[test]
+    fn camera_make_model_indexed_and_filtered() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        std::fs::write(
+            photos_dir.join("canon.jpg"),
+            crate::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        )
+        .unwrap();
+        std::fs::write(
+            photos_dir.join("nikon.jpg"),
+            crate::exif::jpeg_with_exif("2020:02:03 04:05:06", Some("NIKON CORPORATION"), Some("NIKON D850")),
+        )
+        .unwrap();
+        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([4, 4, 4, 255]));
+        png.save(photos_dir.join("plain.png")).unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir.clone())];
+
+        let cameras = list_cameras(&mounts).unwrap();
+        assert!(
+            cameras.iter().any(|c| c.make == "Canon" && c.model == "EOS R5" && c.count >= 1),
+            "expected Canon EOS R5 in {cameras:?}"
+        );
+        assert!(
+            cameras
+                .iter()
+                .any(|c| c.make == "NIKON CORPORATION" && c.model == "NIKON D850" && c.count >= 1),
+            "expected Nikon in {cameras:?}"
+        );
+
+        let filtered = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                camera_make: Some("canon".into()),
+                camera_model: Some("eos r5".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(filtered.items.len(), 1);
+        assert_eq!(filtered.items[0].name, "canon.jpg");
+        assert_eq!(filtered.items[0].camera_make, "Canon");
+        assert_eq!(filtered.items[0].camera_model, "EOS R5");
+
+        let by_q = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                q: Some("nikon".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(by_q.items.len(), 1);
+        assert_eq!(by_q.items[0].name, "nikon.jpg");
     }
 
     fn copy_fixture_tree(src: &Path, dst: &Path, names: &[&str]) {

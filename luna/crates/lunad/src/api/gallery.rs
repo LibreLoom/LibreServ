@@ -48,6 +48,10 @@ struct GalleryQuery {
     /// Restrict to `"image"` or `"video"`.
     #[serde(default)]
     kind: Option<String>,
+    #[serde(default)]
+    camera_make: Option<String>,
+    #[serde(default)]
+    camera_model: Option<String>,
 }
 
 fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
@@ -142,6 +146,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/gallery", get(timeline))
         .route("/api/v1/gallery/places", get(places))
+        .route("/api/v1/gallery/cameras", get(cameras))
         .route("/api/v1/gallery/thumb", get(thumb))
         .route("/api/v1/gallery/preview", get(preview))
         .route("/api/v1/gallery/download", post(download_zip))
@@ -366,6 +371,12 @@ async fn timeline(
             .map(str::trim)
             .filter(|s| *s == "image" || *s == "video")
             .map(str::to_string),
+        camera_make: query
+            .camera_make
+            .filter(|s| !s.trim().is_empty()),
+        camera_model: query
+            .camera_model
+            .filter(|s| !s.trim().is_empty()),
     };
 
     // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
@@ -443,6 +454,20 @@ async fn places(
         })
         .collect::<Vec<_>>();
     Ok(Json(markers))
+}
+
+async fn cameras(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let mounts = accessible_mounts(&state, &user, None)?;
+    let cameras = gallery::list_cameras(&mounts).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't list cameras.",
+        )
+    })?;
+    Ok(Json(json!({ "cameras": cameras })))
 }
 
 async fn status(

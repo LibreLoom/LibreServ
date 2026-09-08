@@ -9,15 +9,25 @@ use std::path::Path;
 
 use exif::{In, Reader, Tag, Value};
 
+/// Capture time, GPS, and camera identity when present in EXIF.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CaptureMeta {
+    pub taken_at: Option<i64>,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+}
+
 /// Best capture time for `path`: DateTimeOriginal, then Digitised, then
 /// DateTime. Falls back to `None` when the file has no usable EXIF date.
 pub fn capture_unix(path: &Path) -> Option<i64> {
-    capture_meta(path).and_then(|(ts, _, _)| ts)
+    capture_meta(path).and_then(|m| m.taken_at)
 }
 
-/// Capture time plus GPS when present. Returns `None` only when the file cannot
-/// be opened / parsed at all; individual fields may still be `None`.
-pub fn capture_meta(path: &Path) -> Option<(Option<i64>, Option<f64>, Option<f64>)> {
+/// Capture time plus GPS / camera when present. Returns `None` only when the
+/// file cannot be opened / parsed at all; individual fields may still be `None`.
+pub fn capture_meta(path: &Path) -> Option<CaptureMeta> {
     if crate::heif::is_heif(path) {
         let max = crate::budget::limits().source_max_bytes;
         let meta = std::fs::metadata(path).ok()?;
@@ -28,8 +38,7 @@ pub fn capture_meta(path: &Path) -> Option<(Option<i64>, Option<f64>, Option<f64
             && let Some(tiff) = crate::heif::exif_tiff_from_heif(&bytes)
             && let Ok(exif) = Reader::new().read_raw(tiff)
         {
-            let (lat, lon) = gps_from_exif(&exif);
-            return Some((unix_from_exif(&exif), lat, lon));
+            return Some(meta_from_exif(&exif));
         }
         return None;
     }
@@ -37,8 +46,18 @@ pub fn capture_meta(path: &Path) -> Option<(Option<i64>, Option<f64>, Option<f64
     let exif = Reader::new()
         .read_from_container(&mut BufReader::new(file))
         .ok()?;
-    let (lat, lon) = gps_from_exif(&exif);
-    Some((unix_from_exif(&exif), lat, lon))
+    Some(meta_from_exif(&exif))
+}
+
+fn meta_from_exif(exif: &exif::Exif) -> CaptureMeta {
+    let (lat, lon) = gps_from_exif(exif);
+    CaptureMeta {
+        taken_at: unix_from_exif(exif),
+        lat,
+        lon,
+        camera_make: camera_string(exif, Tag::Make),
+        camera_model: camera_string(exif, Tag::Model),
+    }
 }
 
 pub fn unix_from_tiff_bytes(tiff: &[u8]) -> Option<i64> {
@@ -55,6 +74,17 @@ fn unix_from_exif(exif: &exif::Exif) -> Option<i64> {
         }
     }
     None
+}
+
+fn camera_string(exif: &exif::Exif, tag: Tag) -> Option<String> {
+    let field = exif.get_field(tag, In::PRIMARY)?;
+    let raw = value_as_ascii(&field.value);
+    let cleaned = raw.trim().trim_matches('\0').trim();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
 }
 
 fn gps_from_exif(exif: &exif::Exif) -> (Option<f64>, Option<f64>) {
@@ -136,27 +166,76 @@ fn civil_to_unix(year: i32, month: u32, day: u32, hour: u32, min: u32, sec: u32)
     Some(days * 86400 + hour as i64 * 3600 + min as i64 * 60 + sec as i64)
 }
 
-/// Minimal JPEG with an APP1 Exif IFD containing DateTimeOriginal.
+/// Minimal JPEG with an APP1 Exif IFD containing DateTimeOriginal (+ optional Make/Model).
 #[cfg(test)]
 pub fn jpeg_with_datetime_original(ascii: &str) -> Vec<u8> {
+    jpeg_with_exif(ascii, None, None)
+}
+
+/// Minimal JPEG with DateTimeOriginal and optional camera Make/Model in IFD0.
+#[cfg(test)]
+pub fn jpeg_with_exif(ascii: &str, make: Option<&str>, model: Option<&str>) -> Vec<u8> {
     let mut ascii_bytes = ascii.as_bytes().to_vec();
     ascii_bytes.push(0);
     while !ascii_bytes.len().is_multiple_of(2) {
         ascii_bytes.push(0);
     }
-    // TIFF little-endian: IFD0 with ExifOffset -> Exif IFD with DateTimeOriginal.
+    let make_bytes = make.map(|s| {
+        let mut b = s.as_bytes().to_vec();
+        b.push(0);
+        while !b.len().is_multiple_of(2) {
+            b.push(0);
+        }
+        b
+    });
+    let model_bytes = model.map(|s| {
+        let mut b = s.as_bytes().to_vec();
+        b.push(0);
+        while !b.len().is_multiple_of(2) {
+            b.push(0);
+        }
+        b
+    });
+
+    // TIFF little-endian: IFD0 (Make/Model/ExifOffset) -> Exif IFD with DateTimeOriginal.
+    let ifd0_entries = 1u16
+        + u16::from(make_bytes.is_some())
+        + u16::from(model_bytes.is_some());
+    let ifd0_size = 2 + (ifd0_entries as usize) * 12 + 4;
+    let exif_ifd_offset = 8 + ifd0_size;
+
     let mut tiff = Vec::new();
     tiff.extend_from_slice(b"II");
     tiff.extend_from_slice(&42u16.to_le_bytes());
     tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 at 8
-    // IFD0: 1 entry (ExifOffset 0x8769)
-    tiff.extend_from_slice(&1u16.to_le_bytes());
-    tiff.extend_from_slice(&0x8769u16.to_le_bytes());
+    tiff.extend_from_slice(&ifd0_entries.to_le_bytes());
+
+    // Placeholder for string values after Exif IFD.
+    let exif_ifd_size = 2 + 12 + 4 + ascii_bytes.len();
+    let mut string_cursor = exif_ifd_offset + exif_ifd_size;
+
+    if let Some(ref mb) = make_bytes {
+        tiff.extend_from_slice(&0x010Fu16.to_le_bytes()); // Make
+        tiff.extend_from_slice(&2u16.to_le_bytes()); // ASCII
+        tiff.extend_from_slice(&(mb.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&(string_cursor as u32).to_le_bytes());
+        string_cursor += mb.len();
+    }
+    if let Some(ref mb) = model_bytes {
+        tiff.extend_from_slice(&0x0110u16.to_le_bytes()); // Model
+        tiff.extend_from_slice(&2u16.to_le_bytes()); // ASCII
+        tiff.extend_from_slice(&(mb.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&(string_cursor as u32).to_le_bytes());
+        string_cursor += mb.len();
+    }
+    let _ = string_cursor;
+
+    tiff.extend_from_slice(&0x8769u16.to_le_bytes()); // ExifOffset
     tiff.extend_from_slice(&4u16.to_le_bytes()); // LONG
     tiff.extend_from_slice(&1u32.to_le_bytes());
-    let exif_ifd_offset = 8 + 2 + 12 + 4; // 26
     tiff.extend_from_slice(&(exif_ifd_offset as u32).to_le_bytes());
     tiff.extend_from_slice(&0u32.to_le_bytes()); // next IFD
+
     // Exif IFD
     tiff.extend_from_slice(&1u16.to_le_bytes());
     tiff.extend_from_slice(&0x9003u16.to_le_bytes()); // DateTimeOriginal
@@ -166,6 +245,13 @@ pub fn jpeg_with_datetime_original(ascii: &str) -> Vec<u8> {
     tiff.extend_from_slice(&(val_off as u32).to_le_bytes());
     tiff.extend_from_slice(&0u32.to_le_bytes());
     tiff.extend_from_slice(&ascii_bytes);
+
+    if let Some(mb) = make_bytes {
+        tiff.extend_from_slice(&mb);
+    }
+    if let Some(mb) = model_bytes {
+        tiff.extend_from_slice(&mb);
+    }
 
     let mut app1 = Vec::new();
     app1.extend_from_slice(b"Exif\0\0");
@@ -220,9 +306,9 @@ mod tests {
             return;
         }
         let meta = capture_meta(&sample).expect("read fixture exif");
-        assert!(meta.0.is_some(), "DateTimeOriginal missing");
+        assert!(meta.taken_at.is_some(), "DateTimeOriginal missing");
         assert!(
-            meta.1.is_some() && meta.2.is_some(),
+            meta.lat.is_some() && meta.lon.is_some(),
             "GPS missing: {meta:?}"
         );
     }
@@ -236,5 +322,20 @@ mod tests {
             capture_unix(&path),
             parse_exif_datetime("2018:06:01 08:09:10")
         );
+    }
+
+    #[test]
+    fn jpeg_exif_reads_camera_make_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cam.jpg");
+        std::fs::write(
+            &path,
+            jpeg_with_exif("2019:03:04 05:06:07", Some("Canon"), Some("EOS R5")),
+        )
+        .unwrap();
+        let meta = capture_meta(&path).expect("read camera exif");
+        assert_eq!(meta.camera_make.as_deref(), Some("Canon"));
+        assert_eq!(meta.camera_model.as_deref(), Some("EOS R5"));
+        assert_eq!(meta.taken_at, parse_exif_datetime("2019:03:04 05:06:07"));
     }
 }
