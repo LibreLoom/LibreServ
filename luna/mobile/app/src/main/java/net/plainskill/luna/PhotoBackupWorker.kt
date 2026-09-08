@@ -48,7 +48,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
 
             data class MediaCol(val id: Int, val name: Int, val size: Int, val date: Int)
 
-            fun backupUri(collection: Uri, projection: Array<String>, selection: String, args: Array<String>, sort: String): Result? {
+            suspend fun backupUri(collection: Uri, projection: Array<String>, selection: String, args: Array<String>, sort: String): Result? {
                 context.contentResolver.query(collection, projection, selection, args, sort)?.use { cursor ->
                     val cols = MediaCol(
                         cursor.getColumnIndexOrThrow(projection[0]),
