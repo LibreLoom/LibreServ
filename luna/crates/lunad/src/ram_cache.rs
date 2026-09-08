@@ -449,6 +449,41 @@ impl RamCache {
         g.dirty_bytes = g.dirty_bytes.saturating_sub(freed_dirty);
     }
 
+    /// Relative paths of in-flight dirty files for one drive (any state).
+    pub fn dirty_rels_for_drive(&self, drive_id: &str) -> Vec<String> {
+        let prefix = format!("{drive_id}\0");
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.dirty
+            .keys()
+            .filter_map(|k| k.strip_prefix(&prefix).map(|s| s.to_string()))
+            .collect()
+    }
+
+    /// Flush every dirty file for `drive_id` to `mount` before eject/unmount.
+    ///
+    /// Call this while the mount is still available. Returns the first error
+    /// after attempting every entry so callers can refuse eject if anything
+    /// failed to land on disk.
+    pub fn flush_drive_dirty(
+        &self,
+        drive_id: &str,
+        mount: &Path,
+    ) -> Result<(), FilesError> {
+        let rels = self.dirty_rels_for_drive(drive_id);
+        let mut first_err: Option<FilesError> = None;
+        for rel in rels {
+            if let Err(e) = self.flush_dirty_to_disk(drive_id, &rel, mount, true) {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
     /// Flush one dirty file to USB (temp + fsync + rename).
     pub fn flush_dirty_to_disk(
         &self,
@@ -655,6 +690,26 @@ mod tests {
         assert!(cache.get_listing("d1", "", Some(1)).is_none());
         assert!(cache.get_dirty("d1", "a").is_none());
         let _ = AtomicU64::new(0).load(Ordering::Relaxed);
+    }
+
+    #[test]
+    fn flush_drive_dirty_before_drop_keeps_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = RamCache::new();
+        cache
+            .accept_dirty("d1", "keep.txt", "keep.txt", b"persist".to_vec())
+            .unwrap();
+        cache.flush_drive_dirty("d1", dir.path()).unwrap();
+        assert!(cache.get_dirty("d1", "keep.txt").is_none());
+        assert_eq!(
+            std::fs::read(dir.path().join("keep.txt")).unwrap(),
+            b"persist"
+        );
+        cache.drop_drive("d1");
+        assert_eq!(
+            std::fs::read(dir.path().join("keep.txt")).unwrap(),
+            b"persist"
+        );
     }
 
     #[test]

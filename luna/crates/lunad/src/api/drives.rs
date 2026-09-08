@@ -141,6 +141,14 @@ async fn detected(
         // Drop gallery watches for drives that are no longer Ready.
         for row in &rows {
             if row.state != "as_is" && row.state != "readonly" {
+                // Best-effort flush if the mount path is still reachable (e.g.
+                // ejected-but-plugged). Unplugged drives skip flush.
+                if !row.mount_point.is_empty() {
+                    let mount = std::path::Path::new(&row.mount_point);
+                    if mount.is_dir() {
+                        let _ = state.ram_cache.flush_drive_dirty(&row.id, mount);
+                    }
+                }
                 state.gallery.unwatch_mount(&row.id);
                 state.ram_cache.drop_drive(&row.id);
             }
@@ -279,6 +287,9 @@ async fn eject(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
+    // Finish in-flight RAM saves while the mount is still up — never drop dirty
+    // bytes that already returned success with saving:true.
+    flush_dirty_before_unmount(&state, &id)?;
     with_db(&state.db, |conn| state.drive_manager.eject(conn, &id))
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
@@ -293,12 +304,42 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
+    flush_dirty_before_unmount(&state, &id)?;
     with_db(&state.db, |conn| state.drive_manager.remove(conn, &id))
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
     state.gallery.unwatch_mount(&id);
     state.ram_cache.drop_drive(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Persist any dirty RAM writes for this drive before eject/remove.
+fn flush_dirty_before_unmount(
+    state: &AppState,
+    id: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if state.ram_cache.dirty_rels_for_drive(id).is_empty() {
+        return Ok(());
+    }
+    let mount = with_db(&state.db, |conn| {
+        crate::db::get_drive(conn, id)?
+            .filter(|d| !d.mount_point.is_empty())
+            .map(|d| PathBuf::from(d.mount_point))
+            .ok_or_else(|| anyhow::anyhow!("drive is not mounted"))
+    })
+    .ok();
+    let Some(mount) = mount else {
+        return Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna still needs to finish saving files on this drive, but the drive is not ready. Plug it back in and try again.",
+        ));
+    };
+    state.ram_cache.flush_drive_dirty(id, &mount).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish saving files on this drive. Wait a moment and try again.",
+        )
+    })
 }
 
 async fn drive_health(
