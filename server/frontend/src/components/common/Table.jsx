@@ -62,7 +62,7 @@ export default function Table({
     const actionColumns = cardColumns.filter((col) => col.srOnly);
 
     return (
-      <div className={cn("bg-primary/5 rounded-card p-3", className)} data-slot="table">
+      <div className={cn(className)} data-slot="table">
         <ul className="m-0 list-none space-y-3 p-0" aria-label="Rows">
           {data.map((row, rowIndex) => {
             const key = rowKey ? row[rowKey] : rowIndex;

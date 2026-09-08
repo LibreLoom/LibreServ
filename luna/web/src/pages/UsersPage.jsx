@@ -113,7 +113,12 @@ export default function UsersPage() {
 
         {showList && (
           <section className="mt-5" aria-label="User list">
-            <Card surface="primary" padding={false} className="overflow-hidden" noHeightAnim>
+            <Card
+              surface="primary"
+              padding={false}
+              className="overflow-hidden border-0 md:border-2 bg-transparent md:bg-primary"
+              noHeightAnim
+            >
               <div className="overflow-x-auto">
                 <Table
                   columns={[
