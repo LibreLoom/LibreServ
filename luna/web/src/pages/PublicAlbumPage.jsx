@@ -115,7 +115,6 @@ export default function PublicAlbumPage() {
 
   function guestContentSrc(photo) {
     if (photo?.content) return photo.content;
-    // TODO: prefer /api/v1/public/albums/{token}/content when backend lands.
     if (photo?.drive_id && photo?.path) {
       return `/api/v1/public/albums/${token}/content?drive_id=${encodeURIComponent(photo.drive_id)}&path=${encodeURIComponent(photo.path)}`;
     }
@@ -124,7 +123,6 @@ export default function PublicAlbumPage() {
 
   function guestDownloadSrc(photo) {
     if (photo?.download) return photo.download;
-    // TODO: prefer /api/v1/public/albums/{token}/download when backend lands.
     if (photo?.drive_id && photo?.path) {
       return `/api/v1/public/albums/${token}/download?drive_id=${encodeURIComponent(photo.drive_id)}&path=${encodeURIComponent(photo.path)}`;
     }
@@ -161,7 +159,6 @@ export default function PublicAlbumPage() {
                 size="sm"
                 asChild
               >
-                {/* TODO: /zip when backend lands; sequential download fallback is per-photo in lightbox */}
                 <a href={`/api/v1/public/albums/${token}/zip`}>
                   <Download size={16} />
                   Download album

@@ -1,16 +1,33 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PublicAlbumPage from "./PublicAlbumPage.jsx";
 
-function renderPublicAlbum(token = "tok123") {
-  const queryClient = new QueryClient({
+vi.mock("../lib/api", () => ({
+  apiErrorMessage: (e, f) => e?.message || f || "error",
+  getJson: vi.fn(),
+  postForm: vi.fn(),
+}));
+
+vi.mock("../components/gallery/PhotoLightbox.jsx", () => ({
+  default: function MockLightbox({ mode }) {
+    return <div data-testid="lightbox" data-mode={mode || "owner"} />;
+  },
+  ABOVE_LIGHTBOX_OVERLAY_CLASS: "z-[90]",
+  resolveDisplaySrc: (photo, opts) => opts?.contentSrc || photo?.thumb || "",
+  resolveDownloadSrc: (photo, opts) => opts?.downloadSrc || photo?.download || "",
+}));
+
+import { getJson } from "../lib/api";
+
+function renderPage() {
+  const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/a/${token}`]}>
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={["/a/tok123"]}>
         <Routes>
           <Route path="/a/:token" element={<PublicAlbumPage />} />
         </Routes>
@@ -21,62 +38,57 @@ function renderPublicAlbum(token = "tok123") {
 
 describe("PublicAlbumPage", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.mocked(getJson).mockReset();
   });
 
-  it("renders read-only album with View only label and no upload button", async () => {
-    const fetchMock = vi.fn(async (url) => {
-      const u = String(url);
-      if (u.includes("/public/albums/ro-token")) {
-        return new Response(
-          JSON.stringify({
-            album: { name: "Paris Holiday" },
-            can_upload: false,
-            items: [
-              {
-                drive_id: "d1",
-                path: "eiffel.jpg",
-                name: "eiffel.jpg",
-                thumb: "/t1",
-                kind: "image",
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response("{}", { status: 404 });
+  it("shows download album and guest-safe chrome", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      album: { name: "Trip", id: "a1" },
+      can_upload: false,
+      has_more: false,
+      next_offset: 1,
+      items: [
+        {
+          drive_id: "d1",
+          path: "p.jpg",
+          name: "p.jpg",
+          thumb: "/api/v1/public/albums/tok123/thumb?drive_id=d1&path=p.jpg",
+          content: "/api/v1/public/albums/tok123/content?drive_id=d1&path=p.jpg",
+          download: "/api/v1/public/albums/tok123/download?drive_id=d1&path=p.jpg",
+          kind: "image",
+        },
+      ],
     });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderPublicAlbum("ro-token");
-
-    expect(await screen.findByText("Paris Holiday")).toBeInTheDocument();
-    expect(screen.getByText(/1 item · View only/i)).toBeInTheDocument();
-    expect(screen.queryByText("Add photos")).not.toBeInTheDocument();
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/1 item/i)).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: /download album/i })).toHaveAttribute(
+      "href",
+      "/api/v1/public/albums/tok123/zip",
+    );
+    expect(screen.queryByText(/add photos/i)).not.toBeInTheDocument();
   });
 
-  it("renders contributor album with upload button", async () => {
-    const fetchMock = vi.fn(async (url) => {
-      const u = String(url);
-      if (u.includes("/public/albums/ru-token")) {
-        return new Response(
-          JSON.stringify({
-            album: { name: "Collaborative Trip" },
-            can_upload: true,
-            items: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response("{}", { status: 404 });
+  it("opens guest lightbox mode", async () => {
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValue({
+      album: { name: "Trip", id: "a1" },
+      can_upload: false,
+      items: [
+        {
+          drive_id: "d1",
+          path: "p.jpg",
+          name: "p.jpg",
+          thumb: "/t",
+          content: "/c",
+          download: "/d",
+          kind: "image",
+        },
+      ],
     });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderPublicAlbum("ru-token");
-
-    expect(await screen.findByText("Collaborative Trip")).toBeInTheDocument();
-    expect(screen.getByText(/You can add photos and videos/i)).toBeInTheDocument();
-    expect(screen.getByText("Add photos")).toBeInTheDocument();
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText("p.jpg")).toBeInTheDocument());
+    await user.click(screen.getByLabelText("p.jpg"));
+    expect(screen.getByTestId("lightbox")).toHaveAttribute("data-mode", "guest");
   });
 });

@@ -2361,4 +2361,21 @@ mod tests {
         assert!(cleared.cover_path.is_empty());
         assert!(cleared.cover_drive_id.is_empty());
     }
+
+    #[test]
+    fn viewer_member_cannot_contribute() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let album = create_album(root, "d1", "owner", "Trip").unwrap();
+        upsert_member(root, &album.id, "viewer1", "viewer").unwrap();
+        assert!(user_can_access_album(root, &album, "viewer1").unwrap());
+        assert!(!user_can_contribute(root, &album, "viewer1").unwrap());
+        upsert_member(root, &album.id, "helper", "contributor").unwrap();
+        // allow_uploads still false — contribute stays false until uploads enabled
+        assert!(!user_can_contribute(root, &album, "helper").unwrap());
+        update_album(root, &album.id, None, None, Some(true), None).unwrap();
+        let album = get_album(root, "d1", &album.id).unwrap().unwrap();
+        assert!(user_can_contribute(root, &album, "helper").unwrap());
+        assert!(!user_can_contribute(root, &album, "viewer1").unwrap());
+    }
 }

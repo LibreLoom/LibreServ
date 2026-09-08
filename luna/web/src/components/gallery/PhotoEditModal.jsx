@@ -70,15 +70,20 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
     ctx.rotate(rad);
     ctx.drawImage(img, (-iw * scale) / 2, (-ih * scale) / 2, iw * scale, ih * scale);
     ctx.restore();
-    // Crop overlay
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    // Crop overlay — read theme tokens (canvas cannot use Tailwind classes).
+    const styles = getComputedStyle(document.documentElement);
+    const primary = styles.getPropertyValue("--primary").trim() || "Canvas";
+    const secondary = styles.getPropertyValue("--secondary").trim() || "CanvasText";
+    ctx.fillStyle = primary;
+    ctx.globalAlpha = 0.45;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
     const rx = crop.x * canvas.width;
     const ry = crop.y * canvas.height;
     const rw = crop.w * canvas.width;
     const rh = crop.h * canvas.height;
     ctx.clearRect(rx, ry, rw, rh);
-    ctx.strokeStyle = "white";
+    ctx.strokeStyle = secondary;
     ctx.lineWidth = 2;
     ctx.strokeRect(rx, ry, rw, rh);
     // Redraw cropped region on top
