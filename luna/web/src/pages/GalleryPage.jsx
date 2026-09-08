@@ -409,7 +409,11 @@ export default function GalleryPage() {
         </PageNotice>
       )}
 
-      {looking && photos.length === 0 && activeSegment === "library" && (
+      {gallery.isLoading && photos.length === 0 && activeSegment === "library" && (
+        <GalleryLoadingStatus label="Loading library…" />
+      )}
+
+      {indexing && photos.length === 0 && !gallery.isLoading && activeSegment === "library" && (
         <Card className="mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">
@@ -441,6 +445,10 @@ export default function GalleryPage() {
             </Button>
           }
         />
+      )}
+
+      {gallery.isLoading && photos.length === 0 && activeSegment === "favorites" && (
+        <GalleryLoadingStatus label="Loading favorites…" />
       )}
 
       {noFavorites && (
@@ -651,18 +659,27 @@ export default function GalleryPage() {
   );
 }
 
+/** Centered loading line + spinner — same pattern as PlacesMap. */
+function GalleryLoadingStatus({ label }) {
+  return (
+    <div
+      className="flex items-center justify-center gap-3 py-20 text-secondary"
+      role="status"
+      aria-live="polite"
+    >
+      <p className="text-sm font-mono">{label}</p>
+      <Spinner size="lg" decorative className="text-secondary" />
+    </div>
+  );
+}
+
+GalleryLoadingStatus.propTypes = {
+  label: PropTypes.string.isRequired,
+};
+
 function AlbumsPanel({ albums, loading, onOpen, onCreate, onShare, onDelete }) {
   if (loading) {
-    return (
-      <div
-        className="flex items-center justify-center gap-3 py-20 text-secondary"
-        role="status"
-        aria-live="polite"
-      >
-        <p className="text-sm font-mono">Loading albums…</p>
-        <Spinner size="lg" decorative className="text-secondary" />
-      </div>
-    );
+    return <GalleryLoadingStatus label="Loading albums…" />;
   }
   return (
     <div className="space-y-4">
