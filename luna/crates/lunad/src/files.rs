@@ -12,13 +12,17 @@ use serde::Serialize;
 
 use crate::db::{self, DriveRow};
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub struct FileEntry {
     pub name: String,
     pub kind: String, // "dir" | "file" | "symlink" | "other"
     pub size: u64,
     pub modified: i64,
     pub hidden: bool,
+    /// True while Luna still holds this file in RAM and has not finished
+    /// writing it to the drive. UI may show "Saving…".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub saving: bool,
 }
 
 /// One row in `.luna-trash`, with the path it came from when metadata exists.
@@ -68,12 +72,24 @@ fn open_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
 
 /// List one directory. Directories first, then case-insensitive by name.
 ///
-/// Serves from the SQLite index whenever the directory mtime matches; any
-/// change (Luna, WebDAV, or direct access) falls back to one fresh read_dir.
+/// Serves from the in-RAM listing cache when trusted, else the SQLite index
+/// whenever the directory mtime matches; any change (Luna, WebDAV, or direct
+/// access) falls back to one fresh read_dir. Dirty in-flight writes are
+/// overlaid so Files sees saves immediately.
 pub fn list_dir(
     conn: &rusqlite::Connection,
     drive_id: &str,
     rel: &str,
+) -> Result<Vec<FileEntry>, FilesError> {
+    list_dir_with_cache(conn, drive_id, rel, None)
+}
+
+/// Like [`list_dir`], optionally using the process RAM cache.
+pub fn list_dir_with_cache(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    cache: Option<&crate::ram_cache::RamCache>,
 ) -> Result<Vec<FileEntry>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
@@ -85,6 +101,14 @@ pub fn list_dir(
         )));
     }
 
+    // Hot path: trust a very recent RAM listing without touching USB mtime.
+    if let Some(cache) = cache
+        && let Some(mut entries) = cache.get_listing(drive_id, rel, None)
+    {
+        cache.overlay_dirty_listing(drive_id, rel, &mut entries);
+        return Ok(entries);
+    }
+
     let meta = std::fs::metadata(&dir).map_err(FilesError::Io)?;
     let mtime = meta
         .modified()
@@ -92,13 +116,28 @@ pub fn list_dir(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let drive_conn = open_drive_db(&drive)?;
-    if let Some(entries) = crate::index::fresh_entries(&drive_conn, drive_id, rel, mtime) {
+
+    if let Some(cache) = cache
+        && let Some(mut entries) = cache.get_listing(drive_id, rel, Some(mtime))
+    {
+        cache.overlay_dirty_listing(drive_id, rel, &mut entries);
         return Ok(entries);
     }
 
-    let entries = read_dir_entries(&dir)?;
-    let _ = crate::index::replace_dir(&drive_conn, drive_id, rel, mtime, &entries);
+    let drive_conn = open_drive_db(&drive)?;
+    let mut entries =
+        if let Some(entries) = crate::index::fresh_entries(&drive_conn, drive_id, rel, mtime) {
+            entries
+        } else {
+            let entries = read_dir_entries(&dir)?;
+            let _ = crate::index::replace_dir(&drive_conn, drive_id, rel, mtime, &entries);
+            entries
+        };
+
+    if let Some(cache) = cache {
+        cache.put_listing(drive_id, rel, mtime, entries.clone());
+        cache.overlay_dirty_listing(drive_id, rel, &mut entries);
+    }
     Ok(entries)
 }
 
@@ -140,6 +179,7 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             kind: kind.to_string(),
             size: meta.len(),
             modified,
+            saving: false,
         });
     }
 

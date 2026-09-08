@@ -80,6 +80,7 @@ pub fn fresh_entries(
                 size: row.get::<_, i64>(2)? as u64,
                 modified: row.get(3)?,
                 hidden: row.get::<_, i64>(4)? != 0,
+                saving: false,
             })
         })
         .ok()?;
@@ -256,6 +257,7 @@ mod tests {
                 size: 1,
                 modified: 1,
                 hidden: false,
+                saving: false,
             },
             FileEntry {
                 name: "a".into(),
@@ -263,6 +265,7 @@ mod tests {
                 size: 0,
                 modified: 1,
                 hidden: false,
+                saving: false,
             },
         ];
         replace_dir(&conn, "d1", "sub", 42, &entries).unwrap();
@@ -301,6 +304,7 @@ mod tests {
                 size: 42,
                 modified: 9,
                 hidden: false,
+                saving: false,
             }],
         )
         .unwrap();

@@ -142,6 +142,7 @@ async fn detected(
         for row in &rows {
             if row.state != "as_is" && row.state != "readonly" {
                 state.gallery.unwatch_mount(&row.id);
+                state.ram_cache.drop_drive(&row.id);
             }
         }
         Ok((
@@ -282,6 +283,7 @@ async fn eject(
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
     state.gallery.unwatch_mount(&id);
+    state.ram_cache.drop_drive(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -295,6 +297,7 @@ async fn remove(
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))?;
     crate::dav::drop_cached_handler(&state, &id);
     state.gallery.unwatch_mount(&id);
+    state.ram_cache.drop_drive(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

@@ -32,6 +32,7 @@ pub mod mount;
 pub mod net;
 pub mod password;
 pub mod protect;
+pub mod ram_cache;
 pub mod rate_limit;
 pub mod recovery;
 pub mod recovery_drive;
@@ -72,6 +73,7 @@ pub struct AppState {
     pub data_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::updates::UpdateService>,
     pub health_cache: crate::system_health::HealthCache,
+    pub ram_cache: crate::ram_cache::RamCache,
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -127,6 +129,7 @@ impl AppState {
             data_dir: data_dir.to_path_buf(),
             updates,
             health_cache: crate::system_health::HealthCache::default(),
+            ram_cache: crate::ram_cache::RamCache::new(),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }

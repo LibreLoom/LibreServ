@@ -246,6 +246,30 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Reclaimable RAM caches: shrink thumbs/listings under MemAvailable pressure;
+    // flush dirty writes early rather than dropping them.
+    let pressure_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
+        loop {
+            ticker.tick().await;
+            let state = pressure_state.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                state.ram_cache.reclaim_for_pressure(|drive_id| {
+                    let Ok(conn) = state.db.lock() else {
+                        return None;
+                    };
+                    lunad::db::get_drive(&conn, drive_id)
+                        .ok()
+                        .flatten()
+                        .filter(|d| !d.mount_point.is_empty())
+                        .map(|d| std::path::PathBuf::from(d.mount_point))
+                });
+            })
+            .await;
+        }
+    });
+
     let updates_bg = state.updates.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
