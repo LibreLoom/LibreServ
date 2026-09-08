@@ -376,6 +376,10 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             place_label TEXT NOT NULL DEFAULT '',
             camera_make TEXT NOT NULL DEFAULT '',
             camera_model TEXT NOT NULL DEFAULT '',
+            lens TEXT NOT NULL DEFAULT '',
+            iso INTEGER NOT NULL DEFAULT 0,
+            focal_mm REAL NOT NULL DEFAULT 0,
+            flash INTEGER NOT NULL DEFAULT -1,
             has_thumb INTEGER NOT NULL DEFAULT 0,
             duration_secs INTEGER NOT NULL DEFAULT 0
          );
@@ -460,6 +464,10 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_column(conn, "photos", "duration_secs", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(conn, "photos", "camera_make", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "photos", "camera_model", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "photos", "lens", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "photos", "iso", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(conn, "photos", "focal_mm", "REAL NOT NULL DEFAULT 0")?;
+    ensure_column(conn, "photos", "flash", "INTEGER NOT NULL DEFAULT -1")?;
     Ok(())
 }
 

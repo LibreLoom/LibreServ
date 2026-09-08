@@ -52,6 +52,27 @@ struct GalleryQuery {
     camera_make: Option<String>,
     #[serde(default)]
     camera_model: Option<String>,
+    #[serde(default)]
+    lens: Option<String>,
+    iso_min: Option<u32>,
+    iso_max: Option<u32>,
+    focal_min: Option<f64>,
+    focal_max: Option<f64>,
+    /// `0` = flash off, `1` = flash on.
+    flash: Option<i64>,
+    #[serde(default)]
+    orientation: Option<String>,
+    #[serde(default)]
+    has_gps: Option<bool>,
+    #[serde(default)]
+    format: Option<String>,
+    hour_from: Option<u32>,
+    hour_to: Option<u32>,
+    min_megapixels: Option<f64>,
+    min_duration: Option<u32>,
+    max_duration: Option<u32>,
+    #[serde(default)]
+    undated: Option<bool>,
 }
 
 fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
@@ -94,6 +115,12 @@ struct PatchAlbumBody {
     allow_uploads: Option<bool>,
     #[serde(default)]
     locked: Option<bool>,
+    /// Optional album cover path (relative to the cover drive).
+    #[serde(default)]
+    cover_path: Option<String>,
+    /// Drive that holds `cover_path`. Defaults to the album home when omitted with cover_path.
+    #[serde(default)]
+    cover_drive_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -147,6 +174,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/gallery", get(timeline))
         .route("/api/v1/gallery/places", get(places))
         .route("/api/v1/gallery/cameras", get(cameras))
+        .route("/api/v1/gallery/filter-facets", get(filter_facets))
         .route("/api/v1/gallery/thumb", get(thumb))
         .route("/api/v1/gallery/preview", get(preview))
         .route("/api/v1/gallery/download", post(download_zip))
@@ -377,6 +405,26 @@ async fn timeline(
         camera_model: query
             .camera_model
             .filter(|s| !s.trim().is_empty()),
+        lens: query.lens.filter(|s| !s.trim().is_empty()),
+        iso_min: query.iso_min,
+        iso_max: query.iso_max,
+        focal_min: query.focal_min,
+        focal_max: query.focal_max,
+        flash: query.flash.filter(|v| *v == 0 || *v == 1),
+        orientation: query
+            .orientation
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .filter(|s| s == "landscape" || s == "portrait" || s == "square"),
+        has_gps: query.has_gps,
+        format: query.format.filter(|s| !s.trim().is_empty()),
+        hour_from: query.hour_from.filter(|h| *h <= 23),
+        hour_to: query.hour_to.filter(|h| *h <= 23),
+        min_megapixels: query.min_megapixels.filter(|v| *v > 0.0),
+        min_duration: query.min_duration,
+        max_duration: query.max_duration,
+        undated: query.undated,
     };
 
     // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
@@ -468,6 +516,20 @@ async fn cameras(
         )
     })?;
     Ok(Json(json!({ "cameras": cameras })))
+}
+
+async fn filter_facets(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<gallery::FilterFacets>, (StatusCode, Json<Value>)> {
+    let mounts = accessible_mounts(&state, &user, None)?;
+    let facets = gallery::list_filter_facets(&mounts).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't load photo filters.",
+        )
+    })?;
+    Ok(Json(facets))
 }
 
 async fn status(
@@ -1207,6 +1269,26 @@ async fn patch_album(
             "Only the album owner can change these settings.",
         ));
     }
+    let cover = match (
+        body.cover_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+        body.cover_drive_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    ) {
+        (Some(path), Some(drive)) => Some((drive.to_string(), path.to_string())),
+        (Some(path), None) => Some((home.clone(), path.to_string())),
+        (None, None) => None,
+        (None, Some(_)) => {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Pick a photo path when setting the album cover.",
+            ));
+        }
+    };
     gallery::update_album(
         &root,
         &id,
@@ -1217,6 +1299,7 @@ async fn patch_album(
         body.shared,
         body.allow_uploads,
         body.locked,
+        cover,
     )
     .map_err(|_| {
         json_error(
@@ -1503,7 +1586,7 @@ async fn create_invite(
     );
     // Mark album shared when creating an invite. Only touch allow_uploads when
     // the client sends it — do not infer uploads from contributor role alone.
-    let _ = gallery::update_album(&root, &id, None, Some(true), body.allow_uploads, None);
+    let _ = gallery::update_album(&root, &id, None, Some(true), body.allow_uploads, None, None);
     let invite = gallery::create_invite(&root, &id, role, expires, None).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

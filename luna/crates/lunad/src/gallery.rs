@@ -48,10 +48,26 @@ pub struct Photo {
     #[serde(default)]
     pub camera_model: String,
     #[serde(default)]
+    pub lens: String,
+    #[serde(default)]
+    pub iso: u32,
+    #[serde(default)]
+    pub focal_mm: f64,
+    /// `-1` unknown, `0` off, `1` on.
+    #[serde(default = "flash_unknown")]
+    pub flash: i64,
+    #[serde(default)]
     pub duration_secs: u32,
     #[serde(default)]
     pub favorited: bool,
 }
+
+fn flash_unknown() -> i64 {
+    -1
+}
+
+// Keep serde's `default = "flash_unknown"` reachable for rustc unused checks.
+const _: fn() -> i64 = flash_unknown;
 
 #[derive(Debug, Default)]
 pub struct ScanReport {
@@ -83,6 +99,27 @@ pub struct ListFilter {
     pub camera_make: Option<String>,
     /// Exact camera model filter (case-insensitive).
     pub camera_model: Option<String>,
+    /// Exact lens model filter (case-insensitive).
+    pub lens: Option<String>,
+    pub iso_min: Option<u32>,
+    pub iso_max: Option<u32>,
+    pub focal_min: Option<f64>,
+    pub focal_max: Option<f64>,
+    /// `0` = flash off, `1` = flash on.
+    pub flash: Option<i64>,
+    /// `landscape` | `portrait` | `square` from width/height.
+    pub orientation: Option<String>,
+    pub has_gps: Option<bool>,
+    /// Path extension without dot (`jpg`, `heic`, `mp4`, …). `jpeg` matches `jpg`.
+    pub format: Option<String>,
+    /// Inclusive UTC hour-of-day (0–23) on effective capture time.
+    pub hour_from: Option<u32>,
+    pub hour_to: Option<u32>,
+    pub min_megapixels: Option<f64>,
+    pub min_duration: Option<u32>,
+    pub max_duration: Option<u32>,
+    /// Only rows with no EXIF capture date (`taken_at = 0` in the index).
+    pub undated: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -119,6 +156,36 @@ pub struct CameraCount {
     pub make: String,
     pub model: String,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LensCount {
+    pub lens: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FormatCount {
+    pub ext: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NumRange {
+    pub min: f64,
+    pub max: f64,
+}
+
+/// Aggregated filter facet values across accessible mounts.
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterFacets {
+    pub cameras: Vec<CameraCount>,
+    pub lenses: Vec<LensCount>,
+    pub formats: Vec<FormatCount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iso_range: Option<NumRange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focal_range: Option<NumRange>,
 }
 
 pub fn is_image(path: &Path) -> bool {
@@ -198,8 +265,37 @@ struct PendingUpsert {
     place_label: String,
     camera_make: String,
     camera_model: String,
+    lens: String,
+    iso: u32,
+    focal_mm: f64,
+    flash: i64,
     duration_secs: u32,
     has_thumb: bool,
+}
+
+fn flash_to_i64(flash: Option<bool>) -> i64 {
+    match flash {
+        Some(true) => 1,
+        Some(false) => 0,
+        None => -1,
+    }
+}
+
+fn path_ext_lower(path: &str) -> String {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+fn normalize_format_ext(raw: &str) -> String {
+    let e = raw.trim().trim_start_matches('.').to_ascii_lowercase();
+    if e == "jpeg" {
+        "jpg".into()
+    } else {
+        e
+    }
 }
 
 /// Walk one drive and refresh its on-drive photo index + thumbnails.
@@ -285,7 +381,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                     name,
                     size,
                     mtime,
-                    taken_at: mtime,
+                    taken_at: 0,
                     kind: kind.to_string(),
                     width: 0,
                     height: 0,
@@ -294,6 +390,10 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                     place_label: String::new(),
                     camera_make: String::new(),
                     camera_model: String::new(),
+                    lens: String::new(),
+                    iso: 0,
+                    focal_mm: 0.0,
+                    flash: -1,
                     duration_secs: 0,
                     has_thumb: false,
                 });
@@ -302,11 +402,16 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             }
 
             let meta = crate::exif::capture_meta(&path_buf).unwrap_or_default();
-            let taken_at = meta.taken_at.unwrap_or(mtime);
+            // `0` means no EXIF capture date; list/sort fall back to mtime.
+            let taken_at = meta.taken_at.unwrap_or(0);
             let lat = meta.lat;
             let lon = meta.lon;
             let camera_make = meta.camera_make.unwrap_or_default();
             let camera_model = meta.camera_model.unwrap_or_default();
+            let lens = meta.lens.unwrap_or_default();
+            let iso = meta.iso.unwrap_or(0);
+            let focal_mm = meta.focal_mm.unwrap_or(0.0);
+            let flash = flash_to_i64(meta.flash);
             let place_label = match (lat, lon) {
                 (Some(la), Some(lo)) => place_label_for(la, lo),
                 _ => String::new(),
@@ -331,6 +436,12 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 }
             }
 
+            let duration_secs = if kind == "video" {
+                probe_video_duration_secs(&path_buf)
+            } else {
+                0
+            };
+
             pending.push(PendingUpsert {
                 path: rel,
                 name,
@@ -345,7 +456,11 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 place_label,
                 camera_make,
                 camera_model,
-                duration_secs: 0,
+                lens,
+                iso,
+                focal_mm,
+                flash,
+                duration_secs,
                 has_thumb,
             });
             flush_if_full(&mut conn, &mut pending)?;
@@ -390,8 +505,8 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
     let tx = conn.unchecked_transaction()?;
     for row in pending.drain(..) {
         tx.execute(
-            "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, camera_make, camera_model, duration_secs, has_thumb)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+            "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
              ON CONFLICT(path) DO UPDATE SET
                name = excluded.name,
                size = excluded.size,
@@ -405,6 +520,10 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                place_label = excluded.place_label,
                camera_make = excluded.camera_make,
                camera_model = excluded.camera_model,
+               lens = excluded.lens,
+               iso = excluded.iso,
+               focal_mm = excluded.focal_mm,
+               flash = excluded.flash,
                duration_secs = excluded.duration_secs,
                has_thumb = excluded.has_thumb",
             params![
@@ -421,6 +540,10 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                 row.place_label,
                 row.camera_make,
                 row.camera_model,
+                row.lens,
+                row.iso as i64,
+                row.focal_mm,
+                row.flash,
                 row.duration_secs as i64,
                 if row.has_thumb { 1 } else { 0 },
             ],
@@ -474,14 +597,23 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
         }
     }
     let meta = crate::exif::capture_meta(&path_buf).unwrap_or_default();
-    let taken_at = meta.taken_at.unwrap_or(mtime);
+    let taken_at = meta.taken_at.unwrap_or(0);
     let lat = meta.lat;
     let lon = meta.lon;
     let camera_make = meta.camera_make.unwrap_or_default();
     let camera_model = meta.camera_model.unwrap_or_default();
+    let lens = meta.lens.unwrap_or_default();
+    let iso = meta.iso.unwrap_or(0);
+    let focal_mm = meta.focal_mm.unwrap_or(0.0);
+    let flash = flash_to_i64(meta.flash);
     let place_label = match (lat, lon) {
         (Some(la), Some(lo)) => place_label_for(la, lo),
         _ => String::new(),
+    };
+    let duration_secs = if kind == "video" {
+        probe_video_duration_secs(&path_buf)
+    } else {
+        0
     };
     let mut pending = vec![PendingUpsert {
         path: rel.to_string(),
@@ -497,7 +629,11 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
         place_label,
         camera_make,
         camera_model,
-        duration_secs: 0,
+        lens,
+        iso,
+        focal_mm,
+        flash,
+        duration_secs,
         has_thumb: false,
     }];
     flush_batch(&mut conn, &mut pending)?;
@@ -542,8 +678,8 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
     let _ = finish_thumb(drive_id, root, rel);
     let conn = open_drive_db(root)?;
     let mut stmt = conn.prepare(
-        "SELECT path, name, size, taken_at, kind, width, height, lat, lon, place_label,
-                camera_make, camera_model, duration_secs, has_thumb
+        "SELECT path, name, size, COALESCE(NULLIF(taken_at, 0), mtime), kind, width, height, lat, lon, place_label,
+                camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb
          FROM photos WHERE path = ?1",
     )?;
     let photo = stmt
@@ -560,8 +696,12 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
             let place_label: String = row.get(9)?;
             let camera_make: String = row.get(10)?;
             let camera_model: String = row.get(11)?;
-            let duration_secs: i64 = row.get(12)?;
-            let has_thumb: i64 = row.get(13)?;
+            let lens: String = row.get(12)?;
+            let iso: i64 = row.get(13)?;
+            let focal_mm: f64 = row.get(14)?;
+            let flash: i64 = row.get(15)?;
+            let duration_secs: i64 = row.get(16)?;
+            let has_thumb: i64 = row.get(17)?;
             Ok(Photo {
                 drive_id: drive_id.to_string(),
                 path: path.clone(),
@@ -585,6 +725,10 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
                 },
                 camera_make,
                 camera_model,
+                lens,
+                iso: iso.max(0) as u32,
+                focal_mm,
+                flash,
                 duration_secs: duration_secs.max(0) as u32,
                 favorited: false,
             })
@@ -740,6 +884,53 @@ fn which_ffmpeg() -> Option<PathBuf> {
         }
         None
     })
+}
+
+fn which_ffprobe() -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        for dir in std::env::split_paths(&paths) {
+            let cand = dir.join("ffprobe");
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+        None
+    })
+}
+
+/// Best-effort video duration via ffprobe. Returns 0 when unavailable.
+fn probe_video_duration_secs(src: &Path) -> u32 {
+    let Some(ffprobe) = which_ffprobe() else {
+        return 0;
+    };
+    let output = std::process::Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(src)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+    let Ok(out) = output else {
+        return 0;
+    };
+    if !out.status.success() {
+        return 0;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let Ok(secs) = text.trim().parse::<f64>() else {
+        return 0;
+    };
+    if secs.is_finite() && secs > 0.0 {
+        secs.round().clamp(0.0, u32::MAX as f64) as u32
+    } else {
+        0
+    }
 }
 
 fn ensure_heif_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
@@ -932,18 +1123,68 @@ fn query_drive_photos(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("");
+    let lens = filter
+        .lens
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let iso_min = filter.iso_min.map(|v| v as i64).unwrap_or(-1);
+    let iso_max = filter.iso_max.map(|v| v as i64).unwrap_or(-1);
+    let focal_min = filter.focal_min.unwrap_or(-1.0);
+    let focal_max = filter.focal_max.unwrap_or(-1.0);
+    let flash = filter.flash.filter(|v| *v == 0 || *v == 1).unwrap_or(-2);
+    let orientation = filter
+        .orientation
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .filter(|s| s == "landscape" || s == "portrait" || s == "square")
+        .unwrap_or_default();
+    let has_gps = match filter.has_gps {
+        Some(true) => 1i64,
+        Some(false) => 0i64,
+        None => -1i64,
+    };
+    let format = filter
+        .format
+        .as_deref()
+        .map(normalize_format_ext)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    let hour_from = filter
+        .hour_from
+        .filter(|h| *h <= 23)
+        .map(|h| h as i64)
+        .unwrap_or(-1);
+    let hour_to = filter
+        .hour_to
+        .filter(|h| *h <= 23)
+        .map(|h| h as i64)
+        .unwrap_or(-1);
+    let min_megapixels = filter.min_megapixels.unwrap_or(-1.0);
+    let min_duration = filter.min_duration.map(|v| v as i64).unwrap_or(-1);
+    let max_duration = filter.max_duration.map(|v| v as i64).unwrap_or(-1);
+    let undated = match filter.undated {
+        Some(true) => 1i64,
+        Some(false) => 0i64,
+        None => -1i64,
+    };
 
     let mut stmt = conn.prepare(
         "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
                 p.width, p.height, p.kind, p.lat, p.lon, p.place_label, p.has_thumb,
                 CASE WHEN f.path IS NOT NULL THEN 1 ELSE 0 END,
                 COALESCE(p.duration_secs, 0),
-                COALESCE(p.camera_make, ''), COALESCE(p.camera_model, '')
+                COALESCE(p.camera_make, ''), COALESCE(p.camera_model, ''),
+                COALESCE(p.lens, ''), COALESCE(p.iso, 0), COALESCE(p.focal_mm, 0),
+                COALESCE(p.flash, -1)
          FROM photos p
          LEFT JOIN favorites f ON f.path = p.path AND f.user_id = ?1
          LEFT JOIN archive ar ON ar.path = p.path AND ar.user_id = ?1
          WHERE (?2 = '' OR p.name LIKE ?2 COLLATE NOCASE OR p.path LIKE ?2 COLLATE NOCASE
-                OR p.camera_make LIKE ?2 COLLATE NOCASE OR p.camera_model LIKE ?2 COLLATE NOCASE)
+                OR p.camera_make LIKE ?2 COLLATE NOCASE OR p.camera_model LIKE ?2 COLLATE NOCASE
+                OR p.lens LIKE ?2 COLLATE NOCASE)
            AND (?3 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) >= ?3)
            AND (?4 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) <= ?4)
            AND (?5 = '' OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
@@ -955,7 +1196,39 @@ fn query_drive_photos(
            AND (?13 = 0 OR ar.path IS NULL)
            AND (?14 = '' OR p.kind = ?14)
            AND (?15 = '' OR lower(p.camera_make) = lower(?15))
-           AND (?16 = '' OR lower(p.camera_model) = lower(?16))",
+           AND (?16 = '' OR lower(p.camera_model) = lower(?16))
+           AND (?17 = '' OR lower(p.lens) = lower(?17))
+           AND (?18 < 0 OR (p.iso > 0 AND p.iso >= ?18))
+           AND (?19 < 0 OR (p.iso > 0 AND p.iso <= ?19))
+           AND (?20 < 0 OR (p.focal_mm > 0 AND p.focal_mm >= ?20))
+           AND (?21 < 0 OR (p.focal_mm > 0 AND p.focal_mm <= ?21))
+           AND (?22 < 0 OR p.flash = ?22)
+           AND (?23 = '' OR (
+                (?23 = 'landscape' AND p.width > p.height AND p.width > 0) OR
+                (?23 = 'portrait' AND p.height > p.width AND p.height > 0) OR
+                (?23 = 'square' AND p.width = p.height AND p.width > 0)
+           ))
+           AND (?24 < 0 OR (
+                (?24 = 1 AND p.lat IS NOT NULL AND p.lon IS NOT NULL) OR
+                (?24 = 0 AND (p.lat IS NULL OR p.lon IS NULL))
+           ))
+           AND (?25 < 0 OR ?26 < 0 OR (
+                CASE
+                  WHEN ?25 <= ?26 THEN
+                    ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) BETWEEN ?25 AND ?26
+                  ELSE
+                    ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) >= ?25
+                    OR ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) <= ?26
+                END
+           ))
+           AND (?27 < 0 OR (p.width > 0 AND p.height > 0
+                AND (CAST(p.width AS REAL) * CAST(p.height AS REAL) / 1000000.0) >= ?27))
+           AND (?28 < 0 OR p.duration_secs >= ?28)
+           AND (?29 < 0 OR p.duration_secs <= ?29)
+           AND (?30 < 0 OR (
+                (?30 = 1 AND p.taken_at = 0) OR
+                (?30 = 0 AND p.taken_at != 0)
+           ))",
     )?;
     let rows = stmt.query_map(
         params![
@@ -975,6 +1248,20 @@ fn query_drive_photos(
             kind,
             camera_make,
             camera_model,
+            lens,
+            iso_min,
+            iso_max,
+            focal_min,
+            focal_max,
+            flash,
+            orientation,
+            has_gps,
+            hour_from,
+            hour_to,
+            min_megapixels,
+            min_duration,
+            max_duration,
+            undated,
         ],
         |row| {
             let path: String = row.get(0)?;
@@ -984,6 +1271,10 @@ fn query_drive_photos(
             let duration_secs: i64 = row.get(12)?;
             let camera_make: String = row.get(13)?;
             let camera_model: String = row.get(14)?;
+            let lens: String = row.get(15)?;
+            let iso: i64 = row.get(16)?;
+            let focal_mm: f64 = row.get(17)?;
+            let flash: i64 = row.get(18)?;
             Ok(Photo {
                 drive_id: drive_id.to_string(),
                 path: path.clone(),
@@ -1007,6 +1298,10 @@ fn query_drive_photos(
                 },
                 camera_make,
                 camera_model,
+                lens,
+                iso: iso.max(0) as u32,
+                focal_mm,
+                flash,
                 duration_secs: duration_secs.max(0) as u32,
                 favorited: favorited != 0,
             })
@@ -1020,6 +1315,14 @@ fn query_drive_photos(
             && !set.contains(&(drive_id.to_string(), photo.path.clone()))
         {
             continue;
+        }
+        // Format filter: SQLite instr finds the first '.', which breaks on
+        // dotted directory names — refine in Rust when a format was requested.
+        if !format.is_empty() {
+            let ext = normalize_format_ext(&path_ext_lower(&photo.path));
+            if ext != format {
+                continue;
+            }
         }
         photos.push(photo);
     }
@@ -1168,6 +1471,123 @@ pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCo
             .then_with(|| a.model.cmp(&b.model))
     });
     Ok(out)
+}
+
+/// Aggregate filter facet values (cameras, lenses, formats, ISO/focal ranges).
+pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<FilterFacets> {
+    use std::collections::HashMap;
+    let cameras = list_cameras(mounts)?;
+    let mut lenses: HashMap<String, u64> = HashMap::new();
+    let mut formats: HashMap<String, u64> = HashMap::new();
+    let mut iso_min: Option<u32> = None;
+    let mut iso_max: Option<u32> = None;
+    let mut focal_min: Option<f64> = None;
+    let mut focal_max: Option<f64> = None;
+
+    for (_, root) in mounts {
+        if !gallery_db_path(root).exists() {
+            continue;
+        }
+        let conn = match open_drive_db(root) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        {
+            let mut stmt = conn.prepare(
+                "SELECT COALESCE(lens, ''), COUNT(*) FROM photos
+                 WHERE COALESCE(lens, '') != ''
+                 GROUP BY COALESCE(lens, '')",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            for row in rows.flatten() {
+                let (lens, count) = row;
+                *lenses.entry(lens).or_insert(0) += count.max(0) as u64;
+            }
+        }
+        {
+            let mut stmt = conn.prepare("SELECT path FROM photos")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for path in rows.flatten() {
+                let ext = normalize_format_ext(&path_ext_lower(&path));
+                if ext.is_empty() {
+                    continue;
+                }
+                *formats.entry(ext).or_insert(0) += 1;
+            }
+        }
+        {
+            let mut stmt = conn.prepare(
+                "SELECT MIN(iso), MAX(iso) FROM photos WHERE iso > 0",
+            )?;
+            let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
+                let min: Option<i64> = row.get(0)?;
+                let max: Option<i64> = row.get(1)?;
+                if let (Some(min), Some(max)) = (min, max) {
+                    let min = min.max(0) as u32;
+                    let max = max.max(0) as u32;
+                    iso_min = Some(iso_min.map_or(min, |v| v.min(min)));
+                    iso_max = Some(iso_max.map_or(max, |v| v.max(max)));
+                }
+                Ok(())
+            });
+        }
+        {
+            let mut stmt = conn.prepare(
+                "SELECT MIN(focal_mm), MAX(focal_mm) FROM photos WHERE focal_mm > 0",
+            )?;
+            let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
+                let min: Option<f64> = row.get(0)?;
+                let max: Option<f64> = row.get(1)?;
+                if let (Some(min), Some(max)) = (min, max) {
+                    focal_min = Some(focal_min.map_or(min, |v| v.min(min)));
+                    focal_max = Some(focal_max.map_or(max, |v| v.max(max)));
+                }
+                Ok(())
+            });
+        }
+    }
+
+    let mut lenses: Vec<LensCount> = lenses
+        .into_iter()
+        .map(|(lens, count)| LensCount { lens, count })
+        .collect();
+    lenses.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.lens.cmp(&b.lens))
+    });
+
+    let mut formats: Vec<FormatCount> = formats
+        .into_iter()
+        .map(|(ext, count)| FormatCount { ext, count })
+        .collect();
+    formats.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.ext.cmp(&b.ext))
+    });
+
+    let iso_range = match (iso_min, iso_max) {
+        (Some(min), Some(max)) => Some(NumRange {
+            min: min as f64,
+            max: max as f64,
+        }),
+        _ => None,
+    };
+    let focal_range = match (focal_min, focal_max) {
+        (Some(min), Some(max)) => Some(NumRange { min, max }),
+        _ => None,
+    };
+
+    Ok(FilterFacets {
+        cameras,
+        lenses,
+        formats,
+        iso_range,
+        focal_range,
+    })
 }
 
 pub fn place_key(lat: f64, lon: f64) -> String {
@@ -1544,6 +1964,7 @@ pub fn update_album(
     shared: Option<bool>,
     allow_uploads: Option<bool>,
     locked: Option<bool>,
+    cover: Option<(String, String)>,
 ) -> anyhow::Result<()> {
     let conn = open_drive_db(root)?;
     if let Some(name) = name {
@@ -1574,6 +1995,12 @@ pub fn update_album(
         conn.execute(
             "UPDATE albums SET locked = ?1 WHERE id = ?2",
             params![if locked { 1 } else { 0 }, album_id],
+        )?;
+    }
+    if let Some((drive_id, path)) = cover {
+        conn.execute(
+            "UPDATE albums SET cover_path = ?1, cover_drive_id = ?2 WHERE id = ?3",
+            params![path, drive_id, album_id],
         )?;
     }
     Ok(())
@@ -2312,6 +2739,168 @@ mod tests {
         assert_eq!(by_q.items[0].name, "nikon.jpg");
     }
 
+    #[test]
+    fn rich_exif_filters_and_facets() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        std::fs::write(
+            photos_dir.join("canon.jpg"),
+            crate::exif::jpeg_with_rich_exif(crate::exif::RichExifOpts {
+                datetime: "2020:01:02 15:04:05",
+                make: Some("Canon"),
+                model: Some("EOS R5"),
+                lens: Some("RF50mm F1.2 L USM"),
+                iso: Some(800),
+                focal_num: Some(50),
+                focal_den: Some(1),
+                flash: Some(1),
+            }),
+        )
+        .unwrap();
+        std::fs::write(
+            photos_dir.join("phone.jpg"),
+            crate::exif::jpeg_with_exif("2020:03:04 05:06:07", Some("Apple"), Some("iPhone")),
+        )
+        .unwrap();
+        let wide = image::RgbaImage::from_pixel(200, 100, image::Rgba([5, 5, 5, 255]));
+        wide.save(photos_dir.join("wide.png")).unwrap();
+
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir.clone())];
+
+        let facets = list_filter_facets(&mounts).unwrap();
+        assert!(
+            facets
+                .lenses
+                .iter()
+                .any(|l| l.lens.contains("RF50mm") && l.count >= 1),
+            "expected lens facet in {:?}",
+            facets.lenses
+        );
+        assert!(
+            facets.formats.iter().any(|f| f.ext == "jpg" && f.count >= 1),
+            "expected jpg format in {:?}",
+            facets.formats
+        );
+        assert!(
+            facets.formats.iter().any(|f| f.ext == "png" && f.count >= 1),
+            "expected png format in {:?}",
+            facets.formats
+        );
+        let iso = facets.iso_range.expect("iso_range");
+        assert!(iso.min <= 800.0 && iso.max >= 800.0);
+        let focal = facets.focal_range.expect("focal_range");
+        assert!((focal.min - 50.0).abs() < 0.01);
+
+        let by_lens = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                lens: Some("RF50mm F1.2 L USM".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(by_lens.items.len(), 1);
+        assert_eq!(by_lens.items[0].iso, 800);
+        assert!((by_lens.items[0].focal_mm - 50.0).abs() < 0.01);
+        assert_eq!(by_lens.items[0].flash, 1);
+
+        let by_iso = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                iso_min: Some(400),
+                iso_max: Some(1600),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(by_iso.items.len(), 1);
+
+        let by_flash = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                flash: Some(1),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(by_flash.items.len(), 1);
+
+        let landscape = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                orientation: Some("landscape".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert!(
+            landscape.items.iter().any(|p| p.name == "wide.png"),
+            "landscape filter missed wide.png: {:?}",
+            landscape.items.iter().map(|p| &p.name).collect::<Vec<_>>()
+        );
+
+        let pngs = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                format: Some("png".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(pngs.items.len(), 1);
+        assert_eq!(pngs.items[0].name, "wide.png");
+
+        let afternoon = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                hour_from: Some(14),
+                hour_to: Some(16),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert!(
+            afternoon.items.iter().any(|p| p.name == "canon.jpg"),
+            "hour filter missed canon.jpg"
+        );
+
+        let undated = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                undated: Some(true),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert!(
+            undated.items.iter().any(|p| p.name == "wide.png"),
+            "undated should include PNG without EXIF date"
+        );
+    }
+
     fn copy_fixture_tree(src: &Path, dst: &Path, names: &[&str]) {
         for name in names {
             let from = src.join(name);
@@ -2499,14 +3088,14 @@ mod tests {
         let album = create_album(root, "d1", "user1", "Secret").unwrap();
         let _ = create_invite(root, &album.id, "viewer", None, None).unwrap();
         assert_eq!(list_invites(root, &album.id).unwrap().len(), 1);
-        update_album(root, &album.id, None, Some(false), None, None).unwrap();
+        update_album(root, &album.id, None, Some(false), None, None, None).unwrap();
         assert!(list_invites(root, &album.id).unwrap().is_empty());
 
         let mounts = vec![("d1".into(), root.to_path_buf())];
         let inv = create_invite(root, &album.id, "viewer", None, None).unwrap();
-        update_album(root, &album.id, None, Some(true), None, None).unwrap();
+        update_album(root, &album.id, None, Some(true), None, None, None).unwrap();
         assert!(find_invite(&mounts, &inv.token).unwrap().is_some());
-        update_album(root, &album.id, None, Some(false), None, None).unwrap();
+        update_album(root, &album.id, None, Some(false), None, None, None).unwrap();
         assert!(find_invite(&mounts, &inv.token).unwrap().is_none());
     }
 
@@ -2531,6 +3120,31 @@ mod tests {
     }
 
     #[test]
+    fn update_album_sets_cover() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
+        png.save(photos_dir.join("cover.png")).unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let album = create_album(&photos_dir, "d1", "u1", "Trip").unwrap();
+        add_album_items(&photos_dir, &album.id, &[("d1".into(), "cover.png".into())]).unwrap();
+        update_album(
+            &photos_dir,
+            &album.id,
+            None,
+            None,
+            None,
+            None,
+            Some(("d1".into(), "cover.png".into())),
+        )
+        .unwrap();
+        let got = get_album(&photos_dir, "d1", &album.id).unwrap().unwrap();
+        assert_eq!(got.cover_path, "cover.png");
+        assert_eq!(got.cover_drive_id, "d1");
+    }
+
+    #[test]
     fn viewer_member_cannot_contribute() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -2541,7 +3155,7 @@ mod tests {
         upsert_member(root, &album.id, "helper", "contributor").unwrap();
         // allow_uploads still false — contribute stays false until uploads enabled
         assert!(!user_can_contribute(root, &album, "helper").unwrap());
-        update_album(root, &album.id, None, None, Some(true), None).unwrap();
+        update_album(root, &album.id, None, None, Some(true), None, None).unwrap();
         let album = get_album(root, "d1", &album.id).unwrap().unwrap();
         assert!(user_can_contribute(root, &album, "helper").unwrap());
         assert!(!user_can_contribute(root, &album, "viewer1").unwrap());
