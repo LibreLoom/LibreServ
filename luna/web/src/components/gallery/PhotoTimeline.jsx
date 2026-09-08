@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by GalleryPage */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { ChevronDown, ChevronRight } from "lucide-react";

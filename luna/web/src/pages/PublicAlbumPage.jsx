@@ -54,7 +54,7 @@ export default function PublicAlbumPage() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
-  const pages = album.data?.pages || [];
+  const pages = useMemo(() => album.data?.pages || [], [album.data?.pages]);
   const first = pages[0];
   const items = useMemo(() => pages.flatMap((p) => p.items || []), [pages]);
   const title = first?.album?.name || "Shared album";

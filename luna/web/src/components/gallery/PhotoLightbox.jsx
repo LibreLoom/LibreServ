@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by gallery pages */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";

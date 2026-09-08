@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
@@ -27,28 +27,7 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
   const [crop, setCrop] = useState({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
   const drag = useRef(/** @type {null|{sx:number,sy:number,ox:number,oy:number}} */ (null));
 
-  useEffect(() => {
-    if (!open) return;
-    setRotation(0);
-    setCrop({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
-    setError(null);
-  }, [open, photo?.path]);
-
-  useEffect(() => {
-    if (!open || !photo) return undefined;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imgRef.current = img;
-      paint();
-    };
-    img.onerror = () => setError("Luna couldn't load this photo for editing.");
-    img.src = contentHref(photo.drive_id, photo.path);
-    return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- paint reads latest crop/rotation
-  }, [open, photo?.drive_id, photo?.path, rotation, crop]);
-
-  function paint() {
+  const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
@@ -95,7 +74,28 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
     ctx.rotate(rad);
     ctx.drawImage(img, (-iw * scale) / 2, (-ih * scale) / 2, iw * scale, ih * scale);
     ctx.restore();
-  }
+  }, [rotation, crop]);
+
+  useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset editor state when a photo is opened
+    setRotation(0);
+    setCrop({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+    setError(null);
+  }, [open, photo?.path]);
+
+  useEffect(() => {
+    if (!open || !photo) return undefined;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      imgRef.current = img;
+      paint();
+    };
+    img.onerror = () => setError("Luna couldn't load this photo for editing.");
+    img.src = contentHref(photo.drive_id, photo.path);
+    return undefined;
+  }, [open, photo, paint]);
 
   async function save() {
     if (!photo) return;

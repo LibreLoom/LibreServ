@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- scrubber exports date helpers used by GalleryPage */
 import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button.jsx";

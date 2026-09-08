@@ -317,7 +317,7 @@ export default function GalleryPage() {
       window.location.hash = next;
       setSegment(next);
     },
-    [activeSegment],
+    [activeSegment, setPlace, setAlbumView, setDayFilter, setDuplicatesView, setFilters, setSegment],
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
@@ -929,7 +929,7 @@ export default function GalleryPage() {
       setPlace(null);
       if (activeSegment === "places") handleSegmentChange("library");
     },
-    [activeSegment, handleSegmentChange],
+    [activeSegment, handleSegmentChange, setQ, setPlace],
   );
 
   function tryOpenAlbum(album) {

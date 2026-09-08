@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by GalleryFilterSheet */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import {

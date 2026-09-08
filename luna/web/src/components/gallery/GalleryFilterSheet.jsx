@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by GalleryPage */
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
@@ -323,6 +324,7 @@ export default function GalleryFilterSheet({
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync draft from applied filters when sheet opens
     setDraft({
       ...EMPTY_FILTERS,
       ...value,
