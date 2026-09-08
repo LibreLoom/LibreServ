@@ -8,6 +8,7 @@ import SystemChecksCard from "./SystemChecksCard.jsx";
 import UpdateSourceCard from "./UpdateSourceCard.jsx";
 import AccessAddressesCard from "./AccessAddressesCard.jsx";
 import { getJson } from "../../../lib/api";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function AboutCategory() {
   const setup = useQuery({
@@ -30,7 +31,7 @@ export default function AboutCategory() {
           </div>
           <div className="mt-4 pt-4 border-t border-primary/10">
             <div className="flex items-center gap-2 text-sm text-accent">
-              <Heart size={14} className="text-error" aria-hidden="true" />
+              <Heart size={ICON_SIZE.sm} className="text-error" aria-hidden="true" />
               <span>Made with love: for everyone, by everyone.</span>
             </div>
           </div>
@@ -47,7 +48,7 @@ export default function AboutCategory() {
           <div className="mt-4">
             <Button asChild variant="primary">
               <a href="https://ko-fi.com/libreloom" target="_blank" rel="noopener noreferrer">
-                <Coffee size={16} aria-hidden="true" />
+                <Coffee size={ICON_SIZE.md} aria-hidden="true" />
                 Support us on Ko-fi
               </a>
             </Button>

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import Card from "./Card";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 import { haptic } from "../../utils/haptics";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** @type {import('react').Context<(() => void) | null>} */
 const ModalCloseContext = createContext(null);
@@ -25,17 +26,17 @@ export const EXIT_ANIMATION_MS = 300;
 /** Card `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
 export const POP_IN_ANIMATION_MS = 300;
 
-function prefersReducedMotion() {
-  return typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
 export const NESTED_OVERLAY_CLASS = "z-[90]";
 
 /** Present overlays, last entry is topmost for Escape / Tab / overflow. */
 const overlayStack = [];
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 /**
  * @typedef {object} ModalCardProps
@@ -51,11 +52,11 @@ const overlayStack = [];
  * @property {boolean} [mobileFullscreen]
  * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
  * @property {string} [className]
+ * @property {import('react').RefObject} [initialFocusRef]
+ * @property {boolean} [loading] Show a skeleton body until content is ready.
  * @property {string} [overlayClassName] Extra classes on the fixed overlay (e.g. raise
  *   z-index above PhotoLightbox's z-[80] or another ModalCard with `NESTED_OVERLAY_CLASS`
  *   / `z-[90]`). Default overlay is `z-50`.
- * @property {import('react').RefObject} [initialFocusRef]
- * @property {boolean} [loading] Show a skeleton body until content is ready.
  */
 
 /** @param {ModalCardProps} props */
@@ -69,9 +70,9 @@ export default function ModalCard({
   mobileFullscreen = false,
   footer,
   className = "",
-  overlayClassName = "",
   initialFocusRef,
   loading = false,
+  overlayClassName = "",
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [present, setPresent] = useState(open);
@@ -180,6 +181,7 @@ export default function ModalCard({
 
     const overlayId = titleId;
     overlayStack.push(overlayId);
+
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
@@ -262,9 +264,9 @@ export default function ModalCard({
       data-slot="dialog-overlay"
       className={cn(
         "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
-        overlayClassName,
         mobileFsClasses,
-        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95"
+        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95",
+        overlayClassName,
       )}
       onClick={handleClose}
     >
@@ -316,7 +318,7 @@ export default function ModalCard({
                     data-slot="dialog-close"
                     onClick={handleClose}
                     className={cn(
-                      "absolute top-5 right-5 p-2 rounded-pill text-primary",
+                      "absolute top-5 right-5 p-2 rounded-pill text-primary cursor-pointer",
                       "motion-safe:transition-all hover:bg-primary hover:text-secondary",
                       "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
                       "focus-visible:ring-offset-secondary no-focus-outline"
@@ -324,7 +326,7 @@ export default function ModalCard({
                     aria-label="Close"
                     ref={closeButtonRef}
                   >
-                    <X size={20} aria-hidden="true" />
+                    <X size={ICON_SIZE.xl} aria-hidden="true" />
                   </button>
                 )}
 

@@ -4,6 +4,7 @@ import ModalCard from "./ModalCard";
 import Callout from "../common/Callout";
 import ModalErrorNotice from "../common/ModalErrorNotice";
 import Button from "../ui/Button";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 // Maps the modal's semantic variant to the canonical Button variant.
 // "warning" keeps its yellow fill via a className override since Button has
@@ -114,12 +115,12 @@ export default function ConfirmModal({
           <div className="flex items-start gap-3">
             {SnapIcon && (
               <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-                <SnapIcon size={24} className={iconColor} />
+                <SnapIcon size={ICON_SIZE.xxl} className={iconColor} />
               </div>
             )}
             <div className="flex-1">
               {snap.message && (
-                <p className="font-mono text-sm text-primary mb-2">{snap.message}</p>
+                <p className="font-mono text-sm text-accent mb-2">{snap.message}</p>
               )}
               {snap.children}
             </div>
@@ -155,7 +156,7 @@ export default function ConfirmModal({
               className={snap.variant === "warning" ? "flex-1 bg-warning text-secondary" : "flex-1"}
             >
               {!loading && SnapConfirmIcon ? (
-                <SnapConfirmIcon size={16} aria-hidden="true" />
+                <SnapConfirmIcon size={ICON_SIZE.md} aria-hidden="true" />
               ) : null}
               {loading ? "Processing..." : snap.confirmLabel}
             </Button>

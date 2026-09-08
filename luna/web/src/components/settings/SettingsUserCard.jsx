@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { User, Shield, ChevronRight } from "lucide-react";
 import { InfoHint } from "../ui/Tooltip";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function SettingsUserCard({ user }) {
   if (!user) return null;
@@ -10,12 +11,12 @@ export default function SettingsUserCard({ user }) {
   const body = (
     <>
       <div className="h-12 w-12 rounded-full bg-primary text-secondary flex items-center justify-center flex-shrink-0">
-        <User size={20} />
+        <User size={ICON_SIZE.xl} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-primary truncate">{user.username}</div>
         <div className="text-sm text-primary flex items-center gap-1">
-          <Shield size={12} />
+          <Shield size={ICON_SIZE.xs} />
           {isAdmin ? (
             <span className="inline-flex items-center gap-1">
               <span>Admin</span>
@@ -31,7 +32,7 @@ export default function SettingsUserCard({ user }) {
       </div>
       {isAdmin && (
         <ChevronRight
-          size={18}
+          size={ICON_SIZE.lg}
           className="text-accent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0"
         />
       )}

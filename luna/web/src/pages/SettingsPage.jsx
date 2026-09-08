@@ -8,6 +8,7 @@ import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /** Old category ids → current sidebar ids (bookmarks / deep links). */
 const HASH_ALIASES = {
@@ -121,7 +122,7 @@ export default function SettingsPage() {
                 onClick={() => setShowMobileContent(false)}
                 className="mb-4 -ml-3"
               >
-                <ArrowLeft size={18} />
+                <ArrowLeft size={ICON_SIZE.lg} />
                 <span>Back</span>
               </Button>
               <SettingsContent category={activeCategory} />

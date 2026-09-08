@@ -13,6 +13,7 @@ import { useAuth } from "../../context/AuthContext";
 import { TermHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 import { dedupeIdenticalGrants, pathKey } from "../../lib/shareTree.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const PERMISSION_OPTIONS = [
   { value: "read", label: "Read" },
@@ -94,7 +95,7 @@ export function AccessButton({ label, onClick, surface = "secondary" }) {
         aria-label={`Sharing for ${label}`}
         onClick={onClick}
       >
-        <Users size={14} />
+        <Users size={ICON_SIZE.sm} />
       </Button>
     </Tooltip>
   );
@@ -228,7 +229,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
                   />
                 </div>
                 <Button size="iconSm" variant="danger" aria-label={`Remove access for ${name}`} onClick={() => revokeGrant.mutate(g.id)}>
-                  <Trash2 size={12} />
+                  <Trash2 size={ICON_SIZE.xs} />
                 </Button>
               </div>
             );
@@ -319,7 +320,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
                 )}
               </div>
               <Button size="iconSm" variant="danger" aria-label="Remove this link" onClick={() => revokeShare.mutate(s.id)}>
-                <Trash2 size={12} />
+                <Trash2 size={ICON_SIZE.xs} />
               </Button>
             </div>
           );

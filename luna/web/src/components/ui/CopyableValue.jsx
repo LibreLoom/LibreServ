@@ -6,18 +6,17 @@ import { cn } from "../../lib/utils";
 /**
  * Link / token / URL display with one-click copy on secure pages.
  *
- * On plain HTTP (LAN IP), one-click copy cannot work — we show the value in a
- * selectable field and tell the user to select and copy by hand. Never shows
- * a Copy button that fails silently or pretends success.
+ * On plain HTTP (LAN IP), shows selectable text and clear guidance instead of
+ * a Copy button that cannot work.
  *
  * @param {object} props
  * @param {string} props.value
  * @param {string} [props.copyLabel="Copy"]
  * @param {string} [props.copiedLabel="Copied"]
  * @param {string} [props.ariaLabel]
- * @param {"primary"|"secondary"} [props.surface="secondary"] Backdrop the control sits on.
+ * @param {"primary"|"secondary"} [props.surface="secondary"]
  * @param {string} [props.className]
- * @param {boolean} [props.multiline=false] Use a textarea for long values.
+ * @param {boolean} [props.multiline=false]
  */
 export default function CopyableValue({
   value,
@@ -63,10 +62,7 @@ export default function CopyableValue({
         ) : (
           <input
             readOnly
-            className={cn(
-              "w-full rounded-pill px-4 py-2 text-sm font-mono",
-              fieldClass,
-            )}
+            className={cn("w-full rounded-pill px-4 py-2 text-sm font-mono", fieldClass)}
             value={text}
             onFocus={selectAll}
             aria-label={ariaLabel}
@@ -99,10 +95,7 @@ export default function CopyableValue({
       ) : (
         <input
           readOnly
-          className={cn(
-            "w-full min-w-0 rounded-pill px-4 py-2 text-sm font-mono",
-            fieldClass,
-          )}
+          className={cn("w-full min-w-0 rounded-pill px-4 py-2 text-sm font-mono", fieldClass)}
           value={text}
           onFocus={selectAll}
           aria-label={ariaLabel}

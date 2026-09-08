@@ -5,6 +5,7 @@ import { ChevronDown, Plus } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import { cn } from "@/lib/utils";
 import { createKindsFor, groupedCreateKinds } from "../../lib/createKinds.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * One New button that opens a growing list of create kinds.
@@ -129,14 +130,14 @@ export default function NewItemMenu({ onPick, ids }) {
         onClick={handleTrigger}
       >
         {single ? (
-          <single.icon size={14} aria-hidden="true" />
+          <single.icon size={ICON_SIZE.sm} aria-hidden="true" />
         ) : (
-          <Plus size={14} aria-hidden="true" />
+          <Plus size={ICON_SIZE.sm} aria-hidden="true" />
         )}
         {single ? `New ${single.label.toLowerCase()}` : "New"}
         {single ? null : (
           <ChevronDown
-            size={14}
+            size={ICON_SIZE.sm}
             aria-hidden="true"
             className={cn(
               "motion-safe:transition-transform motion-safe:duration-300",
@@ -193,7 +194,7 @@ export default function NewItemMenu({ onPick, ids }) {
                       onMouseEnter={() => setActiveIndex(index)}
                       onClick={() => pick(kind)}
                     >
-                      <Icon size={14} aria-hidden="true" className="shrink-0" />
+                      <Icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" />
                       {kind.label}
                     </button>
                   );

@@ -11,6 +11,7 @@ import ShakeTarget from "../ui/ShakeTarget";
 import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function pathKey(value) {
   return value || "";
@@ -51,7 +52,7 @@ export function ProtectButton({ label, onClick }) {
         aria-label={`Protect ${label}`}
         onClick={onClick}
       >
-        <Shield size={14} />
+        <Shield size={ICON_SIZE.sm} />
       </Button>
     </Tooltip>
   );
@@ -190,7 +191,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       <div className="space-y-3">
         <section className="rounded-large-element bg-primary text-secondary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
           <div className="flex items-start gap-3">
-            <HardDrive size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+            <HardDrive size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-secondary text-sm font-semibold">On other drives</h3>
@@ -277,7 +278,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         >
           <div ref={cloudInnerRef} className="p-4 space-y-3">
             <div className="flex items-start gap-3">
-              <Cloud size={16} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+              <Cloud size={ICON_SIZE.md} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-secondary text-sm font-semibold inline-flex items-center gap-1.5">

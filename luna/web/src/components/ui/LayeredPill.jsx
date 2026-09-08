@@ -1,6 +1,7 @@
 import { cloneElement } from "react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "./Tooltip.jsx";
 
 /**
  * LayeredPill — the dual-layer segmented pill (settled format, do not deviate).
@@ -65,9 +66,8 @@ export default function LayeredPill({
     mono && "font-mono",
   );
   const hasAction = actionLabel != null && actionLabel !== "";
-  return (
+  const pill = (
     <div
-      title={title}
       className={cn(
         "inline-flex max-w-full flex-wrap items-center rounded-pill bg-accent text-primary text-xs border border-accent/40",
         className,
@@ -104,7 +104,7 @@ export default function LayeredPill({
               aria-label={actionAriaLabel}
               className={cn(
                 segmentBase,
-                "enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50",
+                "cursor-pointer enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
               {btnIcon} {actionLabel}
@@ -115,6 +115,13 @@ export default function LayeredPill({
         </span>
       </span>
     </div>
+  );
+  return title ? (
+    <Tooltip content={title} surface="secondary">
+      {pill}
+    </Tooltip>
+  ) : (
+    pill
   );
 }
 

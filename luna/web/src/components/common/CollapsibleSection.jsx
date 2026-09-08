@@ -2,6 +2,7 @@ import PropTypes from "prop-types";
 import { ChevronDown } from "lucide-react";
 import { useState, useId } from "react";
 import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function CollapsibleSection({
   title,
@@ -30,7 +31,7 @@ export default function CollapsibleSection({
         type="button"
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-1.5 motion-safe:transition-all w-full",
+          "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",
           sizeClass,
           pill ? "text-primary font-medium py-2 px-3" : "text-inherit py-1",
@@ -40,7 +41,7 @@ export default function CollapsibleSection({
         aria-controls={contentId}
       >
         <ChevronDown
-          size={size === "xs" ? 12 : size === "md" ? 18 : 14}
+          size={size === "xs" ? ICON_SIZE.xs : size === "md" ? ICON_SIZE.lg : ICON_SIZE.sm}
           className={cn("motion-safe:transition-transform duration-200", open ? "rotate-180" : "rotate-0")}
           aria-hidden="true"
         />

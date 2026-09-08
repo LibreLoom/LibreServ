@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
@@ -231,9 +232,9 @@ export default function FilesPage() {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {item.kind === "dir" ? (
-                    <Folder size={16} className="text-accent shrink-0" />
+                    <Folder size={ICON_SIZE.md} className="text-accent shrink-0" />
                   ) : (
-                    <FileIcon size={16} className="text-accent shrink-0" />
+                    <FileIcon size={ICON_SIZE.md} className="text-accent shrink-0" />
                   )}
                   <div className="min-w-0">
                     <p className="font-mono text-sm truncate">{item.original_name || item.name}</p>
@@ -251,7 +252,7 @@ export default function FilesPage() {
                       setRestoreName(item.original_name || item.name);
                     }}
                   >
-                    <RotateCcw size={14} />
+                    <RotateCcw size={ICON_SIZE.sm} />
                   </Button>
                   <Button
                     variant="ghost"
@@ -260,7 +261,7 @@ export default function FilesPage() {
                     aria-label={`Delete ${item.original_name} forever`}
                     onClick={() => setPurgeTarget(item)}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={ICON_SIZE.sm} />
                   </Button>
                 </div>
               </div>

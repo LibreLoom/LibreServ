@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock } from "lucide-react";
@@ -48,8 +49,10 @@ const STEP = {
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
 // Same constant as LibreServ's SetupPage so the two wizards read identically.
-const WIZARD_INPUT_CLASS =
-  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
+const WIZARD_INPUT_CLASS = cn(
+  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150",
+  PLACEHOLDER_TEXT,
+);
 
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {

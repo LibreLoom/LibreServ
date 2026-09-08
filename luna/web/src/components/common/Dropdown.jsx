@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
 import { haptic } from "../../utils/haptics";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * @typedef {object} DropdownProps
@@ -167,7 +168,7 @@ export default function Dropdown({
         <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
           {selectedOption?.label || placeholder}
           <ChevronDown
-            size={14}
+            size={ICON_SIZE.sm}
             className={cn("motion-safe:transition-transform motion-safe:duration-300", isOpen && !isClosing ? "rotate-180" : "rotate-0")}
             style={{ transitionTimingFunction: "var(--motion-easing-emphasized)" }}
             aria-hidden="true"

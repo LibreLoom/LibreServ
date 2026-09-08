@@ -8,6 +8,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -365,7 +366,7 @@ export default function Navbar() {
       visibleNav.map((item) => (
         <React.Fragment key={`desktopNav-${item.to}`}>
           <NavLink to={item.to} end={item.end} className={navButtonClasses}>
-            <item.icon size={18} aria-hidden="true" />
+            <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
             <span>{item.label}</span>
           </NavLink>
         </React.Fragment>
@@ -406,7 +407,7 @@ export default function Navbar() {
                 aria-expanded={isUserMenuOpen}
                 onClick={() => setIsUserMenuOpen((v) => !v)}
               >
-                <User size={16} aria-hidden="true" />
+                <User size={ICON_SIZE.md} aria-hidden="true" />
               </button>
 
               <div
@@ -425,7 +426,7 @@ export default function Navbar() {
                     }}
                     className={cn(menuItemClasses, "hover:bg-accent", "hover:text-primary", "text-left")}
                   >
-                    <X size={16} aria-hidden="true" />
+                    <X size={ICON_SIZE.md} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign Out</span>
                   </button>
                 </div>
@@ -484,7 +485,7 @@ export default function Navbar() {
                   onClick={closeMobileMenu}
                   ref={index === 0 ? firstNavLinkRef : null}
                 >
-                  <item.icon size={18} aria-hidden="true" />
+                  <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
                   <span>{item.label}</span>
                 </NavLink>
               </React.Fragment>
@@ -498,7 +499,7 @@ export default function Navbar() {
               }}
               className={mobileMenuItemClasses}
             >
-              <X size={18} aria-hidden="true" />
+              <X size={ICON_SIZE.lg} aria-hidden="true" />
               <span>Sign Out</span>
             </button>
           </div>

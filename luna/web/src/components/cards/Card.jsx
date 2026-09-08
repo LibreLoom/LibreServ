@@ -2,6 +2,7 @@ import { memo } from "react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * @typedef {object} CardProps
@@ -10,7 +11,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {boolean} [noPopIn]
  * @property {boolean} [noHeightAnim]
  * @property {import('react').ElementType} [icon]
- * @property {string} [title]
+ * @property {import('react').ReactNode} [title]
  * @property {import('react').ReactNode} [headerActions]
  * @property {boolean} [padding]
  * @property {"primary"|"secondary"} [surface] Surface this card establishes. "secondary" (default) is the normal card surface (bg-secondary text-primary); "primary" inverts it (bg-primary text-secondary) for panels that should blend with the page.
@@ -19,7 +20,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {Record<string, any>} [rest] Additional props spread onto the rendered element (for `as` consumers).
  */
 
-/** @param {CardProps & Record<string, any>} props */
+/** @param {CardProps} props */
 function Card({
   children,
   className = "",
@@ -60,7 +61,7 @@ function Card({
           surfaceClasses,
           padding && "p-5",
           animationClass,
-          className,
+          className
         )}
         onAnimationEnd={onAnimationEnd}
         {...rest}
@@ -68,7 +69,7 @@ function Card({
         {hasHeader && (
           <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
-              {Icon && <Icon size={18} className="text-accent" />}
+              {Icon && <Icon size={ICON_SIZE.lg} className="text-accent" />}
               {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
@@ -116,7 +117,7 @@ function Card({
         {hasHeader && (
           <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
-              {Icon && <Icon size={18} className="text-accent" />}
+              {Icon && <Icon size={ICON_SIZE.lg} className="text-accent" />}
               {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
@@ -134,7 +135,7 @@ Card.propTypes = {
   noPopIn: PropTypes.bool,
   noHeightAnim: PropTypes.bool,
   icon: PropTypes.elementType,
-  title: PropTypes.string,
+  title: PropTypes.node,
   headerActions: PropTypes.node,
   padding: PropTypes.bool,
   surface: PropTypes.oneOf(["primary", "secondary"]),

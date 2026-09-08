@@ -10,6 +10,7 @@ import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * View images/videos or edit plaintext for a drive file.
@@ -196,7 +197,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
                   ref={fullViewButtonRef}
                   onClick={() => setExpanded(true)}
                 >
-                  <Maximize2 size={14} aria-hidden="true" />
+                  <Maximize2 size={ICON_SIZE.sm} aria-hidden="true" />
                   Full view
                 </Button>
               )}
@@ -210,12 +211,12 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
               >
                 {isDirty ? (
                   <>
-                    <Save size={14} aria-hidden="true" />
+                    <Save size={ICON_SIZE.sm} aria-hidden="true" />
                     Save
                   </>
                 ) : (
                   <>
-                    <Check size={14} aria-hidden="true" />
+                    <Check size={ICON_SIZE.sm} aria-hidden="true" />
                     Saved
                   </>
                 )}
@@ -223,7 +224,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
             )}
             <Button variant="outline" surface="secondary" asChild>
               <a href={downloadHref(driveId, path)}>
-                <Download size={14} aria-hidden="true" />
+                <Download size={ICON_SIZE.sm} aria-hidden="true" />
                 Download
               </a>
             </Button>
@@ -251,7 +252,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
           onClick={() => setExpanded(false)}
           aria-label="Exit full view"
         >
-          <X size={22} aria-hidden="true" />
+          <X size={ICON_SIZE.xxl} aria-hidden="true" />
         </button>
 
         <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-4 md:p-6">

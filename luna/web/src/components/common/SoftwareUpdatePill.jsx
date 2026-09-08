@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
 import Pill from "./Pill.jsx";
 import { useSoftwareUpdates } from "../../hooks/useSoftwareUpdates.jsx";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * SoftwareUpdatePill — shows in the dashboard header when a Luna software
@@ -22,7 +23,7 @@ export default function SoftwareUpdatePill() {
       aria-label={`Software update ${version} available. Open Settings to install.`}
     >
       <Pill variant="warning" className="hover:brightness-110">
-        <Download size={12} strokeWidth={2.5} aria-hidden="true" />
+        <Download size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
         <span className="font-medium">{version} ready</span>
       </Pill>
     </Link>

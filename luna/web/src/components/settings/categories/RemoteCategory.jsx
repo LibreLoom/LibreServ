@@ -7,6 +7,7 @@ import Pill from "../../common/Pill";
 import { TermHint } from "../../ui/Tooltip";
 import SettingsCard from "../SettingsCard";
 import { getJson } from "../../../lib/api";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
 
@@ -104,7 +105,7 @@ export default function RemoteCategory() {
             <Button variant="outline" fullWidth asChild className="justify-between">
               <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
                 <span>Manage on Luna Connect</span>
-                <ChevronRight size={16} aria-hidden="true" />
+                <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
               </a>
             </Button>
           ) : (
@@ -116,7 +117,7 @@ export default function RemoteCategory() {
             >
               <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
                 <span>Open Luna Connect</span>
-                <ChevronRight size={16} aria-hidden="true" />
+                <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
               </a>
             </Button>
           )}

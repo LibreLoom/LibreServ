@@ -47,6 +47,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import PropTypes from "prop-types";
@@ -322,7 +323,7 @@ export function InfoHint({ content, surface = "secondary", delayMs, className, l
             textClass,
           )}
         >
-          <Info size={14} aria-hidden="true" />
+          <Info size={ICON_SIZE.sm} aria-hidden="true" />
         </button>
       )}
     />

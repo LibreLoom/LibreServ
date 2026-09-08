@@ -30,6 +30,7 @@ import {
   postJson,
   putBinaryProgress,
 } from "../../lib/api.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
@@ -73,7 +74,7 @@ function DownloadButton({ driveId, path, label }) {
         aria-label={`Download ${label}`}
       >
         <a href={downloadHref(driveId, path)}>
-          <Download size={14} />
+          <Download size={ICON_SIZE.sm} />
         </a>
       </Button>
     </Tooltip>
@@ -759,7 +760,7 @@ export default function DriveFileExplorer({
                   aria-label={`Copy ${ctx.entry.name}`}
                   onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath] })}
                 >
-                  <Copy size={14} />
+                  <Copy size={ICON_SIZE.sm} />
                 </Button>
               </Tooltip>
               {(isAdmin || canWriteOnPath(grants.data, driveId, ctx.fullPath)) && (
@@ -772,7 +773,7 @@ export default function DriveFileExplorer({
                       aria-label={`Move ${ctx.entry.name}`}
                       onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath] })}
                     >
-                      <FolderInput size={14} />
+                      <FolderInput size={ICON_SIZE.sm} />
                     </Button>
                   </Tooltip>
                   <Tooltip content="Rename">
@@ -787,7 +788,7 @@ export default function DriveFileExplorer({
                         setRenameValue(ctx.entry.name);
                       }}
                     >
-                      <Pencil size={14} />
+                      <Pencil size={ICON_SIZE.sm} />
                     </Button>
                   </Tooltip>
                   <Tooltip content="Move to trash">
@@ -798,7 +799,7 @@ export default function DriveFileExplorer({
                       aria-label={`Move ${ctx.entry.name} to trash`}
                       onClick={() => setDeletePaths([ctx.fullPath])}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={ICON_SIZE.sm} />
                     </Button>
                   </Tooltip>
                 </>

@@ -7,6 +7,7 @@ import Pill from "./Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
 import { haptic } from "../../utils/haptics.js";
 import { displayLabel } from "../../lib/healthChecks.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * SystemHealthPill — failed health checks as a compact dashboard header pill,
@@ -100,7 +101,7 @@ export default function SystemHealthPill() {
   if (!hasIssues) {
     return (
       <Pill variant="success" data-slot="system-health-pill">
-        <CheckCircle size={12} strokeWidth={2.5} aria-hidden="true" />
+        <CheckCircle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
         <span className="font-medium">Everything looks good</span>
       </Pill>
     );
@@ -124,12 +125,12 @@ export default function SystemHealthPill() {
         aria-label={`${count} system issue${count !== 1 ? "s" : ""}. Click to view details.`}
       >
         <Pill variant="error" className="hover:brightness-110">
-          <AlertTriangle size={12} strokeWidth={2.5} aria-hidden="true" />
+          <AlertTriangle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
           <span className="font-medium">
             {count} issue{count !== 1 ? "s" : ""}
           </span>
           <ChevronDown
-            size={12}
+            size={ICON_SIZE.xs}
             className={cn(
               "motion-safe:transition-transform motion-safe:duration-300",
               isOpen && !isClosing ? "rotate-180" : "rotate-0",
@@ -155,7 +156,7 @@ export default function SystemHealthPill() {
           >
             <div className="px-4 py-3 border-b border-primary/10">
               <div className="flex items-center gap-2">
-                <AlertTriangle size={16} className="text-error" aria-hidden="true" />
+                <AlertTriangle size={ICON_SIZE.md} className="text-error" aria-hidden="true" />
                 <span className="font-mono text-sm font-medium text-error">
                   {count} issue{count !== 1 ? "s" : ""} found
                 </span>
@@ -169,7 +170,7 @@ export default function SystemHealthPill() {
                   style={isClosing ? undefined : { animationDelay: `${i * 45}ms` }}
                 >
                   <div className="px-4 py-2 flex items-start gap-2">
-                    <XCircle size={14} className="text-error mt-0.5 shrink-0" aria-hidden="true" />
+                    <XCircle size={ICON_SIZE.sm} className="text-error mt-0.5 shrink-0" aria-hidden="true" />
                     <div className="min-w-0">
                       <div className="text-sm text-primary font-medium">{check.label}</div>
                       {check.message && (

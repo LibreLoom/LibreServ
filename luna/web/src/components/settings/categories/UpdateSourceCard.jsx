@@ -11,6 +11,7 @@ import SettingsCard from "../SettingsCard";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
 import { InfoHint } from "../../ui/Tooltip";
 import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const INPUT_CLASS =
   "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono";
@@ -77,7 +78,7 @@ export default function UpdateSourceCard({ index = 3 }) {
         <CollapsibleSection title="Update source" mono pill>
           <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
             <div className="flex items-start gap-3">
-              <AlertTriangle size={18} className="text-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
               <div className="text-sm text-primary space-y-1.5">
                 <p className="font-semibold">Don&apos;t touch these during normal use.</p>
                 <p>
@@ -103,7 +104,7 @@ export default function UpdateSourceCard({ index = 3 }) {
             surface="secondary"
             onClick={() => setModalOpen(true)}
           >
-            <GitBranch size={14} aria-hidden="true" />
+            <GitBranch size={ICON_SIZE.sm} aria-hidden="true" />
             Edit update source
           </Button>
         </CollapsibleSection>

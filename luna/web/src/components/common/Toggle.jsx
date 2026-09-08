@@ -2,6 +2,7 @@ import PropTypes from "prop-types";
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const toggleTrackVariants = cva(
   "relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:scale-95",
@@ -100,8 +101,8 @@ export default function Toggle({
             key={checked ? "on" : "off"}
             className="flex h-full w-full items-center justify-center animate-toggle-settle"
           >
-            {IconOn && checked && <IconOn size={12} className="text-accent" />}
-            {IconOff && !checked && <IconOff size={12} className="text-accent" />}
+            {IconOn && checked && <IconOn size={ICON_SIZE.xs} className="text-accent" />}
+            {IconOff && !checked && <IconOff size={ICON_SIZE.xs} className="text-accent" />}
           </span>
         </span>
       </button>

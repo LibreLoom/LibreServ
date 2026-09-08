@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import SettingsCard from "../SettingsCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
 import { displayLabel } from "../../../lib/healthChecks.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function SystemChecksCard({ index = 1 }) {
   const { data, isLoading, error } = useSystemHealthCheck();
@@ -82,11 +83,11 @@ export default function SystemChecksCard({ index = 1 }) {
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   {ok ? (
-                    <CheckCircle2 size={15} className="text-success shrink-0" aria-hidden="true" />
+                    <CheckCircle2 size={ICON_SIZE.md} className="text-success shrink-0" aria-hidden="true" />
                   ) : skippedCheck ? (
-                    <Activity size={15} className="text-accent shrink-0" aria-hidden="true" />
+                    <Activity size={ICON_SIZE.md} className="text-accent shrink-0" aria-hidden="true" />
                   ) : (
-                    <XCircle size={15} className="text-error shrink-0" aria-hidden="true" />
+                    <XCircle size={ICON_SIZE.md} className="text-error shrink-0" aria-hidden="true" />
                   )}
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{displayLabel(name, check)}</div>

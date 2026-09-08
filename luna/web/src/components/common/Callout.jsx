@@ -5,6 +5,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import useShakeOnError from "../../hooks/useShakeOnError";
 import { calloutShakeTrigger } from "../../utils/shake";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const calloutTones = cva(
   "border p-3 motion-safe:transition-colors animate-alert-enter",
@@ -85,7 +86,7 @@ export default function Callout({
       role={tone === "error" ? "alert" : "status"}
     >
       <div className="flex items-start gap-3">
-        {Icon && <Icon size={20} className={cn(textClass, "shrink-0 mt-0.5")} aria-hidden="true" />}
+        {Icon && <Icon size={ICON_SIZE.xl} className={cn(textClass, "shrink-0 mt-0.5")} aria-hidden="true" />}
         <div className="flex-1 min-w-0">
           {title && <p className={cn("font-mono font-medium text-sm mb-1", textClass)}>{title}</p>}
           {children && <div className="text-sm text-primary">{children}</div>}
@@ -96,13 +97,13 @@ export default function Callout({
             type="button"
             onClick={onDismiss}
             className={cn(
-              "shrink-0 hover:bg-primary/20 rounded-pill p-1.5 motion-safe:transition-colors",
+              "shrink-0 cursor-pointer hover:bg-primary/20 rounded-pill p-1.5 motion-safe:transition-colors",
               "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline",
               textClass
             )}
             aria-label="Dismiss"
           >
-            <X size={16} aria-hidden="true" />
+            <X size={ICON_SIZE.md} aria-hidden="true" />
           </button>
         )}
       </div>

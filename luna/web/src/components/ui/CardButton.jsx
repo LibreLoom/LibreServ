@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const variants = {
   default:
@@ -23,7 +24,8 @@ const alignments = {
 
 /**
  * Standardized clickable "card" control. Renders as a route Link, an external
- * anchor, or a <button> (when `onClick` is given instead of `action`).
+ * anchor, or a <button> (when `onClick` is given instead of `action`), so every
+ * icon + label clickable can share one card style.
  *
  * @param {{
  *   action?: string,
@@ -62,6 +64,7 @@ export default function CardButton({
     (active && activeVariants[variant]) || variants[variant] || variants.default;
   const alignClass = alignments[align] || alignments.center;
   const ringClass = variant === "nav" ? "" : "hover:ring-2 hover:ring-solid";
+  // nav variant: no transition-all — instant hover feedback, sidebar feels snappier
   const transitionClass = variant === "nav" ? "" : "motion-safe:transition-all";
 
   const classes = cn("flex items-center gap-2 rounded-pill p-2 cursor-pointer", transitionClass, ringClass, alignClass, variantClasses, className, "h-full w-full");
@@ -69,7 +72,7 @@ export default function CardButton({
   const label = children ?? actionLabel;
   const content = (
     <>
-      {Icon && <Icon size={16} className="shrink-0" />}
+      {Icon && <Icon size={ICON_SIZE.md} className="shrink-0" />}
       <span
         className={cn("text-sm font-medium", align !== "center" && "flex-1 text-left")}
       >

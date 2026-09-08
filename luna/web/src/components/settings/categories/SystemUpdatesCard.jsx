@@ -10,6 +10,7 @@ import {
   Info,
   ExternalLink,
 } from "lucide-react";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../cards/ConfirmModal";
@@ -98,7 +99,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 "Checking…"
               ) : (
                 <>
-                  <RefreshCw size={16} aria-hidden="true" />
+                  <RefreshCw size={ICON_SIZE.md} aria-hidden="true" />
                   Check for updates
                 </>
               )}
@@ -109,19 +110,19 @@ export default function SystemUpdatesCard({ index = 0 }) {
             <div className="text-sm text-accent">Status:</div>
             {notChecked && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-primary text-secondary">
-                <Info size={12} aria-hidden="true" />
+                <Info size={ICON_SIZE.xs} aria-hidden="true" />
                 Not checked yet
               </span>
             )}
             {isUpToDate && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-success/20 border-2 border-success/30 text-primary">
-                <CheckCircle size={12} aria-hidden="true" />
+                <CheckCircle size={ICON_SIZE.xs} aria-hidden="true" />
                 Up to date
               </span>
             )}
             {hasUpdate && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium bg-warning/20 border-2 border-warning/30 text-primary">
-                <AlertCircle size={12} aria-hidden="true" />
+                <AlertCircle size={ICON_SIZE.xs} aria-hidden="true" />
                 {updateInfo.latest_version} available
               </span>
             )}
@@ -136,7 +137,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           {error && (
             <div className="mb-4 p-3 bg-error/20 border-2 border-error/30 rounded-large-element">
               <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-error flex-shrink-0 mt-0.5" aria-hidden="true" />
+                <AlertCircle size={ICON_SIZE.md} className="text-error flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <span className="text-sm text-error">{error}</span>
               </div>
             </div>
@@ -150,7 +151,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 fullWidth
                 className="justify-center font-sans"
               >
-                <ExternalLink size={16} aria-hidden="true" />
+                <ExternalLink size={ICON_SIZE.md} aria-hidden="true" />
                 See what&apos;s new in {updateInfo.latest_version}
               </Button>
 
@@ -164,7 +165,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                   "Updating…"
                 ) : (
                   <>
-                    <Download size={16} aria-hidden="true" />
+                    <Download size={ICON_SIZE.md} aria-hidden="true" />
                     Update now
                   </>
                 )}
@@ -172,11 +173,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
               <div className="flex flex-wrap gap-2">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-accent/20 text-primary">
-                  <Info size={12} aria-hidden="true" />
+                  <Info size={ICON_SIZE.xs} aria-hidden="true" />
                   Luna restarts after an update
                 </div>
                 <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs bg-accent/20 text-primary">
-                  <CheckCircle size={12} aria-hidden="true" />
+                  <CheckCircle size={ICON_SIZE.xs} aria-hidden="true" />
                   Sign in again afterward
                 </div>
               </div>

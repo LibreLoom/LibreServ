@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import useShakeOnError from "../../../hooks/useShakeOnError";
 import FieldLabel from "./FieldLabel";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const ICONS = {
   username: User,
@@ -38,8 +39,8 @@ export default function FormInput({
   // On a primary panel (e.g. Login), field pills use secondary fill.
   const onPrimaryPanel = surface === "primary";
   const inputTone = onPrimaryPanel
-    ? "bg-secondary text-primary placeholder:text-primary/40"
-    : "bg-primary text-secondary placeholder:text-secondary/40";
+    ? "bg-secondary text-primary placeholder:text-primary/50"
+    : "bg-primary text-secondary placeholder:text-secondary/50";
   const idleBorder = onPrimaryPanel
     ? "border-primary/30 focus:border-accent"
     : "border-secondary/30 focus:border-accent";
@@ -72,7 +73,7 @@ export default function FormInput({
         <div ref={fieldRef} className="relative">
           {Icon && (
             <Icon
-              size={16}
+              size={ICON_SIZE.md}
               className={cn(
                 "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10",
                 iconTone,
@@ -106,19 +107,19 @@ export default function FormInput({
             type="button"
             onClick={() => setShowPassword(!showPassword)}
             className={cn(
-              "absolute right-4 top-1/2 -translate-y-1/2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline rounded-pill p-1",
+              "absolute right-4 top-1/2 -translate-y-1/2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline rounded-pill p-1 cursor-pointer",
               eyeTone,
             )}
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
-            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            {showPassword ? <EyeOff size={ICON_SIZE.md} /> : <Eye size={ICON_SIZE.md} />}
           </button>
         </div>
       ) : (
         <div className="relative">
           {Icon && (
             <Icon
-              size={16}
+              size={ICON_SIZE.md}
               className={cn(
                 "absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10",
                 iconTone,
