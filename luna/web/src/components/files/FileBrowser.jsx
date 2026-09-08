@@ -22,6 +22,7 @@ import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import EmptyState from "../common/EmptyState.jsx";
+import TransferMenu from "./TransferMenu.jsx";
 import { getJson } from "../../lib/api.js";
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
 import { openableKind } from "../../lib/fileKinds.js";
@@ -68,6 +69,7 @@ function cssEscape(value) {
  * @param {{
  *   driveId: string,
  *   driveLabel?: string,
+ *   drives?: any[],
  *   initialPath?: string,
  *   path?: string,
  *   onPathChange?: (nextPath: string) => void,
@@ -80,13 +82,13 @@ function cssEscape(value) {
  *   selectPath?: string | null,
  *   onSelectPathApplied?: () => void,
  *   onShare?: (ctx: FileBrowserRowContext) => void,
- *   onCopy?: (paths: string[]) => void,
- *   onMove?: (paths: string[]) => void,
+ *   onCopy?: (paths: string[], targetDriveId?: string) => void,
+ *   onMove?: (paths: string[], targetDriveId?: string) => void,
  *   onRename?: (ctx: FileBrowserRowContext) => void,
  *   onDelete?: (paths: string[]) => void,
  *   onOpenFile?: (ctx: FileBrowserRowContext) => void,
  *   onUploadFiles?: (files: File[], destPath: string) => void | Promise<void>,
- *   onInternalMove?: (paths: string[], destFolder: string) => void | Promise<void>,
+ *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string) => void | Promise<void>,
  *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
  *   enableDownload?: boolean,
  *   enableUploadDrop?: boolean,
@@ -111,6 +113,7 @@ function cssEscape(value) {
 export default function FileBrowser({
   driveId,
   driveLabel = "Drive",
+  drives = [],
   initialPath = "",
   path: controlledPath,
   onPathChange,
@@ -405,12 +408,18 @@ export default function FileBrowser({
 
   function onRowDragStart(ctx, event) {
     if (isPicker || !onInternalMove) return;
+    const origin = event.target;
+    if (origin instanceof Element && origin.closest("[data-no-row-drag]")) {
+      event.preventDefault();
+      return;
+    }
     const paths = selectedPaths.includes(ctx.fullPath) && selectedPaths.length
       ? selectedPaths
       : [ctx.fullPath];
     dragPathsRef.current = paths;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-luna-paths", JSON.stringify(paths));
+    event.dataTransfer.setData("application/x-luna-drive", driveId);
     event.dataTransfer.setData("text/plain", paths.join("\n"));
   }
 
@@ -679,36 +688,96 @@ export default function FileBrowser({
                   className="flex flex-wrap items-center gap-2 font-mono text-sm text-primary"
                   aria-live="polite"
                 >
-                  {linkNavigation ? (
-                    <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all text-primary">
-                      {driveLabel}
-                    </TextLink>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
-                      onClick={() => openFolder("")}
-                    >
-                      {driveLabel}
-                    </button>
-                  )}
+                  {(() => {
+                    const isRootDrop = dropTarget === "::root";
+                    const rootCanDrop = path !== "" && !isPicker && Boolean(onInternalMove || onUploadFiles);
+                    const rootDropProps = rootCanDrop ? {
+                      onDragOver: (e) => {
+                        const types = e.dataTransfer?.types;
+                        const isFiles = types && Array.from(types).includes("Files");
+                        const isLuna = types && Array.from(types).includes("application/x-luna-paths");
+                        if (!isFiles && !isLuna) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
+                        setDropTarget("::root");
+                      },
+                      onDragLeave: (e) => {
+                        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+                        if (dropTarget === "::root") setDropTarget(null);
+                      },
+                      onDrop: (e) => {
+                        void onFolderDrop("", e);
+                      },
+                    } : {};
+
+                    return linkNavigation ? (
+                      <span {...rootDropProps} className={isRootDrop ? "bg-accent/20 ring-2 ring-accent rounded px-1" : undefined}>
+                        <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all text-primary" draggable={false}>
+                          {driveLabel}
+                        </TextLink>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        {...rootDropProps}
+                        className={cn(
+                          "text-primary hover:text-accent motion-safe:transition-colors break-all text-left",
+                          isRootDrop && "bg-accent/20 ring-2 ring-accent rounded px-1",
+                        )}
+                        onClick={() => openFolder("")}
+                      >
+                        {driveLabel}
+                      </button>
+                    );
+                  })()}
                   {segments.map((segment, i) => {
                     const segPath = segments.slice(0, i + 1).join("/");
+                    const isCurrentSegment = segPath === path;
+                    const isSegDrop = dropTarget === `::seg::${segPath}`;
+                    const segCanDrop = !isCurrentSegment && !isPicker && Boolean(onInternalMove || onUploadFiles);
+                    const segDropProps = segCanDrop ? {
+                      onDragOver: (e) => {
+                        const types = e.dataTransfer?.types;
+                        const isFiles = types && Array.from(types).includes("Files");
+                        const isLuna = types && Array.from(types).includes("application/x-luna-paths");
+                        if (!isFiles && !isLuna) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
+                        setDropTarget(`::seg::${segPath}`);
+                      },
+                      onDragLeave: (e) => {
+                        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+                        if (dropTarget === `::seg::${segPath}`) setDropTarget(null);
+                      },
+                      onDrop: (e) => {
+                        void onFolderDrop(segPath, e);
+                      },
+                    } : {};
+
                     return (
                       <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
                         <span className="text-primary" aria-hidden="true">/</span>
                         {linkNavigation ? (
-                          <TextLink
-                            to={folderHref(driveId, segPath)}
-                            surface="secondary"
-                            className="break-all text-primary"
-                          >
-                            {segment}
-                          </TextLink>
+                          <span {...segDropProps} className={isSegDrop ? "bg-accent/20 ring-2 ring-accent rounded px-1" : undefined}>
+                            <TextLink
+                              to={folderHref(driveId, segPath)}
+                              surface="secondary"
+                              className="break-all text-primary"
+                              draggable={false}
+                            >
+                              {segment}
+                            </TextLink>
+                          </span>
                         ) : (
                           <button
                             type="button"
-                            className="text-primary hover:text-accent motion-safe:transition-colors break-all text-left"
+                            {...segDropProps}
+                            className={cn(
+                              "text-primary hover:text-accent motion-safe:transition-colors break-all text-left",
+                              isSegDrop && "bg-accent/20 ring-2 ring-accent rounded px-1",
+                            )}
                             onClick={() => openFolder(segPath)}
                           >
                             {segment}
@@ -731,22 +800,52 @@ export default function FileBrowser({
             </div>
             {(showUpButton && up !== null) || headerExtra ? (
               <div className="mt-3 flex flex-wrap gap-2">
-                {showUpButton && up !== null && (
-                  linkNavigation ? (
-                    <Button variant="outline" surface="secondary" size="sm" asChild>
-                      <Link to={folderHref(driveId, up)}>↑ Up one folder</Link>
+                {showUpButton && up !== null && (() => {
+                  const isUpDrop = dropTarget === "::up";
+                  const upDropProps = !isPicker && Boolean(onInternalMove || onUploadFiles) ? {
+                    onDragOver: (e) => {
+                      const types = e.dataTransfer?.types;
+                      const isFiles = types && Array.from(types).includes("Files");
+                      const isLuna = types && Array.from(types).includes("application/x-luna-paths");
+                      if (!isFiles && !isLuna) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
+                      setDropTarget("::up");
+                    },
+                    onDragLeave: (e) => {
+                      if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+                      if (dropTarget === "::up") setDropTarget(null);
+                    },
+                    onDrop: (e) => {
+                      void onFolderDrop(up, e);
+                    },
+                  } : {};
+
+                  return linkNavigation ? (
+                    <Button
+                      variant="outline"
+                      surface="secondary"
+                      size="sm"
+                      asChild
+                      className={cn(isUpDrop && "ring-2 ring-accent bg-accent/20")}
+                      {...upDropProps}
+                    >
+                      <Link to={folderHref(driveId, up)} draggable={false}>↑ Up one folder</Link>
                     </Button>
                   ) : (
                     <Button
                       variant="outline"
                       surface="secondary"
                       size="sm"
+                      className={cn(isUpDrop && "ring-2 ring-accent bg-accent/20")}
                       onClick={() => openFolder(up)}
+                      {...upDropProps}
                     >
                       ↑ Up one folder
                     </Button>
-                  )
-                )}
+                  );
+                })()}
                 {headerExtra}
               </div>
             ) : null}
@@ -869,26 +968,24 @@ export default function FileBrowser({
                   </Button>
                 ) : null}
                 {onCopy ? (
-                  <Button
-                    variant="outline"
-                    surface="secondary"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => onCopy(selectedPaths)}
-                  >
-                    Copy
-                  </Button>
+                  <TransferMenu
+                    label="Copy"
+                    icon={Copy}
+                    drives={drives}
+                    currentDriveId={driveId}
+                    currentDriveLabel={driveLabel}
+                    onPick={(targetDriveId) => onCopy(selectedPaths, targetDriveId)}
+                  />
                 ) : null}
                 {onMove ? (
-                  <Button
-                    variant="outline"
-                    surface="secondary"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => onMove(selectedPaths)}
-                  >
-                    Move
-                  </Button>
+                  <TransferMenu
+                    label="Move"
+                    icon={FolderInput}
+                    drives={drives}
+                    currentDriveId={driveId}
+                    currentDriveLabel={driveLabel}
+                    onPick={(targetDriveId) => onMove(selectedPaths, targetDriveId)}
+                  />
                 ) : null}
                 {onDelete ? (
                   <Button
@@ -926,47 +1023,85 @@ export default function FileBrowser({
             aria-label="Files and folders"
             {...(showingStaleListing ? { inert: true } : {})}
           >
-            {showTrashEntry ? (
-              <li
-                className={[
-                  "flex items-center gap-2 px-3",
-                  padY,
-                  "bg-secondary text-primary",
-                  "border-b border-primary/15",
-                  "motion-safe:transition-colors",
-                ].join(" ")}
-              >
-                {!isPicker && multiSelect ? (
-                  <span className="w-5 shrink-0" aria-hidden="true" />
-                ) : null}
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {linkNavigation ? (
-                    <Link
-                      to={trashHref}
-                      className="flex items-center gap-2 min-w-0 text-primary hover:underline"
-                    >
-                      <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
-                      <span className="font-mono text-sm truncate">Trash</span>
-                    </Link>
-                  ) : (
-                    <a
-                      href={trashHref}
-                      className="flex items-center gap-2 min-w-0 text-primary hover:underline"
-                    >
-                      <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
-                      <span className="font-mono text-sm truncate">Trash</span>
-                    </a>
-                  )}
-                </div>
-                <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary" aria-hidden="true" />
-                <div className="shrink-0 w-28" aria-hidden="true" />
-              </li>
-            ) : null}
+            {showTrashEntry ? (() => {
+              const isTrashDrop = dropTarget === "::trash";
+              return (
+                <li
+                  className={[
+                    "flex items-center gap-2 px-3",
+                    padY,
+                    "bg-secondary text-primary",
+                    isTrashDrop ? "bg-accent/20 ring-2 ring-accent ring-inset" : "",
+                    "border-b border-primary/15",
+                    "motion-safe:transition-colors",
+                  ].join(" ")}
+                  onDragOver={(e) => {
+                    if (!onDelete) return;
+                    const types = e.dataTransfer?.types;
+                    if (!types || !Array.from(types).includes("application/x-luna-paths")) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = "move";
+                    setDropTarget("::trash");
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+                    if (dropTarget === "::trash") setDropTarget(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDropTarget(null);
+                    let paths = dragPathsRef.current;
+                    const raw = e.dataTransfer?.getData("application/x-luna-paths");
+                    if (raw) {
+                      try {
+                        paths = JSON.parse(raw);
+                      } catch {
+                        // Ignore malformed drag payload.
+                      }
+                    }
+                    if (paths && paths.length && onDelete) {
+                      onDelete(paths);
+                    }
+                    dragPathsRef.current = [];
+                  }}
+                >
+                  {!isPicker && multiSelect ? (
+                    <span className="w-5 shrink-0" aria-hidden="true" />
+                  ) : null}
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {linkNavigation ? (
+                      <Link
+                        to={trashHref}
+                        draggable={false}
+                        className="flex items-center gap-2 min-w-0 text-primary hover:underline"
+                      >
+                        <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <span className="font-mono text-sm truncate">Trash</span>
+                      </Link>
+                    ) : (
+                      <a
+                        href={trashHref}
+                        draggable={false}
+                        className="flex items-center gap-2 min-w-0 text-primary hover:underline"
+                      >
+                        <Trash2 size={16} className="text-accent shrink-0" aria-hidden="true" />
+                        <span className="font-mono text-sm truncate">Trash</span>
+                      </a>
+                    )}
+                  </div>
+                  <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary" aria-hidden="true" />
+                  <div className="shrink-0 w-28" aria-hidden="true" />
+                </li>
+              );
+            })() : null}
             {entries.map((entry) => {
               const ctx = rowContext(entry);
               const isSelected = selectedPaths.includes(ctx.fullPath);
               const isDrop = dropTarget === ctx.fullPath;
               const openable = entry.kind === "file" && openableKind(entry.name);
+              const canDragRow = !isPicker && Boolean(onInternalMove);
 
               return (
                 <li
@@ -976,17 +1111,24 @@ export default function FileBrowser({
                     "flex items-center gap-2 px-3",
                     padY,
                     "bg-secondary text-primary",
-                    isSelected || isDrop || listDropHighlight ? "bg-accent/20" : "",
+                    isSelected || listDropHighlight ? "bg-accent/20" : "",
+                    isDrop ? "bg-accent/20 ring-2 ring-accent ring-inset" : "",
                     "border-b border-primary/15 last:border-b-0",
                     "motion-safe:transition-colors",
+                    canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
                   ].filter(Boolean).join(" ")}
-                  draggable={!isPicker && Boolean(onInternalMove)}
+                  draggable={canDragRow}
                   onDragStart={(e) => onRowDragStart(ctx, e)}
                   onDragOver={(e) => {
                     if (entry.kind !== "dir") return;
                     if (!onInternalMove && !onUploadFiles) return;
+                    const types = e.dataTransfer?.types;
+                    const isFiles = types && Array.from(types).includes("Files");
+                    const isLuna = types && Array.from(types).includes("application/x-luna-paths");
+                    if (!isFiles && !isLuna) return;
                     e.preventDefault();
                     e.stopPropagation();
+                    e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
                     setDropTarget(ctx.fullPath);
                     setDragOver(false);
                   }}
@@ -1000,26 +1142,33 @@ export default function FileBrowser({
                   }}
                 >
                   {!isPicker && multiSelect ? (
-                    <AnimatedCheckbox
-                      checked={isSelected}
-                      onChange={(next, e) => {
-                        const shift = Boolean(
-                          /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
-                        );
-                        if (shift) {
-                          toggleOne(ctx.fullPath, { additive: true, range: true });
-                          return;
-                        }
-                        setSelectedPaths(
-                          next
-                            ? [...new Set([...selectedPaths, ctx.fullPath])]
-                            : selectedPaths.filter((p) => p !== ctx.fullPath),
-                        );
-                        setLastClicked(ctx.fullPath);
-                      }}
-                      aria-label={`Select ${entry.name}`}
-                      surface="secondary"
-                    />
+                    <div
+                      data-no-row-drag
+                      draggable={false}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="shrink-0"
+                    >
+                      <AnimatedCheckbox
+                        checked={isSelected}
+                        onChange={(next, e) => {
+                          const shift = Boolean(
+                            /** @type {MouseEvent|undefined} */ (e?.nativeEvent)?.shiftKey,
+                          );
+                          if (shift) {
+                            toggleOne(ctx.fullPath, { additive: true, range: true });
+                            return;
+                          }
+                          setSelectedPaths(
+                            next
+                              ? [...new Set([...selectedPaths, ctx.fullPath])]
+                              : selectedPaths.filter((p) => p !== ctx.fullPath),
+                          );
+                          setLastClicked(ctx.fullPath);
+                        }}
+                        aria-label={`Select ${entry.name}`}
+                        surface="secondary"
+                      />
+                    </div>
                   ) : null}
 
                   <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1027,6 +1176,7 @@ export default function FileBrowser({
                       linkNavigation ? (
                         <Link
                           to={folderHref(driveId, ctx.fullPath)}
+                          draggable={false}
                           className="flex items-center gap-2 min-w-0 text-primary hover:underline"
                         >
                           <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
@@ -1035,6 +1185,7 @@ export default function FileBrowser({
                       ) : (
                         <button
                           type="button"
+                          draggable={false}
                           className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
                           onClick={() => openEntry(ctx)}
                         >
@@ -1045,6 +1196,7 @@ export default function FileBrowser({
                     ) : openable ? (
                       <button
                         type="button"
+                        draggable={false}
                         className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
                         onClick={() => openEntry(ctx)}
                       >
@@ -1052,7 +1204,7 @@ export default function FileBrowser({
                         <span className="font-mono text-sm truncate">{entry.name}</span>
                       </button>
                     ) : (
-                      <div className="flex items-center gap-2 min-w-0 text-primary">
+                      <div className="flex items-center gap-2 min-w-0 text-primary" draggable={false}>
                         <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
                         <span className="font-mono text-sm truncate">{entry.name}</span>
                       </div>
@@ -1063,7 +1215,12 @@ export default function FileBrowser({
                     {fmtSize(entry.size)}
                   </span>
 
-                  <div className="shrink-0 max-w-[40%] sm:max-w-none">
+                  <div
+                    data-no-row-drag
+                    className="shrink-0 max-w-[40%] sm:max-w-none"
+                    draggable={false}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
                     {rowActions(ctx)}
                   </div>
                 </li>
@@ -1089,6 +1246,7 @@ function pathBasenameSafe(path) {
 FileBrowser.propTypes = {
   driveId: PropTypes.string.isRequired,
   driveLabel: PropTypes.string,
+  drives: PropTypes.array,
   initialPath: PropTypes.string,
   path: PropTypes.string,
   onPathChange: PropTypes.func,

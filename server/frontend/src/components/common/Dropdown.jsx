@@ -185,7 +185,7 @@ export default function Dropdown({
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
               "bg-secondary text-primary font-mono ring-inset ring-2 ring-accent",
-              "rounded-large-element py-0 z-50 overflow-hidden min-w-[8rem]",
+              "rounded-large-element py-0 z-50 max-h-64 overflow-y-auto overscroll-contain min-w-[8rem]",
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
             )}
             tabIndex={-1}
@@ -195,7 +195,7 @@ export default function Dropdown({
                 key={option.value}
                 data-slot="dropdown-option"
                 className={isClosing ? "" : "animate-dropdown-option"}
-                style={isClosing ? undefined : { animationDelay: `${i * 45}ms` }}
+                style={isClosing ? undefined : { animationDelay: `${Math.min(i * 30, 240)}ms` }}
               >
                 <button
                   type="button"

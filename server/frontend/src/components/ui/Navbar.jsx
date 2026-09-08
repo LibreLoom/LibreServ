@@ -169,6 +169,13 @@ export default function Navbar() {
     });
   };
 
+  const positionRef = useRef(position);
+  positionRef.current = position;
+  const dragStartRef = useRef(dragStart);
+  dragStartRef.current = dragStart;
+  const hasMovedRef = useRef(hasMoved);
+  hasMovedRef.current = hasMoved;
+
   const handleDrag = (e) => {
     if (!isDragging || window.innerWidth >= 1280) return;
 
@@ -176,14 +183,14 @@ export default function Navbar() {
     const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
     const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
 
-    let newX = clientX - dragStart.x;
-    let newY = clientY - dragStart.y;
+    let newX = clientX - dragStartRef.current.x;
+    let newY = clientY - dragStartRef.current.y;
 
     const moveThreshold = 5;
-    const deltaX = Math.abs(newX - position.x);
-    const deltaY = Math.abs(newY - position.y);
+    const deltaX = Math.abs(newX - (positionRef.current.x ?? 0));
+    const deltaY = Math.abs(newY - (positionRef.current.y ?? 0));
 
-    if (!hasMoved && (deltaX > moveThreshold || deltaY > moveThreshold)) {
+    if (!hasMovedRef.current && (deltaX > moveThreshold || deltaY > moveThreshold)) {
       setHasMoved(true);
     }
 
@@ -213,8 +220,8 @@ export default function Navbar() {
 
     setIsDragging(false);
 
-    const currentX = position.x !== null ? position.x : window.innerWidth - 80;
-    const currentY = position.y !== null ? position.y : window.innerHeight - 80;
+    const currentX = positionRef.current.x !== null ? positionRef.current.x : window.innerWidth - 80;
+    const currentY = positionRef.current.y !== null ? positionRef.current.y : window.innerHeight - 80;
 
     const snap = getSnapPosition(
       currentX,
@@ -247,7 +254,7 @@ export default function Navbar() {
       };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDragging, position]);
+  }, [isDragging]);
 
   useEffect(() => {
     return () => {

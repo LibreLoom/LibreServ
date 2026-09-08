@@ -144,6 +144,16 @@ describe("FilesPage", () => {
     expect(screen.queryByRole("heading", { name: /Open as a folder on a computer/i })).not.toBeInTheDocument();
   });
 
+  it("shows a drive switcher when more than one drive is ready", async () => {
+    stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByRole("navigation", { name: "Drives" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Photos Drive \(here\)/ })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: "Spare Drive" })).toHaveAttribute("href", "/drives/d2");
+  });
+
   it("shows a separate Protect button for folders", async () => {
     stubFilesApi({
       "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],

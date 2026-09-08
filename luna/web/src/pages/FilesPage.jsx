@@ -203,6 +203,7 @@ export default function FilesPage() {
         <DriveFileExplorer
           driveId={id}
           driveLabel={drive.label}
+          drives={drives.data}
           path={path}
           onPathChange={(next) => {
             const params = new URLSearchParams(searchParams);

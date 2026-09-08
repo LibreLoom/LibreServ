@@ -6,7 +6,9 @@ import Button from "../components/ui/Button";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import { cn } from "@/lib/utils";
 import { apiErrorMessage, deleteJson, postJson, putBinaryProgress } from "../lib/api";
+import { filesFromDataTransfer } from "../lib/collectUploadFiles";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const UPLOAD_PARALLEL = 2;
@@ -64,6 +66,7 @@ export default function PublicSharePage() {
   const [loading, setLoading] = useState(true);
   const [uploads, setUploads] = useState(/** @type {any[]} */ ([]));
   const [uploadError, setUploadError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const uploadsRef = useRef(/** @type {any[]} */ ([]));
   const fileInputRef = useRef(null);
@@ -349,11 +352,23 @@ export default function PublicSharePage() {
               Drop files here. People with this link can add files, but can't see what's already in the folder.
             </p>
             <label
-              className="mt-4 flex flex-col items-center justify-center gap-2 rounded-large-element border-2 border-dashed border-secondary/30 bg-primary text-secondary p-8 cursor-pointer motion-safe:transition-colors motion-safe:duration-150 hover:border-accent"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
+              className={cn(
+                "mt-4 flex flex-col items-center justify-center gap-2 rounded-large-element border-2 border-dashed p-8 cursor-pointer motion-safe:transition-colors motion-safe:duration-150",
+                dragOver
+                  ? "border-accent bg-accent/20 text-secondary"
+                  : "border-secondary/30 bg-primary text-secondary hover:border-accent",
+              )}
+              onDragOver={(e) => {
                 e.preventDefault();
-                addFiles(e.dataTransfer.files);
+                e.dataTransfer.dropEffect = "copy";
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={async (e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const files = await filesFromDataTransfer(e.dataTransfer);
+                addFiles(files);
               }}
             >
               <UploadCloud size={22} className="text-accent" />
@@ -375,11 +390,23 @@ export default function PublicSharePage() {
             {listing.permission === "write" && (
               <Card padding={false} noPopIn noHeightAnim>
                 <label
-                  className="flex items-center justify-center gap-2 rounded-large-element border-2 border-dashed border-secondary/30 bg-secondary text-primary p-4 cursor-pointer motion-safe:transition-colors motion-safe:duration-150 hover:border-accent"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
+                  className={cn(
+                    "flex items-center justify-center gap-2 rounded-large-element border-2 border-dashed p-4 cursor-pointer motion-safe:transition-colors motion-safe:duration-150",
+                    dragOver
+                      ? "border-accent bg-accent/20 text-primary"
+                      : "border-secondary/30 bg-secondary text-primary hover:border-accent",
+                  )}
+                  onDragOver={(e) => {
                     e.preventDefault();
-                    addFiles(e.dataTransfer.files);
+                    e.dataTransfer.dropEffect = "copy";
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const files = await filesFromDataTransfer(e.dataTransfer);
+                    addFiles(files);
                   }}
                 >
                   <UploadCloud size={18} className="text-accent" />

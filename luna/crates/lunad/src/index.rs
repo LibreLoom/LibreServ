@@ -111,7 +111,7 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
     let q_lower = query.to_ascii_lowercase();
     let mut all = Vec::new();
     for drive in db::list_drives(central)? {
-        if drive.mount_point.is_empty() || drive.state != "as_is" {
+        if drive.mount_point.is_empty() || (drive.state != "as_is" && drive.state != "readonly") {
             continue;
         }
         let root = std::path::Path::new(&drive.mount_point);

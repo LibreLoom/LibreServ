@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useQueryClient } from "@tanstack/react-query";
+import { HardDrive } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
@@ -17,7 +18,7 @@ import { joinPath } from "../../lib/paths.js";
  *
  * @param {{
  *   title?: string,
- *   drives: Array<{ id: string, label: string }>,
+ *   drives: Array<{ id: string, label: string, state?: string }>,
  *   initialDriveId: string,
  *   initialPath?: string,
  *   confirmLabel?: string,
@@ -41,6 +42,15 @@ export default function FolderPickerModal({
   error = null,
 }) {
   const queryClient = useQueryClient();
+  const activeDrives = useMemo(() => {
+    return (drives || []).filter((d) => (
+      d.state !== "missing"
+      && d.state !== "ejected"
+      && d.state !== "failed"
+      && d.state !== "readonly"
+    ));
+  }, [drives]);
+
   const [driveId, setDriveId] = useState(initialDriveId);
   const [path, setPath] = useState(initialPath);
   const [picked, setPicked] = useState(initialPath);
@@ -48,17 +58,21 @@ export default function FolderPickerModal({
   const [createName, setCreateName] = useState("");
   const [createError, setCreateError] = useState(/** @type {string|null} */ (null));
   const [createBusy, setCreateBusy] = useState(false);
-  const drive = drives.find((d) => d.id === driveId) || drives[0];
+  const drive = activeDrives.find((d) => d.id === driveId) || activeDrives[0] || drives[0];
 
   useEffect(() => {
     if (!open) return;
+    const nextId = activeDrives.some((d) => d.id === initialDriveId)
+      ? initialDriveId
+      : (activeDrives[0]?.id || initialDriveId);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
-    setDriveId(initialDriveId);
-    setPath(initialPath);
-    setPicked(initialPath);
+    setDriveId(nextId);
+    const keepPath = nextId === initialDriveId;
+    setPath(keepPath ? initialPath : "");
+    setPicked(keepPath ? initialPath : "");
     setCreating(false);
     setCreateError(null);
-  }, [open, initialDriveId, initialPath]);
+  }, [open, initialDriveId, initialPath, activeDrives]);
 
   async function submitCreateFolder() {
     const parsed = parseCreateName(createName);
@@ -95,20 +109,54 @@ export default function FolderPickerModal({
       {({ close }) => (
         <>
           <ModalErrorNotice error={error} className="mb-3" />
-          {drives.length > 1 && (
+          {activeDrives.length > 1 && (
             <div className="mb-3">
-              <label className="block text-primary text-xs mb-1">Which drive?</label>
-              <Dropdown
-                options={drives.map((d) => ({ value: d.id, label: d.label }))}
-                value={driveId}
-                onChange={(id) => {
-                  setDriveId(id);
-                  setPath("");
-                  setPicked("");
-                }}
-                fullWidth
-                bg="primary"
-              />
+              <label className="block text-primary text-xs mb-1.5 font-mono uppercase tracking-wider">
+                Destination drive
+              </label>
+              {activeDrives.length <= 4 ? (
+                <div className="flex flex-wrap gap-2">
+                  {activeDrives.map((d) => {
+                    const isSelected = d.id === driveId;
+                    return (
+                      <Button
+                        key={d.id}
+                        type="button"
+                        variant={isSelected ? "primary" : "outline"}
+                        surface="secondary"
+                        size="sm"
+                        aria-label={d.id === initialDriveId ? `${d.label} (current)` : d.label}
+                        onClick={() => {
+                          setDriveId(d.id);
+                          setPath("");
+                          setPicked("");
+                        }}
+                      >
+                        <HardDrive size={14} className="mr-1.5 shrink-0" aria-hidden="true" />
+                        <span>{d.label}</span>
+                        {d.id === initialDriveId ? (
+                          <span className="text-xs font-mono ml-1">(current)</span>
+                        ) : null}
+                      </Button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Dropdown
+                  options={activeDrives.map((d) => ({
+                    value: d.id,
+                    label: `${d.label}${d.id === initialDriveId ? " (current)" : ""}`,
+                  }))}
+                  value={driveId}
+                  onChange={(id) => {
+                    setDriveId(id);
+                    setPath("");
+                    setPicked("");
+                  }}
+                  fullWidth
+                  bg="primary"
+                />
+              )}
             </div>
           )}
 

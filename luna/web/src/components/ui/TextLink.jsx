@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
  * @param {string} [props.className]
  * @param {import("react").ReactNode} [props.children]
  * @param {object} [props.state]   Router state for the destination (passed straight to Link).
+ * @param {boolean} [props.draggable]
  * @param {object} [props.rest]
  */
 export default function TextLink({

@@ -129,7 +129,7 @@ describe("FileBrowser", () => {
     fireEvent.click(screen.getByLabelText("Select a.txt"));
     fireEvent.click(screen.getByLabelText("Select b.txt"));
     fireEvent.click(screen.getByRole("button", { name: /^Copy$/i }));
-    expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"]);
+    expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"], "d1");
   });
 
   it("calls parent action callbacks for a single row", async () => {
@@ -318,6 +318,201 @@ describe("FileBrowser", () => {
     });
     expect(await screen.findByRole("button", { name: "New folder" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+  });
+
+  it("makes file rows draggable and sets application/x-luna-paths and application/x-luna-drive on drag start", async () => {
+    stubListing({
+      "": [
+        { name: "file1.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ onInternalMove, multiSelect: true });
+    expect(await screen.findByText("file1.txt")).toBeInTheDocument();
+    const row = document.querySelector('[data-file-path="file1.txt"]');
+    expect(row).toBeTruthy();
+    expect(row?.getAttribute("draggable")).toBe("true");
+    expect(row?.className).toMatch(/cursor-grab/);
+
+    const setData = vi.fn();
+    const dataTransfer = {
+      setData,
+      effectAllowed: "",
+      types: [],
+    };
+    fireEvent.dragStart(row, { dataTransfer });
+    expect(setData).toHaveBeenCalledWith("application/x-luna-paths", JSON.stringify(["file1.txt"]));
+    expect(setData).toHaveBeenCalledWith("application/x-luna-drive", "d1");
+  });
+
+  it("moves files into subfolder when dropped onto folder row", async () => {
+    stubListing({
+      "": [
+        { name: "docs", kind: "dir", size: 0, hidden: false },
+        { name: "report.pdf", kind: "file", size: 50, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ onInternalMove, multiSelect: true });
+    expect(await screen.findByText("docs")).toBeInTheDocument();
+    const folderRow = document.querySelector('[data-file-path="docs"]');
+    expect(folderRow).toBeTruthy();
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (type === "application/x-luna-paths" ? JSON.stringify(["report.pdf"]) : "")),
+    };
+    fireEvent.dragOver(folderRow, { dataTransfer });
+    expect(folderRow?.className).toMatch(/ring-accent/);
+
+    fireEvent.drop(folderRow, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["report.pdf"], "docs");
+    });
+  });
+
+  it("moves files to root drive when dropped onto root breadcrumb", async () => {
+    stubListing({
+      "sub": [
+        { name: "report.pdf", kind: "file", size: 50, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ path: "sub", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    const rootBreadcrumb = screen.getByRole("button", { name: "Photos" });
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (type === "application/x-luna-paths" ? JSON.stringify(["sub/report.pdf"]) : "")),
+    };
+    fireEvent.dragOver(rootBreadcrumb, { dataTransfer });
+    expect(rootBreadcrumb.className).toMatch(/ring-accent/);
+
+    fireEvent.drop(rootBreadcrumb, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["sub/report.pdf"], "");
+    });
+  });
+
+  it("moves files to parent path when dropped onto '↑ Up one folder'", async () => {
+    stubListing({
+      "sub/nested": [
+        { name: "report.pdf", kind: "file", size: 50, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ path: "sub/nested", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    const upButton = screen.getByRole("button", { name: /↑ Up one folder/i });
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (type === "application/x-luna-paths" ? JSON.stringify(["sub/nested/report.pdf"]) : "")),
+    };
+    fireEvent.dragOver(upButton, { dataTransfer });
+    expect(upButton.className).toMatch(/ring-accent/);
+
+    fireEvent.drop(upButton, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["sub/nested/report.pdf"], "sub");
+    });
+  });
+
+  it("deletes files when dropped onto trash row at drive root", async () => {
+    stubListing({
+      "": [
+        { name: "old.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onDelete = vi.fn();
+    renderBrowser({ trashHref: "/drives/d1?view=trash", onDelete, multiSelect: true });
+    expect(await screen.findByText("old.txt")).toBeInTheDocument();
+    const trashLink = screen.getByRole("link", { name: "Trash" });
+    const trashRow = trashLink.closest("li");
+    expect(trashRow).toBeTruthy();
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (type === "application/x-luna-paths" ? JSON.stringify(["old.txt"]) : "")),
+    };
+    fireEvent.dragOver(trashRow, { dataTransfer });
+    expect(trashRow?.className).toMatch(/ring-accent/);
+
+    fireEvent.drop(trashRow, { dataTransfer });
+    expect(onDelete).toHaveBeenCalledWith(["old.txt"]);
+  });
+
+  it("shows transfer menu with other drives when multiple drives are available", async () => {
+    stubListing({
+      "": [
+        { name: "photo.jpg", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onMove = vi.fn();
+    const drives = [
+      { id: "d1", label: "Drive 1", state: "as_is" },
+      { id: "d2", label: "Drive 2", state: "as_is" },
+      { id: "d3", label: "Drive 3", state: "as_is" },
+      { id: "d4", label: "Read Only", state: "readonly" },
+    ];
+    renderBrowser({ drives, onMove, multiSelect: true });
+    expect(await screen.findByLabelText("Select photo.jpg")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Select photo.jpg"));
+
+    const moveButton = screen.getByRole("button", { name: /^Move$/ });
+    expect(moveButton).toHaveAttribute("aria-haspopup", "menu");
+    fireEvent.click(moveButton);
+
+    expect(await screen.findByText("Move to Drive 2...")).toBeInTheDocument();
+    expect(screen.getByText("Move to Drive 3...")).toBeInTheDocument();
+    expect(screen.queryByText(/Read Only/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Move to Drive 2..."));
+    expect(onMove).toHaveBeenCalledWith(["photo.jpg"], "d2");
+  });
+
+  it("does not start a row drag from checkboxes or action buttons", async () => {
+    stubListing({
+      "": [{ name: "file1.txt", kind: "file", size: 10, hidden: false }],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({
+      onInternalMove,
+      onCopy: vi.fn(),
+      multiSelect: true,
+    });
+    expect(await screen.findByText("file1.txt")).toBeInTheDocument();
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "", types: [] };
+    fireEvent.dragStart(screen.getByRole("button", { name: "Copy file1.txt" }), { dataTransfer });
+    expect(setData).not.toHaveBeenCalled();
+    fireEvent.dragStart(screen.getByLabelText("Select file1.txt"), { dataTransfer });
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("moves files onto an ancestor breadcrumb segment", async () => {
+    stubListing({
+      "album/vacation": [
+        { name: "beach.jpg", kind: "file", size: 50, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ path: "album/vacation", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    const albumCrumb = screen.getByRole("button", { name: "album" });
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths" ? JSON.stringify(["album/vacation/beach.jpg"]) : ""
+      )),
+    };
+    fireEvent.dragOver(albumCrumb, { dataTransfer });
+    expect(albumCrumb.className).toMatch(/ring-accent/);
+    fireEvent.drop(albumCrumb, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["album/vacation/beach.jpg"], "album");
+    });
   });
 });
 
