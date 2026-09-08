@@ -311,6 +311,22 @@ fn configure(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let mut found = false;
+    for col in cols {
+        if col? == column {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+    }
+    Ok(())
+}
+
 pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS identity (
@@ -358,7 +374,8 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             lat REAL,
             lon REAL,
             place_label TEXT NOT NULL DEFAULT '',
-            has_thumb INTEGER NOT NULL DEFAULT 0
+            has_thumb INTEGER NOT NULL DEFAULT 0,
+            duration_secs INTEGER NOT NULL DEFAULT 0
          );
          CREATE INDEX IF NOT EXISTS photos_timeline
             ON photos(taken_at DESC, mtime DESC, path);
@@ -376,9 +393,11 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             name TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             cover_path TEXT NOT NULL DEFAULT '',
+            cover_drive_id TEXT NOT NULL DEFAULT '',
             shared INTEGER NOT NULL DEFAULT 0,
             allow_uploads INTEGER NOT NULL DEFAULT 0,
-            contrib_path TEXT NOT NULL DEFAULT ''
+            contrib_path TEXT NOT NULL DEFAULT '',
+            locked INTEGER NOT NULL DEFAULT 0
          );
          CREATE TABLE IF NOT EXISTS album_items (
             album_id TEXT NOT NULL,
@@ -403,6 +422,12 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             created_at INTEGER NOT NULL
          );
          CREATE INDEX IF NOT EXISTS album_invites_token ON album_invites(token);
+         CREATE TABLE IF NOT EXISTS archive (
+            user_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (user_id, path)
+         );
          CREATE TABLE IF NOT EXISTS trash_meta (
             entry_name TEXT PRIMARY KEY NOT NULL,
             original_path TEXT NOT NULL
@@ -426,6 +451,11 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             PRIMARY KEY (upload_id, start)
          );",
     )?;
+    // Additive columns for existing `.luna` DBs (CREATE TABLE IF NOT EXISTS
+    // does not alter already-created tables).
+    ensure_column(conn, "albums", "cover_drive_id", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "albums", "locked", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(conn, "photos", "duration_secs", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 

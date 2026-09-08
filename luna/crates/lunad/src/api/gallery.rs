@@ -30,6 +30,8 @@ struct GalleryQuery {
     #[serde(default)]
     favorites: Option<bool>,
     #[serde(default)]
+    archived: Option<bool>,
+    #[serde(default)]
     album_id: Option<String>,
     #[serde(default)]
     album_home: Option<String>,
@@ -107,6 +109,8 @@ struct InviteBody {
     #[serde(default = "viewer_role")]
     role: String,
     expires_in_days: Option<i64>,
+    #[serde(default)]
+    allow_uploads: Option<bool>,
 }
 
 fn viewer_role() -> String {
@@ -123,6 +127,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/gallery/favorites",
             put(put_favorite).delete(delete_favorite),
+        )
+        .route(
+            "/api/v1/gallery/archive",
+            put(put_archive).delete(delete_archive),
         )
         .route(
             "/api/v1/gallery/albums",
@@ -195,6 +203,41 @@ fn accessible_mounts(
     Ok(out)
 }
 
+fn writable_mounts(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    only: Option<&str>,
+) -> Result<DriveMounts, ApiError> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let drives = crate::db::list_drives(&conn).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't list your drives.",
+        )
+    })?;
+    let mut out = Vec::new();
+    for drive in drives {
+        if let Some(id) = only
+            && drive.id != id
+        {
+            continue;
+        }
+        if drive.state != "as_is" || drive.mount_point.is_empty() {
+            continue;
+        }
+        if !crate::auth::has_write_on_drive(user, &conn, &drive.id) {
+            continue;
+        }
+        out.push((drive.id, PathBuf::from(drive.mount_point)));
+    }
+    Ok(out)
+}
+
 fn all_mounted(state: &AppState) -> Result<DriveMounts, ApiError> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -260,7 +303,9 @@ async fn timeline(
     }
     let mounts = accessible_mounts(&state, &user, None)?;
     let limit = query.limit.unwrap_or(80).clamp(1, 500);
-    let offset = query.offset.unwrap_or(0);
+    let mut offset = query.offset.unwrap_or(0);
+    let viewing_album = query.album_id.is_some();
+    let archived = query.archived.unwrap_or(false);
     let filter = ListFilter {
         q: query.q.filter(|s| !s.trim().is_empty()),
         from: query.from,
@@ -270,33 +315,67 @@ async fn timeline(
         } else {
             None
         },
-        album_id: query.album_id,
-        album_home_drive: query.album_home,
+        album_id: query.album_id.clone(),
+        album_home_drive: query.album_home.clone(),
         place: query.place,
         place_bbox: query.place_bbox.as_deref().and_then(parse_place_bbox),
         user_id: Some(user.id.clone()),
+        archived_user: if archived {
+            Some(user.id.clone())
+        } else {
+            None
+        },
+        // Library and favorites hide archived; album view still shows album items.
+        exclude_archived_user: if !archived && !viewing_album {
+            Some(user.id.clone())
+        } else {
+            None
+        },
     };
-    let page = gallery::list_photos(&mounts, query.drive_id.as_deref(), &filter, limit, offset)
+
+    // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
+    let mut items = Vec::new();
+    let mut has_more = false;
+    let mut next_offset = offset;
+    let mut cur = offset;
+    for _ in 0..5 {
+        let page = gallery::list_photos(
+            &mounts,
+            query.drive_id.as_deref(),
+            &filter,
+            limit,
+            cur,
+        )
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't open the gallery.",
             )
         })?;
-    let conn = state.db.lock().map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
-        )
-    })?;
-    let items = page
-        .items
-        .into_iter()
-        .filter(|photo| crate::auth::can_access(&user, &conn, &photo.drive_id, &photo.path, false))
-        .collect::<Vec<_>>();
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        items.extend(page.items.into_iter().filter(|photo| {
+            crate::auth::can_access(&user, &conn, &photo.drive_id, &photo.path, false)
+        }));
+        drop(conn);
+        next_offset = page.next_offset;
+        has_more = page.has_more;
+        if items.len() as u32 >= limit || !page.has_more {
+            break;
+        }
+        cur = page.next_offset;
+    }
+    if items.len() as u32 > limit {
+        items.truncate(limit as usize);
+        has_more = true;
+    }
     Ok(Json(gallery::GalleryPage {
-        has_more: page.has_more,
-        next_offset: page.next_offset,
+        has_more,
+        next_offset,
         items,
     }))
 }
@@ -312,6 +391,22 @@ async fn places(
             "Luna couldn't open Places.",
         )
     })?;
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let markers = markers
+        .into_iter()
+        .filter(|m| {
+            // marker.id is "{drive_id}:{path}"
+            let Some((drive_id, path)) = m.id.split_once(':') else {
+                return false;
+            };
+            crate::auth::can_access(&user, &conn, drive_id, path, false)
+        })
+        .collect::<Vec<_>>();
     Ok(Json(markers))
 }
 
@@ -485,6 +580,50 @@ async fn delete_favorite(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn put_archive(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<FavoriteBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        if !crate::auth::can_access(&user, &conn, &body.drive_id, &body.path, false) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to archive this.",
+            ));
+        }
+    }
+    let root = resolve_mount(&state, &body.drive_id)?;
+    gallery::set_archived(&root, &user.id, &body.path, true).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't archive that photo.",
+        )
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn delete_archive(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<FavoriteBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let root = resolve_mount(&state, &body.drive_id)?;
+    gallery::set_archived(&root, &user.id, &body.path, false).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't unarchive that photo.",
+        )
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn list_albums(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -511,7 +650,13 @@ async fn create_album(
             "Give this album a name.",
         ));
     }
-    let mounts = accessible_mounts(&state, &user, None)?;
+    let mounts = writable_mounts(&state, &user, None)?;
+    if mounts.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "You need write access on a drive before creating an album.",
+        ));
+    }
     let (drive_id, root) = if let Some(id) = body.home_drive_id.as_deref() {
         mounts.into_iter().find(|(d, _)| d == id).ok_or_else(|| {
             json_error(
@@ -643,24 +788,47 @@ async fn add_items(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !gallery::user_can_access_album(&root, &album, &user.id).unwrap_or(false) {
+    let can_add = album.owner_user_id == user.id
+        || gallery::user_can_contribute(&root, &album, &user.id).unwrap_or(false);
+    if !can_add {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to change this album.",
+            "You don't have permission to add photos to this album.",
         ));
     }
-    let items: Vec<(String, String)> = body
-        .items
-        .into_iter()
-        .map(|i| (i.drive_id, i.path))
-        .collect();
-    gallery::add_album_items(&root, &id, &items).map_err(|_| {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let mut allowed = Vec::new();
+    let mut forbidden = 0usize;
+    for item in body.items {
+        if crate::auth::can_access(&user, &conn, &item.drive_id, &item.path, false) {
+            allowed.push((item.drive_id, item.path));
+        } else {
+            forbidden += 1;
+        }
+    }
+    drop(conn);
+    if allowed.is_empty() {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "None of those photos can be added — you don't have permission to view them.",
+        ));
+    }
+    gallery::add_album_items(&root, &id, &allowed).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't add those photos to the album.",
         )
     })?;
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(json!({
+        "ok": true,
+        "added": allowed.len(),
+        "skipped_forbidden": forbidden,
+    })))
 }
 
 async fn remove_item(
@@ -843,19 +1011,16 @@ async fn create_invite(
     } else {
         "viewer"
     };
-    let expires = body.expires_in_days.map(|d| {
+    let days = body.expires_in_days.unwrap_or(30).max(1);
+    let expires = Some(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|t| t.as_secs() as i64 + d * 86400)
-            .unwrap_or(0)
-    });
-    // Mark album shared when creating an invite, and allow uploads if contributor.
-    let allow_uploads = if role == "contributor" {
-        Some(true)
-    } else {
-        None
-    };
-    let _ = gallery::update_album(&root, &id, None, Some(true), allow_uploads);
+            .map(|t| t.as_secs() as i64 + days * 86400)
+            .unwrap_or(0),
+    );
+    // Mark album shared when creating an invite. Only touch allow_uploads when
+    // the client sends it — do not infer uploads from contributor role alone.
+    let _ = gallery::update_album(&root, &id, None, Some(true), body.allow_uploads);
     let invite = gallery::create_invite(&root, &id, role, expires, None).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1095,10 +1260,14 @@ async fn public_upload(
         } else {
             safe
         };
+        if !gallery::is_media(std::path::Path::new(&safe)) {
+            continue;
+        }
         let bytes = field.bytes().await.map_err(|_| {
             json_error(StatusCode::BAD_REQUEST, "Could not read the uploaded file.")
         })?;
-        let dest_rel = format!("{}/{}", contrib_path, safe);
+        let unique = format!("{}_{}", uuid::Uuid::new_v4(), safe);
+        let dest_rel = format!("{}/{}", contrib_path, unique);
         let dest = root.join(&dest_rel);
         if let Some(parent) = dest.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -1109,9 +1278,15 @@ async fn public_upload(
                 "Luna couldn't save the upload.",
             )
         })?;
-        if let Ok(Some(photo)) = gallery::index_one(&home, &root, &dest_rel) {
-            let _ = gallery::add_album_items(&root, &album.id, &[(home.clone(), dest_rel.clone())]);
-            saved.push(photo);
+        match gallery::index_one(&home, &root, &dest_rel) {
+            Ok(Some(photo)) => {
+                let _ =
+                    gallery::add_album_items(&root, &album.id, &[(home.clone(), dest_rel.clone())]);
+                saved.push(photo);
+            }
+            _ => {
+                let _ = std::fs::remove_file(&dest);
+            }
         }
     }
     if saved.is_empty() {
