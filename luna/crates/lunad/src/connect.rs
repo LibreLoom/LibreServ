@@ -1,4 +1,4 @@
-//! Luna Connect client — permanent device code, status pull, then cloudflared.
+//! Luna Connect client — permanent device token, status pull, then cloudflared.
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -266,7 +266,7 @@ impl ConnectService {
                 .unwrap_or(false),
             paired: enabled,
             unclaimed: !enabled,
-            // Permanent device code stays available after claim so HDMI (and
+            // Permanent device token stays available after claim so HDMI (and
             // admin status) can still show it for recovery / re-bind.
             setup_code: self.display_setup_code(),
             device_token_error: None,
@@ -294,7 +294,7 @@ impl ConnectService {
         let norm = normalize_setup_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
-                "That code should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
+                "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
             ));
         }
         let grouped = group_device_token(&norm);
@@ -1484,11 +1484,11 @@ mod tests {
         assert_eq!(
             st.setup_code.as_deref(),
             Some("ABCD-EFGH-JKMN-PQRS-TVWX"),
-            "claimed Luna must still expose the device code for HDMI / admin status"
+            "claimed Luna must still expose the device token for HDMI / admin status"
         );
         assert!(
             service.status_for(false).setup_code.is_none(),
-            "non-admin must never see a live pairing code"
+            "non-admin must never see a live pairing token"
         );
         service.clear_first_user_secret().unwrap();
         assert!(service.first_user_secret().is_none());

@@ -113,11 +113,11 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         }
     }
 
-    // Keep showing the device code after setup / Connect claim — HDMI is
-    // local-only, and the code is the durable identity for recovery and re-bind.
+    // Keep showing the device token after setup / Connect claim — HDMI is
+    // local-only, and the token is the durable identity for recovery and re-bind.
     if !token_problem && let Some(code) = &snap.setup_code {
         lines.push(String::new());
-        lines.push("  Device code (for Luna Connect):".into());
+        lines.push("  Device token (for Luna Connect):".into());
         lines.push(format!("    {code}"));
         lines.push("  Type it at connect.luna.libreloom.org".into());
     }
@@ -273,7 +273,7 @@ mod tests {
         assert!(flat.contains("192.168.1.20"));
         assert!(
             !text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"),
-            "rejected token must not be shown as a working device code"
+            "rejected token must not be shown as a working device token"
         );
         assert!(
             !text.contains("photos.luna.servers.libreloom.org"),
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn device_code_still_shown_after_connect_claim() {
+    fn device_token_still_shown_after_connect_claim() {
         let text = help_text(&ConsoleSnapshot {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
@@ -292,7 +292,7 @@ mod tests {
             problems: vec![],
         });
         assert!(text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"));
-        assert!(text.contains("Device code (for Luna Connect)"));
+        assert!(text.contains("Device token (for Luna Connect)"));
         assert!(text.contains("connect.luna.libreloom.org"));
         assert!(text.contains("photos.luna.servers.libreloom.org"));
     }

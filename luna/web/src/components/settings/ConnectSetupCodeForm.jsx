@@ -23,7 +23,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   });
 
   const saveCode = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/setup-code", { code: code.trim() }),
+    mutationFn: () => postJson("/api/v1/connect/device-token", { token: code.trim() }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       queryClient.invalidateQueries({ queryKey: ["auth-status"] });
@@ -68,7 +68,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const btnSurface = surface === "primary" ? "primary" : "secondary";
 
   return (
-    <div className="space-y-3" data-slot="connect-setup-code-form">
+    <div className="space-y-3" data-slot="connect-device-token-form">
       <p className="text-sm text-primary leading-relaxed">
         Paste your device token from{" "}
         <a
@@ -87,12 +87,12 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
         </p>
       )}
       <div>
-        <label htmlFor="luna-connect-setup-code" className="block text-sm text-primary mb-1.5">
+        <label htmlFor="luna-connect-device-token" className="block text-sm text-primary mb-1.5">
           Device token
         </label>
         <ShakeTarget shake={error || tokenError}>
           <input
-            id="luna-connect-setup-code"
+            id="luna-connect-device-token"
             className={inputClass}
             value={code}
             onChange={(e) => {

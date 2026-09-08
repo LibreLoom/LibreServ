@@ -79,7 +79,7 @@ log "Registering Luna Connect account"
 REG=$(csrf_post "/api/v1/account/register" "{\"email\":\"$EMAIL\",\"password\":\"password1234\"}")
 echo "$REG" | grep -q '"email"' || fail "register: $REG"
 
-log "Binding official setup code on website"
+log "Binding official device token on website"
 BIND=$(csrf_post "/api/v1/onboarding/bind" "{\"code\":\"$TOKEN\"}")
 echo "$BIND" | grep -qE 'waiting_device|attached' || fail "bind: $BIND"
 BIND_STATUS=$(echo "$BIND" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)

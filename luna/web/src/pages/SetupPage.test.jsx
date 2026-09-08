@@ -277,7 +277,7 @@ describe("SetupPage", () => {
     expect(screen.getByText("Not strong enough yet")).toBeTruthy();
   });
 
-  it("asks for the Luna Connect setup code on a public hostname when Connect is active", async () => {
+  it("asks for the Luna Connect device token on a public hostname when Connect is active", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
       connectActive: true,
@@ -300,7 +300,7 @@ describe("SetupPage", () => {
     expect(screen.getByText(/nobody else on the internet/i)).toBeTruthy();
   });
 
-  it("skips Luna Connect setup code on a public hostname when Connect is inactive", async () => {
+  it("skips Luna Connect device token on a public hostname when Connect is inactive", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
       connectActive: false,

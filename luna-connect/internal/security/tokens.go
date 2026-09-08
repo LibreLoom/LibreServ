@@ -42,7 +42,7 @@ func GroupCrockford(raw string) string {
 	return strings.Join(parts, "-")
 }
 
-// WebsiteSetupToken is a one-use setup code for self-built boxes (same format as official).
+// WebsiteSetupToken is a one-use device token for self-built boxes (same format as official).
 func WebsiteSetupToken() string {
 	return OfficialDeviceToken()
 }

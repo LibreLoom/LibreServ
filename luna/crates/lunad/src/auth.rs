@@ -683,7 +683,11 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
         is_public = wizard_open;
     }
-    if !is_public && (path == "/api/v1/connect/status" || path == "/api/v1/connect/setup-code") {
+    if !is_public
+        && (path == "/api/v1/connect/status"
+            || path == "/api/v1/connect/setup-code"
+            || path == "/api/v1/connect/device-token")
+    {
         let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
         is_public = wizard_open;
     }

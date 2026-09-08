@@ -216,7 +216,7 @@ ORDER BY d.created_at DESC`, accountID)
 	return list, nil
 }
 
-// SetupTokens lists permanent device codes for support / print (replaces issued_tokens admin UI).
+// SetupTokens lists permanent device tokens for support / print (replaces issued_tokens admin UI).
 func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
@@ -337,7 +337,7 @@ WHERE 1=1`
 func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "Device code id is required.")
+		JSONError(w, http.StatusBadRequest, "Device token id is required.")
 		return
 	}
 	var account sql.NullString
@@ -356,7 +356,7 @@ func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if account.Valid && account.String != "" {
-		JSONError(w, http.StatusConflict, "Unbind this Luna from its account before revoking the code.")
+		JSONError(w, http.StatusConflict, "Unbind this Luna from its account before revoking the device token.")
 		return
 	}
 	_, err = h.DB.Exec(`UPDATE devices SET revoked = 1 WHERE id = ?`, id)
@@ -371,7 +371,7 @@ func (h AdminConsoleHandler) RevokeSetupToken(w http.ResponseWriter, r *http.Req
 func (h AdminConsoleHandler) PurgeSetupToken(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "tokenID"))
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "Device code id is required.")
+		JSONError(w, http.StatusBadRequest, "Device token id is required.")
 		return
 	}
 	if err := purgeDeviceToken(h.Deps, id); err == sql.ErrNoRows {

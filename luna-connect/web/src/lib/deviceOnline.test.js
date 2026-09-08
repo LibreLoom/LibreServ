@@ -39,6 +39,7 @@ describe("fetchDeviceSetupReadiness", () => {
     const api = vi.fn(async () => ({
       online: true,
       has_tunnel: true,
+      domain_ready: true,
       reachable: false,
       hostname: "test.luna.servers.libreloom.org",
       ready: false,
@@ -47,6 +48,7 @@ describe("fetchDeviceSetupReadiness", () => {
     expect(result).toEqual({
       online: true,
       has_tunnel: true,
+      domain_ready: true,
       reachable: false,
       hostname: "test.luna.servers.libreloom.org",
       ready: false,
@@ -60,6 +62,7 @@ describe("fetchDeviceSetupReadiness", () => {
     expect(result).toEqual({
       online: false,
       has_tunnel: false,
+      domain_ready: false,
       reachable: false,
       hostname: "",
       ready: false,

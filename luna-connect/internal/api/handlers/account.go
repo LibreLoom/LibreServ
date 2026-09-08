@@ -363,10 +363,10 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"devices": out})
 }
 
-// RevealDeviceCode returns the plaintext device code once for Show Code (re-mint not possible;
+// RevealDeviceCode returns the plaintext device token once for Show Token (re-mint not possible;
 // we cannot reverse the hash). Support path stores only hash — reveal is not available for
-// hashed codes. Instead we return the hint and instruct to use the quick-start card.
-// For DIY codes shown at mint time only. Official: card / support remint.
+// hashed tokens. Instead we return the hint and instruct to use the quick-start card.
+// For DIY tokens shown at mint time only. Official: card / support remint.
 func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {

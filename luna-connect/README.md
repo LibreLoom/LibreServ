@@ -2,10 +2,10 @@
 
 Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 
-Bind is **offline on the website**: you enter the permanent device code
+Bind is **offline on the website**: you enter the permanent device token
 (`****-****-****-****-****`), pick a name, and optionally turn on cloud backup.
 Luna then pulls `GET /api/v1/status` on boot and every 5 minutes (Bearer = full
-device code). **200** applies tunnel/domain/backup; **JSON 403** means unbound and
+device token). **200** applies tunnel/domain/backup; **JSON 403** means unbound and
 Luna clears remote access. A **Cloudflare managed-challenge 403** (HTML / 
 `cf-mitigated: challenge`) is **not** an unbind — Luna keeps `connect.json` and
 shows a sticky reachability error until Connect returns real JSON again.
@@ -42,13 +42,13 @@ with a correct Luna code fix. Reproduce locally with
 `luna/scripts/mock-connect-cf-challenge.py` and
 `luna/scripts/repro-cf-challenge-403.sh`.
 
-## Device codes
-
-One permanent **device code** per Luna. The **full code** binds on this site and unlocks remote setup on the box — Luna's account-creation step asks for the full token (no 8-char prefix gate). Connect's onboarding links to `/setup?token=` with the full code to prefill it.
-
-Connect is optional. Local-only / air-gap installs may skip the code at flash time; setup stays open on the LAN, and first registration over the public hostname still asks for the device token — remote first login never fail-opens.
-
-Unbind on the dashboard archives backups (`User → Backups → Luna*-uuid`), frees the name, and returns 403 on status until rebound. Factory reset keeps the on-disk device-code file so a still-bound account auto re-provisions on the next status pull.
+## Device tokens
+ 
+One permanent **device token** per Luna. The **full token** binds on this site and unlocks remote setup on the box — Luna's account-creation step asks for the full token (no 8-char prefix gate). Connect's onboarding links to `/setup?token=` with the full token to prefill it.
+ 
+Connect is optional. Local-only / air-gap installs may skip the token at flash time; setup stays open on the LAN, and first registration over the public hostname still asks for the device token — remote first login never fail-opens.
+ 
+Unbind on the dashboard archives backups (`User → Backups → Luna*-uuid`), frees the name, and returns 403 on status until rebound. Factory reset keeps the on-disk device-token file so a still-bound account auto re-provisions on the next status pull.
 
 ## Run
 
@@ -77,11 +77,11 @@ Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself d
 
 ## Factory / support
 
-Staff mint official unbound device codes (single or bulk). DIY mints a code after the $1 payment on `/diyonboarding`. Bulk export is a single-code `TOKENS` list (plus metadata), not a paired setup+device file.
+Staff mint official unbound device tokens (single or bulk). DIY mints a token after the $1 payment on `/diyonboarding`. Bulk export is a single-token `TOKENS` list (plus metadata), not a paired setup+device file.
 
-Support looks up by order ref or code hint and can reveal or replace the device code (audited). Quick-start print shows one code; that full code unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
+Support looks up by order ref or token hint and can reveal or replace the device token (audited). Quick-start print shows one token; that full token unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
 
-Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Device codes, Accounts, Connections, Security.
+Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Device tokens, Accounts, Connections, Security.
 
 ## Deploy (ZDU)
 

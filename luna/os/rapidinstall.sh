@@ -236,7 +236,7 @@ fi
 echo
 echo "Installation complete."
 
-# Official setup code + OS hash live on LUNA_DATA, not on an OS slot.
+# Official device token + OS hash live on LUNA_DATA, not on an OS slot.
 # Mount at /mnt/luna-data (not mktemp under /tmp). Missing hash = failed install.
 _datap="$(partition_data "$TARGET")"
 # Distinct name: sourced factory-assets used to assign _mnt and clobber this
@@ -252,7 +252,7 @@ fi
 if ! factory_apply_device_token "$_data_mnt" "$HERE"; then
 	umount "$_data_mnt" 2>/dev/null || true
 	echo
-	echo "Install wrote the disk, but the official setup code step failed."
+	echo "Install wrote the disk, but the official device token step failed."
 	echo "Fix the TOKENS magazine on LUNAASSETS (or use device-token), then re-run."
 	exit 1
 fi

@@ -143,7 +143,7 @@ export default function AdminTokensPage() {
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
       <p className="text-muted-foreground mb-8">
-        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or a one-off code for support. The public OS image ships without a token. The table shows a short hint so you can scan the list; use Show full token when you need the whole code (Connect keeps it sealed for newer tokens).
+        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or a one-off token for support. The public OS image ships without a token. The table shows a short hint so you can scan the list; use Show full token when you need the whole token (Connect keeps it sealed for newer tokens).
       </p>
 
       <Card className="mb-6">

@@ -186,7 +186,7 @@ VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 	}
 	code, _ := body["code"].(string)
 	if code == "" || !strings.Contains(code, "-") {
-		t.Fatalf("expected sealed device code in admin detail, got %v", body["code"])
+		t.Fatalf("expected sealed device token in admin detail, got %v", body["code"])
 	}
 	hint, _ := body["hint"].(string)
 	if hint == "" {

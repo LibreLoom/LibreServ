@@ -337,6 +337,7 @@ export default function OnboardingPage() {
   const [readiness, setReadiness] = useState({
     online: false,
     has_tunnel: false,
+    domain_ready: false,
     reachable: false,
     hostname: "",
     ready: false,
@@ -345,16 +346,16 @@ export default function OnboardingPage() {
     const searchParams = new URLSearchParams(location.search);
     const previewParam = searchParams.get("preview") || searchParams.get("state");
     if (previewParam === "offline" || previewParam === "plug-in") {
-      return { online: false, has_tunnel: false, reachable: false, ready: false };
+      return { online: false, has_tunnel: false, domain_ready: false, reachable: false, ready: false };
     }
     if (previewParam === "provisioning" || previewParam === "domain") {
-      return { online: true, has_tunnel: false, reachable: false, ready: false };
+      return { online: true, has_tunnel: false, domain_ready: false, reachable: false, ready: false };
     }
     if (previewParam === "finishing" || previewParam === "connecting") {
-      return { online: true, has_tunnel: true, reachable: false, ready: false };
+      return { online: true, has_tunnel: true, domain_ready: true, reachable: false, ready: false };
     }
     if (previewParam === "done" || previewParam === "connected") {
-      return { online: true, has_tunnel: true, reachable: true, ready: true };
+      return { online: true, has_tunnel: true, domain_ready: true, reachable: true, ready: true };
     }
     return null;
   });
@@ -1370,7 +1371,7 @@ export default function OnboardingPage() {
     }
 
     // State 2: Luna is online, domain provisioning in progress
-    if (!activeReadiness.has_tunnel) {
+    if (!activeReadiness.has_tunnel || !activeReadiness.domain_ready) {
       const chosenDomain =
         name || (hostname ? hostname.split(".")[0] : "") || "kitchen";
       return (
@@ -1539,7 +1540,7 @@ export default function OnboardingPage() {
             )}
             onClick={() => {
               goTo("plug-in");
-              setDevReadinessOverride({ online: false, has_tunnel: false, reachable: false, ready: false });
+              setDevReadinessOverride({ online: false, has_tunnel: false, domain_ready: false, reachable: false, ready: false });
             }}
           >
             1. Offline
@@ -1548,13 +1549,13 @@ export default function OnboardingPage() {
             type="button"
             className={cn(
               "px-2 py-0.5 rounded-full transition-colors",
-              step === "plug-in" && activeReadiness.online && !activeReadiness.has_tunnel
+              step === "plug-in" && activeReadiness.online && (!activeReadiness.has_tunnel || !activeReadiness.domain_ready)
                 ? "bg-foreground text-background font-medium"
                 : "hover:bg-accent text-foreground",
             )}
             onClick={() => {
               goTo("plug-in");
-              setDevReadinessOverride({ online: true, has_tunnel: false, reachable: false, ready: false });
+              setDevReadinessOverride({ online: true, has_tunnel: true, domain_ready: false, reachable: false, ready: false });
             }}
           >
             2. Provisioning
@@ -1563,13 +1564,13 @@ export default function OnboardingPage() {
             type="button"
             className={cn(
               "px-2 py-0.5 rounded-full transition-colors",
-              step === "plug-in" && activeReadiness.online && activeReadiness.has_tunnel && !activeReadiness.reachable
+              step === "plug-in" && activeReadiness.online && activeReadiness.has_tunnel && activeReadiness.domain_ready && !activeReadiness.reachable
                 ? "bg-foreground text-background font-medium"
                 : "hover:bg-accent text-foreground",
             )}
             onClick={() => {
               goTo("plug-in");
-              setDevReadinessOverride({ online: true, has_tunnel: true, reachable: false, ready: false });
+              setDevReadinessOverride({ online: true, has_tunnel: true, domain_ready: true, reachable: false, ready: false });
             }}
           >
             3. Finishing
@@ -1583,7 +1584,7 @@ export default function OnboardingPage() {
                 : "hover:bg-accent text-foreground",
             )}
             onClick={() => {
-              setDevReadinessOverride({ online: true, has_tunnel: true, reachable: true, ready: true });
+              setDevReadinessOverride({ online: true, has_tunnel: true, domain_ready: true, reachable: true, ready: true });
               goTo("done");
             }}
           >

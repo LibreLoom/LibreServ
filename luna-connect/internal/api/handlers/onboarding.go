@@ -138,7 +138,7 @@ ON CONFLICT(account_id) DO UPDATE SET payment_intent_id=excluded.payment_intent_
 	})
 }
 
-// MintDIY creates a permanent unbound DIY device code after the $1 human check.
+// MintDIY creates a permanent unbound DIY device token after the $1 human check.
 func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {

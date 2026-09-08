@@ -19,13 +19,14 @@ export async function fetchDeviceOnline(api, deviceId) {
  *
  * @param {(path: string, opts?: object) => Promise<any>} api
  * @param {string} deviceId
- * @returns {Promise<{ online: boolean, has_tunnel: boolean, reachable: boolean, hostname: string, ready: boolean }>}
+ * @returns {Promise<{ online: boolean, has_tunnel: boolean, domain_ready: boolean, reachable: boolean, hostname: string, ready: boolean }>}
  */
 export async function fetchDeviceSetupReadiness(api, deviceId) {
   if (!deviceId) {
     return {
       online: false,
       has_tunnel: false,
+      domain_ready: false,
       reachable: false,
       hostname: "",
       ready: false,
@@ -37,6 +38,7 @@ export async function fetchDeviceSetupReadiness(api, deviceId) {
   return {
     online: Boolean(res?.online),
     has_tunnel: Boolean(res?.has_tunnel),
+    domain_ready: Boolean(res?.domain_ready),
     reachable: Boolean(res?.reachable),
     hostname: res?.hostname || "",
     ready: Boolean(res?.ready),

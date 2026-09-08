@@ -48,7 +48,7 @@ describe("LunaPage one Luna", () => {
     expect(screen.getByRole("link", { name: /I installed Luna myself/i }).getAttribute("href")).toBe(
       "/diyonboarding",
     );
-    expect(screen.queryByRole("button", { name: /Get a new setup code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Get a new device token/i })).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
   });
@@ -85,7 +85,7 @@ describe("LunaPage one Luna", () => {
     expect(screen.getByRole("button", { name: /Unbind Luna/i })).toBeTruthy();
   });
 
-  it("reveals the device code and can unbind", async () => {
+  it("reveals the device token and can unbind", async () => {
     api.mockImplementation(async (path, opts) => {
       if (path === "/api/v1/account/devices") {
         return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: false }] };
@@ -99,13 +99,13 @@ describe("LunaPage one Luna", () => {
       return {};
     });
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: /Show code/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Show token/i }));
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Hide code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Hide token/i }));
     expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Show code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Show token/i }));
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));

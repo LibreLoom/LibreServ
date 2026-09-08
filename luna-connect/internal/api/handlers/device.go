@@ -172,7 +172,7 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 	JSON(w, status, out)
 }
 
-// Status is called by Luna with Bearer = full device code.
+// Status is called by Luna with Bearer = full device token.
 // 200 bound (with tunnel/domain when set); 403 unbound.
 func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())

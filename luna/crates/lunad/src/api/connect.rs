@@ -20,8 +20,15 @@ struct SourcesBody {
 }
 
 #[derive(Deserialize)]
-struct CodeBody {
-    code: String,
+struct TokenBody {
+    token: Option<String>,
+    code: Option<String>,
+}
+
+impl TokenBody {
+    fn value(&self) -> &str {
+        self.token.as_deref().or(self.code.as_deref()).unwrap_or("")
+    }
 }
 
 pub fn router() -> Router<AppState> {
@@ -30,11 +37,11 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/connect/status", get(status))
         .route("/api/v1/connect/domain", post(set_domain))
         .route("/api/v1/connect/deactivate", post(deactivate))
-        .route("/api/v1/connect/setup-code", post(setup_code))
+        .route("/api/v1/connect/setup-code", post(save_device_token))
         .route("/api/v1/connect/sync", post(sync))
         .route(
             "/api/v1/connect/device-token",
-            axum::routing::delete(remove_device_token),
+            post(save_device_token).delete(remove_device_token),
         )
         .route("/api/v1/connect/backup-sources", post(set_sources))
 }
@@ -73,10 +80,10 @@ fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::Curr
     current.map(|u| u.role == "admin").unwrap_or(false)
 }
 
-async fn setup_code(
+async fn save_device_token(
     State(state): State<AppState>,
     current: Option<Extension<crate::auth::CurrentUser>>,
-    Json(body): Json<CodeBody>,
+    Json(body): Json<TokenBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if !setup_or_admin(&state, current.as_ref()) {
         return Err(json_error(
@@ -84,8 +91,9 @@ async fn setup_code(
             "Only an Admin can enter a device token.",
         ));
     }
+    let token = body.value().to_string();
     let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.set_oss_code(&body.code))
+    tokio::task::spawn_blocking(move || service.set_oss_code(&token))
         .await
         .map_err(|_| {
             json_error(

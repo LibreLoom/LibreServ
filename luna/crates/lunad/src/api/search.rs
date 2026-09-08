@@ -399,7 +399,7 @@ mod tests {
                 .unwrap()
                 .trim(),
             "ABCD-EFGH-JKMN-PQRS-TVWX",
-            "device code must survive factory reset"
+            "device token must survive factory reset"
         );
     }
 }

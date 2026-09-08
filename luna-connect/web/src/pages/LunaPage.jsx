@@ -79,7 +79,7 @@ function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnb
         </Button>
       ) : null}
       <Button variant="outline" size="sm" onClick={onToggleCode}>
-        {shownCode ? "Hide code" : "Show code"}
+        {shownCode ? "Hide token" : "Show token"}
       </Button>
       {!confirmUnbind ? (
         <Button variant="outline" size="sm" onClick={onUnbindClick}>
@@ -261,15 +261,15 @@ export default function LunaPage() {
           {shownCode && (
             <div
               className="rounded-large-element bg-muted border border-border px-5 py-4 space-y-3"
-              data-testid="luna-device-code"
+              data-testid="luna-device-token"
             >
               <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
                 Device token
               </p>
               <p className="font-mono text-xl tracking-widest break-all">{shownCode}</p>
-              <Button variant="secondary" onClick={() => copyText(shownCode, "code")}>
+              <Button variant="secondary" onClick={() => copyText(shownCode, "token")}>
                 <Copy className="h-4 w-4" />
-                {copied === "code" ? "Copied" : "Copy code"}
+                {copied === "token" ? "Copied" : "Copy token"}
               </Button>
             </div>
           )}

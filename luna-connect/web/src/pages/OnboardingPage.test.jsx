@@ -356,7 +356,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
   });
 
-  it("skips device code when account already has a bound Luna on official path", async () => {
+  it("skips device token when account already has a bound Luna on official path", async () => {
     authState.isAuthenticated = true;
     authState.me = {
       email: "owner@example.com",
@@ -566,7 +566,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
   });
 
-  it("binds and goes to name when continuing from the DIY code step", async () => {
+  it("binds and goes to name when continuing from the DIY token step", async () => {
     stripeLooksConfigured.mockReturnValue(false);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
@@ -627,7 +627,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
   });
 
-  it("unbinds the linked Luna when returning to the device code step", async () => {
+  it("unbinds the linked Luna when returning to the device token step", async () => {
     stripeLooksConfigured.mockReturnValue(true);
     let devices = [];
     api.mockImplementation(async (path, opts = {}) => {
@@ -830,7 +830,8 @@ describe("OnboardingPage finish flow", () => {
         return {
           ready: false,
           online: true,
-          has_tunnel: false,
+          has_tunnel: true,
+          domain_ready: false,
           reachable: false,
           hostname: "kitchen.luna.servers.libreloom.org",
         };
@@ -866,6 +867,7 @@ describe("OnboardingPage finish flow", () => {
           ready: false,
           online: true,
           has_tunnel: true,
+          domain_ready: true,
           reachable: false,
           hostname: "kitchen.luna.servers.libreloom.org",
         };
@@ -906,6 +908,7 @@ describe("OnboardingPage finish flow", () => {
           ready,
           online: ready,
           has_tunnel: true,
+          domain_ready: true,
           reachable: ready,
           hostname: "kitchen.luna.servers.libreloom.org",
         };

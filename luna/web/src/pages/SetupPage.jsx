@@ -279,7 +279,7 @@ FormField.propTypes = {
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const needsSetupCode = isPublicLunaHost() && connectActive;
+  const needsDeviceToken = isPublicLunaHost() && connectActive;
   const [form, setForm] = useState({
     display_name:     "",
     username:         "",
@@ -306,8 +306,8 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const meetsPolicy = !!(strength?.ok);
   const usernameOk  = form.username.trim().length >= 3;
   const confirmOk   = confirm === pw && pw !== "";
-  const setupSecretOk = !needsSetupCode || form.setup_secret.trim().length > 0;
-  const showSetupSecretField = needsSetupCode && !hideSetupSecretStep;
+  const setupSecretOk = !needsDeviceToken || form.setup_secret.trim().length > 0;
+  const showSetupSecretField = needsDeviceToken && !hideSetupSecretStep;
 
   // Consume ?token= once: prefill setup_secret, hide that substep, strip from the URL
   // so the full device token does not linger in the address bar / history entry.
@@ -417,13 +417,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     setFieldError(null);
     try {
       const displayName = form.display_name.trim() || form.username.trim();
-      await register(form.username.trim(), displayName, pw, needsSetupCode ? form.setup_secret.trim() : undefined);
+      await register(form.username.trim(), displayName, pw, needsDeviceToken ? form.setup_secret.trim() : undefined);
       await login(form.username.trim(), pw);
       onContinue();
     } catch (err) {
       setFieldError(err.message);
       // Silent token failed — reveal the device-token field so the user can paste a new one.
-      if (hideSetupSecretStep && needsSetupCode) {
+      if (hideSetupSecretStep && needsDeviceToken) {
         setHideSetupSecretStep(false);
         authSubAnimatedRef.current = true;
         setAuthSubDir("right");
@@ -807,7 +807,7 @@ export default function SetupPage() {
   const [hydrated, setHydrated] = useState(false);
   const connectActive = useConnectActive();
 
-  // During setup, ask lunad to peel a code from the installer USB magazine when needed.
+  // During setup, ask lunad to peel a token from the installer USB magazine when needed.
   useEffect(() => {
     if (!hydrated) return;
     postJson("/api/v1/setup/fetch-mag", {}).catch(() => {});
