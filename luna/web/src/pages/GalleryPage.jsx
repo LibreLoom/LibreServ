@@ -402,6 +402,7 @@ export default function GalleryPage() {
     <Page
       title="Photos"
       titleId="gallery-title"
+      headerClassName={placesMapOverview ? "mb-4 shrink-0" : "mb-8"}
       className={
         placesMapOverview
           ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden"
@@ -414,6 +415,7 @@ export default function GalleryPage() {
         onSegmentChange={handleSegmentChange}
         query={q}
         onQueryChange={handleQueryChange}
+        className={placesMapOverview ? "shrink-0" : undefined}
       />
       {showPageLevelError(error || galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">

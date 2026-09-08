@@ -98,7 +98,8 @@ describe("PlacesMap", () => {
     const card = document.querySelector("[data-slot=card]");
     expect(card?.className).toMatch(/pop-in/);
     // Fills the Gallery Places flex parent instead of a capped vh/px height.
-    expect(card?.className).toMatch(/\bh-full\b/);
+    expect(card?.className).toMatch(/\bflex-1\b/);
+    expect(card?.className).toMatch(/\bmin-h-0\b/);
     expect(card?.className).toMatch(/\bmin-h-0\b/);
     expect(card?.className).not.toMatch(/70vh/);
   });

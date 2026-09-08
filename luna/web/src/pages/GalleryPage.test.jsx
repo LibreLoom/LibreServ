@@ -247,7 +247,8 @@ describe("GalleryPage", () => {
       expect(document.querySelector(".places-map")).toBeTruthy();
     });
     const mapCard = document.querySelector(".places-map")?.closest("[data-slot=card]");
-    expect(mapCard?.className).toMatch(/\bh-full\b/);
+    expect(mapCard?.className).toMatch(/\bflex-1\b/);
+    expect(mapCard?.className).toMatch(/\bmin-h-0\b/);
   });
 
   it("shows a pop-in card while Luna is still finding photos", async () => {

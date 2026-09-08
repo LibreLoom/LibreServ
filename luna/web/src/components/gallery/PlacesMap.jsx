@@ -330,18 +330,18 @@ export default function PlacesMap({ places, loading = false, onSelect }) {
   const center = [markers[0].lat, markers[0].lon];
 
   // Card owns the pop-in (same clip pattern as EmptyState / other gallery
-  // panels). Height comes from the Places flex fill parent (h-full); overflow
-  // clips Leaflet tiles to the rounded card without fighting the entrance animation.
+  // panels). flex-1 fills the Places overview column; overflow clips Leaflet
+  // tiles to the rounded card without fighting the entrance animation.
   return (
     <Card
       noHeightAnim
       padding={false}
-      className="h-full min-h-0 overflow-hidden border-2 border-secondary/30"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
     >
       <MapContainer
         center={center}
         zoom={4}
-        className="places-map h-full w-full [&_.leaflet-control-attribution]:text-[10px]"
+        className="places-map min-h-0 h-full w-full flex-1 [&_.leaflet-control-attribution]:text-[10px]"
         scrollWheelZoom
       >
         <TileLayer

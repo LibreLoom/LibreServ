@@ -68,6 +68,7 @@ export default function GalleryToolbar({
   onSegmentChange,
   query,
   onQueryChange,
+  className,
 }) {
   const isDesktop = useIsDesktop();
 
@@ -75,7 +76,7 @@ export default function GalleryToolbar({
     return (
       <div
         data-slot="gallery-toolbar"
-        className={cn(pillShell, "mb-6 flex whitespace-nowrap")}
+        className={cn(pillShell, "mb-6 flex whitespace-nowrap", className)}
       >
         <GallerySearchInput
           id="photo-search"
@@ -96,7 +97,7 @@ export default function GalleryToolbar({
   }
 
   return (
-    <div data-slot="gallery-toolbar" className="mb-6 space-y-3">
+    <div data-slot="gallery-toolbar" className={cn("mb-6 space-y-3", className)}>
       <div className={pillShell}>
         <GallerySearchInput
           id="photo-search-mobile"
@@ -129,4 +130,5 @@ GalleryToolbar.propTypes = {
   onSegmentChange: PropTypes.func.isRequired,
   query: PropTypes.string.isRequired,
   onQueryChange: PropTypes.func.isRequired,
+  className: PropTypes.string,
 };
