@@ -6,6 +6,7 @@ pub mod grants;
 pub mod health;
 pub mod network;
 pub mod protections;
+pub mod public_limits;
 pub mod response;
 pub mod search;
 pub mod setup;
