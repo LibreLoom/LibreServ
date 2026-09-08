@@ -23,6 +23,12 @@ import ModalErrorNotice from "../components/common/ModalErrorNotice";
 import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "../components/cards/ModalCard";
 import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
+import GalleryFilterSheet, {
+  EMPTY_FILTERS,
+  clearFilterChip,
+  countActiveFilters,
+  filterChipList,
+} from "../components/gallery/GalleryFilterSheet.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
@@ -78,6 +84,23 @@ const GRID_COLS_KEY = "luna.photos.gridCols";
  *   from?: number,
  *   to?: number,
  *   kind?: string,
+ *   cameraMake?: string,
+ *   cameraModel?: string,
+ *   orientation?: string,
+ *   hasGps?: string,
+ *   format?: string,
+ *   hourFrom?: string|number,
+ *   hourTo?: string|number,
+ *   isoMin?: string|number,
+ *   isoMax?: string|number,
+ *   focalMin?: string|number,
+ *   focalMax?: string|number,
+ *   flash?: string,
+ *   minMegapixels?: string|number,
+ *   minDuration?: string|number,
+ *   maxDuration?: string|number,
+ *   lens?: string,
+ *   undated?: boolean,
  *   offset?: number,
  * }} opts
  */
@@ -92,6 +115,23 @@ export function galleryUrl({
   from,
   to,
   kind,
+  cameraMake,
+  cameraModel,
+  orientation,
+  hasGps,
+  format,
+  hourFrom,
+  hourTo,
+  isoMin,
+  isoMax,
+  focalMin,
+  focalMax,
+  flash,
+  minMegapixels,
+  minDuration,
+  maxDuration,
+  lens,
+  undated,
   offset,
 } = {}) {
   const params = new URLSearchParams();
@@ -107,6 +147,28 @@ export function galleryUrl({
   if (typeof from === "number") params.set("from", String(from));
   if (typeof to === "number") params.set("to", String(to));
   if (kind) params.set("kind", kind);
+  if (cameraMake) params.set("camera_make", cameraMake);
+  if (cameraModel) params.set("camera_model", cameraModel);
+  if (orientation) params.set("orientation", orientation);
+  if (hasGps === "yes") params.set("has_gps", "true");
+  if (hasGps === "no") params.set("has_gps", "false");
+  if (format) params.set("format", format);
+  if (hourFrom !== "" && hourFrom != null) params.set("hour_from", String(hourFrom));
+  if (hourTo !== "" && hourTo != null) params.set("hour_to", String(hourTo));
+  if (isoMin !== "" && isoMin != null) params.set("iso_min", String(isoMin));
+  if (isoMax !== "" && isoMax != null) params.set("iso_max", String(isoMax));
+  if (focalMin !== "" && focalMin != null) params.set("focal_min", String(focalMin));
+  if (focalMax !== "" && focalMax != null) params.set("focal_max", String(focalMax));
+  if (flash === "on") params.set("flash", "1");
+  if (flash === "off") params.set("flash", "0");
+  if (flash === "1" || flash === "0") params.set("flash", flash);
+  if (minMegapixels !== "" && minMegapixels != null) {
+    params.set("min_megapixels", String(minMegapixels));
+  }
+  if (minDuration !== "" && minDuration != null) params.set("min_duration", String(minDuration));
+  if (maxDuration !== "" && maxDuration != null) params.set("max_duration", String(maxDuration));
+  if (lens) params.set("lens", lens);
+  if (undated) params.set("undated", "true");
   return `/api/v1/gallery?${params}`;
 }
 
@@ -156,6 +218,9 @@ export default function GalleryPage() {
   const [undoNotice, setUndoNotice] = useState(/** @type {string|null} */ (null));
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS }));
   const [place, setPlace] = useState(null);
   const [albumView, setAlbumView] = useState(null);
   const [dayFilter, setDayFilter] = useState(
@@ -166,12 +231,6 @@ export default function GalleryPage() {
       })() : null
     ),
   );
-  const [dateFromInput, setDateFromInput] = useState("");
-  const [dateToInput, setDateToInput] = useState("");
-  const [rangeFilter, setRangeFilter] = useState(
-    /** @type {{ from?: number, to?: number, label?: string }|null} */ (null),
-  );
-  const [kindFilter, setKindFilter] = useState(/** @type {string|null} */ (null));
   const [lightbox, setLightbox] = useState(/** @type {{ key: string }|null} */ (null));
   const [slideshow, setSlideshow] = useState(false);
   const [sharePhoto, setSharePhoto] = useState(null);
@@ -183,6 +242,7 @@ export default function GalleryPage() {
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const [newAlbumSeed, setNewAlbumSeed] = useState(/** @type {object[]|null} */ (null));
+  const [shareAfterCreate, setShareAfterCreate] = useState(false);
   const [renameAlbum, setRenameAlbum] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const [yearOpen, setYearOpen] = useState(false);
@@ -242,8 +302,7 @@ export default function GalleryPage() {
       setPlace(null);
       setAlbumView(null);
       setDayFilter(null);
-      setRangeFilter(null);
-      setKindFilter(null);
+      setFilters({ ...EMPTY_FILTERS });
       window.location.hash = next;
       setSegment(next);
     },
@@ -264,31 +323,31 @@ export default function GalleryPage() {
   const places = useQuery({
     queryKey: ["gallery-places"],
     queryFn: () => getJson("/api/v1/gallery/places"),
-    enabled: activeSegment === "places",
+    enabled: activeSegment === "places" || filtersOpen,
   });
 
-  // Toolbar date inputs → rangeFilter
-  useEffect(() => {
-    if (!dateFromInput && !dateToInput) {
-      setRangeFilter((prev) => (dayFilter ? prev : null));
-      return;
-    }
-    const fromB = dateFromInput ? dayBoundsLocal(dateFromInput) : null;
-    const toB = dateToInput ? dayBoundsLocal(dateToInput) : null;
-    if (!fromB && !toB) return;
-    setDayFilter(null);
-    setRangeFilter({
+  // Toolbar / filter sheet dates → unix range (day filter wins when set).
+  const rangeFromFilters = useMemo(() => {
+    if (!filters.dateFrom && !filters.dateTo) return null;
+    const fromB = filters.dateFrom ? dayBoundsLocal(filters.dateFrom) : null;
+    const toB = filters.dateTo ? dayBoundsLocal(filters.dateTo) : null;
+    if (!fromB && !toB) return null;
+    return {
       from: fromB?.from,
       to: toB?.to ?? fromB?.to,
       label:
-        dateFromInput && dateToInput && dateFromInput !== dateToInput
-          ? `${dateFromInput} → ${dateToInput}`
+        filters.dateFrom && filters.dateTo && filters.dateFrom !== filters.dateTo
+          ? `${filters.dateFrom} → ${filters.dateTo}`
           : fromB?.label || toB?.label,
-    });
-  }, [dateFromInput, dateToInput]); // eslint-disable-line react-hooks/exhaustive-deps -- dayFilter cleared intentionally
+    };
+  }, [filters.dateFrom, filters.dateTo]);
 
-  const effectiveFrom = dayFilter?.from ?? rangeFilter?.from;
-  const effectiveTo = dayFilter?.to ?? rangeFilter?.to;
+  const effectiveFrom = dayFilter?.from ?? rangeFromFilters?.from;
+  const effectiveTo = dayFilter?.to ?? rangeFromFilters?.to;
+  const filterPlaceBbox = filters.placeBbox?.length === 4 ? filters.placeBbox.join(",") : "";
+  const placeBboxParam = filterPlaceBbox || place?.place_bbox?.join(",") || "";
+  const filterActiveCount = countActiveFilters(filters);
+  const filterChips = filterChipList(filters);
 
   const listKey = useMemo(
     () => [
@@ -296,13 +355,38 @@ export default function GalleryPage() {
       activeSegment,
       search,
       place?.key || "",
-      place?.place_bbox?.join(",") || "",
+      placeBboxParam,
       albumView ? `${albumView.home_drive_id}:${albumView.id}` : "",
       effectiveFrom ?? "",
       effectiveTo ?? "",
-      kindFilter || "",
+      filters.kind || "",
+      filters.cameraMake || "",
+      filters.cameraModel || "",
+      filters.orientation || "",
+      filters.hasGps || "",
+      (filters.formats || []).join(","),
+      filters.hourFrom || "",
+      filters.hourTo || "",
+      filters.isoMin || "",
+      filters.isoMax || "",
+      filters.focalMin || "",
+      filters.focalMax || "",
+      filters.flash || "",
+      filters.minMegapixels || "",
+      filters.minDuration || "",
+      filters.maxDuration || "",
+      filters.lens || "",
     ],
-    [activeSegment, search, place, albumView, effectiveFrom, effectiveTo, kindFilter],
+    [
+      activeSegment,
+      search,
+      place,
+      placeBboxParam,
+      albumView,
+      effectiveFrom,
+      effectiveTo,
+      filters,
+    ],
   );
 
   const gallery = useInfiniteQuery({
@@ -316,16 +400,32 @@ export default function GalleryPage() {
           archived: activeSegment === "archive",
           albumId: albumView?.id,
           albumHome: albumView?.home_drive_id,
-          place: place?.place_bbox ? undefined : place?.key,
-          placeBbox: place?.place_bbox?.join(","),
+          place: placeBboxParam ? undefined : place?.key,
+          placeBbox: placeBboxParam || undefined,
           from: effectiveFrom,
           to: effectiveTo,
-          kind: kindFilter || undefined,
+          kind: filters.kind || undefined,
+          cameraMake: filters.cameraMake || undefined,
+          cameraModel: filters.cameraModel || undefined,
+          orientation: filters.orientation || undefined,
+          hasGps: filters.hasGps || undefined,
+          format: filters.formats?.length ? filters.formats.join(",") : undefined,
+          hourFrom: filters.hourFrom || undefined,
+          hourTo: filters.hourTo || undefined,
+          isoMin: filters.isoMin || undefined,
+          isoMax: filters.isoMax || undefined,
+          focalMin: filters.focalMin || undefined,
+          focalMax: filters.focalMax || undefined,
+          flash: filters.flash || undefined,
+          minMegapixels: filters.minMegapixels || undefined,
+          minDuration: filters.minDuration || undefined,
+          maxDuration: filters.maxDuration || undefined,
+          lens: filters.lens || undefined,
           offset: pageParam,
         }),
       ),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
-    enabled: activeSegment !== "places" || !!place,
+    enabled: activeSegment !== "places" || !!place || !!filterPlaceBbox,
   });
 
   const photos = useMemo(
@@ -345,6 +445,16 @@ export default function GalleryPage() {
     function onKey(e) {
       if (e.key === "Escape" && selection.selectMode) {
         selection.exit();
+      }
+      const tag = (e.target instanceof HTMLElement ? e.target.tagName : "") || "";
+      const typing =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable);
+      if (!typing && e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setSearchOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -371,7 +481,13 @@ export default function GalleryPage() {
         return `${d.getMonth()}-${d.getDate()}` === md && d.getFullYear() !== now.getFullYear();
       });
     },
-    enabled: activeSegment === "library" && !dayFilter && !albumView && !place && !search,
+    enabled:
+      activeSegment === "library" &&
+      !dayFilter &&
+      !albumView &&
+      !place &&
+      !search &&
+      filterActiveCount === 0,
   });
 
   const indexing = !!galleryStatus.data?.busy;
@@ -437,20 +553,32 @@ export default function GalleryPage() {
     !place &&
     !albumView &&
     !dayFilter &&
-    !rangeFilter &&
-    !kindFilter;
+    filterActiveCount === 0;
+  const filtersEmpty =
+    !gallery.isLoading &&
+    !gallery.isError &&
+    photos.length === 0 &&
+    driveList.length > 0 &&
+    filterActiveCount > 0 &&
+    (activeSegment === "library" ||
+      activeSegment === "favorites" ||
+      activeSegment === "archive" ||
+      !!albumView ||
+      !!place);
   const noFavorites =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
-    activeSegment === "favorites";
+    activeSegment === "favorites" &&
+    filterActiveCount === 0;
   const noArchive =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
-    activeSegment === "archive";
+    activeSegment === "archive" &&
+    filterActiveCount === 0;
   const searchEmpty =
     !gallery.isLoading &&
     !gallery.isError &&
@@ -558,15 +686,35 @@ export default function GalleryPage() {
       }
       return album;
     },
-    onSuccess: () => {
+    onSuccess: (album) => {
       setNewAlbumOpen(false);
       setNewAlbumName("");
       setNewAlbumSeed(null);
       selection.exit();
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      if (shareAfterCreate && album) {
+        setShareAfterCreate(false);
+        setShareAlbum(album);
+      }
     },
     onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const setAlbumCover = useMutation({
+    /** @param {object} photo */
+    mutationFn: async (photo) => {
+      if (!albumView) return;
+      await patchJson(`/api/v1/gallery/albums/${albumView.home_drive_id}/${albumView.id}`, {
+        cover_path: photo.path,
+        cover_drive_id: photo.drive_id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      setUndoNotice("Album cover updated.");
+    },
+    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't set that album cover.")),
   });
 
   const renameAlbumMut = useMutation({
@@ -806,13 +954,14 @@ export default function GalleryPage() {
     || yearOpen
     || editPhoto != null
     || lockedGate != null
-    || lightbox != null;
+    || lightbox != null
+    || filtersOpen;
 
   const lightboxIndex = lightbox
     ? Math.max(0, photos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
     : 0;
 
-  const detailChrome = dayFilter || place || albumView || rangeFilter || kindFilter;
+  const detailChrome = dayFilter || place || albumView || rangeFromFilters || filters.kind;
 
   if (noDrives) {
     return (
@@ -848,17 +997,50 @@ export default function GalleryPage() {
         onSegmentChange={handleSegmentChange}
         query={q}
         onQueryChange={handleQueryChange}
+        searchOpen={searchOpen}
+        onSearchOpenChange={setSearchOpen}
         selectMode={selection.selectMode}
         onSelectModeChange={(on) => (on ? selection.enter() : selection.exit())}
         onOpenDates={() => setYearOpen(true)}
-        dateFrom={dateFromInput}
-        dateTo={dateToInput}
-        onDateFromChange={setDateFromInput}
-        onDateToChange={setDateToInput}
+        onOpenFilters={() => setFiltersOpen(true)}
+        filterActiveCount={filterActiveCount}
         columns={columns}
         onColumnsChange={setColumns}
         showSelect={showTimeline}
+        onRescan={() => rescan.mutate()}
+        rescanPending={rescan.isPending}
       />
+      {filterChips.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2" data-slot="gallery-filter-chips">
+          {filterChips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
+              onClick={() => {
+                setFilters((prev) => clearFilterChip(prev, chip.id));
+                if (chip.id === "dates") setDayFilter(null);
+              }}
+              aria-label={`Remove filter ${chip.label}`}
+            >
+              <span className="max-w-[14rem] truncate">{chip.label}</span>
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            surface="primary"
+            onClick={() => {
+              setFilters({ ...EMPTY_FILTERS });
+              setDayFilter(null);
+            }}
+          >
+            Clear filters
+          </Button>
+        </div>
+      )}
       {showPageLevelError(error || galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
           {error || galleryLoadError}
@@ -989,16 +1171,27 @@ export default function GalleryPage() {
           onLock={(album) => lockAlbumMut.mutate({ album, locked: !album.locked })}
           onSmart={(smart) => {
             handleSegmentChange("library");
-            if (smart === "videos") setKindFilter("video");
+            if (smart === "videos") {
+              setFilters((prev) => ({ ...EMPTY_FILTERS, ...prev, kind: "video" }));
+            }
             if (smart === "screenshots") {
-              setKindFilter(null);
+              setFilters({ ...EMPTY_FILTERS });
               setQ("Screenshot");
               setSearch("Screenshot");
+              setSearchOpen(true);
             }
             if (smart === "last30") {
-              const to = Math.floor(Date.now() / 1000);
-              const from = to - 30 * 86400;
-              setRangeFilter({ from, to, label: "Last 30 days" });
+              const toDate = new Date();
+              const fromDate = new Date(Date.now() - 30 * 86400 * 1000);
+              const toYmd = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
+              const fromYmd = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, "0")}-${String(fromDate.getDate()).padStart(2, "0")}`;
+              setDayFilter(null);
+              setFilters((prev) => ({
+                ...EMPTY_FILTERS,
+                ...prev,
+                dateFrom: fromYmd,
+                dateTo: toYmd,
+              }));
             }
           }}
         />
@@ -1022,8 +1215,8 @@ export default function GalleryPage() {
             dayFilter?.ymd
             || place?.key
             || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
-            || kindFilter
-            || rangeFilter?.label
+            || filters.kind
+            || rangeFromFilters?.label
             || "filter"
           }
           data-slot="gallery-detail-chrome"
@@ -1037,10 +1230,7 @@ export default function GalleryPage() {
                 setPlace(null);
                 setAlbumView(null);
                 setDayFilter(null);
-                setRangeFilter(null);
-                setKindFilter(null);
-                setDateFromInput("");
-                setDateToInput("");
+                setFilters({ ...EMPTY_FILTERS });
                 setQ("");
                 setSearch("");
               }}
@@ -1051,8 +1241,9 @@ export default function GalleryPage() {
               {dayFilter?.label
                 || place?.label
                 || albumView?.name
-                || rangeFilter?.label
-                || (kindFilter === "video" ? "Videos" : null)
+                || rangeFromFilters?.label
+                || (filters.kind === "video" ? "Videos" : null)
+                || (filters.kind === "image" ? "Photos" : null)
                 || search}
             </p>
           </div>
@@ -1131,6 +1322,25 @@ export default function GalleryPage() {
         />
       )}
 
+      {filtersEmpty && (
+        <EmptyState
+          icon={ImageIcon}
+          title="No photos match these filters"
+          description="Try clearing a filter chip, or clear all filters and look again."
+          action={
+            <Button
+              variant="primary"
+              onClick={() => {
+                setFilters({ ...EMPTY_FILTERS });
+                setDayFilter(null);
+              }}
+            >
+              Clear filters
+            </Button>
+          }
+        />
+      )}
+
       {showTimeline && photos.length > 0 && (
         <PhotoTimeline
           photos={photos}
@@ -1150,10 +1360,9 @@ export default function GalleryPage() {
             const b = dayBoundsLocal(ymd);
             if (!b) return;
             setDayFilter({ ymd, ...b, label: label || b.label });
-            setRangeFilter(null);
-            setDateFromInput("");
-            setDateToInput("");
+            setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "" }));
           }}
+          onSelectDay={(dayPhotos) => selection.selectItems(dayPhotos)}
           columns={/** @type {3|4|5|6} */ (columns)}
         />
       )}
@@ -1175,6 +1384,7 @@ export default function GalleryPage() {
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
         onAddToAlbum={() => setAlbumPick(selection.selectedItems)}
         onNewAlbum={() => {
+          setShareAfterCreate(false);
           setNewAlbumSeed(selection.selectedItems);
           setNewAlbumOpen(true);
         }}
@@ -1184,8 +1394,14 @@ export default function GalleryPage() {
             : undefined
         }
         onShare={() => {
-          const one = selection.selectedItems[0];
-          if (one) setSharePhoto(one);
+          setShareAfterCreate(true);
+          setNewAlbumSeed(selection.selectedItems);
+          setNewAlbumName(
+            selection.selectedCount === 1
+              ? selection.selectedItems[0]?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
+              : `Shared ${selection.selectedCount} photos`,
+          );
+          setNewAlbumOpen(true);
         }}
         onDownload={() => downloadSelected(selection.selectedItems)}
         onArchive={() => archiveMut.mutate(selection.selectedItems)}
@@ -1210,6 +1426,7 @@ export default function GalleryPage() {
           onAlbum={(p) => setAlbumPick([p])}
           onTrash={setTrashPhoto}
           onEdit={setEditPhoto}
+          onSetCover={albumView ? (p) => setAlbumCover.mutate(p) : undefined}
           slideshow={slideshow}
           onSlideshowChange={setSlideshow}
           favoriting={favorite.isPending}
@@ -1296,6 +1513,7 @@ export default function GalleryPage() {
         <ModalCard title="New album" onClose={() => {
           setNewAlbumOpen(false);
           setNewAlbumSeed(null);
+          setShareAfterCreate(false);
           setError(null);
         }}>
           {({ close }) => (
@@ -1405,18 +1623,39 @@ export default function GalleryPage() {
         photos={photos}
         onPick={(range) => {
           if (range.kind === "day") {
-            // Find ymd from from timestamp
             const d = new Date(range.from * 1000);
             const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
             setDayFilter({ ymd, from: range.from, to: range.to, label: range.label });
-            setRangeFilter(null);
+            setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "" }));
           } else {
             setDayFilter(null);
-            setRangeFilter({ from: range.from, to: range.to, label: range.label });
+            const fromD = new Date(range.from * 1000);
+            const toD = new Date(range.to * 1000);
+            const fromYmd = `${fromD.getFullYear()}-${String(fromD.getMonth() + 1).padStart(2, "0")}-${String(fromD.getDate()).padStart(2, "0")}`;
+            const toYmd = `${toD.getFullYear()}-${String(toD.getMonth() + 1).padStart(2, "0")}-${String(toD.getDate()).padStart(2, "0")}`;
+            setFilters((prev) => ({
+              ...prev,
+              dateFrom: fromYmd,
+              dateTo: toYmd,
+            }));
           }
-          setDateFromInput("");
-          setDateToInput("");
           if (activeSegment !== "library") handleSegmentChange("library");
+        }}
+      />
+
+      <GalleryFilterSheet
+        open={filtersOpen}
+        value={filters}
+        places={places.data || []}
+        onClose={() => setFiltersOpen(false)}
+        onOpenDates={() => {
+          setFiltersOpen(false);
+          setYearOpen(true);
+        }}
+        onApply={(next) => {
+          setDayFilter(null);
+          setFilters({ ...EMPTY_FILTERS, ...next, formats: [...(next.formats || [])] });
+          setFiltersOpen(false);
         }}
       />
 

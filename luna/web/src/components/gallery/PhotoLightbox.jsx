@@ -77,6 +77,7 @@ export function resolveDownloadSrc(photo, opts = {}) {
  *   onAlbum?: (photo: object) => void,
  *   onTrash?: (photo: object) => void,
  *   onEdit?: (photo: object) => void,
+ *   onSetCover?: (photo: object) => void,
  *   slideshow?: boolean,
  *   onSlideshowChange?: (on: boolean) => void,
  *   favoriting?: boolean,
@@ -96,6 +97,7 @@ export default function PhotoLightbox({
   onAlbum,
   onTrash,
   onEdit,
+  onSetCover,
   slideshow = false,
   onSlideshowChange,
   favoriting,
@@ -321,6 +323,16 @@ export default function PhotoLightbox({
               <Images size={18} />
             </Button>
           )}
+          {!guest && onSetCover && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onSetCover(photo)}
+              aria-label="Set as album cover"
+            >
+              Set as cover
+            </Button>
+          )}
           {!guest && (
             <Button variant="ghost" size="sm" onClick={() => onShare?.(photo)} aria-label="Share link">
               <Link2 size={18} />
@@ -376,6 +388,7 @@ PhotoLightbox.propTypes = {
   onAlbum: PropTypes.func,
   onTrash: PropTypes.func,
   onEdit: PropTypes.func,
+  onSetCover: PropTypes.func,
   slideshow: PropTypes.bool,
   onSlideshowChange: PropTypes.func,
   favoriting: PropTypes.bool,

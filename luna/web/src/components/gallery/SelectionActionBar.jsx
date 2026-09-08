@@ -95,7 +95,7 @@ export default function SelectionActionBar({
           </Button>
         )}
         {onShare && (
-          <Button variant="ghost" size="sm" disabled={busy || count !== 1} onClick={onShare} aria-label="Share">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onShare} aria-label="Share">
             <Link2 size={16} />
             <span className="hidden sm:inline">Share</span>
           </Button>

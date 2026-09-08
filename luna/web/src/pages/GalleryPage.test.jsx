@@ -106,6 +106,17 @@ describe("galleryUrl", () => {
     expect(galleryUrl({ archived: true })).toContain("archived=true");
     expect(galleryUrl({ kind: "video" })).toContain("kind=video");
   });
+
+  it("includes camera_make and place_bbox when set", () => {
+    const url = galleryUrl({
+      cameraMake: "Canon",
+      cameraModel: "EOS R5",
+      placeBbox: "-10,20,-5,30",
+    });
+    expect(url).toContain("camera_make=Canon");
+    expect(url).toContain("camera_model=EOS");
+    expect(url).toContain("place_bbox=-10%2C20%2C-5%2C30");
+  });
 });
 
 describe("parseGalleryHash", () => {

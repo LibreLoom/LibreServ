@@ -71,6 +71,22 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     setSelected(new Set(keysInView));
   }, [keysInView]);
 
+  /** Select a specific list of items (e.g. one day in the timeline). */
+  const selectItems = useCallback(
+    (list) => {
+      setSelectMode(true);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const item of list || []) {
+          const key = keyOf(item);
+          if (key) next.add(key);
+        }
+        return next;
+      });
+    },
+    [keyOf],
+  );
+
   const selectedItems = useMemo(
     () => items.filter((item) => selected.has(keyOf(item))),
     [items, keyOf, selected],
@@ -89,6 +105,7 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     clear,
     toggle,
     selectAllInView,
+    selectItems,
     setSelectMode,
   };
 }

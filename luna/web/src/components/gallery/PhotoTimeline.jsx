@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import PropTypes from "prop-types";
 import Spinner from "../ui/Spinner.jsx";
+import Button from "../ui/Button.jsx";
 import PhotoThumb from "./PhotoThumb.jsx";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 
@@ -44,6 +45,7 @@ const COL_CLASS = {
  *   onLongPress?: (photo: object) => void,
  *   onFavoriteToggle?: (photo: object) => void,
  *   onDayClick?: (day: string, label: string) => void,
+ *   onSelectDay?: (photos: object[]) => void,
  *   columns?: 3|4|5|6,
  * }} props
  */
@@ -59,6 +61,7 @@ export default function PhotoTimeline({
   onLongPress = undefined,
   onFavoriteToggle = undefined,
   onDayClick = undefined,
+  onSelectDay = undefined,
   columns = 6,
 }) {
   const sentinel = useRef(null);
@@ -92,23 +95,33 @@ export default function PhotoTimeline({
     <div className="space-y-8" data-slot="photo-timeline">
       {groups.map((group) => (
         <section key={group.key} aria-labelledby={`day-${group.key}`}>
-          {onDayClick && group.key !== "undated" ? (
-            <button
-              type="button"
-              id={`day-${group.key}`}
-              onClick={() => onDayClick(group.key, group.label)}
-              className="sticky top-0 z-10 mb-3 w-full bg-primary/95 text-secondary px-1 py-2 font-mono text-sm text-left backdrop-blur-sm hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-pill"
-            >
-              {group.label}
-            </button>
-          ) : (
-            <h2
-              id={`day-${group.key}`}
-              className="sticky top-0 z-10 mb-3 bg-primary/95 text-secondary px-1 py-2 font-mono text-sm backdrop-blur-sm"
-            >
-              {group.label}
-            </h2>
-          )}
+          <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 bg-primary/95 text-secondary px-1 py-2 backdrop-blur-sm">
+            {onDayClick && group.key !== "undated" && !selectMode ? (
+              <button
+                type="button"
+                id={`day-${group.key}`}
+                onClick={() => onDayClick(group.key, group.label)}
+                className="font-mono text-sm text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-pill"
+              >
+                {group.label}
+              </button>
+            ) : (
+              <h2 id={`day-${group.key}`} className="font-mono text-sm">
+                {group.label}
+              </h2>
+            )}
+            {selectMode && onSelectDay && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                surface="primary"
+                onClick={() => onSelectDay(group.items.map((i) => i.photo))}
+              >
+                Select day
+              </Button>
+            )}
+          </div>
           <div className={`grid gap-1 ${gridClass}`}>
             {group.items.map(({ photo, index }) => {
               const key = photoSelectionKey(photo);
@@ -156,5 +169,6 @@ PhotoTimeline.propTypes = {
   onLongPress: PropTypes.func,
   onFavoriteToggle: PropTypes.func,
   onDayClick: PropTypes.func,
+  onSelectDay: PropTypes.func,
   columns: PropTypes.oneOf([3, 4, 5, 6]),
 };
