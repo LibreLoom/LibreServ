@@ -1,10 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import AdminTokensPage from "./AdminTokensPage.jsx";
 
 const adminApiMock = vi.fn(async (path) => {
-  if (path === "/admin/setup-tokens" || path === "/admin/setup-tokens?all=1") {
+  if (path.startsWith("/admin/setup-tokens")) {
     return {
       tokens: [
         {
@@ -25,7 +25,12 @@ const adminApiMock = vi.fn(async (path) => {
           can_revoke: true,
         },
       ],
-      limited: true,
+      pagination: {
+        total: 2,
+        limit: 25,
+        offset: 0,
+        has_more: false,
+      },
     };
   }
   return {};
@@ -52,7 +57,7 @@ describe("AdminTokensPage", () => {
     adminApiMock.mockClear();
   });
 
-  it("shows device tokens table and mint controls", async () => {
+  it("shows device tokens table, search bar, pagination controls and mint controls", async () => {
     render(
       <MemoryRouter>
         <AdminTokensPage />
@@ -66,8 +71,34 @@ describe("AdminTokensPage", () => {
     expect(screen.getByTestId("bulk-tokens")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create list/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Download TOKENS/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Show all/i })).toBeTruthy();
+    expect(screen.getByLabelText(/Search tokens/i)).toBeTruthy();
+    expect(screen.getByTestId("pagination-controls")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Previous page/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Next page/i })).toBeTruthy();
     expect(await screen.findByText("…WXYZ")).toBeTruthy();
+    expect(screen.getByText(/Showing 1–2 of 2 tokens/i)).toBeTruthy();
+  });
+
+  it("submits search query and clears search", async () => {
+    render(
+      <MemoryRouter>
+        <AdminTokensPage />
+      </MemoryRouter>,
+    );
+    await screen.findByText("…WXYZ");
+    const searchInput = screen.getByLabelText(/Search tokens/i);
+    fireEvent.change(searchInput, { target: { value: "mydevice" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+
+    await waitFor(() => {
+      expect(adminApiMock).toHaveBeenCalledWith(
+        expect.stringContaining("q=mydevice")
+      );
+    });
+
+    const clearButton = screen.getByLabelText(/Clear search/i);
+    fireEvent.click(clearButton);
+    expect(searchInput.value).toBe("");
   });
 
   it("reveals the full sealed token and hides it again", async () => {

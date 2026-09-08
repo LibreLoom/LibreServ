@@ -6,8 +6,10 @@ import { Input } from "../components/ui/input.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
+import { PaginationControls } from "../components/ui/pagination.jsx";
 import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
+import { Search, X } from "lucide-react";
 
 function downloadTokensFile(tokens) {
   const body = `${tokens.join("\n")}\n`;
@@ -48,30 +50,61 @@ export default function AdminTokensPage() {
   const [rows, setRows] = useState([]);
   const [listError, setListError] = useState("");
   const [listLoading, setListLoading] = useState(true);
-  const [listAll, setListAll] = useState(false);
-  const [listLimited, setListLimited] = useState(true);
   const [revokeBusy, setRevokeBusy] = useState("");
   const [purgeBusy, setPurgeBusy] = useState("");
   const [filter, setFilter] = useState("all");
-  const loadTokens = useCallback(async (all = false) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [pagination, setPagination] = useState({ total: 0, has_more: false });
+
+  const loadTokens = useCallback(async (overrides = {}) => {
     setListError("");
     setListLoading(true);
+    const p = overrides.page ?? page;
+    const ps = overrides.pageSize ?? pageSize;
+    const f = overrides.filter ?? filter;
+    const q = overrides.query ?? appliedQuery;
     try {
-      const path = all ? "/admin/setup-tokens?all=1" : "/admin/setup-tokens";
-      const data = await adminApi(path);
+      const offset = (p - 1) * ps;
+      const params = new URLSearchParams();
+      params.set("limit", String(ps));
+      params.set("offset", String(offset));
+      if (f && f !== "all") params.set("status", f);
+      if (q) params.set("q", q);
+
+      const data = await adminApi(`/admin/setup-tokens?${params.toString()}`);
       setRows(data.tokens || []);
-      setListAll(all);
-      setListLimited(data.limited !== false && !all);
+      setPagination(data.pagination || { total: data.tokens?.length || 0, has_more: false });
     } catch (err) {
       setListError(err.message);
     } finally {
       setListLoading(false);
     }
-  }, []);
+  }, [page, pageSize, filter, appliedQuery]);
 
   useEffect(() => {
-    loadTokens(false);
+    loadTokens();
   }, [loadTokens]);
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    const trimmed = searchQuery.trim();
+    setAppliedQuery(trimmed);
+    setPage(1);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setAppliedQuery("");
+    setPage(1);
+  };
+
+  const handleFilterChange = (newFilter) => {
+    setFilter(newFilter);
+    setPage(1);
+  };
 
   const revoke = async (id) => {
     if (!window.confirm("Revoke this unused device token? It will no longer work for setup or sign-in.")) return;
@@ -79,7 +112,7 @@ export default function AdminTokensPage() {
     setError("");
     try {
       await adminApi(`/admin/setup-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
-      await loadTokens(listAll);
+      await loadTokens();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -98,21 +131,13 @@ export default function AdminTokensPage() {
     setError("");
     try {
       await adminApi(`/admin/setup-tokens/${encodeURIComponent(row.id)}/purge`, { method: "POST" });
-      await loadTokens(listAll);
+      await loadTokens();
     } catch (err) {
       setError(err.message);
     } finally {
       setPurgeBusy("");
     }
   };
-
-  const visible = rows.filter((r) => {
-    if (filter === "all") return true;
-    if (filter === "unbound") return r.status === "unbound";
-    if (filter === "bound") return r.status === "bound";
-    if (filter === "revoked") return r.status === "revoked";
-    return true;
-  });
 
   return (
     <AdminLayout>
@@ -135,7 +160,7 @@ export default function AdminTokensPage() {
               try {
                 const data = await adminApi("/admin/setup-tokens", { method: "POST", body: "{}" });
                 setToken(data.code);
-                await loadTokens(listAll);
+                await loadTokens();
               } catch (err) {
                 setError(err.message);
               } finally {
@@ -183,7 +208,7 @@ export default function AdminTokensPage() {
                     body: JSON.stringify({ count: n }),
                   });
                   setBulkTokens(data.tokens || []);
-                  await loadTokens(listAll);
+                  await loadTokens();
                 } catch (err) {
                   setError(err.message);
                 } finally {
@@ -218,47 +243,68 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>All device tokens</CardTitle>
           <CardDescription>
-            {listAll || !listLimited
-              ? "Every Luna on this Connect. Revoke unused tokens. Bound rows show the customer account and address when set."
-              : "Newest 500 tokens by default. Use Show all to load the full list. Revoke unused ones. Bound rows show the customer account and address when set."}
+            Every Luna on this Connect. Revoke unused tokens. Bound rows show the customer account and address when set.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: "all", label: "All" },
-              { id: "unbound", label: "Unused" },
-              { id: "bound", label: "Bound" },
-              { id: "revoked", label: "Revoked" },
-            ].map((f) => (
-              <Button
-                key={f.id}
-                size="sm"
-                variant={filter === f.id ? "default" : "outline"}
-                onClick={() => setFilter(f.id)}
-              >
-                {f.label}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "all", label: "All" },
+                { id: "unbound", label: "Unused" },
+                { id: "bound", label: "Bound" },
+                { id: "revoked", label: "Revoked" },
+              ].map((f) => (
+                <Button
+                  key={f.id}
+                  size="sm"
+                  variant={filter === f.id ? "default" : "outline"}
+                  onClick={() => handleFilterChange(f.id)}
+                >
+                  {f.label}
+                </Button>
+              ))}
+              <Button size="sm" variant="ghost" onClick={() => loadTokens()}>
+                Refresh
               </Button>
-            ))}
-            <Button size="sm" variant="ghost" onClick={() => loadTokens(listAll)}>
-              Refresh
-            </Button>
-            {listLimited && !listAll ? (
-              <Button size="sm" variant="secondary" onClick={() => loadTokens(true)}>
-                Show all
+            </div>
+
+            <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 max-w-sm w-full sm:w-auto" role="search">
+              <div className="relative flex-1 sm:w-72">
+                <Input
+                  type="text"
+                  placeholder="Search hint, token, email…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pr-8"
+                  aria-label="Search tokens"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <Button type="submit" size="sm" variant="secondary">
+                <Search className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                Search
               </Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => loadTokens(false)}>
-                Show newest 500
-              </Button>
-            )}
+            </form>
           </div>
+
           {listLoading ? (
             <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading device tokens…</p>
           ) : listError ? (
             <p className="text-sm text-error">{listError}</p>
-          ) : visible.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No device tokens in this filter.</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {appliedQuery ? "No device tokens match your search." : "No device tokens in this filter."}
+            </p>
           ) : (
             <div className="overflow-x-auto rounded-large-element border border-border">
               <table className="w-full text-sm">
@@ -274,7 +320,7 @@ export default function AdminTokensPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.map((r) => (
+                  {rows.map((r) => (
                     <tr key={r.id} className="border-b border-border last:border-0 align-top">
                       <td className="px-3 py-2">
                         <TokenReveal hint={r.hint} code={r.code} />
@@ -318,12 +364,22 @@ export default function AdminTokensPage() {
               </table>
             </div>
           )}
-          {!listLoading && !listError && rows.length > 0 && (
-            <p className="font-mono text-xs text-muted-foreground">
-              Showing {visible.length}
-              {filter !== "all" ? ` matching filter (${rows.length} loaded)` : " loaded"}
-              {listLimited && !listAll ? " · capped at newest 500" : ""}
-            </p>
+
+          {!listError && (
+            <PaginationControls
+              page={page}
+              pageSize={pageSize}
+              total={pagination.total}
+              hasMore={pagination.has_more}
+              onPageChange={setPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+              }}
+              pageSizeOptions={[25, 50, 100]}
+              itemLabel="tokens"
+              loading={listLoading}
+            />
           )}
         </CardContent>
       </Card>

@@ -95,17 +95,33 @@ LIMIT ? OFFSET ?`, limit, offset)
 }
 
 func (h AdminConsoleHandler) Accounts(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit, offset := parseListPage(r)
-	var total int
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&total)
-	totalPtr := total
 
-	rows, err := h.DB.Query(`
+	countQuery := `SELECT COUNT(*) FROM accounts a WHERE 1=1`
+	query := `
 SELECT a.id, a.email, a.has_card, a.billing_status, a.email_verified, a.created_at,
   (SELECT COUNT(*) FROM devices d WHERE d.account_id = a.id) AS device_count
 FROM accounts a
-ORDER BY a.created_at DESC
-LIMIT ? OFFSET ?`, limit, offset)
+WHERE 1=1`
+	args := []any{}
+	if q != "" {
+		filter := ` AND (a.email LIKE ? OR a.id LIKE ? OR EXISTS (
+			SELECT 1 FROM devices d WHERE d.account_id = a.id AND (d.subdomain LIKE ? OR d.id LIKE ? OR d.code_hint LIKE ?)
+		))`
+		like := "%" + q + "%"
+		countQuery += filter
+		query += filter
+		args = append(args, like, like, like, like, like)
+	}
+	query += ` ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
+
+	var total int
+	_ = h.DB.QueryRow(countQuery, args...).Scan(&total)
+	totalPtr := total
+
+	queryArgs := append(args, limit, offset)
+	rows, err := h.DB.Query(query, queryArgs...)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not list accounts.")
 		return
@@ -202,7 +218,8 @@ ORDER BY d.created_at DESC`, accountID)
 
 // SetupTokens lists permanent device codes for support / print (replaces issued_tokens admin UI).
 func (h AdminConsoleHandler) SetupTokens(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
 	all := strings.EqualFold(r.URL.Query().Get("all"), "1") ||
 		strings.EqualFold(r.URL.Query().Get("all"), "true")
 	limit, offset := parseListPage(r)
@@ -216,12 +233,39 @@ LEFT JOIN accounts a ON a.id = d.account_id
 WHERE 1=1`
 	countQuery := `SELECT COUNT(*) FROM devices d LEFT JOIN accounts a ON a.id = d.account_id WHERE 1=1`
 	args := []any{}
-	if q = strings.TrimSpace(q); q != "" {
-		filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ?)`
-		query += filter
-		countQuery += filter
+
+	if status != "" && status != "all" {
+		switch status {
+		case "unbound":
+			filter := ` AND d.revoked = 0 AND (d.account_id IS NULL OR d.account_id = '')`
+			query += filter
+			countQuery += filter
+		case "bound":
+			filter := ` AND d.revoked = 0 AND d.account_id IS NOT NULL AND d.account_id != ''`
+			query += filter
+			countQuery += filter
+		case "revoked":
+			filter := ` AND d.revoked != 0`
+			query += filter
+			countQuery += filter
+		}
+	}
+
+	if q != "" {
+		norm := security.NormalizeToken(q)
 		like := "%" + q + "%"
-		args = append(args, like, like, like, like)
+		if norm != "" && len(norm) >= 8 {
+			hash := security.HashToken(norm)
+			filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ? OR d.subdomain LIKE ? OR d.code_hash = ?)`
+			query += filter
+			countQuery += filter
+			args = append(args, like, like, like, like, like, hash)
+		} else {
+			filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ? OR d.subdomain LIKE ?)`
+			query += filter
+			countQuery += filter
+			args = append(args, like, like, like, like, like)
+		}
 	}
 	query += ` ORDER BY d.created_at DESC`
 	var total int

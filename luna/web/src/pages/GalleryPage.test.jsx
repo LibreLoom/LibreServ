@@ -840,4 +840,70 @@ describe("GalleryPage", () => {
       }),
     ).toBe(true);
   });
+
+  it("opens ShareAlbumModal when clicking Share album", async () => {
+    const album = {
+      id: "alb-share",
+      home_drive_id: "a",
+      name: "Shared Moments",
+      item_count: 5,
+      shared: true,
+      cover_thumb: "/thumb",
+    };
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Drive A" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums/a/alb-share/invites")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "inv-1",
+              album_id: "alb-share",
+              token: "tok123",
+              url: "/a/tok123",
+              role: "contributor",
+              expires_at: null,
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/gallery/albums")) {
+        return new Response(JSON.stringify([album]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/gallery#albums");
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Shared Moments")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Share album" }));
+
+    expect(await screen.findByRole("heading", { name: 'Share "Shared Moments"' })).toBeInTheDocument();
+    expect(screen.getByText("Create a link")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Generate link/i })).toBeInTheDocument();
+    expect(await screen.findByText("Can view & add")).toBeInTheDocument();
+  });
 });

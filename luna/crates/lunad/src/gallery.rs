@@ -23,6 +23,8 @@ pub const THUMBS_DIR_NAME: &str = ".lunathumbs";
 pub const GALLERY_DIR_NAME: &str = ".lunagallery";
 /// Shared-album contribution uploads land here on the album's home drive.
 pub const SHARED_ALBUMS_DIR_NAME: &str = ".luna-shared-albums";
+/// Top-level user-accessible folder for shared album uploads on the home drive.
+pub const USER_SHARED_ALBUMS_DIR: &str = "Shared Photos";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
@@ -1099,11 +1101,10 @@ pub fn create_album(
     let conn = open_drive_db(root)?;
     let id = uuid_v4();
     let now = now_unix();
-    let contrib = format!("{SHARED_ALBUMS_DIR_NAME}/{id}");
     conn.execute(
         "INSERT INTO albums (id, owner_user_id, name, created_at, shared, allow_uploads, contrib_path)
-         VALUES (?1, ?2, ?3, ?4, 0, 0, ?5)",
-        params![id, owner_user_id, name, now, contrib],
+         VALUES (?1, ?2, ?3, ?4, 0, 0, '')",
+        params![id, owner_user_id, name, now],
     )?;
     Ok(Album {
         id,
@@ -1115,9 +1116,109 @@ pub fn create_album(
         cover_thumb: String::new(),
         shared: false,
         allow_uploads: false,
-        contrib_path: contrib,
+        contrib_path: String::new(),
         item_count: 0,
     })
+}
+
+/// Allocate and create a user-accessible upload folder for a shared album.
+///
+/// Ensures we never write into an existing user folder that wasn't created for
+/// this album. Tries:
+///   1. "Shared Photos/{Album Name}"
+///   2. "Shared Photos/{Album Name} (2)" .. "(50)"
+///   3. "Shared Photos/{Album Name} - {uuid}" (loop until free)
+///
+/// Persists the selected path in SQLite (`albums.contrib_path`) and creates
+/// the directory on disk.
+pub fn allocate_contrib_dir(
+    root: &Path,
+    album_id: &str,
+    album_name: &str,
+) -> anyhow::Result<String> {
+    let conn = open_drive_db(root)?;
+    // If already allocated for this album, verify it exists and return it.
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT contrib_path FROM albums WHERE id = ?1",
+            params![album_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(path) = existing
+        && !path.trim().is_empty()
+    {
+        let target = root.join(&path);
+        if !target.exists() {
+            std::fs::create_dir_all(&target)?;
+        }
+        return Ok(path);
+    }
+
+    // Clean and sanitize the album name for the filesystem.
+    let sanitized: String = album_name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let sanitized: String = sanitized.split_whitespace().collect::<Vec<_>>().join(" ");
+    let base_name = if sanitized.is_empty() {
+        "Album".to_string()
+    } else {
+        sanitized.chars().take(60).collect()
+    };
+
+    let check_collision = |cand: &str| -> anyhow::Result<bool> {
+        let p = root.join(cand);
+        if p.exists() {
+            return Ok(true);
+        }
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM albums WHERE contrib_path = ?1 AND id != ?2",
+            params![cand, album_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    };
+
+    let base_cand = format!("{USER_SHARED_ALBUMS_DIR}/{base_name}");
+    let mut chosen = None;
+
+    if !check_collision(&base_cand)? {
+        chosen = Some(base_cand);
+    } else {
+        for i in 2..=50 {
+            let cand = format!("{USER_SHARED_ALBUMS_DIR}/{base_name} ({i})");
+            if !check_collision(&cand)? {
+                chosen = Some(cand);
+                break;
+            }
+        }
+    }
+
+    let chosen_path = match chosen {
+        Some(c) => c,
+        None => loop {
+            let short_id = &uuid_v4().replace('-', "")[..8];
+            let cand = format!("{USER_SHARED_ALBUMS_DIR}/{base_name} - {short_id}");
+            if !check_collision(&cand)? {
+                break cand;
+            }
+        },
+    };
+
+    std::fs::create_dir_all(root.join(&chosen_path))?;
+    conn.execute(
+        "UPDATE albums SET contrib_path = ?1 WHERE id = ?2",
+        params![chosen_path, album_id],
+    )?;
+
+    Ok(chosen_path)
 }
 
 pub fn get_album(
@@ -1337,6 +1438,33 @@ pub fn delete_invite(root: &Path, invite_id: &str) -> anyhow::Result<()> {
         params![invite_id],
     )?;
     Ok(())
+}
+
+pub fn list_invites(root: &Path, album_id: &str) -> anyhow::Result<Vec<AlbumInvite>> {
+    let conn = open_drive_db(root)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, album_id, token, role, expires_at, created_at
+         FROM album_invites
+         WHERE album_id = ?1
+         ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![album_id], |row| {
+        let token: String = row.get(2)?;
+        Ok(AlbumInvite {
+            id: row.get(0)?,
+            album_id: row.get(1)?,
+            url: format!("/a/{token}"),
+            token,
+            role: row.get(3)?,
+            expires_at: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
 }
 
 /// Find an invite by token across mounted drives. Returns (home_drive_id, root, invite, album).
@@ -1725,5 +1853,64 @@ mod tests {
             "expected individual GPS markers, got {}",
             markers.len()
         );
+    }
+
+    #[test]
+    fn allocate_contrib_dir_avoids_collisions_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let album1 = create_album(root, "d1", "user1", "Trip to Paris").unwrap();
+        assert!(album1.contrib_path.is_empty(), "starts empty");
+
+        // 1. Initial allocation creates "Shared Photos/Trip to Paris"
+        let p1 = allocate_contrib_dir(root, &album1.id, &album1.name).unwrap();
+        assert_eq!(p1, "Shared Photos/Trip to Paris");
+        assert!(root.join(&p1).is_dir());
+
+        // Calling again reuses the existing path
+        let p1_again = allocate_contrib_dir(root, &album1.id, &album1.name).unwrap();
+        assert_eq!(p1_again, p1);
+
+        // 2. Pre-create a folder "Shared Photos/Summer Fun" by a user before album2 allocates it
+        std::fs::create_dir_all(root.join("Shared Photos/Summer Fun")).unwrap();
+        let album2 = create_album(root, "d1", "user1", "Summer Fun").unwrap();
+        let p2 = allocate_contrib_dir(root, &album2.id, &album2.name).unwrap();
+        assert_eq!(
+            p2, "Shared Photos/Summer Fun (2)",
+            "must not hijack pre-existing user folder"
+        );
+        assert!(root.join(&p2).is_dir());
+
+        // 3. Pre-create modifier (3), so album3 jumps to (4)
+        std::fs::create_dir_all(root.join("Shared Photos/Summer Fun (3)")).unwrap();
+        let album3 = create_album(root, "d1", "user1", "Summer Fun").unwrap();
+        let p3 = allocate_contrib_dir(root, &album3.id, &album3.name).unwrap();
+        assert_eq!(p3, "Shared Photos/Summer Fun (4)");
+        assert!(root.join(&p3).is_dir());
+    }
+
+    #[test]
+    fn list_invites_returns_created_invites() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let album = create_album(root, "d1", "user1", "Beach").unwrap();
+        let inv1 = create_invite(root, &album.id, "viewer", None, None).unwrap();
+        let inv2 = create_invite(root, &album.id, "contributor", Some(9999999999), None).unwrap();
+
+        let list = list_invites(root, &album.id).unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(
+            list.iter()
+                .any(|i| i.token == inv1.token && i.role == "viewer")
+        );
+        assert!(
+            list.iter()
+                .any(|i| i.token == inv2.token && i.role == "contributor")
+        );
+
+        delete_invite(root, &inv1.id).unwrap();
+        let list2 = list_invites(root, &album.id).unwrap();
+        assert_eq!(list2.len(), 1);
+        assert_eq!(list2[0].token, inv2.token);
     }
 }

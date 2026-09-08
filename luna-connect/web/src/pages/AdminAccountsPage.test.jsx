@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import AdminAccountsPage from "./AdminAccountsPage.jsx";
 
 const adminApiMock = vi.fn(async (path, opts) => {
-  if (path === "/admin/accounts") {
+  if (path.startsWith("/admin/accounts?") || path === "/admin/accounts") {
     return {
       accounts: [{
         id: "acct_1",
@@ -15,6 +15,12 @@ const adminApiMock = vi.fn(async (path, opts) => {
         billing_status: "none",
         created_at: 1700000000,
       }],
+      pagination: {
+        total: 1,
+        limit: 25,
+        offset: 0,
+        has_more: false,
+      },
     };
   }
   if (path.startsWith("/admin/accounts/")) {
@@ -152,6 +158,27 @@ describe("AdminAccountsPage", () => {
           method: "POST",
           body: JSON.stringify({ subdomain: "newname" }),
         }),
+      );
+    });
+  });
+
+  it("renders search bar and pagination controls, and triggers search", async () => {
+    render(
+      <MemoryRouter>
+        <AdminAccountsPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("user@example.com")).toBeTruthy();
+    expect(screen.getByTestId("pagination-controls")).toBeTruthy();
+    expect(screen.getByText(/1 customer account/i)).toBeTruthy();
+
+    const searchInput = screen.getByLabelText("Search accounts");
+    fireEvent.change(searchInput, { target: { value: "user@example" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+
+    await waitFor(() => {
+      expect(adminApiMock).toHaveBeenCalledWith(
+        expect.stringContaining("q=user%40example")
       );
     });
   });

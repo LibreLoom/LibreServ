@@ -146,7 +146,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/gallery/albums/{home}/{id}/invites",
-            post(create_invite),
+            get(list_invites).post(create_invite),
         )
         .route(
             "/api/v1/gallery/albums/{home}/{id}/invites/{invite_id}",
@@ -533,7 +533,6 @@ async fn create_album(
             "Luna couldn't create that album.",
         )
     })?;
-    let _ = std::fs::create_dir_all(root.join(&album.contrib_path));
     Ok(Json(album))
 }
 
@@ -789,6 +788,35 @@ async fn delete_member(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn list_invites(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path((home, id)): Path<(String, String)>,
+) -> Result<Json<Vec<gallery::AlbumInvite>>, (StatusCode, Json<Value>)> {
+    let root = resolve_mount(&state, &home)?;
+    let album = gallery::get_album(&root, &home, &id)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't open that album.",
+            )
+        })?
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+    if !gallery::user_can_access_album(&root, &album, &user.id).unwrap_or(false) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this album's invite links.",
+        ));
+    }
+    let invites = gallery::list_invites(&root, &id).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't list invite links.",
+        )
+    })?;
+    Ok(Json(invites))
+}
+
 async fn create_invite(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -821,8 +849,13 @@ async fn create_invite(
             .map(|t| t.as_secs() as i64 + d * 86400)
             .unwrap_or(0)
     });
-    // Mark album shared when creating an invite.
-    let _ = gallery::update_album(&root, &id, None, Some(true), None);
+    // Mark album shared when creating an invite, and allow uploads if contributor.
+    let allow_uploads = if role == "contributor" {
+        Some(true)
+    } else {
+        None
+    };
+    let _ = gallery::update_album(&root, &id, None, Some(true), allow_uploads);
     let invite = gallery::create_invite(&root, &id, role, expires, None).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -970,7 +1003,8 @@ async fn public_thumb(
             .unwrap_or(0);
         n > 0
     };
-    let under_contrib = query.drive_id == home
+    let under_contrib = !album.contrib_path.is_empty()
+        && query.drive_id == home
         && (query.path == album.contrib_path
             || query.path.starts_with(&format!("{}/", album.contrib_path)));
     if !in_album && !under_contrib {
@@ -1024,7 +1058,17 @@ async fn public_upload(
             "This shared album does not allow uploads.",
         ));
     }
-    let contrib = root.join(&album.contrib_path);
+    let contrib_path = if album.contrib_path.trim().is_empty() {
+        gallery::allocate_contrib_dir(&root, &album.id, &album.name).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't prepare the upload folder.",
+            )
+        })?
+    } else {
+        album.contrib_path.clone()
+    };
+    let contrib = root.join(&contrib_path);
     std::fs::create_dir_all(&contrib).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1054,7 +1098,7 @@ async fn public_upload(
         let bytes = field.bytes().await.map_err(|_| {
             json_error(StatusCode::BAD_REQUEST, "Could not read the uploaded file.")
         })?;
-        let dest_rel = format!("{}/{}", album.contrib_path, safe);
+        let dest_rel = format!("{}/{}", contrib_path, safe);
         let dest = root.join(&dest_rel);
         if let Some(parent) = dest.parent() {
             let _ = std::fs::create_dir_all(parent);

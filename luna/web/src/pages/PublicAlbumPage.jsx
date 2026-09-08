@@ -58,7 +58,7 @@ export default function PublicAlbumPage() {
           <>
             <p className="mb-4 text-sm">
               {items.length} {items.length === 1 ? "item" : "items"}
-              {album.data.can_upload ? " · You can add photos and videos" : ""}
+              {album.data.can_upload ? " · You can add photos and videos" : " · View only"}
             </p>
             {album.data.can_upload && (
               <div className="mb-6">

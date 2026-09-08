@@ -4,9 +4,10 @@ import { Badge, DeviceTokenStatusBadge, StatusBadge } from "../components/ui/bad
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
+import { PaginationControls } from "../components/ui/pagination.jsx";
 import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
-import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Shield, Trash2, Users } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Search, Shield, Trash2, Users, X } from "lucide-react";
 
 function formatWhen(unix) {
   if (!unix) return "—";
@@ -253,15 +254,34 @@ export default function AdminAccountsPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [pagination, setPagination] = useState({ total: 0, has_more: false });
 
-  const loadAccounts = useCallback(() => {
+  const loadAccounts = useCallback(async (overrides = {}) => {
     setError("");
     setLoading(true);
-    adminApi("/admin/accounts")
-      .then((data) => setAccounts(data.accounts || []))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+    const p = overrides.page ?? page;
+    const ps = overrides.pageSize ?? pageSize;
+    const q = overrides.query ?? appliedQuery;
+    try {
+      const offset = (p - 1) * ps;
+      const params = new URLSearchParams();
+      params.set("limit", String(ps));
+      params.set("offset", String(offset));
+      if (q) params.set("q", q);
+
+      const data = await adminApi(`/admin/accounts?${params.toString()}`);
+      setAccounts(data.accounts || []);
+      setPagination(data.pagination || { total: data.accounts?.length || 0, has_more: false });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, appliedQuery]);
 
   const loadDetail = useCallback(() => {
     if (!selectedId) return;
@@ -284,6 +304,19 @@ export default function AdminAccountsPage() {
     }
     loadDetail();
   }, [selectedId, loadDetail]);
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    const trimmed = searchQuery.trim();
+    setAppliedQuery(trimmed);
+    setPage(1);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setAppliedQuery("");
+    setPage(1);
+  };
 
   const deleteAccount = async () => {
     if (!selectedId || !detail) return;
@@ -316,15 +349,48 @@ export default function AdminAccountsPage() {
             <CardTitle className="flex items-center gap-2">
               <Users className="h-4 w-4" /> Customers
             </CardTitle>
-            <CardDescription>{accounts.length} account{accounts.length === 1 ? "" : "s"}</CardDescription>
+            <CardDescription>
+              {pagination.total > 0
+                ? `${pagination.total} customer account${pagination.total === 1 ? "" : "s"}`
+                : "Customer accounts"}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <form onSubmit={handleSearchSubmit} className="flex items-center gap-2" role="search">
+              <div className="relative flex-1">
+                <Input
+                  type="text"
+                  placeholder="Search email, id, address…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pr-8"
+                  aria-label="Search accounts"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <Button type="submit" size="sm" variant="secondary">
+                <Search className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                Search
+              </Button>
+            </form>
+
             {loading ? (
               <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading accounts…</p>
             ) : error ? (
               <p className="text-sm text-error">{error}</p>
             ) : accounts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No customer accounts yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {appliedQuery ? "No customer accounts match your search." : "No customer accounts yet."}
+              </p>
             ) : (
               <ul className="space-y-2">
                 {accounts.map((a) => (
@@ -355,6 +421,23 @@ export default function AdminAccountsPage() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {!error && (
+              <PaginationControls
+                page={page}
+                pageSize={pageSize}
+                total={pagination.total}
+                hasMore={pagination.has_more}
+                onPageChange={setPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50]}
+                itemLabel="accounts"
+                loading={loading}
+              />
             )}
           </CardContent>
         </Card>

@@ -21,6 +21,7 @@ import PhotoLightbox, {
   ABOVE_LIGHTBOX_OVERLAY_CLASS,
 } from "../components/gallery/PhotoLightbox.jsx";
 import AddToAlbumModal from "../components/gallery/AddToAlbumModal.jsx";
+import ShareAlbumModal from "../components/gallery/ShareAlbumModal.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
 import {
@@ -28,7 +29,6 @@ import {
   deleteJson,
   getDrives,
   getJson,
-  patchJson,
   postJson,
   putJson,
 } from "../lib/api";
@@ -80,6 +80,7 @@ export default function GalleryPage() {
   const [sharePhoto, setSharePhoto] = useState(null);
   const [trashPhoto, setTrashPhoto] = useState(null);
   const [trashAlbum, setTrashAlbum] = useState(null);
+  const [shareAlbum, setShareAlbum] = useState(null);
   const [albumPick, setAlbumPick] = useState(null);
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
@@ -371,6 +372,7 @@ export default function GalleryPage() {
     || albumPick != null
     || trashPhoto != null
     || sharePhoto != null
+    || shareAlbum != null
     || lightbox != null;
 
   // Nothing to search or segment until a drive is added — keep the page to
@@ -459,28 +461,9 @@ export default function GalleryPage() {
             setError(null);
             setTrashAlbum(album);
           }}
-          onShare={async (album) => {
-            try {
-              await patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, {
-                shared: true,
-                allow_uploads: true,
-              });
-              const invite = await postJson(
-                `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/invites`,
-                { role: "contributor" },
-              );
-              const url = `${window.location.origin}${invite.url}`;
-              try {
-                await navigator.clipboard?.writeText(url);
-              } catch {
-                // clipboard may be blocked
-              }
-              setError(null);
-              window.alert(`Invite link copied:\n${url}`);
-              queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-            } catch (err) {
-              setError(apiErrorMessage(err));
-            }
+          onShare={(album) => {
+            setError(null);
+            setShareAlbum(album);
           }}
         />
       )}
@@ -502,21 +485,35 @@ export default function GalleryPage() {
             || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
           }
           data-slot="gallery-detail-chrome"
-          className="mb-4 flex items-center gap-3 animate-nav-slide-in"
+          className="mb-4 flex items-center justify-between gap-3 animate-nav-slide-in"
         >
-          <Button
-            variant="outline"
-            surface="primary"
-            onClick={() => {
-              setPlace(null);
-              setAlbumView(null);
-            }}
-          >
-            Back
-          </Button>
-          <p className="font-mono text-sm">
-            {place?.label || albumView?.name}
-          </p>
+          <div className="flex items-center gap-3 min-w-0">
+            <Button
+              variant="outline"
+              surface="primary"
+              onClick={() => {
+                setPlace(null);
+                setAlbumView(null);
+              }}
+            >
+              Back
+            </Button>
+            <p className="font-mono text-sm truncate">
+              {place?.label || albumView?.name}
+            </p>
+          </div>
+          {albumView && (
+            <Button
+              variant="secondary"
+              surface="primary"
+              onClick={() => {
+                setError(null);
+                setShareAlbum(albumView);
+              }}
+            >
+              Share album
+            </Button>
+          )}
         </div>
       )}
 
@@ -642,6 +639,13 @@ export default function GalleryPage() {
           if (!albumPick) return;
           addToAlbum.mutate({ album, photo: albumPick, close });
         }}
+      />
+
+      <ShareAlbumModal
+        open={!!shareAlbum}
+        album={shareAlbum}
+        overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
+        onClose={() => setShareAlbum(null)}
       />
     </Page>
   );

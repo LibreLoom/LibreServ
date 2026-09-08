@@ -7,8 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-pub const BANNER_OK: &str =
-    "Luna is running. Open it from a phone or computer.";
+pub const BANNER_OK: &str = "Luna is running. Open it from a phone or computer.";
 
 pub const BANNER_PROBLEMS: &str = "Luna needs attention. Check the notes below.";
 

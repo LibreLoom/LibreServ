@@ -43,10 +43,14 @@ func parseListPage(r *http.Request) (limit, offset int) {
 }
 
 func buildListPage(limit, offset, rowCount int, total *int) listPage {
+	hasMore := rowCount == limit
+	if total != nil {
+		hasMore = offset+rowCount < *total
+	}
 	page := listPage{
 		Limit:   limit,
 		Offset:  offset,
-		HasMore: rowCount == limit,
+		HasMore: hasMore,
 		Total:   total,
 	}
 	if page.HasMore {
