@@ -1318,9 +1318,15 @@ fn query_drive_photos(
         }
         // Format filter: SQLite instr finds the first '.', which breaks on
         // dotted directory names — refine in Rust when a format was requested.
+        // `format` may be a single ext or a comma-separated list.
         if !format.is_empty() {
+            let allowed: HashSet<String> = format
+                .split(',')
+                .map(normalize_format_ext)
+                .filter(|s| !s.is_empty())
+                .collect();
             let ext = normalize_format_ext(&path_ext_lower(&photo.path));
-            if ext != format {
+            if allowed.is_empty() || !allowed.contains(&ext) {
                 continue;
             }
         }
