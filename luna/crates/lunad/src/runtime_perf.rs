@@ -408,7 +408,7 @@ fn runtime_perf_numbers() {
             "upload progress must coalesce below the flush threshold"
         );
         uploads::write_chunk(&db, &up.id, 7 * piece.len() as u64, &piece).unwrap();
-        uploads::complete(&db, &up.id, false, None).unwrap();
+        uploads::complete(&db, &up.id, false, false, None).unwrap();
     }
 
     assert!(

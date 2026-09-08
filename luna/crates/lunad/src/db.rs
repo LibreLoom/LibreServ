@@ -859,6 +859,15 @@ pub fn update_upload_received(conn: &Connection, id: &str, received: u64) -> any
     Ok(())
 }
 
+/// Rename an upload session (used when a drop box auto-renames a duplicate).
+pub fn update_upload_name(conn: &Connection, id: &str, name: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE uploads SET name = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, name, now_unix()],
+    )?;
+    Ok(())
+}
+
 /// Record a covered byte range `[start, end)` for an upload. Overlapping or
 /// duplicate chunks are last-write-wins, matching the sparse-file write path.
 pub fn upsert_upload_chunk(

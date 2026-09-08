@@ -146,16 +146,24 @@ async fn create(
         .lock()
         .map_err(|_| AuthError::Unauthenticated)
         .map_err(map_err)?;
+    let permission = normalize_permission(body.permission.as_deref());
     // A share is a public link to a file or folder, so the creator needs at
     // least read access to it — otherwise any user could link out other
-    // people's drives they have never been granted.
-    if !auth::can_access(&user, &conn, &body.drive_id, &body.path, false) {
+    // people's drives they have never been granted. Links that let strangers
+    // upload are write access, so minting them needs a write grant too: a
+    // Member with Read-only access must not be able to open other people's
+    // files up to the world.
+    let requires_write = permission == PERMISSION_WRITE || permission == PERMISSION_UPLOAD;
+    if !auth::can_access(&user, &conn, &body.drive_id, &body.path, requires_write) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to share this folder.",
+            if requires_write {
+                "You can only see this folder, so a link that lets people upload wouldn't be safe. Ask an Admin for upload access."
+            } else {
+                "You don't have permission to share this folder."
+            },
         ));
     }
-    let permission = normalize_permission(body.permission.as_deref());
     // Validate the path resolves before creating the link.
     let (_resolved, meta) =
         crate::files::resolve_any(&conn, &body.drive_id, &body.path).map_err(|_| {
@@ -270,7 +278,8 @@ async fn public_inner(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
     let share = resolve_public_share(&state, &ip, &token, &headers)?;
-    // Upload-only links are drop boxes: never list or stream anything.
+    // Upload-only links are drop boxes: never list or stream anything, and
+    // never reveal the drive id or path (folder names can be sensitive).
     if share.permission == PERMISSION_UPLOAD {
         if query.path.as_deref().is_some_and(|p| !p.trim().is_empty()) {
             return Err(json_error(
@@ -281,8 +290,6 @@ async fn public_inner(
         return Ok(Json(json!({
             "kind": "upload",
             "permission": PERMISSION_UPLOAD,
-            "drive_id": share.drive_id,
-            "path": share.path,
         }))
         .into_response());
     }
@@ -420,6 +427,15 @@ fn require_share_upload(share: &crate::db::ShareRow) -> Result<(), (StatusCode, 
     }
 }
 
+/// Upload-only drop boxes are rooted at the shared folder: a nested `path`
+/// would let a link-holder probe which subfolders exist.
+fn upload_rel<'a>(permission: &str, path: Option<&'a str>) -> Option<&'a str> {
+    match permission {
+        PERMISSION_UPLOAD => None,
+        _ => path,
+    }
+}
+
 /// Where an upload through `share` lands: inside the shared folder for folder
 /// links, or replacing the shared file for read-write file links. Returns the
 /// destination folder and the name override (None = client picks the name).
@@ -490,6 +506,10 @@ fn upload_in_share_scope(
     if share.drive_id != drive_id {
         return false;
     }
+    // A whole-drive share (path == "") covers every folder on the drive.
+    if share.path.is_empty() {
+        return true;
+    }
     if dest_path == share.path {
         return true;
     }
@@ -515,6 +535,15 @@ async fn public_upload_create(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let share = resolve_public_share(&state, &addr.ip().to_string(), &token, &headers)?;
     require_share_upload(&share)?;
+    // Public links make the drive writable by strangers; cap how many new
+    // upload sessions one address can open so a drop box can't be used to
+    // fill the disk with half-started uploads.
+    if !state.share_limiter.allow(&addr.ip().to_string()) {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many uploads from this address just now. Wait a minute and try again.",
+        ));
+    }
     if body.size > MAX_FILE_BYTES {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -527,7 +556,11 @@ async fn public_upload_create(
             .lock()
             .map_err(|_| AuthError::Unauthenticated)
             .map_err(map_err)?;
-        upload_dest(&conn, &share, body.path.as_deref())?
+        upload_dest(
+            &conn,
+            &share,
+            upload_rel(&share.permission, body.path.as_deref()),
+        )?
     };
     let name = name_override.unwrap_or(body.name);
     let upload = {
@@ -619,13 +652,22 @@ async fn public_upload_complete(
         ));
     }
     // Read-write links may replace an existing file (the shared file itself
-    // for file links); upload-only drop boxes never overwrite silently.
+    // for file links); upload-only drop boxes never overwrite silently —
+    // instead a name collision is auto-renamed, because the link holder can't
+    // see which names are taken and a bare error would leak that one exists.
     let overwrite = query.overwrite.as_deref() == Some("1") && share.permission == PERMISSION_WRITE;
-    let entry = uploads::complete(&state.db, &id, overwrite, query.hash.as_deref())
-        .map_err(map_upload_err)?;
+    let rename_on_conflict = share.permission == PERMISSION_UPLOAD;
+    let entry = uploads::complete(
+        &state.db,
+        &id,
+        overwrite,
+        rename_on_conflict,
+        query.hash.as_deref(),
+    )
+    .map_err(map_upload_err)?;
     state.gallery.upsert(
         &row.drive_id,
-        &crate::gallery_indexer::join_rel(&row.path, &row.name),
+        &crate::gallery_indexer::join_rel(&row.path, &entry.name),
     );
     state.touch_io_activity();
     Ok(Json(entry))
@@ -926,6 +968,30 @@ mod tests {
     }
 
     #[test]
+    fn upload_requires_write_or_upload_link() {
+        assert!(require_share_upload(&share("photos", "write")).is_ok());
+        assert!(require_share_upload(&share("photos", "upload")).is_ok());
+        assert!(require_share_upload(&share("photos", "read")).is_err());
+    }
+
+    #[test]
+    fn upload_rel_roots_upload_only_links_at_the_share_root() {
+        assert_eq!(upload_rel("upload", Some("secret")), None);
+        assert_eq!(upload_rel("upload", None), None);
+        assert_eq!(upload_rel("write", Some("summer")), Some("summer"));
+        assert_eq!(upload_rel("read", None), None);
+    }
+
+    #[test]
+    fn upload_scope_covers_whole_drive_shares() {
+        let share = share("", "write");
+        assert!(upload_in_share_scope(&share, "d1", "photos", "beach.jpg"));
+        assert!(upload_in_share_scope(&share, "d1", "anywhere", "deep.txt"));
+        assert!(upload_in_share_scope(&share, "d1", "", "rootfile.txt"));
+        assert!(!upload_in_share_scope(&share, "d2", "photos", "beach.jpg"));
+    }
+
+    #[test]
     fn upload_scope_is_shared_folder_for_folder_links() {
         let share = share("photos", "write");
         assert!(upload_in_share_scope(&share, "d1", "photos", "beach.jpg"));
@@ -1002,5 +1068,413 @@ mod tests {
             upload_dest(&conn, &file, None).unwrap(),
             ("photos".into(), Some("beach.jpg".into()))
         );
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+    use crate::api;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq};
+    use tower::ServiceExt;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        54321,
+    );
+
+    fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "photos",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
+        let app = api::router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        (dir, app)
+    }
+
+    fn json_req(
+        method: Method,
+        uri: &str,
+        body: &str,
+        cookie: Option<&str>,
+        csrf: Option<&str>,
+    ) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            builder = builder.header("cookie", c);
+        }
+        if let Some(t) = csrf {
+            builder = builder.header("x-csrf-token", t);
+        }
+        let mut http = builder.body(Body::from(body.to_string())).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    fn get_json(uri: &str) -> HttpReq<Body> {
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header("accept", "application/json")
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    fn put_chunk(uri: &str, bytes: &[u8]) -> HttpReq<Body> {
+        let mut http = HttpReq::builder()
+            .method(Method::PUT)
+            .uri(uri)
+            .header(
+                "content-range",
+                format!("bytes 0-{}/{}", bytes.len() - 1, bytes.len()),
+            )
+            .header("content-type", "application/octet-stream")
+            .body(Body::from(bytes.to_vec()))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    fn auth_cookies(res: &axum::response::Response) -> (String, String) {
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(axum::http::header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (session, csrf)
+    }
+
+    fn cookie_header(session: &str, csrf: &str) -> String {
+        format!("{session}; luna_csrf={csrf}")
+    }
+
+    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(r).await.unwrap()
+    }
+
+    async fn body_json(res: axum::response::Response) -> serde_json::Value {
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    async fn admin_and_sam(app: &axum::Router) -> (String, String, String, String, String) {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (admin_session, admin_csrf) = auth_cookies(&res);
+        let admin_cookie = cookie_header(&admin_session, &admin_csrf);
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"sam","display_name":"Sam","password":"hunter22hunter1"}"#,
+                Some(&admin_cookie),
+                Some(&admin_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let v = body_json(res).await;
+        let sam_id = v["id"].as_str().unwrap().to_string();
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"sam","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (sam_session, sam_csrf) = auth_cookies(&res);
+        (
+            admin_cookie,
+            admin_csrf,
+            cookie_header(&sam_session, &sam_csrf),
+            sam_csrf,
+            sam_id,
+        )
+    }
+
+    async fn create_share(
+        app: &axum::Router,
+        cookie: &str,
+        csrf: &str,
+        path: &str,
+        permission: &str,
+    ) -> String {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/shares",
+                &format!(r#"{{"drive_id":"photos","path":"{path}","permission":"{permission}"}}"#),
+                Some(cookie),
+                Some(csrf),
+            ),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            StatusCode::OK,
+            "create share {permission} on {path}"
+        );
+        body_json(res).await["token"].as_str().unwrap().to_string()
+    }
+
+    /// Drive a full public chunked upload through create + chunk + complete and
+    /// return the final response.
+    async fn public_upload(
+        app: &axum::Router,
+        token: &str,
+        name: &str,
+        bytes: &[u8],
+        path: Option<&str>,
+    ) -> axum::response::Response {
+        let path_json = path
+            .map(|p| format!(r#","path":"{p}""#))
+            .unwrap_or_default();
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                &format!("/s/{token}/upload"),
+                &format!(r#"{{"name":"{name}","size":{}{path_json}}}"#, bytes.len()),
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK, "public upload create {name}");
+        let upload_id = body_json(res).await["upload_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let res = call(
+            app,
+            put_chunk(&format!("/s/{token}/upload/{upload_id}"), bytes),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK, "public upload chunk {name}");
+        call(
+            app,
+            json_req(
+                Method::POST,
+                &format!("/s/{token}/upload/{upload_id}/complete"),
+                "{}",
+                None,
+                None,
+            ),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn read_grant_cannot_mint_write_or_upload_links() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (admin_cookie, admin_csrf, sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "read").unwrap();
+        }
+
+        // A read grant still lets the member make a read-only link.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/shares",
+                r#"{"drive_id":"photos","path":"family","permission":"read"}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // But not a link that lets strangers write.
+        for permission in ["write", "upload"] {
+            let res = call(
+                &app,
+                json_req(
+                    Method::POST,
+                    "/api/v1/shares",
+                    &format!(
+                        r#"{{"drive_id":"photos","path":"family","permission":"{permission}"}}"#
+                    ),
+                    Some(&sam_cookie),
+                    Some(&sam_csrf),
+                ),
+            )
+            .await;
+            assert_eq!(
+                res.status(),
+                StatusCode::FORBIDDEN,
+                "{permission} link from a read grant"
+            );
+        }
+
+        // A write grant unlocks them.
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g2", &sam_id, "photos", "family", "write").unwrap();
+        }
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/shares",
+                r#"{"drive_id":"photos","path":"family","permission":"upload"}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // Sanity: the admin path still works.
+        let _token = create_share(&app, &admin_cookie, &admin_csrf, "family", "read").await;
+    }
+
+    #[tokio::test]
+    async fn upload_only_get_returns_only_kind_and_permission() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (admin_cookie, admin_csrf, _s, _c, _i) = admin_and_sam(&app).await;
+        let token = create_share(&app, &admin_cookie, &admin_csrf, "family", "upload").await;
+
+        let res = call(&app, get_json(&format!("/s/{token}"))).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let v = body_json(res).await;
+        assert_eq!(v["kind"], "upload");
+        assert_eq!(v["permission"], "upload");
+        assert!(v.get("drive_id").is_none(), "must not leak drive id: {v}");
+        assert!(v.get("path").is_none(), "must not leak share path: {v}");
+    }
+
+    #[tokio::test]
+    async fn upload_only_ignores_nested_path() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("family/secret")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (admin_cookie, admin_csrf, _s, _c, _i) = admin_and_sam(&app).await;
+        let token = create_share(&app, &admin_cookie, &admin_csrf, "family", "upload").await;
+
+        // Even though `secret` exists, the drop box must treat it as absent.
+        let res = public_upload(&app, &token, "pic.txt", b"abc", Some("secret")).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(mount.path().join("family/pic.txt").exists());
+        assert!(!mount.path().join("family/secret/pic.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn read_only_link_rejects_upload_and_upload_only_never_overwrites() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::write(mount.path().join("family/pic.txt"), b"old").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (admin_cookie, admin_csrf, _s, _c, _i) = admin_and_sam(&app).await;
+        let read_token = create_share(&app, &admin_cookie, &admin_csrf, "family", "read").await;
+        let upload_token = create_share(&app, &admin_cookie, &admin_csrf, "family", "upload").await;
+
+        // Read-only links can't even open an upload session.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                &format!("/s/{read_token}/upload"),
+                r#"{"name":"x.txt","size":1}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        // Upload-only: the duplicate is auto-renamed, the original survives,
+        // and the response reports the name that actually landed.
+        let res = public_upload(&app, &upload_token, "pic.txt", b"new", None).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(body_json(res).await["name"], "pic (1).txt");
+        assert_eq!(
+            std::fs::read_to_string(mount.path().join("family/pic.txt")).unwrap(),
+            "old"
+        );
+        assert_eq!(
+            std::fs::read_to_string(mount.path().join("family/pic (1).txt")).unwrap(),
+            "new"
+        );
+    }
+
+    #[tokio::test]
+    async fn whole_drive_write_link_can_upload_into_subfolders() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (admin_cookie, admin_csrf, _s, _c, _i) = admin_and_sam(&app).await;
+        // path "" = whole drive
+        let token = create_share(&app, &admin_cookie, &admin_csrf, "", "write").await;
+
+        let res = public_upload(&app, &token, "pic.txt", b"abc", Some("family")).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(mount.path().join("family/pic.txt").exists());
     }
 }
