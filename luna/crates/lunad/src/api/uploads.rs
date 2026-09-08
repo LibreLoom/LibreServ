@@ -141,7 +141,7 @@ async fn complete(
             crate::gallery_indexer::join_rel(&row.path, &row.name),
         )
     };
-    let entry = uploads::complete(&state.db, &id, overwrite, query.hash.as_deref())
+    let entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())
         .map_err(map_upload_err)?;
     state.gallery.upsert(&drive_id, &rel);
     state.touch_io_activity();

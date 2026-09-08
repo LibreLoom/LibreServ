@@ -417,6 +417,7 @@ async fn touch_io_activity(
     if path.contains("/files")
         || path.starts_with("/api/v1/uploads")
         || path.starts_with("/api/v1/jobs")
+        || path.starts_with("/s/")
     {
         state.touch_io_activity();
     }

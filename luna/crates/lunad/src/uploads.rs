@@ -282,10 +282,14 @@ pub fn write_chunk(
 
 /// Verify length, contiguous coverage, and (optionally) a client-supplied
 /// blake3 hash, then install. The caller chooses overwrite semantics.
+/// `rename_on_conflict` keeps the upload row because a link holder can't see
+/// which names are taken (upload-only drop boxes): instead of failing, the
+/// file lands as `name (1).ext` like Nextcloud file requests.
 pub fn complete(
     db: &Arc<Mutex<Connection>>,
     id: &str,
     overwrite: bool,
+    rename_on_conflict: bool,
     expected_hash: Option<&str>,
 ) -> Result<FileEntry, UploadError> {
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
@@ -327,13 +331,20 @@ pub fn complete(
     drop(file);
 
     let dir = files::dest_dir(&conn, &upload.drive_id, &upload.path)?;
-    let dest = dir.join(&upload.name);
+    let mut name = upload.name;
+    let dest = dir.join(&name);
     if dest.exists() && !overwrite {
-        return Err(UploadError::Files(FilesError::Io(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "destination exists",
-        ))));
+        if rename_on_conflict {
+            name = find_free_name(&dir, &name);
+            db::update_upload_name(&dconn, id, &name).map_err(UploadError::Db)?;
+        } else {
+            return Err(UploadError::Files(FilesError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "destination exists",
+            ))));
+        }
     }
+    let dest = dir.join(&name);
     if let Err(e) = files::install_temp(&upload.temp, &dest, overwrite) {
         files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
         return Err(e.into());
@@ -350,12 +361,29 @@ pub fn complete(
     db::delete_upload_chunks(&dconn, id).map_err(UploadError::Db)?;
 
     Ok(FileEntry {
-        name: upload.name,
+        name,
         kind: "file".into(),
         size: final_meta.len(),
         modified,
         hidden: false,
     })
+}
+
+/// Pick the first free name in `dir` by appending ` (n)` before the extension,
+/// Nextcloud-style, so a drop box can land `report.pdf` next to a taken
+/// `report.pdf` as `report (1).pdf`.
+fn find_free_name(dir: &Path, name: &str) -> String {
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (name[..i].to_string(), name[i..].to_string()),
+        _ => (name.to_string(), String::new()),
+    };
+    let mut candidate = name.to_string();
+    let mut n = 1;
+    while dir.join(&candidate).exists() {
+        candidate = format!("{stem} ({n}){ext}");
+        n += 1;
+    }
+    candidate
 }
 
 fn blake3_hash_file(path: &Path) -> Result<String, std::io::Error> {
@@ -432,7 +460,7 @@ mod tests {
         let received = write_chunk(&db, &up.id, 0, &data1).unwrap();
         assert_eq!(received, 1000);
 
-        let entry = complete(&db, &up.id, false, None).unwrap();
+        let entry = complete(&db, &up.id, false, false, None).unwrap();
         assert_eq!(entry.size, 1000);
 
         let row = find_upload(&db.lock().unwrap(), &up.id).ok();
@@ -451,7 +479,7 @@ mod tests {
         drop(conn);
         write_chunk(&db, &up.id, 900, &[1u8; 100]).unwrap();
         assert!(matches!(
-            complete(&db, &up.id, false, None),
+            complete(&db, &up.id, false, false, None),
             Err(UploadError::SizeMismatch)
         ));
     }
@@ -464,7 +492,7 @@ mod tests {
         drop(conn);
         write_chunk(&db, &up.id, 0, &[1u8; 10]).unwrap();
         assert!(matches!(
-            complete(&db, &up.id, false, None),
+            complete(&db, &up.id, false, false, None),
             Err(UploadError::SizeMismatch)
         ));
     }
@@ -479,5 +507,39 @@ mod tests {
         cancel(&db, &up.id).unwrap();
         assert!(!up.temp.exists());
         assert!(find_upload(&db.lock().unwrap(), &up.id).is_err());
+    }
+
+    #[test]
+    fn conflict_completes_renamed_when_requested_else_fails() {
+        let (dir, db, drive) = setup();
+        let root = dir.path().join("drive");
+
+        // Plain complete fails when the name is already taken...
+        let conn = db.lock().unwrap();
+        let up1 = create(&conn, &drive, "", "clash.txt", 3).unwrap();
+        drop(conn);
+        write_chunk(&db, &up1.id, 0, b"one").unwrap();
+        std::fs::write(root.join("clash.txt"), b"zed").unwrap();
+        assert!(matches!(
+            complete(&db, &up1.id, false, false, None),
+            Err(UploadError::Files(crate::files::FilesError::Io(e)))
+                if e.kind() == std::io::ErrorKind::AlreadyExists
+        ));
+
+        // ...and rename_on_conflict lands it as `clash (1).txt` instead.
+        let conn = db.lock().unwrap();
+        let up2 = create(&conn, &drive, "", "clash.txt", 3).unwrap();
+        drop(conn);
+        write_chunk(&db, &up2.id, 0, b"two").unwrap();
+        let entry = complete(&db, &up2.id, false, true, None).unwrap();
+        assert_eq!(entry.name, "clash (1).txt");
+        assert_eq!(
+            std::fs::read_to_string(root.join("clash (1).txt")).unwrap(),
+            "two"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("clash.txt")).unwrap(),
+            "zed"
+        );
     }
 }

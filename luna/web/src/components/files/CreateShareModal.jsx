@@ -10,12 +10,19 @@ import { postJson, apiErrorMessage } from "../../lib/api";
 
 const LINK_ERROR = "Couldn't create that link. Check that the file or folder is still on this drive, then try again.";
 
+const SHARE_PERMISSION_OPTIONS = [
+  { value: "read", label: "Read only" },
+  { value: "write", label: "Read and write" },
+  { value: "upload", label: "Upload only" },
+];
+
 /**
- * @param {{ driveId: any, path?: string, onClose: any, onError?: (msg: string) => void, onDone: any, open?: boolean, overlayClassName?: string }} props
+ * @param {{ driveId: any, path?: string, kind?: string, onClose: any, onError?: (msg: string) => void, onDone: any, open?: boolean, overlayClassName?: string }} props
  */
 export default function CreateShareModal({
   driveId,
   path = "",
+  kind = "folder",
   onClose,
   onError,
   onDone,
@@ -24,6 +31,7 @@ export default function CreateShareModal({
 }) {
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
+  const [permission, setPermission] = useState("read");
   const [result, setResult] = useState(null);
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const mutation = useMutation({
@@ -52,6 +60,8 @@ export default function CreateShareModal({
     },
   });
 
+  const uploadOnlyOnFile = kind === "file" && permission === "upload";
+
   if (result) {
     return (
       <ModalCard open={open} title="Link ready" onClose={onDone} overlayClassName={overlayClassName}>
@@ -76,6 +86,27 @@ export default function CreateShareModal({
       {({ close }) => (
         <div className="space-y-3">
           {error && <PageNotice variant="error">{error}</PageNotice>}
+          {uploadOnlyOnFile && (
+            <PageNotice variant="warning">
+              Upload-only links need a folder. Pick Read only or Read and write, or share a folder instead.
+            </PageNotice>
+          )}
+          <Dropdown
+            options={SHARE_PERMISSION_OPTIONS}
+            value={permission}
+            onChange={setPermission}
+            fullWidth
+            bg="primary"
+            aria-label="What people with this link can do"
+          />
+          <p className="text-primary text-xs">
+            <span className="text-primary font-semibold">Read only</span>{" "}
+            opens and downloads files.{" "}
+            <span className="text-primary font-semibold">Read and write</span>{" "}
+            can also add files, but can't delete or rename anything.{" "}
+            <span className="text-primary font-semibold">Upload only</span>{" "}
+            can add files but can't see what's already there — great for collecting photos from people.
+          </p>
           <ShakeTarget shake={error}>
             <input
               type="password"
@@ -102,12 +133,13 @@ export default function CreateShareModal({
               variant="primary"
               fullWidth
               loading={mutation.isPending}
-              disabled={!driveId}
+              disabled={!driveId || uploadOnlyOnFile}
               onClick={() => mutation.mutate({
                 drive_id: driveId,
                 path: (path || "").trim(),
                 password: password || undefined,
                 expires_in_days: days ? Number(days) : undefined,
+                permission,
               })}
             >
               Create link

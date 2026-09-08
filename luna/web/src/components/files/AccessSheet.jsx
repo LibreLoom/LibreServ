@@ -19,6 +19,16 @@ const PERMISSION_OPTIONS = [
   { value: "write", label: "Write" },
 ];
 
+const SHARE_PERMISSION_LABELS = {
+  read: "Read only",
+  write: "Read and write",
+  upload: "Upload only",
+};
+
+function sharePermissionLabel(permission) {
+  return SHARE_PERMISSION_LABELS[permission] || "Read only";
+}
+
 function rememberedUrl(shareId) {
   try {
     return sessionStorage.getItem(`luna-share-${shareId}`);
@@ -292,7 +302,8 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
             <div key={s.id} className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3">
               <div className="min-w-0">
                 <p className="text-secondary text-xs">
-                  {s.has_password ? "Password" : "Anyone with the link"}
+                  {sharePermissionLabel(s.permission)}
+                  {s.has_password ? " · Password" : " · Anyone with the link"}
                   {pathKey(s.path) && pathKey(s.path) !== objectPath ? ` · ${pathKey(s.path)}` : ""}
                   {" · "}
                   {expiryLabel(s.expires_at)}
@@ -324,6 +335,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
         open
         driveId={driveId}
         path={objectPath}
+        kind={kind}
         overlayClassName={NESTED_OVERLAY_CLASS}
         onClose={() => setCreatingLink(false)}
         onDone={() => {
