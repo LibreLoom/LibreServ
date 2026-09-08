@@ -238,6 +238,12 @@ describe("GalleryPage", () => {
       "true",
     );
     expect(window.location.hash).toBe("#places");
+    const page = document.querySelector("[data-slot=page]");
+    expect(page?.className).toMatch(/\bflex\b/);
+    expect(page?.className).toMatch(/100dvh/);
+    expect(page?.className).toMatch(/\boverflow-hidden\b/);
+    const mapCard = document.querySelector("[data-slot=card]");
+    expect(mapCard?.className).toMatch(/\bh-full\b/);
   });
 
   it("shows a pop-in card while Luna is still finding photos", async () => {

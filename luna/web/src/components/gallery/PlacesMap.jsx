@@ -31,6 +31,25 @@ function FitBounds({ points }) {
   return null;
 }
 
+/** Leaflet needs invalidateSize when a flex parent settles the map height. */
+function InvalidateOnResize() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer?.();
+    const refresh = () => {
+      map.invalidateSize?.();
+    };
+    refresh();
+    if (!container || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver(refresh);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [map]);
+  return null;
+}
+
 function clusterRadius(count, zoom) {
   const base = 8 + Math.log2(count + 1) * 3.5;
   const zoomScale = Math.max(0.75, 1.15 - zoom * 0.03);
@@ -311,13 +330,13 @@ export default function PlacesMap({ places, loading = false, onSelect }) {
   const center = [markers[0].lat, markers[0].lon];
 
   // Card owns the pop-in (same clip pattern as EmptyState / other gallery
-  // panels). Keep overflow + fixed height on that clip so Leaflet tiles stay
-  // rounded without fighting the entrance animation.
+  // panels). Height comes from the Places flex fill parent (h-full); overflow
+  // clips Leaflet tiles to the rounded card without fighting the entrance animation.
   return (
     <Card
       noHeightAnim
       padding={false}
-      className="overflow-hidden border-2 border-secondary/30 h-[min(70vh,640px)]"
+      className="h-full min-h-0 overflow-hidden border-2 border-secondary/30"
     >
       <MapContainer
         center={center}
@@ -331,6 +350,7 @@ export default function PlacesMap({ places, loading = false, onSelect }) {
           referrerPolicy="strict-origin-when-cross-origin"
           maxZoom={19}
         />
+        <InvalidateOnResize />
         <FitBounds points={markers} />
         <ClusterMarkers markers={markers} onSelect={onSelect} />
       </MapContainer>
