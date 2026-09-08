@@ -68,3 +68,22 @@ describe("PhotoLightbox scroll lock", () => {
     expect(onIndexChange).toHaveBeenCalledWith(1);
   });
 });
+
+describe("PhotoLightbox guest mode", () => {
+  it("hides favorite, album, share, trash, and folder actions", () => {
+    renderLightbox({ mode: "guest" });
+    expect(screen.queryByLabelText(/Favorite/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Add to album/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Share link/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Move to trash/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Open folder/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Close")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Download/i })).toBeInTheDocument();
+  });
+
+  it("keeps download available for guests", () => {
+    renderLightbox({ mode: "guest", downloadSrc: "/public/dl" });
+    const link = screen.getByRole("link", { name: /Download/i });
+    expect(link).toHaveAttribute("href", "/public/dl");
+  });
+});
