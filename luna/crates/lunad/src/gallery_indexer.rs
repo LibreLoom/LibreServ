@@ -402,6 +402,14 @@ fn worker_loop(
 
         if !removes.is_empty() {
             let batch: Vec<_> = removes.drain().collect();
+            let mounts_snapshot: Vec<(String, PathBuf)> = {
+                let guard = mounts.lock().unwrap();
+                guard
+                    .mounts
+                    .iter()
+                    .map(|(id, root)| (id.clone(), root.clone()))
+                    .collect()
+            };
             for (drive_id, rel) in batch {
                 pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
                 let mount = {
@@ -412,6 +420,8 @@ fn worker_loop(
                     continue;
                 };
                 let _ = gallery::remove_indexed_path(&root, &drive_id, &rel);
+                // Album homes may live on other mounts — purge cross-drive refs.
+                gallery::purge_album_item_refs_on_mounts(&mounts_snapshot, &drive_id, &rel);
             }
         }
 

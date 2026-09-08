@@ -73,6 +73,8 @@ pub struct ListFilter {
     pub archived_user: Option<String>,
     /// Hide photos this user has archived (library / favorites views).
     pub exclude_archived_user: Option<String>,
+    /// Restrict to `"image"` or `"video"` when set.
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -560,13 +562,23 @@ pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Re
     let conn = open_drive_db(root)?;
     conn.execute("DELETE FROM photos WHERE path = ?1", params![rel])?;
     conn.execute("DELETE FROM favorites WHERE path = ?1", params![rel])?;
-    conn.execute(
-        "DELETE FROM album_items WHERE drive_id = ?1 AND path = ?2",
-        params![drive_id, rel],
-    )?;
+    drop(conn);
+    // Refresh album covers when this path was a cover on this drive's albums.
+    let _ = remove_album_items_for_path(root, drive_id, rel);
     let thumb = thumb_path(root, drive_id, rel);
     let _ = std::fs::remove_file(thumb);
     Ok(())
+}
+
+/// Purge album_item refs for a deleted photo from every mounted album home.
+pub fn purge_album_item_refs_on_mounts(
+    mounts: &[(String, PathBuf)],
+    drive_id: &str,
+    path: &str,
+) {
+    for (_, root) in mounts {
+        let _ = purge_album_item_refs_on_home(root, drive_id, path);
+    }
 }
 
 /// Move an indexed path (same drive). Falls back to remove+reindex if the
@@ -863,6 +875,12 @@ fn query_drive_photos(
     } else {
         0
     };
+    let kind = filter
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| *s == "image" || *s == "video")
+        .unwrap_or("");
 
     let mut stmt = conn.prepare(
         "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
@@ -881,7 +899,8 @@ fn query_drive_photos(
            AND (?7 = 0 OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
                 AND p.lon >= ?8 AND p.lon <= ?9 AND p.lat >= ?10 AND p.lat <= ?11))
            AND (?12 = 0 OR ar.path IS NOT NULL)
-           AND (?13 = 0 OR ar.path IS NULL)",
+           AND (?13 = 0 OR ar.path IS NULL)
+           AND (?14 = '' OR p.kind = ?14)",
     )?;
     let rows = stmt.query_map(
         params![
@@ -898,6 +917,7 @@ fn query_drive_photos(
             bbox_max_lat,
             archived_only,
             exclude_archived,
+            kind,
         ],
         |row| {
             let path: String = row.get(0)?;
@@ -1419,6 +1439,7 @@ pub fn update_album(
     name: Option<&str>,
     shared: Option<bool>,
     allow_uploads: Option<bool>,
+    locked: Option<bool>,
 ) -> anyhow::Result<()> {
     let conn = open_drive_db(root)?;
     if let Some(name) = name {
@@ -1443,6 +1464,12 @@ pub fn update_album(
         conn.execute(
             "UPDATE albums SET allow_uploads = ?1 WHERE id = ?2",
             params![if allow { 1 } else { 0 }, album_id],
+        )?;
+    }
+    if let Some(locked) = locked {
+        conn.execute(
+            "UPDATE albums SET locked = ?1 WHERE id = ?2",
+            params![if locked { 1 } else { 0 }, album_id],
         )?;
     }
     Ok(())
@@ -1604,6 +1631,84 @@ pub fn purge_album_item_refs_on_home(
     path: &str,
 ) -> anyhow::Result<()> {
     remove_album_items_for_path(home_root, drive_id, path)
+}
+
+/// List `(drive_id, path)` rows for an album (home drive SQLite).
+pub fn list_album_item_refs(
+    home_root: &Path,
+    album_id: &str,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let conn = open_drive_db(home_root)?;
+    let mut stmt =
+        conn.prepare("SELECT drive_id, path FROM album_items WHERE album_id = ?1 ORDER BY added_at ASC, path ASC")?;
+    let rows = stmt.query_map(params![album_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// True when path is HEIC/HEIF/HIF (browser cannot display the original).
+pub fn is_heic_image(path: &Path) -> bool {
+    is_image(path) && crate::heif::is_heif(path)
+}
+
+/// Minimum JPEG thumb size (bytes) we treat as a usable browser preview.
+const PREVIEW_THUMB_MIN_BYTES: u64 = 2048;
+
+/// Ensure a browser-safe JPEG exists for a HEIC original (reuse thumb when large enough).
+pub fn ensure_heic_preview_jpeg(
+    src: &Path,
+    thumb_dest: &Path,
+) -> anyhow::Result<PathBuf> {
+    if thumb_dest.exists()
+        && let Ok(meta) = std::fs::metadata(thumb_dest)
+        && meta.len() >= PREVIEW_THUMB_MIN_BYTES
+    {
+        return Ok(thumb_dest.to_path_buf());
+    }
+    ensure_thumb(src, thumb_dest, "image")?;
+    if thumb_dest.exists() {
+        return Ok(thumb_dest.to_path_buf());
+    }
+    anyhow::bail!("could not build HEIC preview")
+}
+
+/// Write a zip of absolute files. `entries` is `(archive_path, absolute_file)`.
+/// Caps at `max_files` (returns Err on overflow).
+pub fn write_items_zip(
+    entries: &[(String, PathBuf)],
+    writer: impl std::io::Write + std::io::Seek,
+    max_files: usize,
+) -> anyhow::Result<usize> {
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    if entries.len() > max_files {
+        anyhow::bail!("too many files for zip (max {max_files})");
+    }
+    let mut zip = ZipWriter::new(writer);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut file_count = 0usize;
+    let mut buf = vec![0u8; 64 * 1024];
+    for (archive_name, abs) in entries {
+        let meta = std::fs::symlink_metadata(abs)?;
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            continue;
+        }
+        zip.start_file(archive_name, options)?;
+        let mut input = std::fs::File::open(abs)?;
+        loop {
+            let n = input.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            zip.write_all(&buf[..n])?;
+        }
+        file_count += 1;
+    }
+    zip.finish()?;
+    Ok(file_count)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2226,14 +2331,14 @@ mod tests {
         let album = create_album(root, "d1", "user1", "Secret").unwrap();
         let _ = create_invite(root, &album.id, "viewer", None, None).unwrap();
         assert_eq!(list_invites(root, &album.id).unwrap().len(), 1);
-        update_album(root, &album.id, None, Some(false), None).unwrap();
+        update_album(root, &album.id, None, Some(false), None, None).unwrap();
         assert!(list_invites(root, &album.id).unwrap().is_empty());
 
         let mounts = vec![("d1".into(), root.to_path_buf())];
         let inv = create_invite(root, &album.id, "viewer", None, None).unwrap();
-        update_album(root, &album.id, None, Some(true), None).unwrap();
+        update_album(root, &album.id, None, Some(true), None, None).unwrap();
         assert!(find_invite(&mounts, &inv.token).unwrap().is_some());
-        update_album(root, &album.id, None, Some(false), None).unwrap();
+        update_album(root, &album.id, None, Some(false), None, None).unwrap();
         assert!(find_invite(&mounts, &inv.token).unwrap().is_none());
     }
 
