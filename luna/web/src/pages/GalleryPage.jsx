@@ -44,6 +44,7 @@ import AlbumMembersPanel from "../components/gallery/AlbumMembersPanel.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
+import Dropdown from "../components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
 import {
@@ -101,6 +102,7 @@ const GRID_COLS_KEY = "luna.photos.gridCols";
  *   maxDuration?: string|number,
  *   lens?: string,
  *   undated?: boolean,
+ *   albumMembership?: string,
  *   offset?: number,
  * }} opts
  */
@@ -132,6 +134,7 @@ export function galleryUrl({
   maxDuration,
   lens,
   undated,
+  albumMembership,
   offset,
 } = {}) {
   const params = new URLSearchParams();
@@ -169,6 +172,9 @@ export function galleryUrl({
   if (maxDuration !== "" && maxDuration != null) params.set("max_duration", String(maxDuration));
   if (lens) params.set("lens", lens);
   if (undated) params.set("undated", "true");
+  if (albumMembership === "any" || albumMembership === "none") {
+    params.set("album_membership", albumMembership);
+  }
   return `/api/v1/gallery?${params}`;
 }
 
@@ -220,6 +226,9 @@ export default function GalleryPage() {
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterFocus, setFilterFocus] = useState("");
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [duplicatesView, setDuplicatesView] = useState(false);
   const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS }));
   const [place, setPlace] = useState(null);
   const [albumView, setAlbumView] = useState(null);
@@ -232,6 +241,7 @@ export default function GalleryPage() {
     ),
   );
   const [lightbox, setLightbox] = useState(/** @type {{ key: string }|null} */ (null));
+  const [lightboxOverride, setLightboxOverride] = useState(/** @type {object[]|null} */ (null));
   const [slideshow, setSlideshow] = useState(false);
   const [sharePhoto, setSharePhoto] = useState(null);
   const [trashPhoto, setTrashPhoto] = useState(null);
@@ -302,6 +312,7 @@ export default function GalleryPage() {
       setPlace(null);
       setAlbumView(null);
       setDayFilter(null);
+      setDuplicatesView(false);
       setFilters({ ...EMPTY_FILTERS });
       window.location.hash = next;
       setSegment(next);
@@ -328,6 +339,7 @@ export default function GalleryPage() {
 
   // Toolbar / filter sheet dates → unix range (day filter wins when set).
   const rangeFromFilters = useMemo(() => {
+    if (filters.undated) return null;
     if (!filters.dateFrom && !filters.dateTo) return null;
     const fromB = filters.dateFrom ? dayBoundsLocal(filters.dateFrom) : null;
     const toB = filters.dateTo ? dayBoundsLocal(filters.dateTo) : null;
@@ -340,10 +352,10 @@ export default function GalleryPage() {
           ? `${filters.dateFrom} → ${filters.dateTo}`
           : fromB?.label || toB?.label,
     };
-  }, [filters.dateFrom, filters.dateTo]);
+  }, [filters.dateFrom, filters.dateTo, filters.undated]);
 
-  const effectiveFrom = dayFilter?.from ?? rangeFromFilters?.from;
-  const effectiveTo = dayFilter?.to ?? rangeFromFilters?.to;
+  const effectiveFrom = filters.undated ? undefined : dayFilter?.from ?? rangeFromFilters?.from;
+  const effectiveTo = filters.undated ? undefined : dayFilter?.to ?? rangeFromFilters?.to;
   const filterPlaceBbox = filters.placeBbox?.length === 4 ? filters.placeBbox.join(",") : "";
   const placeBboxParam = filterPlaceBbox || place?.place_bbox?.join(",") || "";
   const filterActiveCount = countActiveFilters(filters);
@@ -359,11 +371,13 @@ export default function GalleryPage() {
       albumView ? `${albumView.home_drive_id}:${albumView.id}` : "",
       effectiveFrom ?? "",
       effectiveTo ?? "",
+      filters.undated ? "1" : "",
       filters.kind || "",
       filters.cameraMake || "",
       filters.cameraModel || "",
       filters.orientation || "",
       filters.hasGps || "",
+      filters.albumMembership || "",
       (filters.formats || []).join(","),
       filters.hourFrom || "",
       filters.hourTo || "",
@@ -421,16 +435,32 @@ export default function GalleryPage() {
           minDuration: filters.minDuration || undefined,
           maxDuration: filters.maxDuration || undefined,
           lens: filters.lens || undefined,
+          undated: filters.undated || undefined,
+          albumMembership: filters.albumMembership || undefined,
           offset: pageParam,
         }),
       ),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
-    enabled: activeSegment !== "places" || !!place || !!filterPlaceBbox,
+    enabled: (activeSegment !== "places" || !!place || !!filterPlaceBbox) && !duplicatesView,
   });
 
+  const duplicates = useQuery({
+    queryKey: ["gallery-duplicates"],
+    queryFn: () => getJson("/api/v1/gallery/duplicates?limit=50"),
+    enabled: duplicatesView,
+  });
+
+  const duplicatePhotos = useMemo(
+    () => (duplicates.data?.groups || []).flatMap((g) => g.items || []),
+    [duplicates.data],
+  );
+
   const photos = useMemo(
-    () => (gallery.data?.pages || []).flatMap((p) => p.items || []),
-    [gallery.data],
+    () =>
+      duplicatesView
+        ? duplicatePhotos
+        : (gallery.data?.pages || []).flatMap((p) => p.items || []),
+    [duplicatesView, duplicatePhotos, gallery.data],
   );
 
   // Keep multi-select items in sync with visible photos.
@@ -871,8 +901,14 @@ export default function GalleryPage() {
   }
 
   const openPhoto = useCallback((photo) => {
+    setLightboxOverride(null);
     setLightbox({ key: photoSelectionKey(photo) });
   }, []);
+
+  const lightboxPhotos = lightboxOverride || photos;
+  const lightboxIndex = lightbox
+    ? Math.max(0, lightboxPhotos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
+    : 0;
 
   const loadMore = useCallback(() => {
     if (gallery.hasNextPage && !gallery.isFetchingNextPage) {
@@ -935,13 +971,14 @@ export default function GalleryPage() {
   }, [activeSegment, albumView, place, uploadFiles]);
 
   const showTimeline =
-    activeSegment === "library" ||
-    activeSegment === "favorites" ||
-    activeSegment === "archive" ||
-    (activeSegment === "places" && place) ||
-    (activeSegment === "albums" && albumView);
+    !duplicatesView &&
+    (activeSegment === "library" ||
+      activeSegment === "favorites" ||
+      activeSegment === "archive" ||
+      (activeSegment === "places" && place) ||
+      (activeSegment === "albums" && albumView));
 
-  const placesMapOverview = activeSegment === "places" && !place;
+  const placesMapOverview = activeSegment === "places" && !place && !duplicatesView;
 
   const actionModalOpen =
     newAlbumOpen
@@ -955,13 +992,18 @@ export default function GalleryPage() {
     || editPhoto != null
     || lockedGate != null
     || lightbox != null
-    || filtersOpen;
+    || filtersOpen
+    || shortcutsOpen;
 
-  const lightboxIndex = lightbox
-    ? Math.max(0, photos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
-    : 0;
-
-  const detailChrome = dayFilter || place || albumView || rangeFromFilters || filters.kind;
+  const detailChrome =
+    dayFilter ||
+    place ||
+    albumView ||
+    rangeFromFilters ||
+    filters.kind ||
+    filters.undated ||
+    filters.albumMembership ||
+    duplicatesView;
 
   if (noDrives) {
     return (
@@ -1002,13 +1044,17 @@ export default function GalleryPage() {
         selectMode={selection.selectMode}
         onSelectModeChange={(on) => (on ? selection.enter() : selection.exit())}
         onOpenDates={() => setYearOpen(true)}
-        onOpenFilters={() => setFiltersOpen(true)}
+        onOpenFilters={() => {
+          setFilterFocus("");
+          setFiltersOpen(true);
+        }}
         filterActiveCount={filterActiveCount}
         columns={columns}
         onColumnsChange={setColumns}
-        showSelect={showTimeline}
+        showSelect={showTimeline || duplicatesView}
         onRescan={() => rescan.mutate()}
         rescanPending={rescan.isPending}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
       />
       {filterChips.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2" data-slot="gallery-filter-chips">
@@ -1088,9 +1134,27 @@ export default function GalleryPage() {
 
       {activeSegment === "library" && !detailChrome && (memories.data?.length || 0) > 0 && (
         <Card className="mb-4" data-slot="memories-card">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles size={16} aria-hidden="true" />
-            <p className="font-mono text-sm">On this day</p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} aria-hidden="true" />
+              <p className="font-mono text-sm">On this day</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              surface="secondary"
+              onClick={() => {
+                const list = memories.data || [];
+                const first = list[0];
+                if (!first) return;
+                setLightboxOverride(list);
+                setLightbox({ key: photoSelectionKey(first) });
+                setSlideshow(true);
+              }}
+            >
+              Play
+            </Button>
           </div>
           <div className="grid grid-cols-4 gap-1 sm:grid-cols-6">
             {memories.data.slice(0, 12).map((photo, index) => (
@@ -1098,7 +1162,10 @@ export default function GalleryPage() {
                 key={photoSelectionKey(photo)}
                 photo={photo}
                 index={index}
-                onOpen={openPhoto}
+                onOpen={(p) => {
+                  setLightboxOverride(memories.data || []);
+                  setLightbox({ key: photoSelectionKey(p) });
+                }}
               />
             ))}
           </div>
@@ -1150,7 +1217,7 @@ export default function GalleryPage() {
         />
       )}
 
-      {activeSegment === "albums" && !albumView && (
+      {activeSegment === "albums" && !albumView && !duplicatesView && (
         <AlbumsPanel
           albums={albums.data || []}
           loading={albums.isLoading}
@@ -1170,6 +1237,15 @@ export default function GalleryPage() {
           }}
           onLock={(album) => lockAlbumMut.mutate({ album, locked: !album.locked })}
           onSmart={(smart) => {
+            if (smart === "duplicates") {
+              setDuplicatesView(true);
+              setAlbumView(null);
+              setPlace(null);
+              setDayFilter(null);
+              setFilters({ ...EMPTY_FILTERS });
+              setSegment("albums");
+              return;
+            }
             handleSegmentChange("library");
             if (smart === "videos") {
               setFilters((prev) => ({ ...EMPTY_FILTERS, ...prev, kind: "video" }));
@@ -1198,12 +1274,30 @@ export default function GalleryPage() {
       )}
 
       {placesMapOverview && (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              surface="primary"
+              onClick={() => {
+                setFilterFocus("where");
+                setFiltersOpen(true);
+              }}
+            >
+              Draw a custom area…
+            </Button>
+          </div>
           <PlacesMap
             places={places.data || []}
             loading={places.isLoading}
             onSelect={(p) => {
               setPlace(p);
+            }}
+            onDrawArea={() => {
+              setFilterFocus("where");
+              setFiltersOpen(true);
             }}
           />
         </div>
@@ -1215,6 +1309,7 @@ export default function GalleryPage() {
             dayFilter?.ymd
             || place?.key
             || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
+            || (duplicatesView ? "duplicates" : null)
             || filters.kind
             || rangeFromFilters?.label
             || "filter"
@@ -1230,6 +1325,7 @@ export default function GalleryPage() {
                 setPlace(null);
                 setAlbumView(null);
                 setDayFilter(null);
+                setDuplicatesView(false);
                 setFilters({ ...EMPTY_FILTERS });
                 setQ("");
                 setSearch("");
@@ -1238,10 +1334,15 @@ export default function GalleryPage() {
               Back
             </Button>
             <p className="font-mono text-sm truncate">
-              {dayFilter?.label
+              {duplicatesView
+                ? "Possible duplicates"
+                : dayFilter?.label
                 || place?.label
                 || albumView?.name
                 || rangeFromFilters?.label
+                || (filters.undated ? "Undated" : null)
+                || (filters.albumMembership === "none" ? "Not in an album" : null)
+                || (filters.albumMembership === "any" ? "In an album" : null)
                 || (filters.kind === "video" ? "Videos" : null)
                 || (filters.kind === "image" ? "Photos" : null)
                 || search}
@@ -1249,18 +1350,31 @@ export default function GalleryPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {place && (
-              <Button
-                variant="secondary"
-                surface="primary"
-                size="sm"
-                onClick={() => {
-                  setNewAlbumSeed(photos);
-                  setNewAlbumName(place.label || "Place");
-                  setNewAlbumOpen(true);
-                }}
-              >
-                Album from place
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setNewAlbumSeed(photos);
+                    setNewAlbumName(place.label || "Place");
+                    setNewAlbumOpen(true);
+                  }}
+                >
+                  Album from place
+                </Button>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setFilterFocus("where");
+                    setFiltersOpen(true);
+                  }}
+                >
+                  Draw a custom area…
+                </Button>
+              </>
             )}
             {dayFilter && (
               <Button
@@ -1360,11 +1474,66 @@ export default function GalleryPage() {
             const b = dayBoundsLocal(ymd);
             if (!b) return;
             setDayFilter({ ymd, ...b, label: label || b.label });
-            setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "" }));
+            setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "", undated: false }));
           }}
           onSelectDay={(dayPhotos) => selection.selectItems(dayPhotos)}
           columns={/** @type {3|4|5|6} */ (columns)}
         />
+      )}
+
+      {duplicatesView && (
+        <div className="space-y-6" data-slot="duplicates-view">
+          {duplicates.isLoading && <GalleryLoadingStatus label="Looking for duplicates…" />}
+          {duplicates.isError && (
+            <EmptyState
+              icon={ImageIcon}
+              title="Couldn't check for duplicates"
+              description="Try again in a moment."
+            />
+          )}
+          {!duplicates.isLoading && !duplicates.isError && (duplicates.data?.groups || []).length === 0 && (
+            <EmptyState
+              icon={ImageIcon}
+              title="No possible duplicates"
+              description="Luna didn't find photos that share the same name and size."
+            />
+          )}
+          {(duplicates.data?.groups || []).map((group) => (
+            <div key={group.key} className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-mono text-sm">
+                  {group.name} · {group.items?.length || 0} copies
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  surface="primary"
+                  onClick={() => selection.selectItems(group.items || [])}
+                >
+                  Select group
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+                {(group.items || []).map((photo, index) => (
+                  <PhotoThumb
+                    key={photoSelectionKey(photo)}
+                    photo={photo}
+                    index={index}
+                    selected={selection.selected.has(photoSelectionKey(photo))}
+                    selectMode={selection.selectMode}
+                    onOpen={selection.selectMode ? undefined : openPhoto}
+                    onToggle={selection.toggle}
+                    onLongPress={(p) => {
+                      selection.enter();
+                      selection.toggle(p);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {selection.selectMode && selection.selectedCount > 0 && (
@@ -1410,15 +1579,16 @@ export default function GalleryPage() {
 
       {lightbox && (
         <PhotoLightbox
-          photos={photos}
+          photos={lightboxPhotos}
           photoKey={lightbox.key}
           index={lightboxIndex}
           onClose={() => {
             setLightbox(null);
+            setLightboxOverride(null);
             setSlideshow(false);
           }}
           onIndexChange={(i) => {
-            const next = photos[i];
+            const next = lightboxPhotos[i];
             if (next) setLightbox({ key: photoSelectionKey(next) });
           }}
           onFavorite={(p) => favorite.mutate(p)}
@@ -1647,17 +1817,61 @@ export default function GalleryPage() {
         open={filtersOpen}
         value={filters}
         places={places.data || []}
-        onClose={() => setFiltersOpen(false)}
+        focusSection={filterFocus}
+        onClose={() => {
+          setFiltersOpen(false);
+          setFilterFocus("");
+        }}
         onOpenDates={() => {
           setFiltersOpen(false);
+          setFilterFocus("");
           setYearOpen(true);
         }}
         onApply={(next) => {
           setDayFilter(null);
+          setDuplicatesView(false);
           setFilters({ ...EMPTY_FILTERS, ...next, formats: [...(next.formats || [])] });
           setFiltersOpen(false);
+          setFilterFocus("");
+          if (activeSegment === "places" && next.placeBbox?.length === 4) {
+            setPlace(null);
+          }
         }}
       />
+
+      <ModalCard
+        open={shortcutsOpen}
+        title="Keyboard shortcuts"
+        size="sm"
+        onClose={() => setShortcutsOpen(false)}
+      >
+        <ul className="space-y-3 text-sm" data-slot="gallery-shortcuts">
+          <li className="flex justify-between gap-4">
+            <span>Search</span>
+            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">/</kbd>
+          </li>
+          <li className="flex justify-between gap-4">
+            <span>Clear / close</span>
+            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">Esc</kbd>
+          </li>
+          <li className="flex justify-between gap-4">
+            <span>Select mode</span>
+            <span className="font-mono text-xs">Long-press a photo</span>
+          </li>
+          <li className="flex justify-between gap-4">
+            <span>Favorite in lightbox</span>
+            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">f</kbd>
+          </li>
+          <li className="flex justify-between gap-4">
+            <span>Previous / next</span>
+            <span className="font-mono text-xs">← →</span>
+          </li>
+          <li className="flex justify-between gap-4">
+            <span>Move to trash</span>
+            <kbd className="font-mono rounded-pill bg-primary text-secondary px-2 py-0.5">Delete</kbd>
+          </li>
+        </ul>
+      </ModalCard>
 
       <PhotoEditModal
         open={!!editPhoto}
@@ -1701,6 +1915,20 @@ function AlbumsPanel({
   onLock,
   onSmart,
 }) {
+  const [sort, setSort] = useState("newest");
+  const sorted = useMemo(() => {
+    const list = [...(albums || [])];
+    if (sort === "oldest") list.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+    else if (sort === "name") {
+      list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+    } else if (sort === "most") {
+      list.sort((a, b) => (b.item_count || 0) - (a.item_count || 0));
+    } else {
+      list.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    }
+    return list;
+  }, [albums, sort]);
+
   if (loading) {
     return <GalleryLoadingStatus label="Loading albums…" />;
   }
@@ -1718,15 +1946,30 @@ function AlbumsPanel({
           <Button variant="secondary" surface="primary" size="sm" onClick={() => onSmart("screenshots")}>
             Screenshots
           </Button>
+          <Button variant="secondary" surface="primary" size="sm" onClick={() => onSmart("duplicates")}>
+            Possible duplicates
+          </Button>
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Dropdown
+          options={[
+            { value: "newest", label: "Newest" },
+            { value: "oldest", label: "Oldest" },
+            { value: "name", label: "Name" },
+            { value: "most", label: "Most photos" },
+          ]}
+          value={sort}
+          onChange={setSort}
+          bg="primary"
+          aria-label="Sort albums"
+        />
         <Button variant="secondary" surface="primary" onClick={onCreate}>
           <Plus size={16} /> New album
         </Button>
       </div>
-      {albums.length === 0 ? (
+      {sorted.length === 0 ? (
         <EmptyState
           icon={ImageIcon}
           title="No albums yet"
@@ -1739,7 +1982,7 @@ function AlbumsPanel({
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {albums.map((album, index) => (
+          {sorted.map((album, index) => (
             <div
               key={`${album.home_drive_id}-${album.id}`}
               className="rounded-large-element bg-secondary text-primary overflow-hidden animate-cascade-in motion-reduce:animate-none"

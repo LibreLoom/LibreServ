@@ -73,6 +73,9 @@ struct GalleryQuery {
     max_duration: Option<u32>,
     #[serde(default)]
     undated: Option<bool>,
+    /// `"none"` | `"any"` — album membership on the same drive DB only.
+    #[serde(default)]
+    album_membership: Option<String>,
 }
 
 fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
@@ -175,6 +178,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/gallery/places", get(places))
         .route("/api/v1/gallery/cameras", get(cameras))
         .route("/api/v1/gallery/filter-facets", get(filter_facets))
+        .route("/api/v1/gallery/duplicates", get(duplicates))
         .route("/api/v1/gallery/thumb", get(thumb))
         .route("/api/v1/gallery/preview", get(preview))
         .route("/api/v1/gallery/download", post(download_zip))
@@ -425,6 +429,12 @@ async fn timeline(
         min_duration: query.min_duration,
         max_duration: query.max_duration,
         undated: query.undated,
+        album_membership: query
+            .album_membership
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .filter(|s| s == "none" || s == "any"),
     };
 
     // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
@@ -530,6 +540,41 @@ async fn filter_facets(
         )
     })?;
     Ok(Json(facets))
+}
+
+#[derive(Deserialize)]
+struct DuplicatesQuery {
+    limit: Option<u32>,
+}
+
+/// Possible duplicates: same file name + byte size across accessible drives.
+async fn duplicates(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Query(query): Query<DuplicatesQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let mounts = accessible_mounts(&state, &user, None)?;
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let mut groups = gallery::list_duplicates(&mounts, limit).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't look for duplicate photos.",
+        )
+    })?;
+    // Drop items the user cannot access.
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    for group in &mut groups {
+        group.items.retain(|p| {
+            crate::auth::can_access(&user, &conn, &p.drive_id, &p.path, false)
+        });
+    }
+    groups.retain(|g| g.items.len() > 1);
+    Ok(Json(json!({ "groups": groups })))
 }
 
 async fn status(

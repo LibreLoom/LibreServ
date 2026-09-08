@@ -13,6 +13,8 @@ const LONG_PRESS_MS = 450;
  *   onToggle?: (photo: object, opts?: { range?: boolean }) => void,
  *   onLongPress?: (photo: object) => void,
  *   onFavoriteToggle?: (photo: object, event: import("react").MouseEvent) => void,
+ *   onDragSelectStart?: (photo: object) => void,
+ *   onDragSelectEnter?: (photo: object) => void,
  *   selected?: boolean,
  *   selectMode?: boolean,
  *   index?: number,
@@ -26,6 +28,8 @@ export default function PhotoThumb({
   onToggle = undefined,
   onLongPress = undefined,
   onFavoriteToggle = undefined,
+  onDragSelectStart = undefined,
+  onDragSelectEnter = undefined,
   selected = false,
   selectMode = false,
   index = undefined,
@@ -35,6 +39,7 @@ export default function PhotoThumb({
   const [loaded, setLoaded] = useState(false);
   const longTimer = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const longFired = useRef(false);
+  const toggledOnPointerDown = useRef(false);
   const stagger = typeof index === "number" ? index : staggerIndex;
   const animationStyle =
     typeof stagger === "number"
@@ -52,7 +57,13 @@ export default function PhotoThumb({
     }
   }
 
-  function startLong() {
+  function startLong(e) {
+    // Desktop drag-to-select: primary button down starts a range drag.
+    if (selectMode && e.button === 0 && onDragSelectStart) {
+      onDragSelectStart(photo);
+      onToggle?.(photo, { range: false });
+      toggledOnPointerDown.current = true;
+    }
     clearLong();
     longFired.current = false;
     longTimer.current = setTimeout(() => {
@@ -67,6 +78,10 @@ export default function PhotoThumb({
       return;
     }
     if (selectMode || e.shiftKey) {
+      if (toggledOnPointerDown.current) {
+        toggledOnPointerDown.current = false;
+        return;
+      }
       onToggle?.(photo, { range: e.shiftKey });
       return;
     }
@@ -81,6 +96,9 @@ export default function PhotoThumb({
       onPointerUp={clearLong}
       onPointerLeave={clearLong}
       onPointerCancel={clearLong}
+      onPointerEnter={() => {
+        if (selectMode && onDragSelectEnter) onDragSelectEnter(photo);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onLongPress?.(photo);
@@ -178,6 +196,8 @@ PhotoThumb.propTypes = {
   onToggle: PropTypes.func,
   onLongPress: PropTypes.func,
   onFavoriteToggle: PropTypes.func,
+  onDragSelectStart: PropTypes.func,
+  onDragSelectEnter: PropTypes.func,
   selected: PropTypes.bool,
   selectMode: PropTypes.bool,
   index: PropTypes.number,
@@ -190,6 +210,8 @@ PhotoThumb.defaultProps = {
   onToggle: undefined,
   onLongPress: undefined,
   onFavoriteToggle: undefined,
+  onDragSelectStart: undefined,
+  onDragSelectEnter: undefined,
   selected: false,
   selectMode: false,
   index: undefined,

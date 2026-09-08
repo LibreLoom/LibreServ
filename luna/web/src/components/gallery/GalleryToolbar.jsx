@@ -38,6 +38,7 @@ const searchInputClass =
  *   showSelect?: boolean,
  *   onRescan?: () => void,
  *   rescanPending?: boolean,
+ *   onOpenShortcuts?: () => void,
  * }} props
  */
 export default function GalleryToolbar({
@@ -58,6 +59,7 @@ export default function GalleryToolbar({
   showSelect = true,
   onRescan,
   rescanPending = false,
+  onOpenShortcuts,
 }) {
   const [internalSearchOpen, setInternalSearchOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -223,6 +225,19 @@ export default function GalleryToolbar({
                 Look again
               </button>
             )}
+            {onOpenShortcuts && (
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onOpenShortcuts();
+                }}
+              >
+                Keyboard shortcuts
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -340,4 +355,5 @@ GalleryToolbar.propTypes = {
   showSelect: PropTypes.bool,
   onRescan: PropTypes.func,
   rescanPending: PropTypes.bool,
+  onOpenShortcuts: PropTypes.func,
 };

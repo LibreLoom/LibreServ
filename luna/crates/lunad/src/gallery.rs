@@ -120,6 +120,18 @@ pub struct ListFilter {
     pub max_duration: Option<u32>,
     /// Only rows with no EXIF capture date (`taken_at = 0` in the index).
     pub undated: Option<bool>,
+    /// Album membership on the **same drive DB only**: `"none"` | `"any"`.
+    /// Cross-drive album membership (album home on another mount) is not scanned.
+    pub album_membership: Option<String>,
+}
+
+/// One group of likely duplicate photos (same size + file name).
+#[derive(Debug, Clone, Serialize)]
+pub struct DuplicateGroup {
+    pub key: String,
+    pub size: u64,
+    pub name: String,
+    pub items: Vec<Photo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1033,6 +1045,103 @@ pub fn list_photos(
     })
 }
 
+/// Photos that share the same file name and byte size (likely duplicates).
+/// Groups are ordered by item count descending, then name. Cap at `limit` groups.
+pub fn list_duplicates(
+    mounts: &[(String, PathBuf)],
+    limit: u32,
+) -> anyhow::Result<Vec<DuplicateGroup>> {
+    use std::collections::HashMap;
+    let mut map: HashMap<(u64, String), Vec<Photo>> = HashMap::new();
+    for (drive_id, root) in mounts {
+        if !gallery_db_path(root).exists() {
+            continue;
+        }
+        let conn = match open_drive_db(root) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut stmt = conn.prepare(
+            "SELECT path, name, size, COALESCE(NULLIF(taken_at, 0), mtime),
+                    width, height, kind, lat, lon, place_label, has_thumb,
+                    COALESCE(duration_secs, 0),
+                    COALESCE(camera_make, ''), COALESCE(camera_model, ''),
+                    COALESCE(lens, ''), COALESCE(iso, 0), COALESCE(focal_mm, 0),
+                    COALESCE(flash, -1)
+             FROM photos",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let path: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let size: i64 = row.get(2)?;
+            let has_thumb: i64 = row.get(10)?;
+            let place_label: String = row.get(9)?;
+            Ok(Photo {
+                drive_id: drive_id.clone(),
+                path: path.clone(),
+                name,
+                size: size.max(0) as u64,
+                taken_at: row.get(3)?,
+                width: row.get::<_, i64>(4)?.max(0) as u32,
+                height: row.get::<_, i64>(5)?.max(0) as u32,
+                thumb: if has_thumb != 0 {
+                    thumb_url(drive_id, &path)
+                } else {
+                    String::new()
+                },
+                kind: row.get(6)?,
+                lat: row.get(7)?,
+                lon: row.get(8)?,
+                place_label: if place_label.is_empty() {
+                    None
+                } else {
+                    Some(place_label)
+                },
+                camera_make: row.get(12)?,
+                camera_model: row.get(13)?,
+                lens: row.get(14)?,
+                iso: row.get::<_, i64>(15)?.max(0) as u32,
+                focal_mm: row.get(16)?,
+                flash: row.get(17)?,
+                duration_secs: row.get::<_, i64>(11)?.max(0) as u32,
+                favorited: false,
+            })
+        })?;
+        for row in rows.flatten() {
+            let key = (row.size, row.name.clone());
+            map.entry(key).or_default().push(row);
+        }
+    }
+    let mut groups: Vec<DuplicateGroup> = map
+        .into_iter()
+        .filter(|(_, items)| items.len() > 1)
+        .map(|((size, name), mut items)| {
+            items.sort_by(|a, b| {
+                b.taken_at
+                    .cmp(&a.taken_at)
+                    .then_with(|| a.path.cmp(&b.path))
+                    .then_with(|| a.drive_id.cmp(&b.drive_id))
+            });
+            DuplicateGroup {
+                key: format!("{size}:{name}"),
+                size,
+                name,
+                items,
+            }
+        })
+        .collect();
+    groups.sort_by(|a, b| {
+        b.items
+            .len()
+            .cmp(&a.items.len())
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.size.cmp(&b.size))
+    });
+    let cap = (limit as usize).clamp(1, 200);
+    groups.truncate(cap);
+    Ok(groups)
+}
+
 fn load_album_paths(
     mounts: &[(String, PathBuf)],
     filter: &ListFilter,
@@ -1170,6 +1279,15 @@ fn query_drive_photos(
         Some(false) => 0i64,
         None => -1i64,
     };
+    // Same-drive album_items only — albums whose home is another mount are not
+    // consulted (cross-drive membership scan is expensive).
+    let album_membership = filter
+        .album_membership
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .filter(|s| s == "none" || s == "any")
+        .unwrap_or_default();
 
     let mut stmt = conn.prepare(
         "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
@@ -1228,6 +1346,16 @@ fn query_drive_photos(
            AND (?30 < 0 OR (
                 (?30 = 1 AND p.taken_at = 0) OR
                 (?30 = 0 AND p.taken_at != 0)
+           ))
+           AND (?31 = '' OR (
+                (?31 = 'any' AND EXISTS (
+                    SELECT 1 FROM album_items ai
+                    WHERE ai.path = p.path AND ai.drive_id = ?32
+                )) OR
+                (?31 = 'none' AND NOT EXISTS (
+                    SELECT 1 FROM album_items ai
+                    WHERE ai.path = p.path AND ai.drive_id = ?32
+                ))
            ))",
     )?;
     let rows = stmt.query_map(
@@ -1262,6 +1390,8 @@ fn query_drive_photos(
             min_duration,
             max_duration,
             undated,
+            album_membership,
+            drive_id,
         ],
         |row| {
             let path: String = row.get(0)?;
@@ -2653,6 +2783,55 @@ mod tests {
         let albums = list_albums(&mounts, "u1").unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].item_count, 1);
+
+        let in_album = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                album_membership: Some("any".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(in_album.items.len(), 1);
+        assert_eq!(in_album.items[0].path, "x.png");
+
+        let not_in_album = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                album_membership: Some("none".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert!(not_in_album.items.is_empty());
+    }
+
+    #[test]
+    fn list_duplicates_groups_same_name_and_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([2, 2, 2, 255]));
+        png.save(photos_dir.join("copy.png")).unwrap();
+        std::fs::create_dir(photos_dir.join("other")).unwrap();
+        png.save(photos_dir.join("other/copy.png")).unwrap();
+        let other = image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]));
+        other.save(photos_dir.join("unique.png")).unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir)];
+        let groups = list_duplicates(&mounts, 50).unwrap();
+        assert!(
+            groups.iter().any(|g| g.name == "copy.png" && g.items.len() == 2),
+            "expected copy.png duplicate group, got {:?}",
+            groups
+        );
+        assert!(!groups.iter().any(|g| g.name == "unique.png"));
     }
 
     #[test]

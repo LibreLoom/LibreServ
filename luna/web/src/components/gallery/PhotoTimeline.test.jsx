@@ -106,6 +106,18 @@ describe("PhotoTimeline cascading stagger", () => {
     expect(onSelectDay).toHaveBeenCalled();
     expect(onSelectDay.mock.calls[0][0]).toHaveLength(2);
   });
+
+  it("can collapse a day with the chevron control", () => {
+    const photos = [
+      { name: "p1.jpg", path: "p1.jpg", drive_id: "d1", taken_at: 1_700_000_000 },
+    ];
+    render(<PhotoTimeline photos={photos} />);
+    expect(screen.getByRole("button", { name: "p1.jpg" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Collapse/i }));
+    expect(screen.queryByRole("button", { name: "p1.jpg" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Expand/i }));
+    expect(screen.getByRole("button", { name: "p1.jpg" })).toBeInTheDocument();
+  });
 });
 
 describe("album cascade class", () => {

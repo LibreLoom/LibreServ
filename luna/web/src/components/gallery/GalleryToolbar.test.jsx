@@ -52,4 +52,13 @@ describe("GalleryToolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: /4 columns/i }));
     expect(onColumnsChange).toHaveBeenCalledWith(4);
   });
+
+  it("offers Keyboard shortcuts in the More menu", async () => {
+    const user = userEvent.setup();
+    const onOpenShortcuts = vi.fn();
+    renderToolbar({ onOpenShortcuts });
+    await user.click(screen.getByRole("button", { name: /More options/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Keyboard shortcuts/i }));
+    expect(onOpenShortcuts).toHaveBeenCalled();
+  });
 });

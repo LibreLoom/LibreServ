@@ -12,6 +12,7 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
 /** @typedef {{
  *   dateFrom?: string,
  *   dateTo?: string,
+ *   undated?: boolean,
  *   placeBbox?: [number, number, number, number]|null,
  *   cameraMake?: string,
  *   cameraModel?: string,
@@ -25,6 +26,7 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
  *   orientation?: ""|"landscape"|"portrait"|"square",
  *   formats?: string[],
  *   hasGps?: ""|"yes"|"no"|"any",
+ *   albumMembership?: ""|"any"|"none",
  *   minMegapixels?: string,
  *   minDuration?: string,
  *   maxDuration?: string,
@@ -36,6 +38,7 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
 export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
   dateFrom: "",
   dateTo: "",
+  undated: false,
   placeBbox: null,
   cameraMake: "",
   cameraModel: "",
@@ -49,6 +52,7 @@ export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
   orientation: "",
   formats: [],
   hasGps: "",
+  albumMembership: "",
   minMegapixels: "",
   minDuration: "",
   maxDuration: "",
@@ -64,7 +68,8 @@ export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
 export function countActiveFilters(filters) {
   if (!filters) return 0;
   let n = 0;
-  if (filters.dateFrom || filters.dateTo) n += 1;
+  if (filters.undated) n += 1;
+  else if (filters.dateFrom || filters.dateTo) n += 1;
   if (filters.placeBbox?.length === 4) n += 1;
   if (filters.cameraMake || filters.cameraModel) n += 1;
   if (filters.lens) n += 1;
@@ -75,6 +80,7 @@ export function countActiveFilters(filters) {
   if (filters.orientation) n += 1;
   if (filters.formats?.length) n += 1;
   if (filters.hasGps && filters.hasGps !== "any") n += 1;
+  if (filters.albumMembership === "any" || filters.albumMembership === "none") n += 1;
   if (filters.minMegapixels) n += 1;
   if (filters.minDuration || filters.maxDuration) n += 1;
   if (
@@ -95,7 +101,9 @@ export function filterChipList(filters) {
   /** @type {Array<{ id: string, label: string }>} */
   const chips = [];
   if (!filters) return chips;
-  if (filters.dateFrom || filters.dateTo) {
+  if (filters.undated) {
+    chips.push({ id: "dates", label: "Undated" });
+  } else if (filters.dateFrom || filters.dateTo) {
     const a = filters.dateFrom || "…";
     const b = filters.dateTo || "…";
     chips.push({ id: "dates", label: a === b ? a : `${a} → ${b}` });
@@ -138,6 +146,12 @@ export function filterChipList(filters) {
   }
   if (filters.hasGps === "yes") chips.push({ id: "hasGps", label: "Has location" });
   if (filters.hasGps === "no") chips.push({ id: "hasGps", label: "No location" });
+  if (filters.albumMembership === "any") {
+    chips.push({ id: "albumMembership", label: "In an album" });
+  }
+  if (filters.albumMembership === "none") {
+    chips.push({ id: "albumMembership", label: "Not in an album" });
+  }
   if (filters.minMegapixels) {
     chips.push({ id: "minMegapixels", label: `≥ ${filters.minMegapixels} MP` });
   }
@@ -174,6 +188,7 @@ export function clearFilterChip(filters, chipId) {
     case "dates":
       next.dateFrom = "";
       next.dateTo = "";
+      next.undated = false;
       break;
     case "placeBbox":
       next.placeBbox = null;
@@ -207,6 +222,9 @@ export function clearFilterChip(filters, chipId) {
       break;
     case "hasGps":
       next.hasGps = "";
+      break;
+    case "albumMembership":
+      next.albumMembership = "";
       break;
     case "minMegapixels":
       next.minMegapixels = "";
@@ -252,6 +270,26 @@ const TIME_PRESETS = {
   night: { from: "21", to: "5", label: "Night" },
 };
 
+/** @returns {{ from: string, to: string }} */
+export function datePresetRange(preset) {
+  const now = new Date();
+  const ymd = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  if (preset === "last7") {
+    const from = new Date(now.getTime() - 6 * 86400 * 1000);
+    return { from: ymd(from), to: ymd(now) };
+  }
+  if (preset === "thisMonth") {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: ymd(from), to: ymd(now) };
+  }
+  if (preset === "thisYear") {
+    const from = new Date(now.getFullYear(), 0, 1);
+    return { from: ymd(from), to: ymd(now) };
+  }
+  return { from: "", to: "" };
+}
+
 const inputClass =
   "w-full rounded-large-element bg-primary text-secondary border-2 border-secondary/30 px-3 py-2 text-sm font-mono focus:border-accent focus:outline-none no-focus-outline";
 
@@ -265,6 +303,7 @@ const sectionClass = "space-y-3 rounded-large-element bg-primary text-secondary 
  *   onApply: (filters: GalleryFilters) => void,
  *   onOpenDates?: () => void,
  *   places?: object[],
+ *   focusSection?: ""|"when"|"where"|"camera"|"look"|string,
  * }} props
  */
 export default function GalleryFilterSheet({
@@ -274,6 +313,7 @@ export default function GalleryFilterSheet({
   onApply,
   onOpenDates,
   places = [],
+  focusSection = "",
 }) {
   const [draft, setDraft] = useState(() => ({ ...EMPTY_FILTERS, ...value }));
   const [cameras, setCameras] = useState(/** @type {Array<{make:string,model:string,count:number}>} */ ([]));
@@ -288,9 +328,20 @@ export default function GalleryFilterSheet({
       ...value,
       formats: [...(value?.formats || [])],
       placeBbox: value?.placeBbox ? [...value.placeBbox] : null,
+      undated: !!value?.undated,
+      albumMembership: value?.albumMembership || "",
     });
     setSaved(readSavedFilters());
   }, [open, value]);
+
+  useEffect(() => {
+    if (!open || !focusSection) return undefined;
+    const id = `filter-${focusSection}`;
+    const t = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [open, focusSection]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -418,18 +469,55 @@ export default function GalleryFilterSheet({
       )}
     >
       <div className="space-y-4" data-slot="gallery-filter-sheet">
-        <section className={sectionClass} aria-labelledby="filter-when">
-          <h3 id="filter-when" className="font-mono text-sm">
+        <section className={sectionClass} aria-labelledby="filter-when" id="filter-when">
+          <h3 className="font-mono text-sm">
             When
           </h3>
           <p className="text-sm">Show photos taken between these dates.</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "last7", label: "Last 7 days" },
+              { id: "thisMonth", label: "This month" },
+              { id: "thisYear", label: "This year" },
+            ].map((preset) => (
+              <Button
+                key={preset.id}
+                type="button"
+                size="sm"
+                variant="outline"
+                surface="primary"
+                onClick={() => {
+                  const range = datePresetRange(preset.id);
+                  patch({ dateFrom: range.from, dateTo: range.to, undated: false });
+                }}
+              >
+                {preset.label}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant={draft.undated ? "accent" : "outline"}
+              surface="primary"
+              onClick={() =>
+                patch({
+                  undated: !draft.undated,
+                  dateFrom: "",
+                  dateTo: "",
+                })
+              }
+            >
+              Undated
+            </Button>
+          </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="block text-sm flex-1 min-w-[8rem]">
               From
               <input
                 type="date"
                 value={draft.dateFrom || ""}
-                onChange={(e) => patch({ dateFrom: e.target.value })}
+                disabled={!!draft.undated}
+                onChange={(e) => patch({ dateFrom: e.target.value, undated: false })}
                 className={`mt-1 ${inputClass}`}
                 aria-label="From date"
               />
@@ -439,7 +527,8 @@ export default function GalleryFilterSheet({
               <input
                 type="date"
                 value={draft.dateTo || ""}
-                onChange={(e) => patch({ dateTo: e.target.value })}
+                disabled={!!draft.undated}
+                onChange={(e) => patch({ dateTo: e.target.value, undated: false })}
                 className={`mt-1 ${inputClass}`}
                 aria-label="To date"
               />
@@ -451,7 +540,7 @@ export default function GalleryFilterSheet({
               size="sm"
               variant="outline"
               surface="primary"
-              onClick={() => patch({ dateFrom: "", dateTo: "" })}
+              onClick={() => patch({ dateFrom: "", dateTo: "", undated: false })}
             >
               Clear dates
             </Button>
@@ -472,8 +561,8 @@ export default function GalleryFilterSheet({
           </div>
         </section>
 
-        <section className={sectionClass} aria-labelledby="filter-where">
-          <h3 id="filter-where" className="font-mono text-sm flex items-center gap-2">
+        <section className={sectionClass} aria-labelledby="filter-where" id="filter-where">
+          <h3 id="filter-where-heading" className="font-mono text-sm flex items-center gap-2">
             Where
             <InfoHint
               label="Location filter help"
@@ -611,8 +700,8 @@ export default function GalleryFilterSheet({
           </section>
         )}
 
-        <section className={sectionClass} aria-labelledby="filter-look">
-          <h3 id="filter-look" className="font-mono text-sm">
+        <section className={sectionClass} aria-labelledby="filter-look" id="filter-look">
+          <h3 id="filter-look-heading" className="font-mono text-sm">
             Look
           </h3>
           <div className="space-y-2">
@@ -630,6 +719,34 @@ export default function GalleryFilterSheet({
                   variant={(draft.kind || "") === opt.value ? "accent" : "outline"}
                   surface="primary"
                   onClick={() => patch({ kind: opt.value })}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm flex items-center gap-1">
+              Album membership
+              <InfoHint
+                label="Album membership help"
+                surface="primary"
+                content="Checks albums stored on the same drive as each photo. Albums whose home is on another drive are not counted."
+              />
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: "", label: "Any" },
+                { value: "any", label: "In an album" },
+                { value: "none", label: "Not in an album" },
+              ].map((opt) => (
+                <Button
+                  key={opt.value || "album-any"}
+                  type="button"
+                  size="sm"
+                  variant={(draft.albumMembership || "") === opt.value ? "accent" : "outline"}
+                  surface="primary"
+                  onClick={() => patch({ albumMembership: opt.value })}
                 >
                   {opt.label}
                 </Button>
@@ -855,4 +972,5 @@ GalleryFilterSheet.propTypes = {
   onApply: PropTypes.func.isRequired,
   onOpenDates: PropTypes.func,
   places: PropTypes.arrayOf(PropTypes.object),
+  focusSection: PropTypes.string,
 };

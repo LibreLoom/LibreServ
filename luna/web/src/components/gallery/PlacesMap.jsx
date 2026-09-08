@@ -125,7 +125,7 @@ function clusterToPlace(cluster, index) {
   };
 }
 
-export function PlacePopupContent({ place, onSelect }) {
+export function PlacePopupContent({ place, onSelect, onDrawArea }) {
   const photoWord = place.count === 1 ? "photo" : "photos";
   const countText = `${place.count} ${photoWord}`;
   // Clustering may already set label to "N photos"; avoid showing that twice.
@@ -174,6 +174,19 @@ export function PlacePopupContent({ place, onSelect }) {
           Open
         </Button>
       </div>
+      {onDrawArea && (
+        <div className="mt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => onDrawArea()}
+          >
+            Draw a custom area…
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -186,9 +199,10 @@ PlacePopupContent.propTypes = {
     cover_thumb: PropTypes.string,
   }).isRequired,
   onSelect: PropTypes.func,
+  onDrawArea: PropTypes.func,
 };
 
-function ClusterMarkers({ markers, onSelect }) {
+function ClusterMarkers({ markers, onSelect, onDrawArea }) {
   const map = useMap();
   const [clusters, setClusters] = useState([]);
   const [zoom, setZoom] = useState(() => map.getZoom());
@@ -282,7 +296,7 @@ function ClusterMarkers({ markers, onSelect }) {
               minWidth={0}
               maxWidth={280}
             >
-              <PlacePopupContent place={place} onSelect={onSelect} />
+              <PlacePopupContent place={place} onSelect={onSelect} onDrawArea={onDrawArea} />
             </Popup>
           </CircleMarker>
         );
@@ -294,10 +308,11 @@ function ClusterMarkers({ markers, onSelect }) {
 ClusterMarkers.propTypes = {
   markers: PropTypes.arrayOf(PropTypes.object).isRequired,
   onSelect: PropTypes.func,
+  onDrawArea: PropTypes.func,
 };
 
 /** Full-bleed Leaflet Places map with zoom-based photo clustering. */
-export default function PlacesMap({ places, loading = false, onSelect }) {
+export default function PlacesMap({ places, loading = false, onSelect, onDrawArea }) {
   const markers = useMemo(
     () => (places || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)),
     [places],
@@ -352,7 +367,7 @@ export default function PlacesMap({ places, loading = false, onSelect }) {
         />
         <InvalidateOnResize />
         <FitBounds points={markers} />
-        <ClusterMarkers markers={markers} onSelect={onSelect} />
+        <ClusterMarkers markers={markers} onSelect={onSelect} onDrawArea={onDrawArea} />
       </MapContainer>
     </Card>
   );
@@ -362,4 +377,5 @@ PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
   loading: PropTypes.bool,
   onSelect: PropTypes.func,
+  onDrawArea: PropTypes.func,
 };

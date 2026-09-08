@@ -117,6 +117,13 @@ describe("galleryUrl", () => {
     expect(url).toContain("camera_model=EOS");
     expect(url).toContain("place_bbox=-10%2C20%2C-5%2C30");
   });
+
+  it("wires undated and album_membership", () => {
+    expect(galleryUrl({ undated: true })).toContain("undated=true");
+    expect(galleryUrl({ albumMembership: "none" })).toContain("album_membership=none");
+    expect(galleryUrl({ albumMembership: "any" })).toContain("album_membership=any");
+    expect(galleryUrl({ albumMembership: "maybe" })).not.toContain("album_membership=");
+  });
 });
 
 describe("parseGalleryHash", () => {

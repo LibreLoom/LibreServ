@@ -13,7 +13,7 @@ import PhotoLightbox, {
   resolveDownloadSrc,
 } from "../components/gallery/PhotoLightbox.jsx";
 import { apiErrorMessage, getJson, postForm } from "../lib/api";
-import { photoSelectionKey } from "../hooks/useMultiSelect.js";
+import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 
 /**
  * Guest shared-album page — browse + optional upload without signing in.
@@ -60,6 +60,7 @@ export default function PublicAlbumPage() {
   const title = first?.album?.name || "Shared album";
   const canUpload = !!first?.can_upload;
   const hasMore = !!album.hasNextPage;
+  const selection = useMultiSelect({ items });
 
   const loadMore = useCallback(() => {
     if (album.hasNextPage && !album.isFetchingNextPage) album.fetchNextPage();
@@ -129,6 +130,21 @@ export default function PublicAlbumPage() {
     return photo?.thumb || "";
   }
 
+  function downloadSelected() {
+    const list = selection.selectedItems;
+    for (const photo of list) {
+      const href = guestDownloadSrc(photo);
+      if (!href) continue;
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = photo.name || "photo";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  }
+
   return (
     <div className="min-h-screen bg-primary text-secondary" ref={dropRef}>
       <Page title={title} titleId="public-album-title">
@@ -153,17 +169,42 @@ export default function PublicAlbumPage() {
                 {canUpload ? " · You can add photos and videos" : " · View only"}
                 {hasMore ? " · More available" : ""}
               </p>
-              <Button
-                variant="secondary"
-                surface="primary"
-                size="sm"
-                asChild
-              >
-                <a href={`/api/v1/public/albums/${token}/zip`}>
-                  <Download size={16} />
-                  Download album
-                </a>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={selection.selectMode ? "accent" : "outline"}
+                  surface="primary"
+                  size="sm"
+                  onClick={() =>
+                    selection.selectMode ? selection.exit() : selection.enter()
+                  }
+                >
+                  {selection.selectMode ? "Cancel" : "Select"}
+                </Button>
+                {selection.selectMode && selection.selectedCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    surface="primary"
+                    size="sm"
+                    onClick={downloadSelected}
+                  >
+                    <Download size={16} />
+                    Download selected ({selection.selectedCount})
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  asChild
+                >
+                  <a href={`/api/v1/public/albums/${token}/zip`}>
+                    <Download size={16} />
+                    Download album
+                  </a>
+                </Button>
+              </div>
             </div>
             {canUpload && (
               <div className="mb-6">
@@ -217,6 +258,13 @@ export default function PublicAlbumPage() {
                     key={photoSelectionKey(photo) || `${photo.drive_id}/${photo.path}`}
                     photo={photo}
                     index={index}
+                    selectMode={selection.selectMode}
+                    selected={selection.selected.has(photoSelectionKey(photo))}
+                    onToggle={selection.toggle}
+                    onLongPress={(p) => {
+                      selection.enter();
+                      selection.toggle(p);
+                    }}
                     onOpen={() => setLightbox({ key: photoSelectionKey(photo) })}
                   />
                 ))}
