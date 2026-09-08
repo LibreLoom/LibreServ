@@ -56,7 +56,7 @@ function cssEscape(value) {
 }
 
 /**
- * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean }} FileEntry
+ * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean }} FileEntry
  * @typedef {{ entry: FileEntry, path: string, fullPath: string }} FileBrowserRowContext
  */
 
@@ -195,6 +195,10 @@ export default function FileBrowser({
     // Keep the previous folder visible while the next listing loads so the list
     // card does not collapse empty and pop back in.
     placeholderData: keepPreviousData,
+    // Poll while any file is still flushing from RAM to the drive so "Saving…"
+    // clears without a manual refresh.
+    refetchInterval: (query) =>
+      (query.state.data || []).some((e) => e?.saving) ? 750 : false,
   });
 
   const listBusy = listing.isLoading || Boolean(listing.isPlaceholderData);
@@ -1209,6 +1213,11 @@ export default function FileBrowser({
                         <span className="font-mono text-sm truncate">{entry.name}</span>
                       </div>
                     )}
+                    {entry.saving ? (
+                      <span className="text-xs text-accent shrink-0" aria-live="polite">
+                        Saving…
+                      </span>
+                    ) : null}
                   </div>
 
                   <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary">

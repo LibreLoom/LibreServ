@@ -366,6 +366,7 @@ pub fn complete(
         size: final_meta.len(),
         modified,
         hidden: false,
+        saving: false,
     })
 }
 

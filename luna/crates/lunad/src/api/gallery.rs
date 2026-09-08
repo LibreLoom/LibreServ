@@ -15,7 +15,7 @@ use crate::AppState;
 use crate::api::response::json_error;
 use crate::gallery::{self, ListFilter};
 
-const THUMB_CACHE_CONTROL: &str = "private, no-store";
+const THUMB_CACHE_CONTROL: &str = "private, max-age=3600, must-revalidate";
 const PUBLIC_ALBUM_ZIP_MAX: usize = 500;
 const GALLERY_DOWNLOAD_ZIP_MAX: usize = 200;
 
@@ -637,6 +637,7 @@ async fn thumb(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<ThumbQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     {
         let conn = state.db.lock().map_err(|_| {
@@ -651,6 +652,9 @@ async fn thumb(
                 "You don't have permission to view this.",
             ));
         }
+    }
+    if let Some(cached) = state.ram_cache.get_thumb(&query.drive_id, &query.path) {
+        return serve_thumb_bytes(cached.bytes, cached.mtime_secs, cached.etag, &headers);
     }
     let root = resolve_mount(&state, &query.drive_id)?;
     let thumb_path = gallery::thumb_path(&root, &query.drive_id, &query.path);
@@ -682,14 +686,94 @@ async fn thumb(
             )
         })?;
     }
-    serve_thumb(thumb_path).await
+    serve_thumb_file(&state, &query.drive_id, &query.path, thumb_path, &headers).await
+}
+
+async fn serve_thumb_file(
+    state: &AppState,
+    drive_id: &str,
+    rel: &str,
+    path: PathBuf,
+    headers: &axum::http::HeaderMap,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let meta = std::fs::metadata(&path)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+    let mtime_secs = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let etag = crate::ram_cache::thumb_etag(meta.len(), mtime_secs);
+    if let Some(if_none_match) = headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        && if_none_match.split(',').any(|c| c.trim() == etag)
+    {
+        return Ok(Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(axum::http::header::ETAG, etag)
+            .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
+            .body(axum::body::Body::empty())
+            .unwrap()
+            .into_response());
+    }
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+    state
+        .ram_cache
+        .put_thumb(drive_id, rel, bytes.clone(), mtime_secs);
+    serve_thumb_bytes(std::sync::Arc::from(bytes.into_boxed_slice()), mtime_secs, etag, headers)
+}
+
+fn serve_thumb_bytes(
+    bytes: std::sync::Arc<[u8]>,
+    _mtime_secs: u64,
+    etag: String,
+    headers: &axum::http::HeaderMap,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    if let Some(if_none_match) = headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        && if_none_match.split(',').any(|c| c.trim() == etag)
+    {
+        return Ok(Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(axum::http::header::ETAG, etag)
+            .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
+            .body(axum::body::Body::empty())
+            .unwrap()
+            .into_response());
+    }
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, "image/jpeg")
+        .header(
+            axum::http::header::CONTENT_LENGTH,
+            bytes.len().to_string(),
+        )
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
+        .header(axum::http::header::ETAG, etag)
+        .body(axum::body::Body::from(bytes.to_vec()))
+        .unwrap()
+        .into_response())
 }
 
 async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>)> {
+    // Public album thumbs still use the on-disk path; validators without RAM.
+    let meta = std::fs::metadata(&path)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
+    let mtime_secs = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let etag = crate::ram_cache::thumb_etag(meta.len(), mtime_secs);
     let file = tokio::fs::File::open(&path)
         .await
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-    let meta = std::fs::metadata(&path)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
     let stream = tokio_util::io::ReaderStream::new(file);
     Ok(Response::builder()
@@ -698,6 +782,7 @@ async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>
         .header(axum::http::header::CONTENT_LENGTH, meta.len().to_string())
         .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
+        .header(axum::http::header::ETAG, etag)
         .body(axum::body::Body::from_stream(stream))
         .unwrap()
         .into_response())
@@ -2019,8 +2104,10 @@ mod tests {
 
     #[test]
     fn thumbs_are_private() {
-        assert_eq!(THUMB_CACHE_CONTROL, "private, no-store");
+        assert!(THUMB_CACHE_CONTROL.starts_with("private"));
         assert!(!THUMB_CACHE_CONTROL.contains("public"));
+        assert!(THUMB_CACHE_CONTROL.contains("max-age="));
+        assert!(THUMB_CACHE_CONTROL.contains("must-revalidate"));
     }
 
     #[tokio::test]

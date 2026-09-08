@@ -119,8 +119,10 @@ async fn list(
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
     check_browse(&state, &user, &id, &rel)?;
-    let mut entries =
-        with_db(&state, |conn| files::list_dir(conn, &id, &rel)).map_err(map_files_err)?;
+    let mut entries = with_db(&state, |conn| {
+        files::list_dir_with_cache(conn, &id, &rel, Some(&state.ram_cache))
+    })
+    .map_err(map_files_err)?;
     if user.role != "admin" {
         let conn = state.db.lock().map_err(|_| {
             json_error(
@@ -284,6 +286,48 @@ async fn serve_file_content(
     download: Option<&str>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
+    // Read-your-writes: prefer in-flight dirty bytes over USB.
+    if let Some(dirty) = state.ram_cache.get_dirty(&id, &rel) {
+        let total = dirty.bytes.len() as u64;
+        let modified = dirty.modified as u64;
+        let etag = format!("\"{total:x}-{modified:x}\"");
+        if let Some(if_none_match) = headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            && if_none_match.split(',').any(|c| c.trim() == etag)
+        {
+            return Ok(Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header(header::ETAG, etag)
+                .body(Body::empty())
+                .unwrap());
+        }
+        let name = dirty.name.clone();
+        let mime = mime_guess::from_path(&name).first_or_octet_stream();
+        let disposition = if download == Some("1") || !files::inline_safe(mime.as_ref()) {
+            "attachment"
+        } else {
+            "inline"
+        };
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime.as_ref())
+            .header(header::CONTENT_LENGTH, total.to_string())
+            .header(header::ACCEPT_RANGES, "bytes")
+            .header(header::ETAG, etag)
+            .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .header(header::CACHE_CONTROL, "private, no-store")
+            .header(
+                header::CONTENT_DISPOSITION,
+                format!(
+                    "{disposition}; filename=\"{}\"",
+                    files::content_disposition_filename(&name)
+                ),
+            )
+            .body(Body::from(dirty.bytes.to_vec()))
+            .unwrap());
+    }
+
     let (path, meta) =
         with_db(&state, |conn| files::file_path(conn, &id, &rel)).map_err(map_files_err)?;
     let total = meta.len();
@@ -394,6 +438,12 @@ async fn serve_file_content(
     Ok(builder.body(Body::from_stream(stream)).unwrap())
 }
 
+fn invalidate_parent_listing(state: &AppState, drive_id: &str, rel: &str) {
+    let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    state.ram_cache.invalidate_listing(drive_id, parent);
+    state.ram_cache.invalidate_listing_tree(drive_id, rel);
+}
+
 async fn delete_entry(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -416,6 +466,9 @@ async fn delete_entry(
             .collect();
         crate::gallery::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
     }
+    invalidate_parent_listing(&state, &id, &rel);
+    state.ram_cache.invalidate_thumb(&id, &rel);
+    state.ram_cache.remove_dirty(&id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
 }
@@ -445,6 +498,7 @@ async fn mkdir_entry(
         ),
         other => map_files_err(other),
     })?;
+    invalidate_parent_listing(&state, &id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "path": rel })))
 }
@@ -477,6 +531,7 @@ async fn create_entry(
         }
         other => map_files_err(other),
     })?;
+    invalidate_parent_listing(&state, &id, &rel);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "path": rel })))
 }
@@ -512,6 +567,9 @@ async fn rename_entry(
     } else {
         state.gallery.rename(&id, &body.path, &new_rel);
     }
+    invalidate_parent_listing(&state, &id, &body.path);
+    invalidate_parent_listing(&state, &id, &new_rel);
+    state.ram_cache.invalidate_thumb(&id, &body.path);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
 }
@@ -581,6 +639,7 @@ async fn restore_entry(
         other => map_files_err(other),
     })?;
     state.gallery.upsert(&id, &body.dest);
+    invalidate_parent_listing(&state, &id, &body.dest);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
 }
@@ -649,18 +708,108 @@ async fn upload(
                     ));
                 }
 
+                let rel = crate::gallery_indexer::join_rel(&dest_rel, &name);
+                let max_dirty = crate::budget::cache_budget_from(
+                    crate::budget::meminfo().available_bytes,
+                )
+                .dirty_max_file_bytes;
                 let temp = files::temp_path(&dir);
-                let result = stream_to_temp(&mut field, &temp).await;
-                if let Err(e) = result {
-                    let _ = tokio::fs::remove_file(&temp).await;
-                    if let Ok(conn) = state.db.lock() {
-                        files::note_write_failure(&conn, &id, &e.to_string());
+
+                match buffer_field_up_to(&mut field, max_dirty, &temp).await {
+                    Ok(Some(bytes)) => {
+                        if state
+                            .ram_cache
+                            .accept_dirty(&id, &rel, &name, bytes.clone())
+                            .is_ok()
+                        {
+                            let size = bytes.len() as u64;
+                            let modified = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs() as i64)
+                                .unwrap_or(0);
+                            invalidate_parent_listing(&state, &id, &rel);
+                            let flush_state = state.clone();
+                            let flush_id = id.clone();
+                            let flush_rel = rel.clone();
+                            let flush_overwrite = overwrite;
+                            tokio::task::spawn_blocking(move || {
+                                let mount = {
+                                    let Ok(conn) = flush_state.db.lock() else {
+                                        flush_state.ram_cache.remove_dirty(&flush_id, &flush_rel);
+                                        return;
+                                    };
+                                    match crate::files::drive_root(&conn, &flush_id) {
+                                        Ok(d) => std::path::PathBuf::from(d.mount_point),
+                                        Err(_) => {
+                                            flush_state
+                                                .ram_cache
+                                                .remove_dirty(&flush_id, &flush_rel);
+                                            return;
+                                        }
+                                    }
+                                };
+                                if let Err(e) = flush_state.ram_cache.flush_dirty_to_disk(
+                                    &flush_id,
+                                    &flush_rel,
+                                    &mount,
+                                    flush_overwrite,
+                                ) {
+                                    if let Ok(conn) = flush_state.db.lock() {
+                                        files::note_write_failure(
+                                            &conn,
+                                            &flush_id,
+                                            &e.to_string(),
+                                        );
+                                    }
+                                    flush_state.ram_cache.remove_dirty(&flush_id, &flush_rel);
+                                    return;
+                                }
+                                flush_state.gallery.upsert(&flush_id, &flush_rel);
+                                flush_state.touch_io_activity();
+                            });
+                            state.touch_io_activity();
+                            return Ok(Json(FileEntry {
+                                name,
+                                kind: "file".into(),
+                                size,
+                                modified,
+                                hidden: false,
+                                saving: true,
+                            }));
+                        }
+                        // Dirty accept refused — durable write of the buffered bytes.
+                        if let Err(e) = tokio::fs::write(&temp, &bytes).await {
+                            let _ = tokio::fs::remove_file(&temp).await;
+                            if let Ok(conn) = state.db.lock() {
+                                files::note_write_failure(&conn, &id, &e.to_string());
+                            }
+                            return Err(json_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!(
+                                    "Luna couldn't save this file. {}",
+                                    plain_upload_error(&anyhow::Error::from(e))
+                                ),
+                            ));
+                        }
+                        if let Ok(f) = std::fs::File::open(&temp) {
+                            let _ = f.sync_all();
+                        }
                     }
-                    return Err(json_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Luna couldn't save this file. {}", plain_upload_error(&e)),
-                    ));
+                    Ok(None) => {
+                        // Already fully spilled to `temp` by buffer_field_up_to.
+                    }
+                    Err(e) => {
+                        let _ = tokio::fs::remove_file(&temp).await;
+                        if let Ok(conn) = state.db.lock() {
+                            files::note_write_failure(&conn, &id, &e.to_string());
+                        }
+                        return Err(json_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Luna couldn't save this file. {}", plain_upload_error(&e)),
+                        ));
+                    }
                 }
+
                 if let Err(e) = files::install_temp(&temp, &dest, overwrite) {
                     let _ = tokio::fs::remove_file(&temp).await;
                     if let Ok(conn) = state.db.lock() {
@@ -686,8 +835,8 @@ async fn upload(
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                let rel = crate::gallery_indexer::join_rel(&dest_rel, &name);
                 state.gallery.upsert(&id, &rel);
+                invalidate_parent_listing(&state, &id, &rel);
                 state.touch_io_activity();
                 return Ok(Json(FileEntry {
                     name,
@@ -695,6 +844,7 @@ async fn upload(
                     size: meta.len(),
                     modified,
                     hidden: false,
+                    saving: false,
                 }));
             }
             _ => {}
@@ -707,21 +857,36 @@ async fn upload(
     ))
 }
 
-async fn stream_to_temp(
+/// Buffer a multipart field up to `max` bytes.
+///
+/// - `Ok(Some(bytes))` — entire field fit in memory
+/// - `Ok(None)` — exceeded `max`; `spill` holds all bytes read so far (including
+///   the overflowing chunk). Caller must append the rest of the field to `spill`.
+async fn buffer_field_up_to(
     field: &mut axum::extract::multipart::Field<'_>,
-    temp: &std::path::Path,
-) -> anyhow::Result<()> {
-    let mut out = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(temp)
-        .await?;
+    max: u64,
+    spill: &std::path::Path,
+) -> anyhow::Result<Option<Vec<u8>>> {
+    let mut buf = Vec::new();
     while let Some(chunk) = field.chunk().await? {
-        out.write_all(&chunk).await?;
+        if (buf.len() as u64).saturating_add(chunk.len() as u64) > max {
+            let mut out = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(spill)
+                .await?;
+            out.write_all(&buf).await?;
+            out.write_all(&chunk).await?;
+            while let Some(more) = field.chunk().await? {
+                out.write_all(&more).await?;
+            }
+            out.flush().await?;
+            out.sync_all().await?;
+            return Ok(None);
+        }
+        buf.extend_from_slice(&chunk);
     }
-    out.flush().await?;
-    out.sync_all().await?;
-    Ok(())
+    Ok(Some(buf))
 }
 
 fn check_trash_list(

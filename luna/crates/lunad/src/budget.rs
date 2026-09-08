@@ -39,6 +39,33 @@ pub struct Limits {
     pub heif_concurrency: usize,
 }
 
+/// Budgets for the reclaimable in-RAM content cache (thumbs / dirty writes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CacheBudget {
+    /// Total thumb JPEG bytes kept in RAM.
+    pub thumb_bytes: u64,
+    /// Total dirty (in-flight write) bytes kept in RAM.
+    pub dirty_bytes: u64,
+    /// Single dirty file may not exceed this.
+    pub dirty_max_file_bytes: u64,
+}
+
+/// Size the RAM content cache from current free memory.
+pub fn cache_budget_from(available_bytes: u64) -> CacheBudget {
+    let avail = available_bytes.max(1);
+    // Thumbs: up to 1/8 of free RAM, clamped 8–96 MiB.
+    let thumb_bytes = clamp(avail / 8, 8 * MIB, 96 * MIB);
+    // Dirty pool: up to 1/16 of free RAM, clamped 1–32 MiB.
+    let dirty_bytes = clamp(avail / 16, 1 * MIB, 32 * MIB);
+    // One dirty file: at most half the dirty pool, capped at 8 MiB.
+    let dirty_max_file_bytes = clamp(dirty_bytes / 2, 256 * KIB, 8 * MIB).min(dirty_bytes);
+    CacheBudget {
+        thumb_bytes,
+        dirty_bytes,
+        dirty_max_file_bytes,
+    }
+}
+
 /// Read current memory; fall back to a conservative 2 GiB / 512 MiB profile
 /// when `/proc/meminfo` is missing (tests, odd hosts).
 pub fn meminfo() -> MemInfo {
@@ -200,5 +227,15 @@ Cached:           300000 kB
         let m = meminfo();
         assert!(m.total_bytes > 0);
         assert!(m.available_bytes > 0);
+    }
+
+    #[test]
+    fn cache_budget_stays_within_available() {
+        let c = cache_budget_from(400 * MIB);
+        assert!(c.thumb_bytes <= 96 * MIB);
+        assert!(c.thumb_bytes <= 400 * MIB / 8);
+        assert!(c.dirty_bytes <= 32 * MIB);
+        assert!(c.dirty_max_file_bytes <= c.dirty_bytes);
+        assert!(c.dirty_max_file_bytes <= 8 * MIB);
     }
 }
