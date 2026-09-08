@@ -34,6 +34,7 @@ import ShareAlbumModal from "../components/gallery/ShareAlbumModal.jsx";
 import SelectionActionBar from "../components/gallery/SelectionActionBar.jsx";
 import YearScrubber, { dayBoundsLocal } from "../components/gallery/YearScrubber.jsx";
 import PhotoEditModal from "../components/gallery/PhotoEditModal.jsx";
+import AlbumMembersPanel from "../components/gallery/AlbumMembersPanel.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
@@ -1112,6 +1113,8 @@ export default function GalleryPage() {
           </div>
         </div>
       )}
+
+      {albumView && <AlbumMembersPanel album={albumView} />}
 
       {albumEmpty && (
         <EmptyState
