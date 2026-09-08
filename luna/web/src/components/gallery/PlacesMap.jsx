@@ -125,7 +125,7 @@ function clusterToPlace(cluster, index) {
   };
 }
 
-export function PlacePopupContent({ place, onSelect, onDrawArea }) {
+export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
   const photoWord = place.count === 1 ? "photo" : "photos";
   const countText = `${place.count} ${photoWord}`;
   // Clustering may already set label to "N photos"; avoid showing that twice.
@@ -202,7 +202,7 @@ PlacePopupContent.propTypes = {
   onDrawArea: PropTypes.func,
 };
 
-function ClusterMarkers({ markers, onSelect, onDrawArea }) {
+function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
   const map = useMap();
   const [clusters, setClusters] = useState([]);
   const [zoom, setZoom] = useState(() => map.getZoom());
@@ -312,7 +312,7 @@ ClusterMarkers.propTypes = {
 };
 
 /** Full-bleed Leaflet Places map with zoom-based photo clustering. */
-export default function PlacesMap({ places, loading = false, onSelect, onDrawArea }) {
+export default function PlacesMap({ places, loading = false, onSelect, onDrawArea = undefined }) {
   const markers = useMemo(
     () => (places || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)),
     [places],

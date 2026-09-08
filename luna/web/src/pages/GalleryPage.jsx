@@ -825,6 +825,7 @@ export default function GalleryPage() {
   });
 
   const bulkFavorite = useMutation({
+    /** @param {object[]} items */
     mutationFn: async (items) => {
       for (const photo of items) {
         if (!photo.favorited) {

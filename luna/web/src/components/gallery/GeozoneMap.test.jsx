@@ -14,6 +14,6 @@ describe("GeozoneMap helpers", () => {
 
   it("returns null for invalid bbox", () => {
     expect(bboxToBounds(null)).toBeNull();
-    expect(bboxToBounds([1, 2, 3])).toBeNull();
+    expect(bboxToBounds(/** @type {any} */ ([1, 2, 3]))).toBeNull();
   });
 });

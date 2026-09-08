@@ -94,7 +94,7 @@ function DrawRectangle({ value, onChange }) {
       const next = [origin, [e.latlng.lat, e.latlng.lng]];
       setOrigin(null);
       setDraft(null);
-      const bbox = boundsToBbox(next);
+      const bbox = boundsToBbox(/** @type {[[number, number], [number, number]]} */ (next));
       const tiny =
         Math.abs(bbox[2] - bbox[0]) < 0.00005 && Math.abs(bbox[3] - bbox[1]) < 0.00005;
       if (tiny) return;

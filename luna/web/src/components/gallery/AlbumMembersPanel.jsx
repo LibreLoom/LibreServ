@@ -33,7 +33,8 @@ export default function AlbumMembersPanel({ album }) {
   });
 
   const addMember = useMutation({
-    mutationFn: (userId) =>
+    /** @param {string} userId */
+    mutationFn: async (userId) =>
       putJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/members`, {
         user_id: userId,
         role: "contributor",

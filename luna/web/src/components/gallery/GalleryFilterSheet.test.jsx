@@ -11,7 +11,7 @@ vi.mock("../../lib/api", () => ({
       return { cameras: [{ make: "Canon", model: "EOS", count: 3 }] };
     }
     if (String(url).includes("/filter-facets")) {
-      const err = new Error("not found");
+      const err = /** @type {Error & { status?: number }} */ (new Error("not found"));
       err.status = 404;
       throw err;
     }
