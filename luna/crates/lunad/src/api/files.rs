@@ -455,7 +455,6 @@ async fn delete_entry(
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
     state.gallery.remove(&id, &rel);
-<<<<<<< HEAD
     // Eagerly drop album refs so shared albums update without waiting on the indexer.
     if let Ok(conn) = state.db.lock()
         && let Ok(drives) = crate::db::list_drives(&conn)
@@ -467,11 +466,9 @@ async fn delete_entry(
             .collect();
         crate::gallery::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
     }
-=======
     invalidate_parent_listing(&state, &id, &rel);
     state.ram_cache.invalidate_thumb(&id, &rel);
     state.ram_cache.remove_dirty(&id, &rel);
->>>>>>> d536cacb (feat(luna): reclaimable in-RAM cache for thumbs, listings, and small writes)
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
 }

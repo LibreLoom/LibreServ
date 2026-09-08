@@ -15,13 +15,9 @@ use crate::AppState;
 use crate::api::response::json_error;
 use crate::gallery::{self, ListFilter};
 
-<<<<<<< HEAD
-const THUMB_CACHE_CONTROL: &str = "private, no-store";
+const THUMB_CACHE_CONTROL: &str = "private, max-age=3600, must-revalidate";
 const PUBLIC_ALBUM_ZIP_MAX: usize = 500;
 const GALLERY_DOWNLOAD_ZIP_MAX: usize = 200;
-=======
-const THUMB_CACHE_CONTROL: &str = "private, max-age=3600, must-revalidate";
->>>>>>> d536cacb (feat(luna): reclaimable in-RAM cache for thumbs, listings, and small writes)
 
 type ApiError = (StatusCode, Json<Value>);
 type DriveMounts = Vec<(String, PathBuf)>;
