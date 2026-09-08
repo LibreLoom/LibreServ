@@ -405,7 +405,7 @@ export default function GalleryPage() {
       headerClassName={placesMapOverview ? "mb-4 shrink-0" : "mb-8"}
       className={
         placesMapOverview
-          ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden"
+          ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden pb-6 xl:pb-[108px]"
           : undefined
       }
     >

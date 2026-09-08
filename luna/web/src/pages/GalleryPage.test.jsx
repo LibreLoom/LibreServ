@@ -242,6 +242,8 @@ describe("GalleryPage", () => {
     expect(page?.className).toMatch(/\bflex\b/);
     expect(page?.className).toMatch(/100dvh/);
     expect(page?.className).toMatch(/\boverflow-hidden\b/);
+    expect(page?.className).toMatch(/\bpb-6\b/);
+    expect(page?.className).toMatch(/xl:pb-\[108px\]/);
     // Wait for places fetch → map (HeaderCard also uses data-slot=card).
     await waitFor(() => {
       expect(document.querySelector(".places-map")).toBeTruthy();
