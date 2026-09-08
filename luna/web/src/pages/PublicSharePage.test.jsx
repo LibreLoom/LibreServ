@@ -83,4 +83,69 @@ describe("PublicSharePage", () => {
       expect(withHeader.every(([url]) => !String(url).includes("password="))).toBe(true);
     });
   });
+
+  it("asks for share metadata so file links can offer Replace", async () => {
+    const fetchMock = vi.fn(async (_url) => new Response(
+      JSON.stringify({
+        kind: "file",
+        permission: "write",
+        name: "report.pdf",
+        path: "docs/report.pdf",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <MemoryRouter initialEntries={["/s/abc"]}>
+        <Routes>
+          <Route path="/s/:token" element={<PublicSharePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/A file was shared with you/i)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("meta=1"))).toBe(true);
+    expect(screen.getByRole("button", { name: /Replace file/i })).toBeInTheDocument();
+  });
+
+  it("renders an upload-only drop box with no listing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({
+        kind: "upload",
+        permission: "upload",
+        path: "dropbox",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )));
+    render(
+      <MemoryRouter initialEntries={["/s/abc"]}>
+        <Routes>
+          <Route path="/s/:token" element={<PublicSharePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Add files")).toBeInTheDocument();
+    expect(screen.queryByText(/Download/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Add files")).toBeInTheDocument();
+  });
+
+  it("shows an upload zone on read-write folder links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({
+        kind: "folder",
+        permission: "write",
+        path: "photos",
+        entries: [{ name: "beach.jpg", kind: "file", size: 12, hidden: false }],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )));
+    render(
+      <MemoryRouter initialEntries={["/s/abc"]}>
+        <Routes>
+          <Route path="/s/:token" element={<PublicSharePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    expect(screen.getByText(/Add files to this folder/i)).toBeInTheDocument();
+  });
 });
