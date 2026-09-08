@@ -1028,7 +1028,7 @@ export default function GalleryPage() {
       titleId="gallery-title"
       className={
         placesMapOverview
-          ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden"
+          ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden pb-6 xl:pb-[108px]"
           : undefined
       }
     >
