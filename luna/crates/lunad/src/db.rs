@@ -82,7 +82,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             password_hash TEXT NOT NULL DEFAULT '',
             expires_at INTEGER,
             created_by TEXT NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            permission TEXT NOT NULL DEFAULT 'read'
         );
         CREATE TABLE IF NOT EXISTS protections (
             id TEXT PRIMARY KEY,
@@ -130,6 +131,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
+    ensure_column(
+        &conn,
+        "shares",
+        "permission",
+        "TEXT NOT NULL DEFAULT 'read'",
+    )?;
     Ok(conn)
 }
 
@@ -645,6 +652,7 @@ pub struct ShareRow {
     pub password_hash: String,
     pub expires_at: Option<i64>,
     pub created_by: String,
+    pub permission: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -656,12 +664,13 @@ pub fn insert_share(
     path: &str,
     password_hash: &str,
     expires_at: Option<i64>,
+    permission: &str,
     created_by: &str,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO shares (id, token_hash, drive_id, path, password_hash, expires_at, created_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![id, token_hash, drive_id, path, password_hash, expires_at, created_by, now_unix()],
+        "INSERT INTO shares (id, token_hash, drive_id, path, password_hash, expires_at, permission, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![id, token_hash, drive_id, path, password_hash, expires_at, permission, created_by, now_unix()],
     )?;
     Ok(())
 }
@@ -671,7 +680,7 @@ pub fn get_share_by_token_hash(
     token_hash: &str,
 ) -> anyhow::Result<Option<ShareRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by FROM shares WHERE token_hash = ?1",
+        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by, permission FROM shares WHERE token_hash = ?1",
     )?;
     let mut rows = stmt.query_map(params![token_hash], |row| {
         Ok(ShareRow {
@@ -682,6 +691,7 @@ pub fn get_share_by_token_hash(
             password_hash: row.get(4)?,
             expires_at: row.get(5)?,
             created_by: row.get(6)?,
+            permission: row.get(7)?,
         })
     })?;
     Ok(rows.next().transpose()?)
@@ -689,7 +699,7 @@ pub fn get_share_by_token_hash(
 
 pub fn list_shares(conn: &Connection) -> anyhow::Result<Vec<ShareRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by FROM shares ORDER BY created_at DESC",
+        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by, permission FROM shares ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(ShareRow {
@@ -700,6 +710,7 @@ pub fn list_shares(conn: &Connection) -> anyhow::Result<Vec<ShareRow>> {
             password_hash: row.get(4)?,
             expires_at: row.get(5)?,
             created_by: row.get(6)?,
+            permission: row.get(7)?,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
