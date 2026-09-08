@@ -13,6 +13,10 @@ import {
   meetsPasswordPolicy,
   passwordPolicyError,
 } from "../../../lib/passwordPolicy";
+import {
+  USERNAME_POLICY_HINT,
+  isValidUsername,
+} from "../../../lib/usernamePolicy";
 
 /**
  * Map Luna API error copy onto the field that needs fixing (LibreServ AddUserForm pattern).
@@ -87,10 +91,8 @@ export default function CreateUserForm({
     const username = formData.username.trim();
     if (!username) {
       next.username = "Enter a username.";
-    } else if (username.length < 3 || username.length > 32) {
-      next.username = "Usernames are 3–32 letters, numbers, dots, dashes, or underscores.";
-    } else if (!/^[a-zA-Z0-9._-]+$/.test(username)) {
-      next.username = "Usernames are 3–32 letters, numbers, dots, dashes, or underscores.";
+    } else if (!isValidUsername(username)) {
+      next.username = USERNAME_POLICY_HINT;
     }
     if (!meetsPasswordPolicy(formData.password)) {
       next.password = passwordPolicyError(formData.password) || "Choose a stronger password.";

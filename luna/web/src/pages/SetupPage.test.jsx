@@ -244,6 +244,56 @@ describe("SetupPage", () => {
     });
   });
 
+  it("shows username rules on the username step instead of waiting for Create account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+
+    const username = await screen.findByLabelText(/Pick a username/i);
+    fireEvent.change(username, { target: { value: "hello world" } });
+
+    expect(
+      await screen.findByText(/Usernames are 3-32 letters, numbers, dots, dashes, or underscores/i),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Continue/i })).toBeDisabled();
+    expect(screen.queryByLabelText(/Choose a password/i)).toBeNull();
+
+    fireEvent.change(username, { target: { value: "alex" } });
+    expect(
+      screen.queryByText(/Usernames are 3-32 letters, numbers, dots, dashes, or underscores/i),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: /Continue/i })).not.toBeDisabled();
+  });
+
+  it("blocks an overlong display name before the username step", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true },
+        },
+      }),
+    );
+    renderSetup();
+    const name = await screen.findByLabelText(/What's your name/i);
+    fireEvent.change(name, { target: { value: "x".repeat(81) } });
+    expect(await screen.findByText(/Names can be up to 80 characters/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Continue/i })).toBeDisabled();
+  });
+
   it("hides the password policy hint once the strength checklist is visible", async () => {
     vi.stubGlobal(
       "fetch",
