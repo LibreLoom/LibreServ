@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import GalleryPage, { galleryUrl } from "./GalleryPage";
+import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
@@ -94,6 +94,26 @@ describe("galleryUrl", () => {
     expect(galleryUrl({ favorites: true, offset: 0 })).toContain("favorites=true");
     expect(galleryUrl({ favorites: true, offset: 0 })).not.toMatch(/favorites=1(?:&|$)/);
     expect(galleryUrl({ favorites: false, offset: 0 })).not.toContain("favorites=");
+  });
+
+  it("wires day bounds as from/to unix seconds", () => {
+    const url = galleryUrl({ from: 1700000000, to: 1700086399, offset: 0 });
+    expect(url).toContain("from=1700000000");
+    expect(url).toContain("to=1700086399");
+  });
+
+  it("asks for archived and kind filters", () => {
+    expect(galleryUrl({ archived: true })).toContain("archived=true");
+    expect(galleryUrl({ kind: "video" })).toContain("kind=video");
+  });
+});
+
+describe("parseGalleryHash", () => {
+  it("parses day deep links", () => {
+    expect(parseGalleryHash("#day/2024-06-01")).toEqual({
+      segment: "library",
+      day: "2024-06-01",
+    });
   });
 });
 
