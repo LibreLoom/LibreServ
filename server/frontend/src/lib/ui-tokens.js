@@ -1,5 +1,7 @@
 /** Shared Lucide icon pixel sizes across LibreServ UI. */
 export const ICON_SIZE = {
+  /** LayeredPill/LayeredCard's compact actionIcon slot only. */
+  tight: 11,
   xs: 12,
   sm: 14,
   md: 16,
