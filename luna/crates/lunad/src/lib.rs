@@ -1,5 +1,4 @@
 pub mod api;
-pub mod boot;
 pub mod at_rest;
 pub mod auth;
 pub mod budget;
