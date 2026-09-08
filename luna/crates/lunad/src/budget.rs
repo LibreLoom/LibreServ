@@ -56,7 +56,7 @@ pub fn cache_budget_from(available_bytes: u64) -> CacheBudget {
     // Thumbs: up to 1/8 of free RAM, clamped 8–96 MiB.
     let thumb_bytes = clamp(avail / 8, 8 * MIB, 96 * MIB);
     // Dirty pool: up to 1/16 of free RAM, clamped 1–32 MiB.
-    let dirty_bytes = clamp(avail / 16, 1 * MIB, 32 * MIB);
+    let dirty_bytes = clamp(avail / 16, MIB, 32 * MIB);
     // One dirty file: at most half the dirty pool, capped at 8 MiB.
     let dirty_max_file_bytes = clamp(dirty_bytes / 2, 256 * KIB, 8 * MIB).min(dirty_bytes);
     CacheBudget {

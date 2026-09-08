@@ -365,10 +365,10 @@ impl RamCache {
         // Clear saving flag on listing overlay.
         let parent = parent_rel(rel);
         let name = rel.rsplit('/').next().unwrap_or(rel);
-        if let Some(listing) = g.listings.get_mut(&listing_key(drive_id, &parent)) {
-            if let Some(e) = listing.entries.iter_mut().find(|e| e.name == name) {
-                e.saving = false;
-            }
+        if let Some(listing) = g.listings.get_mut(&listing_key(drive_id, &parent))
+            && let Some(e) = listing.entries.iter_mut().find(|e| e.name == name)
+        {
+            e.saving = false;
         }
     }
 
@@ -468,10 +468,10 @@ impl RamCache {
         let rels = self.dirty_rels_for_drive(drive_id);
         let mut first_err: Option<FilesError> = None;
         for rel in rels {
-            if let Err(e) = self.flush_dirty_to_disk(drive_id, &rel, mount, true) {
-                if first_err.is_none() {
-                    first_err = Some(e);
-                }
+            if let Err(e) = self.flush_dirty_to_disk(drive_id, &rel, mount, true)
+                && first_err.is_none()
+            {
+                first_err = Some(e);
             }
         }
         match first_err {

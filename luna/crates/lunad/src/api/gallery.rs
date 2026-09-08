@@ -836,7 +836,7 @@ fn resolve_public_invite(
 
 /// Browser-safe media path: HEIC → JPEG preview; everything else → original.
 async fn resolve_browser_safe_file(
-    mount: &PathBuf,
+    mount: &FsPath,
     drive_id: &str,
     rel: &str,
 ) -> Result<(PathBuf, String, String), ApiError> {
@@ -848,7 +848,7 @@ async fn resolve_browser_safe_file(
         .unwrap_or_else(|| "photo".into());
     if gallery::is_heic_image(&src) {
         let thumb = gallery::thumb_path(mount, drive_id, rel);
-        let mount2 = mount.clone();
+        let mount2 = mount.to_path_buf();
         let rel2 = rel.to_string();
         let thumb2 = thumb.clone();
         let jpeg = tokio::task::spawn_blocking(move || {
@@ -1121,7 +1121,7 @@ async fn download_zip(
     if body.items.len() > GALLERY_DOWNLOAD_ZIP_MAX {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            &format!(
+            format!(
                 "You can download up to {GALLERY_DOWNLOAD_ZIP_MAX} photos at once. Select fewer and try again."
             ),
         ));
@@ -1180,7 +1180,7 @@ async fn download_zip(
             if msg.contains("too many files") {
                 json_error(
                     StatusCode::BAD_REQUEST,
-                    &format!(
+                    format!(
                         "You can download up to {GALLERY_DOWNLOAD_ZIP_MAX} photos at once. Select fewer and try again."
                     ),
                 )
@@ -1907,7 +1907,7 @@ async fn public_zip(
     if refs.len() > PUBLIC_ALBUM_ZIP_MAX {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            &format!(
+            format!(
                 "This album has too many photos to download as one zip (limit {PUBLIC_ALBUM_ZIP_MAX})."
             ),
         ));
@@ -1961,7 +1961,7 @@ async fn public_zip(
             if msg.contains("too many files") {
                 json_error(
                     StatusCode::BAD_REQUEST,
-                    &format!(
+                    format!(
                         "This album has too many photos to download as one zip (limit {PUBLIC_ALBUM_ZIP_MAX})."
                     ),
                 )
