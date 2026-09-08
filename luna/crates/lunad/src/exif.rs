@@ -128,11 +128,7 @@ fn focal_mm_from_exif(exif: &exif::Exif) -> Option<f64> {
     match &field.value {
         Value::Rational(vals) if !vals.is_empty() && vals[0].denom != 0 => {
             let mm = vals[0].num as f64 / vals[0].denom as f64;
-            if mm > 0.0 {
-                Some(mm)
-            } else {
-                None
-            }
+            if mm > 0.0 { Some(mm) } else { None }
         }
         _ => field.value.get_uint(0).filter(|v| *v > 0).map(|v| v as f64),
     }
@@ -272,9 +268,7 @@ pub fn jpeg_with_rich_exif(opts: RichExifOpts<'_>) -> Vec<u8> {
     let model_bytes = opts.model.map(pad_ascii);
     let lens_bytes = opts.lens.map(pad_ascii);
 
-    let ifd0_entries = 1u16
-        + u16::from(make_bytes.is_some())
-        + u16::from(model_bytes.is_some());
+    let ifd0_entries = 1u16 + u16::from(make_bytes.is_some()) + u16::from(model_bytes.is_some());
     let ifd0_size = 2 + (ifd0_entries as usize) * 12 + 4;
 
     let mut exif_count = 1u16; // DateTimeOriginal

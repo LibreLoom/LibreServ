@@ -403,12 +403,8 @@ async fn timeline(
             .map(str::trim)
             .filter(|s| *s == "image" || *s == "video")
             .map(str::to_string),
-        camera_make: query
-            .camera_make
-            .filter(|s| !s.trim().is_empty()),
-        camera_model: query
-            .camera_model
-            .filter(|s| !s.trim().is_empty()),
+        camera_make: query.camera_make.filter(|s| !s.trim().is_empty()),
+        camera_model: query.camera_model.filter(|s| !s.trim().is_empty()),
         lens: query.lens.filter(|s| !s.trim().is_empty()),
         iso_min: query.iso_min,
         iso_max: query.iso_max,
@@ -443,19 +439,13 @@ async fn timeline(
     let mut next_offset = offset;
     let mut cur = offset;
     for _ in 0..5 {
-        let page = gallery::list_photos(
-            &mounts,
-            query.drive_id.as_deref(),
-            &filter,
-            limit,
-            cur,
-        )
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open the gallery.",
-            )
-        })?;
+        let page = gallery::list_photos(&mounts, query.drive_id.as_deref(), &filter, limit, cur)
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't open the gallery.",
+                )
+            })?;
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -569,9 +559,9 @@ async fn duplicates(
         )
     })?;
     for group in &mut groups {
-        group.items.retain(|p| {
-            crate::auth::can_access(&user, &conn, &p.drive_id, &p.path, false)
-        });
+        group
+            .items
+            .retain(|p| crate::auth::can_access(&user, &conn, &p.drive_id, &p.path, false));
     }
     groups.retain(|g| g.items.len() > 1);
     Ok(Json(json!({ "groups": groups })))
@@ -724,7 +714,12 @@ async fn serve_thumb_file(
     state
         .ram_cache
         .put_thumb(drive_id, rel, bytes.clone(), mtime_secs);
-    serve_thumb_bytes(std::sync::Arc::from(bytes.into_boxed_slice()), mtime_secs, etag, headers)
+    serve_thumb_bytes(
+        std::sync::Arc::from(bytes.into_boxed_slice()),
+        mtime_secs,
+        etag,
+        headers,
+    )
 }
 
 fn serve_thumb_bytes(
@@ -749,10 +744,7 @@ fn serve_thumb_bytes(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "image/jpeg")
-        .header(
-            axum::http::header::CONTENT_LENGTH,
-            bytes.len().to_string(),
-        )
+        .header(axum::http::header::CONTENT_LENGTH, bytes.len().to_string())
         .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
         .header(axum::http::header::ETAG, etag)
@@ -811,22 +803,15 @@ fn album_item_allowed(
     };
     let under_contrib = !album.contrib_path.is_empty()
         && drive_id == home
-        && (path == album.contrib_path
-            || path.starts_with(&format!("{}/", album.contrib_path)));
+        && (path == album.contrib_path || path.starts_with(&format!("{}/", album.contrib_path)));
     in_album || under_contrib
 }
 
 fn public_media_urls(token: &str, drive_id: &str, path: &str) -> (String, String, String) {
     let enc = urlencoding_lite(path);
-    let thumb = format!(
-        "/api/v1/public/albums/{token}/thumb?drive_id={drive_id}&path={enc}"
-    );
-    let content = format!(
-        "/api/v1/public/albums/{token}/content?drive_id={drive_id}&path={enc}"
-    );
-    let download = format!(
-        "/api/v1/public/albums/{token}/download?drive_id={drive_id}&path={enc}"
-    );
+    let thumb = format!("/api/v1/public/albums/{token}/thumb?drive_id={drive_id}&path={enc}");
+    let content = format!("/api/v1/public/albums/{token}/content?drive_id={drive_id}&path={enc}");
+    let download = format!("/api/v1/public/albums/{token}/download?drive_id={drive_id}&path={enc}");
     (thumb, content, download)
 }
 
@@ -855,9 +840,8 @@ async fn resolve_browser_safe_file(
     drive_id: &str,
     rel: &str,
 ) -> Result<(PathBuf, String, String), ApiError> {
-    let src = luna_core::path::resolve_child(mount, rel).map_err(|_| {
-        json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo.")
-    })?;
+    let src = luna_core::path::resolve_child(mount, rel)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
     let original_name = src
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -908,9 +892,8 @@ async fn serve_media_path(
     disposition: &str,
     headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
-    let meta = std::fs::metadata(&abs).map_err(|_| {
-        json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo.")
-    })?;
+    let meta = std::fs::metadata(&abs)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -1164,7 +1147,10 @@ async fn download_zip(
     for item in &body.items {
         let root = resolve_mount(&state, &item.drive_id)?;
         let abs = luna_core::path::resolve_child(&root, &item.path).map_err(|_| {
-            json_error(StatusCode::NOT_FOUND, "Luna couldn't find one of those photos.")
+            json_error(
+                StatusCode::NOT_FOUND,
+                "Luna couldn't find one of those photos.",
+            )
         })?;
         if !abs.is_file() {
             continue;
@@ -1780,8 +1766,7 @@ async fn public_album(
         .items
         .into_iter()
         .map(|mut p| {
-            let (thumb, content, download) =
-                public_media_urls(&token, &p.drive_id, &p.path);
+            let (thumb, content, download) = public_media_urls(&token, &p.drive_id, &p.path);
             p.thumb = thumb;
             let mut v = json!(p);
             if let Some(obj) = v.as_object_mut() {
@@ -1889,9 +1874,8 @@ async fn public_download(
         ));
     }
     let mount = resolve_mount(&state, &query.drive_id)?;
-    let abs = luna_core::path::resolve_child(&mount, &query.path).map_err(|_| {
-        json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo.")
-    })?;
+    let abs = luna_core::path::resolve_child(&mount, &query.path)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
     let name = abs
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -2210,18 +2194,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
-        crate::gallery::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())])
-            .unwrap();
+        crate::gallery::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())]).unwrap();
         let mut album = crate::gallery::get_album(root, "home", &album.id)
             .unwrap()
             .unwrap();
         album.contrib_path = "Shared Photos/Shared".into();
         assert!(super::album_item_allowed(
-            "home",
-            root,
-            &album,
-            "d1",
-            "a.jpg"
+            "home", root, &album, "d1", "a.jpg"
         ));
         assert!(!super::album_item_allowed(
             "home",
@@ -2256,10 +2235,7 @@ mod tests {
         let zip_path = dir.path().join("out.zip");
         let file = std::fs::File::create(&zip_path).unwrap();
         let n = crate::gallery::write_items_zip(
-            &[
-                ("d1/a.jpg".into(), a),
-                ("d1/b.png".into(), b),
-            ],
+            &[("d1/a.jpg".into(), a), ("d1/b.png".into(), b)],
             file,
             10,
         )

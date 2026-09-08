@@ -709,10 +709,9 @@ async fn upload(
                 }
 
                 let rel = crate::gallery_indexer::join_rel(&dest_rel, &name);
-                let max_dirty = crate::budget::cache_budget_from(
-                    crate::budget::meminfo().available_bytes,
-                )
-                .dirty_max_file_bytes;
+                let max_dirty =
+                    crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
+                        .dirty_max_file_bytes;
                 let temp = files::temp_path(&dir);
 
                 match buffer_field_up_to(&mut field, max_dirty, &temp).await {
@@ -755,11 +754,7 @@ async fn upload(
                                     flush_overwrite,
                                 ) {
                                     if let Ok(conn) = flush_state.db.lock() {
-                                        files::note_write_failure(
-                                            &conn,
-                                            &flush_id,
-                                            &e.to_string(),
-                                        );
+                                        files::note_write_failure(&conn, &flush_id, &e.to_string());
                                     }
                                     flush_state.ram_cache.remove_dirty(&flush_id, &flush_rel);
                                     return;

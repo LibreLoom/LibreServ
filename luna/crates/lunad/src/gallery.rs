@@ -303,11 +303,7 @@ fn path_ext_lower(path: &str) -> String {
 
 fn normalize_format_ext(raw: &str) -> String {
     let e = raw.trim().trim_start_matches('.').to_ascii_lowercase();
-    if e == "jpeg" {
-        "jpg".into()
-    } else {
-        e
-    }
+    if e == "jpeg" { "jpg".into() } else { e }
 }
 
 /// Walk one drive and refresh its on-drive photo index + thumbnails.
@@ -766,11 +762,7 @@ pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Re
 }
 
 /// Purge album_item refs for a deleted photo from every mounted album home.
-pub fn purge_album_item_refs_on_mounts(
-    mounts: &[(String, PathBuf)],
-    drive_id: &str,
-    path: &str,
-) {
+pub fn purge_album_item_refs_on_mounts(mounts: &[(String, PathBuf)], drive_id: &str, path: &str) {
     for (_, root) in mounts {
         let _ = purge_album_item_refs_on_home(root, drive_id, path);
     }
@@ -1654,9 +1646,7 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
             }
         }
         {
-            let mut stmt = conn.prepare(
-                "SELECT MIN(iso), MAX(iso) FROM photos WHERE iso > 0",
-            )?;
+            let mut stmt = conn.prepare("SELECT MIN(iso), MAX(iso) FROM photos WHERE iso > 0")?;
             let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
                 let min: Option<i64> = row.get(0)?;
                 let max: Option<i64> = row.get(1)?;
@@ -1670,9 +1660,8 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
             });
         }
         {
-            let mut stmt = conn.prepare(
-                "SELECT MIN(focal_mm), MAX(focal_mm) FROM photos WHERE focal_mm > 0",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT MIN(focal_mm), MAX(focal_mm) FROM photos WHERE focal_mm > 0")?;
             let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
                 let min: Option<f64> = row.get(0)?;
                 let max: Option<f64> = row.get(1)?;
@@ -1689,21 +1678,13 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
         .into_iter()
         .map(|(lens, count)| LensCount { lens, count })
         .collect();
-    lenses.sort_by(|a, b| {
-        b.count
-            .cmp(&a.count)
-            .then_with(|| a.lens.cmp(&b.lens))
-    });
+    lenses.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.lens.cmp(&b.lens)));
 
     let mut formats: Vec<FormatCount> = formats
         .into_iter()
         .map(|(ext, count)| FormatCount { ext, count })
         .collect();
-    formats.sort_by(|a, b| {
-        b.count
-            .cmp(&a.count)
-            .then_with(|| a.ext.cmp(&b.ext))
-    });
+    formats.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.ext.cmp(&b.ext)));
 
     let iso_range = match (iso_min, iso_max) {
         (Some(min), Some(max)) => Some(NumRange {
@@ -2323,10 +2304,7 @@ pub fn is_heic_image(path: &Path) -> bool {
 const PREVIEW_THUMB_MIN_BYTES: u64 = 2048;
 
 /// Ensure a browser-safe JPEG exists for a HEIC original (reuse thumb when large enough).
-pub fn ensure_heic_preview_jpeg(
-    src: &Path,
-    thumb_dest: &Path,
-) -> anyhow::Result<PathBuf> {
+pub fn ensure_heic_preview_jpeg(src: &Path, thumb_dest: &Path) -> anyhow::Result<PathBuf> {
     if thumb_dest.exists()
         && let Ok(meta) = std::fs::metadata(thumb_dest)
         && meta.len() >= PREVIEW_THUMB_MIN_BYTES
@@ -2827,7 +2805,9 @@ mod tests {
         let mounts = vec![("d1".into(), photos_dir)];
         let groups = list_duplicates(&mounts, 50).unwrap();
         assert!(
-            groups.iter().any(|g| g.name == "copy.png" && g.items.len() == 2),
+            groups
+                .iter()
+                .any(|g| g.name == "copy.png" && g.items.len() == 2),
             "expected copy.png duplicate group, got {:?}",
             groups
         );
@@ -2872,7 +2852,11 @@ mod tests {
         .unwrap();
         std::fs::write(
             photos_dir.join("nikon.jpg"),
-            crate::exif::jpeg_with_exif("2020:02:03 04:05:06", Some("NIKON CORPORATION"), Some("NIKON D850")),
+            crate::exif::jpeg_with_exif(
+                "2020:02:03 04:05:06",
+                Some("NIKON CORPORATION"),
+                Some("NIKON D850"),
+            ),
         )
         .unwrap();
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([4, 4, 4, 255]));
@@ -2882,7 +2866,9 @@ mod tests {
 
         let cameras = list_cameras(&mounts).unwrap();
         assert!(
-            cameras.iter().any(|c| c.make == "Canon" && c.model == "EOS R5" && c.count >= 1),
+            cameras
+                .iter()
+                .any(|c| c.make == "Canon" && c.model == "EOS R5" && c.count >= 1),
             "expected Canon EOS R5 in {cameras:?}"
         );
         assert!(
@@ -2964,12 +2950,18 @@ mod tests {
             facets.lenses
         );
         assert!(
-            facets.formats.iter().any(|f| f.ext == "jpg" && f.count >= 1),
+            facets
+                .formats
+                .iter()
+                .any(|f| f.ext == "jpg" && f.count >= 1),
             "expected jpg format in {:?}",
             facets.formats
         );
         assert!(
-            facets.formats.iter().any(|f| f.ext == "png" && f.count >= 1),
+            facets
+                .formats
+                .iter()
+                .any(|f| f.ext == "png" && f.count >= 1),
             "expected png format in {:?}",
             facets.formats
         );

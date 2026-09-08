@@ -464,11 +464,7 @@ impl RamCache {
     /// Call this while the mount is still available. Returns the first error
     /// after attempting every entry so callers can refuse eject if anything
     /// failed to land on disk.
-    pub fn flush_drive_dirty(
-        &self,
-        drive_id: &str,
-        mount: &Path,
-    ) -> Result<(), FilesError> {
+    pub fn flush_drive_dirty(&self, drive_id: &str, mount: &Path) -> Result<(), FilesError> {
         let rels = self.dirty_rels_for_drive(drive_id);
         let mut first_err: Option<FilesError> = None;
         for rel in rels {
@@ -682,9 +678,7 @@ mod tests {
                 saving: false,
             }],
         );
-        cache
-            .accept_dirty("d1", "a", "a", b"z".to_vec())
-            .unwrap();
+        cache.accept_dirty("d1", "a", "a", b"z".to_vec()).unwrap();
         cache.drop_drive("d1");
         assert!(cache.get_thumb("d1", "a.jpg").is_none());
         assert!(cache.get_listing("d1", "", Some(1)).is_none());

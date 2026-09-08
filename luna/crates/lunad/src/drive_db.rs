@@ -461,7 +461,12 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     // does not alter already-created tables).
     ensure_column(conn, "albums", "cover_drive_id", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "albums", "locked", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(conn, "photos", "duration_secs", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(
+        conn,
+        "photos",
+        "duration_secs",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     ensure_column(conn, "photos", "camera_make", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "photos", "camera_model", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "photos", "lens", "TEXT NOT NULL DEFAULT ''")?;
