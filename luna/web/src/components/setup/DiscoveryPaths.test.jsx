@@ -45,7 +45,7 @@ describe("DiscoveryPaths", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows remote access above home addresses when configured", async () => {
+  it("shows remote access above local network addresses when configured", async () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
@@ -58,12 +58,13 @@ describe("DiscoveryPaths", () => {
     const remoteLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
     expect(remoteLink.getAttribute("href")).toBe("https://kitchen.luna.servers.libreloom.org");
     expect(remoteLink.getAttribute("target")).toBe("_blank");
-    expect(screen.getByText("On your home network only:")).toBeTruthy();
+    expect(screen.getByText("On your local network:")).toBeTruthy();
     expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
     expect(screen.getByRole("link", { name: "192.168.1.118" })).toHaveAttribute("href", "http://192.168.1.118");
     expect(screen.queryByText(/if your phone finds it/i)).toBeNull();
     expect(screen.queryByText(/current address on the screen/i)).toBeNull();
     expect(screen.queryByText(/Stay on your home internet/i)).toBeNull();
+    expect(screen.queryByText(/On your home network only/i)).toBeNull();
   });
 
   it("hides remote access when it is not configured", async () => {
@@ -76,7 +77,7 @@ describe("DiscoveryPaths", () => {
     renderPaths();
     expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
     expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
-    expect(screen.getByText("On your home network only:")).toBeTruthy();
+    expect(screen.getByText("On your local network:")).toBeTruthy();
     expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
   });
 

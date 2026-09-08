@@ -20,13 +20,13 @@ const addressLinkClass =
   "font-mono text-xs text-secondary break-all underline hover:no-underline motion-safe:transition-colors";
 
 /**
- * Where to find Luna after install — remote (when configured) + home LAN.
+ * Where to find Luna after install — remote (when configured) + local network.
  *
  * Layout:
  *   Access <name> here:
  *   Everywhere:                         ← only when remote access is configured
  *     whatever.luna.servers.libreloom.org
- *   On your home internet only:
+ *   On your local network:
  *     luna.local
  *     192.168.1.118
  */
@@ -70,7 +70,7 @@ export default function DiscoveryPaths({ name = "" }) {
         </div>
       ) : null}
       <div>
-        <p className="text-xs text-secondary mb-2">On your home network only:</p>
+        <p className="text-xs text-secondary mb-2">On your local network:</p>
         <ul className="space-y-1.5 text-xs font-mono text-secondary">
           <li>
             <a

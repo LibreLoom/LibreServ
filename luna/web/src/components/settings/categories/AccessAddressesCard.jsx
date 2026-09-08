@@ -51,9 +51,9 @@ export default function AccessAddressesCard({ index = 2 }) {
           </section>
         ) : null}
 
-        <section className="space-y-2" aria-labelledby="access-home-heading">
-          <h3 id="access-home-heading" className="font-mono text-sm font-medium text-primary">
-            On your home network only
+        <section className="space-y-2" aria-labelledby="access-local-heading">
+          <h3 id="access-local-heading" className="font-mono text-sm font-medium text-primary">
+            On your local network
           </h3>
           <CopyableValue
             value={asHttpUrl("luna.local")}

@@ -2,7 +2,7 @@
  * Shared clipboard helpers for Luna web.
  *
  * The Clipboard API only works in a secure context (HTTPS, localhost).
- * On plain HTTP (common on a home LAN IP), navigator.clipboard is missing
+ * On plain HTTP (common on a local LAN IP), navigator.clipboard is missing
  * or writeText throws — so callers must not show a fake "Copied" state.
  * Prefer {@link CopyableValue} so insecure pages get selectable text instead.
  */

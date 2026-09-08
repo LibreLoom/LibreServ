@@ -109,6 +109,7 @@ describe("SetupPage", () => {
     expect(screen.queryByText("luna.local")).toBeNull();
     expect(screen.queryByText("192.168.1.20")).toBeNull();
     expect(screen.queryByText(/On your home internet only/i)).toBeNull();
+    expect(screen.queryByText(/On your home network only/i)).toBeNull();
     expect(screen.queryByText(/Everywhere/i)).toBeNull();
     expect(screen.queryByText("http://luna")).toBeNull();
     expect(screen.queryByText("http://169.254.42.42")).toBeNull();

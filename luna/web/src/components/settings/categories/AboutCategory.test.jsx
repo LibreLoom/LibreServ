@@ -100,7 +100,7 @@ describe("AboutCategory", () => {
     expect(screen.queryByText("Software")).toBeNull();
     expect(await screen.findByRole("heading", { name: "Where to open Luna" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "On your local network" })).toBeTruthy();
     expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
     expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
     expect(screen.queryByText(/None yet/i)).toBeNull();

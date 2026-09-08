@@ -38,7 +38,7 @@ function renderCard(fetchImpl) {
 }
 
 describe("AccessAddressesCard", () => {
-  it("shows public and home addresses when Connect is configured", async () => {
+  it("shows public and local network addresses when Connect is configured", async () => {
     renderCard(
       stubFetch({
         connect: {
@@ -52,7 +52,7 @@ describe("AccessAddressesCard", () => {
       await screen.findByDisplayValue("https://kitchen.luna.servers.libreloom.org"),
     ).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Everywhere" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "On your local network" })).toBeTruthy();
     expect(screen.getByDisplayValue("http://luna.local")).toBeTruthy();
     expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
   });
@@ -64,7 +64,7 @@ describe("AccessAddressesCard", () => {
     expect(await screen.findByDisplayValue("http://192.168.1.20")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
     expect(screen.queryByText(/None yet/i)).toBeNull();
-    expect(screen.getByRole("heading", { name: "On your home network only" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "On your local network" })).toBeTruthy();
   });
 
   it("omits the LAN IP when none is available", async () => {

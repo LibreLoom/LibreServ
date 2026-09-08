@@ -4,7 +4,7 @@ Photo backup for Luna. Sign in with an **access token** (paste, or scan the
 QR code from Luna → Settings → Security). Photos then back up
 in the background through Luna's resumable chunked upload API.
 
-This app is photo backup over the home network. First-time Luna setup uses
+This app backs up photos to your Luna. First-time Luna setup uses
 the Ethernet cable and the address on the screen (or luna.local).
 
 ## Sign-in

@@ -272,5 +272,5 @@ fi
 umount "$_data_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."
-echo "Luna will reboot and show its address on the screen. Stay on home internet on your phone."
+echo "Luna will reboot and show its address on the screen. Open it from a phone or computer on the same network."
 echo

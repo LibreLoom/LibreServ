@@ -825,7 +825,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 **Luna Desktop (Windows):** Run \`Luna-Desktop-Setup-*-x86_64.exe\` (per-user install under Local App Data). Windows may warn that the publisher is unknown — that is expected for this unsigned prerelease build.
 
-**Luna Android:** Install \`luna-android.apk\` (allow installs from this source). Photo backup over your home network.
+**Luna Android:** Install \`luna-android.apk\` (allow installs from this source). Photo backup for your Luna.
 
 ## Commits Since Last Release
 

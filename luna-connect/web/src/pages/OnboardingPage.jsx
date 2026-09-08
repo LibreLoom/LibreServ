@@ -1146,7 +1146,7 @@ export default function OnboardingPage() {
     <StepShell icon={Key} title="Your device token">
       <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
       <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
-        When you install Luna on your device, paste this full token when the installer asks. The first eight characters (****-****) unlock setup from your phone while you are on your home Wi‑Fi.
+        When you install Luna on your device, paste this full token when the installer asks. The first eight characters (****-****) unlock setup from your phone while you are on the same network.
       </p>
       <p className="text-sm text-muted-foreground mb-4 leading-relaxed text-pretty">
         If you skipped it during install, on Luna go to Settings → About → Advanced, open Device token, paste this token, and tap Save.
@@ -1192,7 +1192,7 @@ export default function OnboardingPage() {
   const renderDomain = () => (
     <StepShell icon={Globe} title="Name this Luna">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        This name is the address you type to open Luna when you are not at home. Use letters and numbers, at least 3 characters.
+        This name is the address you type to open Luna from anywhere. Use letters and numbers, at least 3 characters.
       </p>
       <form
         className="space-y-5 text-left"
@@ -1403,7 +1403,7 @@ export default function OnboardingPage() {
       <StepShell icon={Check} title="You're connected">
         <div className="space-y-6 text-left">
           <p className="text-sm text-foreground leading-relaxed text-pretty">
-            Luna is linked to your account. Open it at the address below when you are away from home.
+            Luna is linked to your account. Open it at the address below from anywhere.
           </p>
           <div>
             <p className="text-sm text-foreground mb-2">Go here to continue setup directly on your Luna.</p>
