@@ -100,11 +100,11 @@ export default function CreateShareModal({
             aria-label="What people with this link can do"
           />
           <p className="text-primary text-xs">
-            <span className="text-secondary font-semibold">Read only</span>{" "}
+            <span className="text-primary font-semibold">Read only</span>{" "}
             opens and downloads files.{" "}
-            <span className="text-secondary font-semibold">Read and write</span>{" "}
-            can also add files.{" "}
-            <span className="text-secondary font-semibold">Upload only</span>{" "}
+            <span className="text-primary font-semibold">Read and write</span>{" "}
+            can also add files, but can't delete or rename anything.{" "}
+            <span className="text-primary font-semibold">Upload only</span>{" "}
             can add files but can't see what's already there — great for collecting photos from people.
           </p>
           <ShakeTarget shake={error}>

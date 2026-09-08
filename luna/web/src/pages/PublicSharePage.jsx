@@ -64,6 +64,7 @@ export default function PublicSharePage() {
   const [loading, setLoading] = useState(true);
   const [uploads, setUploads] = useState(/** @type {any[]} */ ([]));
   const [uploadError, setUploadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const uploadsRef = useRef(/** @type {any[]} */ ([]));
   const fileInputRef = useRef(null);
   const replaceInputRef = useRef(null);
@@ -152,7 +153,7 @@ export default function PublicSharePage() {
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, rel, submittedPassword]);
+  }, [token, rel, submittedPassword, reloadKey]);
 
   function openRel(next) {
     const nextParams = new URLSearchParams(searchParams);
@@ -212,9 +213,17 @@ export default function PublicSharePage() {
   }
 
   async function addFiles(fileList) {
-    const files = Array.from(fileList || []).filter((f) => f.size > 0);
-    if (!files.length) return;
+    const allFiles = Array.from(fileList || []);
+    const files = allFiles.filter((f) => f.size > 0);
+    const skipped = allFiles.length - files.length;
     setUploadError("");
+    if (!files.length) {
+      if (skipped) setUploadError("Luna can't add empty files.");
+      return;
+    }
+    if (skipped > 0) {
+      setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"} — Luna can't add empty files.`);
+    }
     const batch = files.map((file) => ({
       id: crypto.randomUUID(),
       name: file.name,
@@ -229,10 +238,12 @@ export default function PublicSharePage() {
     setUploads([...uploadsRef.current]);
 
     let hadError = false;
+    let succeeded = false;
     await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
       try {
         await uploadOne(item);
         removeUpload(item.id);
+        succeeded = true;
       } catch (err) {
         removeUpload(item.id);
         if (isAbortError(err) || item.abort.signal.aborted) return;
@@ -242,6 +253,12 @@ export default function PublicSharePage() {
         }
       }
     });
+    // A read-write folder link should show what just landed without a full
+    // page refresh. Upload-only drop boxes deliberately can't see anything,
+    // and a replaced file link keeps its name, so only folders reload.
+    if (succeeded && listing && listing.permission === "write") {
+      setReloadKey((k) => k + 1);
+    }
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (replaceInputRef.current) replaceInputRef.current.value = "";
   }
