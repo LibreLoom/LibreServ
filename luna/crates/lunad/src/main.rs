@@ -1,1 +1,4 @@
-PLACEHOLDER_WILL_REPLACE
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    lunad::boot::run().await
+}
