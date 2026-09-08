@@ -11,6 +11,13 @@ import {
   passwordChecks,
 } from "../lib/passwordPolicy";
 import {
+  USERNAME_POLICY_HINT,
+  displayNamePolicyError,
+  isValidDisplayName,
+  isValidUsername,
+  usernamePolicyError,
+} from "../lib/usernamePolicy";
+import {
   readSetupTokenFromSearch,
   stripSetupTokenFromSearch,
 } from "../lib/setupTokenParam.js";
@@ -304,10 +311,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const confirm  = form.confirm_password;
   const strength = strengthInfo(pw);
   const meetsPolicy = !!(strength?.ok);
-  const usernameOk  = form.username.trim().length >= 3;
+  const displayNameOk = isValidDisplayName(form.display_name);
+  const usernameOk  = isValidUsername(form.username);
   const confirmOk   = confirm === pw && pw !== "";
   const setupSecretOk = !needsDeviceToken || form.setup_secret.trim().length > 0;
   const showSetupSecretField = needsDeviceToken && !hideSetupSecretStep;
+  const usernameFieldError = usernamePolicyError(form.username);
+  const displayNameFieldError = displayNamePolicyError(form.display_name);
 
   // Consume ?token= once: prefill setup_secret, hide that substep, strip from the URL
   // so the full device token does not linger in the address bar / history entry.
@@ -336,17 +346,21 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       type: "text",
       placeholder: "e.g. Alex",
       autoComplete: "name",
-      valid: true,
+      valid: displayNameOk,
+      inlineError: displayNameFieldError,
     },
     {
       id: "username",
       question: "Pick a username",
-      hint: "How you sign in — letters, numbers, dots, or dashes.",
+      hint: "How you sign in — letters, numbers, dots, dashes, or underscores.",
       name: "username",
       type: "text",
       placeholder: "alex",
       autoComplete: "username",
       valid: usernameOk,
+      // Show the rule as soon as they type something invalid — do not wait
+      // until Create account fails at the last substep.
+      inlineError: usernameFieldError,
     },
     {
       id: "password",
@@ -398,6 +412,15 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     setAuthSubStep((s) => Math.max(s - 1, 0));
   };
 
+  /** Jump back to the substep that owns a register/login failure. */
+  const jumpToField = (fieldName) => {
+    const idx = authFields.findIndex((f) => f.name === fieldName);
+    if (idx < 0) return;
+    authSubAnimatedRef.current = true;
+    setAuthSubDir("left");
+    setAuthSubStep(idx);
+  };
+
   // Focus after the parent step slide finishes on first paint; on later
   // substeps focus immediately after the keyed field mounts.
   useEffect(() => {
@@ -413,6 +436,17 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
   const handleCreateAccount = async () => {
     if (submitting) return;
+    // Final guard: never call register with a username/name lunad will reject.
+    if (!usernameOk) {
+      setFieldError(USERNAME_POLICY_HINT);
+      jumpToField("username");
+      return;
+    }
+    if (!displayNameOk) {
+      setFieldError(displayNameFieldError || "That name is too long.");
+      jumpToField("display_name");
+      return;
+    }
     setSubmitting(true);
     setFieldError(null);
     try {
@@ -421,13 +455,23 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       await login(form.username.trim(), pw);
       onContinue();
     } catch (err) {
-      setFieldError(err.message);
+      const message = err?.message || "Couldn't create your account. Try again.";
+      setFieldError(message);
       // Silent token failed — reveal the device-token field so the user can paste a new one.
       if (hideSetupSecretStep && needsDeviceToken) {
         setHideSetupSecretStep(false);
         authSubAnimatedRef.current = true;
         setAuthSubDir("right");
         setAuthSubStep(authFields.length);
+      } else {
+        const lower = message.toLowerCase();
+        if (lower.includes("username") || lower.includes("user name")) {
+          jumpToField("username");
+        } else if (lower.includes("password")) {
+          jumpToField("password");
+        } else if (lower.includes("name") && !lower.includes("user")) {
+          jumpToField("display_name");
+        }
       }
       setSubmitting(false);
     }
@@ -435,7 +479,17 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 
   const handleSubSubmit = async (e) => {
     e.preventDefault();
-    if (!currentAuthField.valid || submitting) return;
+    if (submitting) return;
+    if (!currentAuthField.valid) {
+      // Keep them on this field with a clear reason instead of advancing.
+      if (currentAuthField.inlineError) {
+        setFieldError(currentAuthField.inlineError);
+      } else if (currentAuthField.name === "username") {
+        setFieldError(USERNAME_POLICY_HINT);
+      }
+      return;
+    }
+    setFieldError(null);
     if (isLastAuthSubStep) {
       await handleCreateAccount();
     } else {
@@ -583,18 +637,27 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 disabled={submitting}
                 spellCheck={currentAuthField.name === "setup_secret" ? false : undefined}
                 className={WIZARD_INPUT_CLASS}
-                aria-invalid={currentAuthField.name === "setup_secret" && Boolean(fieldError)}
+                aria-invalid={Boolean(
+                  (currentAuthField.name === "setup_secret" && fieldError) ||
+                  currentAuthField.inlineError,
+                )}
               />
             )}
 
             {/* Hide the short policy hint once the live strength checklist is showing —
                 the ReqChips already cover length / letter / number. */}
-            {currentAuthField.hint && !(currentAuthField.showStrength && strength) && (
+            {currentAuthField.hint && !(currentAuthField.showStrength && strength) && !currentAuthField.inlineError && (
               <p className="mt-2.5 text-xs text-primary leading-relaxed">{currentAuthField.hint}</p>
             )}
 
             {currentAuthField.showStrength && strength && (
               <PasswordStrengthChecklist password={pw} />
+            )}
+
+            {currentAuthField.inlineError && (
+              <p className="text-xs text-error mt-2.5" role="alert">
+                {currentAuthField.inlineError}
+              </p>
             )}
 
             {currentAuthField.name === "confirm_password" && confirm && !confirmOk && (
@@ -605,7 +668,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           </OneShotSlide>
         </ShakeTarget>
 
-        {fieldError && (
+        {fieldError && fieldError !== currentAuthField.inlineError && (
           <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 mt-6 animate-in fade-in slide-in-from-bottom-1 duration-200">
             <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
             <p className="text-sm text-primary">{fieldError}</p>
