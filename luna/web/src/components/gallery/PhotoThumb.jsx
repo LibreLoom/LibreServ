@@ -1,17 +1,40 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Heart, Play } from "lucide-react";
+import { Check, Heart, Play } from "lucide-react";
 
-/** Dense edge-to-edge photo cell for the timeline grid. */
+const LONG_PRESS_MS = 450;
+
+/**
+ * Dense edge-to-edge photo cell for the timeline grid.
+ *
+ * @param {{
+ *   photo: object,
+ *   onOpen?: (photo: object) => void,
+ *   onToggle?: (photo: object, opts?: { range?: boolean }) => void,
+ *   onLongPress?: (photo: object) => void,
+ *   onFavoriteToggle?: (photo: object, event: import("react").MouseEvent) => void,
+ *   selected?: boolean,
+ *   selectMode?: boolean,
+ *   index?: number,
+ *   staggerIndex?: number,
+ *   style?: object,
+ * }} props
+ */
 export default function PhotoThumb({
   photo,
-  onClick = undefined,
+  onOpen = undefined,
+  onToggle = undefined,
+  onLongPress = undefined,
+  onFavoriteToggle = undefined,
   selected = false,
+  selectMode = false,
   index = undefined,
   staggerIndex = undefined,
   style = undefined,
 }) {
   const [loaded, setLoaded] = useState(false);
+  const longTimer = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
+  const longFired = useRef(false);
   const stagger = typeof index === "number" ? index : staggerIndex;
   const animationStyle =
     typeof stagger === "number"
@@ -22,11 +45,48 @@ export default function PhotoThumb({
         }
       : style;
 
+  function clearLong() {
+    if (longTimer.current) {
+      clearTimeout(longTimer.current);
+      longTimer.current = null;
+    }
+  }
+
+  function startLong() {
+    clearLong();
+    longFired.current = false;
+    longTimer.current = setTimeout(() => {
+      longFired.current = true;
+      onLongPress?.(photo);
+    }, LONG_PRESS_MS);
+  }
+
+  function handleClick(e) {
+    if (longFired.current) {
+      longFired.current = false;
+      return;
+    }
+    if (selectMode || e.shiftKey) {
+      onToggle?.(photo, { range: e.shiftKey });
+      return;
+    }
+    onOpen?.(photo);
+  }
+
   return (
     <button
       type="button"
-      onClick={() => onClick?.(photo)}
+      onClick={handleClick}
+      onPointerDown={startLong}
+      onPointerUp={clearLong}
+      onPointerLeave={clearLong}
+      onPointerCancel={clearLong}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onLongPress?.(photo);
+      }}
       style={animationStyle}
+      aria-pressed={selectMode ? selected : undefined}
       className={`group relative block w-full aspect-square overflow-hidden bg-secondary text-primary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         selected ? "ring-2 ring-accent" : ""
       }`}
@@ -55,18 +115,53 @@ export default function PhotoThumb({
           <Play size={14} fill="currentColor" aria-hidden="true" />
         </span>
       )}
-      {photo.favorited && (
+      {selected && (
         <span
-          className="absolute top-2 right-2 [filter:drop-shadow(0_0_1.5px_var(--secondary))]"
+          className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill bg-accent text-primary"
           aria-hidden="true"
+        >
+          <Check size={14} strokeWidth={3} />
+        </span>
+      )}
+      {onFavoriteToggle && !selectMode ? (
+        <span
+          role="button"
+          tabIndex={0}
+          className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-pill bg-primary/90 text-secondary [filter:drop-shadow(0_0_1.5px_var(--secondary))]"
+          aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFavoriteToggle(photo, e);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onFavoriteToggle(photo, /** @type {any} */ (e));
+            }
+          }}
         >
           <Heart
             size={14}
-            className="fill-primary stroke-secondary"
+            className={photo.favorited ? "fill-secondary stroke-secondary" : "stroke-secondary"}
             strokeWidth={2.25}
             aria-hidden="true"
           />
         </span>
+      ) : (
+        photo.favorited && (
+          <span
+            className="absolute top-2 right-2 [filter:drop-shadow(0_0_1.5px_var(--secondary))]"
+            aria-hidden="true"
+          >
+            <Heart
+              size={14}
+              className="fill-primary stroke-secondary"
+              strokeWidth={2.25}
+              aria-hidden="true"
+            />
+          </span>
+        )
       )}
     </button>
   );
@@ -79,16 +174,24 @@ PhotoThumb.propTypes = {
     kind: PropTypes.string,
     favorited: PropTypes.bool,
   }).isRequired,
-  onClick: PropTypes.func,
+  onOpen: PropTypes.func,
+  onToggle: PropTypes.func,
+  onLongPress: PropTypes.func,
+  onFavoriteToggle: PropTypes.func,
   selected: PropTypes.bool,
+  selectMode: PropTypes.bool,
   index: PropTypes.number,
   staggerIndex: PropTypes.number,
   style: PropTypes.object,
 };
 
 PhotoThumb.defaultProps = {
-  onClick: undefined,
+  onOpen: undefined,
+  onToggle: undefined,
+  onLongPress: undefined,
+  onFavoriteToggle: undefined,
   selected: false,
+  selectMode: false,
   index: undefined,
   staggerIndex: undefined,
   style: undefined,

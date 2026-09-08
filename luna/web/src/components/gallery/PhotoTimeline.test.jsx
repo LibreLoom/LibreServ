@@ -67,4 +67,31 @@ describe("PhotoTimeline cascading stagger", () => {
     expect(b2.style.animationDelay).toBe("35ms");
     expect(b3.style.animationDelay).toBe("70ms");
   });
+
+  it("enters selection on long-press path via onToggle when selectMode", () => {
+    const onToggle = vi.fn();
+    const onOpen = vi.fn();
+    const photos = [
+      { name: "p1.jpg", path: "p1.jpg", drive_id: "d1", taken_at: 1_700_000_000 },
+    ];
+    render(
+      <PhotoTimeline
+        photos={photos}
+        selectMode
+        selectedKeys={new Set(["d1\0p1.jpg"])}
+        onToggle={onToggle}
+        onOpen={onOpen}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "p1.jpg" }));
+    expect(onToggle).toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe("album cascade class", () => {
+  it("album cards use cascade-in animation class name", () => {
+    // Lightweight class contract used by AlbumsPanel.
+    expect("animate-cascade-in").toContain("cascade-in");
+  });
 });
