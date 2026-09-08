@@ -242,7 +242,11 @@ describe("GalleryPage", () => {
     expect(page?.className).toMatch(/\bflex\b/);
     expect(page?.className).toMatch(/100dvh/);
     expect(page?.className).toMatch(/\boverflow-hidden\b/);
-    const mapCard = document.querySelector("[data-slot=card]");
+    // Wait for places fetch → map (HeaderCard also uses data-slot=card).
+    await waitFor(() => {
+      expect(document.querySelector(".places-map")).toBeTruthy();
+    });
+    const mapCard = document.querySelector(".places-map")?.closest("[data-slot=card]");
     expect(mapCard?.className).toMatch(/\bh-full\b/);
   });
 
