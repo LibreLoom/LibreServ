@@ -6,6 +6,8 @@ vi.mock("react-leaflet", () => {
   const mapStub = {
     setView: () => {},
     fitBounds: () => {},
+    invalidateSize: () => {},
+    getContainer: () => document.createElement("div"),
     getZoom: () => 4,
     getBounds: () => ({
       getWest: () => -180,
@@ -95,6 +97,10 @@ describe("PlacesMap", () => {
     expect(screen.getByTestId("map-container")).toBeInTheDocument();
     const card = document.querySelector("[data-slot=card]");
     expect(card?.className).toMatch(/pop-in/);
+    // Fills the Gallery Places flex parent instead of a capped vh/px height.
+    expect(card?.className).toMatch(/\bh-full\b/);
+    expect(card?.className).toMatch(/\bmin-h-0\b/);
+    expect(card?.className).not.toMatch(/70vh/);
   });
 
   it("configures TileLayer with strict-origin-when-cross-origin referrerPolicy", () => {

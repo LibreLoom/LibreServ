@@ -367,6 +367,10 @@ export default function GalleryPage() {
     (activeSegment === "places" && place) ||
     (activeSegment === "albums" && albumView);
 
+  // Places overview map fills leftover viewport under header/toolbar; other
+  // segments keep normal document scroll.
+  const placesMapOverview = activeSegment === "places" && !place;
+
   const actionModalOpen =
     newAlbumOpen
     || albumPick != null
@@ -395,7 +399,15 @@ export default function GalleryPage() {
   }
 
   return (
-    <Page title="Photos" titleId="gallery-title">
+    <Page
+      title="Photos"
+      titleId="gallery-title"
+      className={
+        placesMapOverview
+          ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden"
+          : undefined
+      }
+    >
       <GalleryToolbar
         segments={SEGMENTS}
         segment={activeSegment}
@@ -476,14 +488,16 @@ export default function GalleryPage() {
         />
       )}
 
-      {activeSegment === "places" && !place && (
-        <PlacesMap
-          places={places.data || []}
-          loading={places.isLoading}
-          onSelect={(p) => {
-            setPlace(p);
-          }}
-        />
+      {placesMapOverview && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <PlacesMap
+            places={places.data || []}
+            loading={places.isLoading}
+            onSelect={(p) => {
+              setPlace(p);
+            }}
+          />
+        </div>
       )}
 
       {(place || albumView) && (
