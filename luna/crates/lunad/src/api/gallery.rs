@@ -303,7 +303,7 @@ async fn timeline(
     }
     let mounts = accessible_mounts(&state, &user, None)?;
     let limit = query.limit.unwrap_or(80).clamp(1, 500);
-    let mut offset = query.offset.unwrap_or(0);
+    let offset = query.offset.unwrap_or(0);
     let viewing_album = query.album_id.is_some();
     let archived = query.archived.unwrap_or(false);
     let filter = ListFilter {

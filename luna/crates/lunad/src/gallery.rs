@@ -1104,10 +1104,10 @@ pub fn place_label_for(lat: f64, lon: f64) -> String {
 fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     const R: f64 = 6371.0;
     let to_rad = |d: f64| d * std::f64::consts::PI / 180.0;
-    let (φ1, φ2) = (to_rad(lat1), to_rad(lat2));
-    let Δφ = to_rad(lat2 - lat1);
-    let Δλ = to_rad(lon2 - lon1);
-    let a = (Δφ / 2.0).sin().powi(2) + φ1.cos() * φ2.cos() * (Δλ / 2.0).sin().powi(2);
+    let (phi1, phi2) = (to_rad(lat1), to_rad(lat2));
+    let d_phi = to_rad(lat2 - lat1);
+    let d_lam = to_rad(lon2 - lon1);
+    let a = (d_phi / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (d_lam / 2.0).sin().powi(2);
     2.0 * R * a.sqrt().asin()
 }
 
