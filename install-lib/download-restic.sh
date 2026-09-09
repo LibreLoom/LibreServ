@@ -11,14 +11,15 @@
 #   RESTIC_ARCH   -- override arch (amd64|arm64); default from uname -m
 #   RESTIC_VERSION -- override pin (also requires matching SHA constants below)
 #
-# Intended install.sh call-site (minimal):
+# Intended install.sh call-site (sibling only — do not bash <(curl) the helper):
 #   download_restic() {
 #     local dest="${DATA_DIR}/bin/restic"
-#     local helper_url="${FORGEJO_URL}/${GITHUB_REPO}/raw/branch/main/install-lib/download-restic.sh"
-#     # Prefer sibling when running from a full checkout; else fetch pinned helper.
 #     local helper="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/install-lib/download-restic.sh"
-#     if [ -x "${helper}" ]; then RESTIC_OWNER="${USER}:${USER}" bash "${helper}" "${dest}"; return; fi
-#     RESTIC_OWNER="${USER}:${USER}" bash <(curl -fsSL "${helper_url}") "${dest}" || \
+#     if [ ! -f "${helper}" ]; then
+#       log_warn "install-lib/download-restic.sh missing; install restic manually: https://restic.net/downloads/"
+#       return
+#     fi
+#     RESTIC_OWNER="${USER}:${USER}" bash "${helper}" "${dest}" || \
 #       { log_warn "restic verified download failed; install manually: https://restic.net/downloads/"; return; }
 #   }
 set -euo pipefail
@@ -35,9 +36,15 @@ die() { log "ERROR: $*"; exit 1; }
 dest="${1:-${RESTIC_PATH:-}}"
 [ -n "${dest}" ] || die "DEST_PATH argument or RESTIC_PATH required"
 
+# If an executable already exists, only keep it when it reports the pinned
+# version. Otherwise re-download and verify (avoids keeping a planted binary).
 if [ -x "${dest}" ]; then
-  log "restic already installed at ${dest}"
-  exit 0
+  existing_ver="$("${dest}" version 2>/dev/null | head -n1 || true)"
+  if [[ "${existing_ver}" == *"restic ${RESTIC_VERSION}"* ]]; then
+    log "restic ${RESTIC_VERSION} already installed at ${dest}"
+    exit 0
+  fi
+  log "existing binary at ${dest} is not restic ${RESTIC_VERSION} (${existing_ver:-unknown}); re-downloading with verify"
 fi
 
 arch="${RESTIC_ARCH:-}"
@@ -70,7 +77,7 @@ command -v curl >/dev/null || die "curl required"
 command -v sha256sum >/dev/null || die "sha256sum required"
 command -v bzip2 >/dev/null || die "bzip2 required"
 
-curl -fsSL "${url}" -o "${tmp_bz2}" || die "download failed: ${url}"
+curl -fsSL --proto '=https' --tlsv1.2 "${url}" -o "${tmp_bz2}" || die "download failed: ${url}"
 
 actual="$(sha256sum "${tmp_bz2}" | awk '{print $1}')"
 if [ "${actual}" != "${expected}" ]; then
