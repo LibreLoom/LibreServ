@@ -28,7 +28,7 @@ luna_cloudflared_download() {
     return 0
 }
 
-# Prefer an already-baked binary; otherwise download the pinned release (never floating latest).
+# Prefer an already-baked binary; otherwise download the pinned release (never a floating latest tag).
 luna_cloudflared_ensure() {
     _baked="$1"
     _size=0
