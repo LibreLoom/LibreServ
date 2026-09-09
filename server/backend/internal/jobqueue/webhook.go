@@ -1,13 +1,8 @@
 package jobqueue
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -91,7 +86,7 @@ func (ws *WebhookService) Start() {
 	ws.logger.Info("webhook service started")
 }
 
-// Stop halts the webhook service and cleanup goroutine
+// Stophalts the webhook service and cleanup goroutine
 func (ws *WebhookService) Stop() {
 	ws.mu.Lock()
 	if !ws.started {
@@ -121,112 +116,6 @@ func (ws *WebhookService) cleanupLoop() {
 			}
 		}
 	}
-}
-
-// isPrivateIP checks if an IP address is in a private range
-func isPrivateIP(ip string) bool {
-	// Check for localhost variants
-	if ip == "localhost" || ip == "127.0.0.1" || ip == "::1" || ip == "0:0:0:0:0:0:0:1" {
-		return true
-	}
-
-	// Parse the IP
-	parsedIP := net.ParseIP(ip)
-	if parsedIP == nil {
-		// Not a valid IP, might be a hostname
-		return false
-	}
-
-	// Check private ranges
-	privateRanges := []string{
-		"10.0.0.0/8",     // RFC1918
-		"172.16.0.0/12",  // RFC1918
-		"192.168.0.0/16", // RFC1918
-		"127.0.0.0/8",    // Loopback
-		"169.254.0.0/16", // Link-local
-		"::1/128",        // IPv6 loopback
-		"fe80::/10",      // IPv6 link-local
-		"fc00::/7",       // IPv6 unique local
-	}
-
-	for _, cidr := range privateRanges {
-		_, ipNet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if ipNet.Contains(parsedIP) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// validateWebhookURL validates and sanitizes a webhook URL for security
-// It resolves hostnames to IPs immediately to prevent DNS rebinding attacks
-func validateWebhookURL(webhookURL string, allowPrivate bool) error {
-	if webhookURL == "" {
-		return fmt.Errorf("webhook URL is empty")
-	}
-
-	parsedURL, err := url.Parse(webhookURL)
-	if err != nil {
-		return fmt.Errorf("invalid webhook URL: %w", err)
-	}
-
-	// Only allow HTTP and HTTPS schemes
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return fmt.Errorf("webhook URL must use http or https scheme, got: %s", parsedURL.Scheme)
-	}
-
-	// SSRF Protection: Resolve hostname and check IPs
-	host := parsedURL.Hostname()
-
-	// Check for metadata endpoints by name (before DNS resolution)
-	metadataHostnames := []string{
-		"169.254.169.254",
-		"169.254.170.2",
-		"169.254.169.253",
-		"metadata.google.internal",
-		"instance-data",
-		"metadata",
-	}
-	for _, endpoint := range metadataHostnames {
-		if host == endpoint {
-			return fmt.Errorf("webhook URL cannot target cloud metadata endpoints")
-		}
-	}
-
-	// Resolve hostname to IP(s) immediately to prevent DNS rebinding
-	// This ensures we validate the actual IP, not just the hostname
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		// If we can't resolve, check if it's already an IP
-		ip := net.ParseIP(host)
-		if ip == nil {
-			return fmt.Errorf("failed to resolve webhook URL hostname: %w", err)
-		}
-		ips = []net.IP{ip}
-	}
-
-	// Check all resolved IPs
-	for _, ip := range ips {
-		ipStr := ip.String()
-
-		// Check for metadata endpoints
-		for _, endpoint := range metadataHostnames {
-			if ipStr == endpoint {
-				return fmt.Errorf("webhook URL resolves to cloud metadata endpoint: %s", ipStr)
-			}
-		}
-
-		// Check for private IPs
-		if isPrivateIP(ipStr) && !allowPrivate {
-			return fmt.Errorf("webhook URL resolves to private IP address: %s (SSRF protection)", ipStr)
-		}
-	}
-
-	return nil
 }
 
 // TriggerWebhook sends a webhook notification asynchronously
@@ -370,40 +259,6 @@ func (ws *WebhookService) deliver(delivery *WebhookDelivery) {
 	logger.Error("webhook delivery failed after max retries",
 		"max_retries", ws.config.MaxRetries,
 		"last_error", delivery.LastError)
-}
-
-// sendWebhook sends a single webhook HTTP request
-func (ws *WebhookService) sendWebhook(delivery *WebhookDelivery) error {
-	payloadBytes, err := json.Marshal(delivery.Payload)
-	if err != nil {
-		return fmt.Errorf("marshal webhook payload: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), ws.config.Timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, delivery.WebhookURL, bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return fmt.Errorf("create webhook request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "LibreServ-Webhook/1.0")
-
-	resp, err := ws.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("send webhook request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Drain the response body to allow connection reuse
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("webhook returned non-success status: %d", resp.StatusCode)
-	}
-
-	return nil
 }
 
 // GetDelivery retrieves a webhook delivery by ID
