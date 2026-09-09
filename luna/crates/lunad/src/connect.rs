@@ -1,5 +1,11 @@
 //! Luna Connect client — permanent device token, status pull, then cloudflared.
 
+// Extracted on-demand installer (pinned release / HTTPS / ELF). Keep this file from
+// growing when the install path is hardened — see cloudflared_install.rs.
+#[path = "cloudflared_install.rs"]
+mod cloudflared_install;
+use cloudflared_install::{MIN_CLOUDFLARED_BYTES, install_cloudflared_to};
+
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -46,7 +52,6 @@ pub const TUNNEL_NOT_RUNNING_MSG: &str =
     "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.";
 
 const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
-const MIN_CLOUDFLARED_BYTES: u64 = 1024;
 
 /// TODO: We need to add remote access options for non-connect users.
 
@@ -1270,12 +1275,6 @@ fn nix_kill(pid: i32) -> std::io::Result<()> {
     }
 }
 
-fn cloudflared_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "aarch64" | "arm64" => "arm64",
-        _ => "amd64",
-    }
-}
 
 /// True when `path` exists, is large enough to be a real binary, and `--version` exits 0.
 fn cloudflared_looks_runnable(path: &Path) -> bool {
@@ -1295,63 +1294,6 @@ fn cloudflared_looks_runnable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
-    let Some(parent) = dest.parent() else {
-        return Err("invalid cloudflared install path".into());
-    };
-    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let url = format!(
-        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{}",
-        cloudflared_arch()
-    );
-    tracing::info!(
-        path = %dest.display(),
-        arch = cloudflared_arch(),
-        "downloading cloudflared for Connect tunnel (on-demand install)"
-    );
-    let tmp = parent.join("cloudflared.tmp");
-    let _ = std::fs::remove_file(&tmp);
-
-    // Bound downloads: an unbounded curl/wget on a half-up network stalls the
-    // Connect poll thread the same way an unbounded ureq call does.
-    let downloaded = if Command::new("curl")
-        .args([
-            "-fsSL",
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "120",
-            "-o",
-        ])
-        .arg(&tmp)
-        .arg(&url)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-    {
-        true
-    } else {
-        Command::new("wget")
-            .args(["-q", "--timeout=30", "--tries=2", "-O"])
-            .arg(&tmp)
-            .arg(&url)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    };
-    if !downloaded {
-        let _ = std::fs::remove_file(&tmp);
-        return Err("could not download cloudflared (curl/wget failed)".into());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| e.to_string())?;
-    }
-    std::fs::rename(&tmp, dest).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
 /// Classify an HTTP 403 from Connect or a fronting gateway.
 /// Authentic Connect unbind is JSON. Cloudflare managed challenges are HTML (+ cf-mitigated).

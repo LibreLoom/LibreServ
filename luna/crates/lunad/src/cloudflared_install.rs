@@ -17,7 +17,7 @@ pub fn cloudflared_arch() -> &'static str {
     }
 }
 
-/// True when `path` starts with ELF magic (`\\x7fELF`).
+/// True when `path` starts with ELF magic (`\x7fELF`).
 pub fn cloudflared_download_is_elf(path: &Path) -> bool {
     match std::fs::read(path) {
         Ok(bytes) if bytes.len() >= 4 => bytes[..4] == [0x7f, b'E', b'L', b'F'],
