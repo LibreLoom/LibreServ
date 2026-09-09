@@ -91,7 +91,7 @@ export default function CreateShareModal({
         <div className="space-y-3">
           {error && <PageNotice variant="error">{error}</PageNotice>}
           {uploadOnlyOnFile && (
-            <PageNotice variant="warning">
+            <PageNotice variant="warning" surface="secondary">
               Upload-only links need a folder. Pick Read only or Read and write, or share a folder instead.
             </PageNotice>
           )}

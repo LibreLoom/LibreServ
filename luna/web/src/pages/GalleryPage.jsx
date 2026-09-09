@@ -1125,10 +1125,10 @@ export default function GalleryPage() {
         <PageNotice variant="info" className="mb-4">
           <span className="flex flex-wrap items-center gap-2">
             {undoNotice}
-            <Button variant="outline" size="sm" surface="secondary" asChild>
+            <Button variant="outline" size="sm" surface="primary" asChild>
               <Link to="/drives">Open Files</Link>
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setUndoNotice(null)}>
+            <Button variant="ghost" size="sm" surface="primary" onClick={() => setUndoNotice(null)}>
               Dismiss
             </Button>
           </span>
