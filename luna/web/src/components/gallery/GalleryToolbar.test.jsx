@@ -118,4 +118,55 @@ describe("GalleryToolbar", () => {
     await user.click(screen.getByRole("menuitem", { name: /Keyboard shortcuts/i }));
     expect(onOpenShortcuts).toHaveBeenCalled();
   });
+
+  it("smoothly collapses and expands the Select button wrapper when showSelect changes", () => {
+    const { container, rerender } = render(
+      <GalleryToolbar
+        segments={SEGMENTS}
+        segment="library"
+        onSegmentChange={vi.fn()}
+        query=""
+        onQueryChange={vi.fn()}
+        showSelect={true}
+        onSelectModeChange={vi.fn()}
+      />
+    );
+    const wrapper = container.querySelector('[data-slot="gallery-select-wrapper"]');
+    expect(wrapper).toHaveClass("grid-cols-[1fr]", "opacity-100");
+    expect(wrapper).toHaveAttribute("aria-hidden", "false");
+
+    rerender(
+      <GalleryToolbar
+        segments={SEGMENTS}
+        segment="places"
+        onSegmentChange={vi.fn()}
+        query=""
+        onQueryChange={vi.fn()}
+        showSelect={false}
+        onSelectModeChange={vi.fn()}
+      />
+    );
+    expect(wrapper).toHaveClass("grid-cols-[0fr]", "opacity-0", "pointer-events-none");
+    expect(wrapper).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("closes the More menu when Escape key is pressed", async () => {
+    const user = userEvent.setup();
+    renderToolbar({ onOpenDates: vi.fn() });
+    await user.click(screen.getByRole("button", { name: /More options/i }));
+    expect(screen.getByRole("menu", { name: /More options/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    // Menu enters closing animation
+    expect(screen.getByRole("menu", { name: /More options/i })).toHaveClass("animate-dropdown-close");
+  });
+
+  it("offers Look again in the More menu and triggers rescan", async () => {
+    const user = userEvent.setup();
+    const onRescan = vi.fn();
+    renderToolbar({ onRescan });
+    await user.click(screen.getByRole("button", { name: /More options/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Look again/i }));
+    expect(onRescan).toHaveBeenCalled();
+  });
 });
