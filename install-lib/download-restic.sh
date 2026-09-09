@@ -36,15 +36,12 @@ die() { log "ERROR: $*"; exit 1; }
 dest="${1:-${RESTIC_PATH:-}}"
 [ -n "${dest}" ] || die "DEST_PATH argument or RESTIC_PATH required"
 
-# If an executable already exists, only keep it when it reports the pinned
-# version. Otherwise re-download and verify (avoids keeping a planted binary).
+# Do not trust an existing dest on version string alone (a planted binary can
+# print "restic ${RESTIC_VERSION}"). Always download + SHA256-verify the .bz2,
+# then hash-compare the on-disk binary to the freshly verified artifact.
 if [ -x "${dest}" ]; then
   existing_ver="$("${dest}" version 2>/dev/null | head -n1 || true)"
-  if [[ "${existing_ver}" == *"restic ${RESTIC_VERSION}"* ]]; then
-    log "restic ${RESTIC_VERSION} already installed at ${dest}"
-    exit 0
-  fi
-  log "existing binary at ${dest} is not restic ${RESTIC_VERSION} (${existing_ver:-unknown}); re-downloading with verify"
+  log "existing binary at ${dest} (${existing_ver:-unknown}); will hash-verify against pinned restic ${RESTIC_VERSION}"
 fi
 
 arch="${RESTIC_ARCH:-}"
@@ -92,6 +89,18 @@ rm -f "${tmp_bz2}"
 tmp_bz2=""
 
 chmod +x "${tmp_bin}"
+
+# Harden existing-dest skip: compare on-disk SHA256 to verified fresh binary.
+if [ -x "${dest}" ]; then
+  ondisk="$(sha256sum "${dest}" | awk '{print $1}')"
+  fresh="$(sha256sum "${tmp_bin}" | awk '{print $1}')"
+  if [ "${ondisk}" = "${fresh}" ]; then
+    log "restic ${RESTIC_VERSION} already installed and hash-verified at ${dest}"
+    exit 0
+  fi
+  log "existing binary at ${dest} hash mismatch; replacing with verified restic ${RESTIC_VERSION}"
+fi
+
 mv -f "${tmp_bin}" "${dest}"
 tmp_bin=""
 
