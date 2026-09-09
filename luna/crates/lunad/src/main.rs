@@ -410,6 +410,10 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
+            lunad::api::public_limits::limit_public_album_uploads,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             touch_io_activity,
         ));
     let app = axum::Router::new()

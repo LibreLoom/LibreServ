@@ -69,6 +69,7 @@ pub struct AppState {
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
+    pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::updates::UpdateService>,
@@ -124,6 +125,12 @@ impl AppState {
                 db.clone(),
                 std::time::Duration::from_secs(60),
                 5,
+            )),
+            // Guest album uploads (token in URL): keep abuse off the USB-backed indexer.
+            public_upload_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                db.clone(),
+                std::time::Duration::from_secs(60),
+                20,
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
