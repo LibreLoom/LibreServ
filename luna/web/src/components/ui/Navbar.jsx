@@ -161,8 +161,6 @@ export default function Navbar() {
   const handleDragStart = (e) => {
     if (window.innerWidth >= 1280) return;
 
-    e.preventDefault();
-
     const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
     const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
 
@@ -196,20 +194,25 @@ export default function Navbar() {
   const handleDrag = (e) => {
     if (!isDragging || window.innerWidth >= 1280) return;
 
-    e.preventDefault();
     const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
     const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
 
     let newX = clientX - dragStartRef.current.x;
     let newY = clientY - dragStartRef.current.y;
 
-    const moveThreshold = 5;
+    const moveThreshold = 12;
     const deltaX = Math.abs(newX - (positionRef.current.x ?? 0));
     const deltaY = Math.abs(newY - (positionRef.current.y ?? 0));
 
-    if (!hasMovedRef.current && (deltaX > moveThreshold || deltaY > moveThreshold)) {
-      setHasMoved(true);
+    if (!hasMovedRef.current) {
+      if (deltaX > moveThreshold || deltaY > moveThreshold) {
+        setHasMoved(true);
+      } else {
+        return;
+      }
     }
+
+    e.preventDefault();
 
     newX = Math.max(0, Math.min(newX, window.innerWidth - FAB_SIZE));
     newY = Math.max(0, Math.min(newY, window.innerHeight - FAB_SIZE));
@@ -236,6 +239,10 @@ export default function Navbar() {
     }
 
     setIsDragging(false);
+
+    if (!hasMovedRef.current) {
+      return;
+    }
 
     const currentX = positionRef.current.x !== null ? positionRef.current.x : window.innerWidth - 80;
     const currentY = positionRef.current.y !== null ? positionRef.current.y : window.innerHeight - 80;
@@ -435,7 +442,7 @@ export default function Navbar() {
                     type="button"
                     role="menuitem"
                     onClick={async () => {
-                      haptic("light");
+                      haptic("medium");
                       setIsUserMenuOpen(false);
                       await logout();
                     }}
@@ -457,7 +464,7 @@ export default function Navbar() {
         className={cn("xl:hidden", "fixed", "bottom-5", "right-5", "flex", "flex-col", "justify-center", "items-center", "w-[60px]", "h-[60px]", "bg-secondary", "border-2", "border-accent", "rounded-full", "cursor-grab", "p-0", "z-[1001]", "touch-none", "select-none", isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "active" : "")}
         style={getHamburgerStyle()}
         onClick={() => {
-          if (!hasMoved) {
+          if (!hasMovedRef.current) {
             haptic("light");
             setIsMobileMenuOpen(!isMobileMenuOpen);
           }
@@ -476,7 +483,10 @@ export default function Navbar() {
       <button
         type="button"
         className={cn("fixed", "inset-0", TRANSITION.base, "bg-secondary/60", "backdrop-blur-sm", "z-999", isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none")}
-        onClick={closeMobileMenu}
+        onClick={() => {
+          haptic("light");
+          closeMobileMenu();
+        }}
         aria-label="Close navigation menu"
         aria-hidden={!isMobileMenuOpen}
         tabIndex={isMobileMenuOpen ? 0 : -1}
@@ -517,6 +527,7 @@ export default function Navbar() {
             <button
               type="button"
               onClick={async () => {
+                haptic("medium");
                 closeMobileMenu();
                 await logout();
               }}

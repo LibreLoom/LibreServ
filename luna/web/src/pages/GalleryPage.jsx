@@ -1050,14 +1050,14 @@ export default function GalleryPage() {
     <Page
       title="Photos"
       titleId="gallery-title"
-      headerClassName={placesMapOverview ? "mb-4 shrink-0" : "mb-8"}
+      headerClassName="mb-8 shrink-0"
       className={
         placesMapOverview
           ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden pb-6 xl:pb-[108px]"
           : undefined
       }
     >
-      <div ref={dropZoneRef}>
+      <div ref={dropZoneRef} className="shrink-0">
       <GalleryToolbar
         segments={SEGMENTS}
         segment={activeSegment}

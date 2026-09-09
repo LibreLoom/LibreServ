@@ -5,6 +5,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import useShakeOnError from "../../hooks/useShakeOnError";
 import { calloutShakeTrigger } from "../../utils/shake";
+import { haptic } from "../../utils/haptics";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const calloutTones = cva(
@@ -95,7 +96,10 @@ export default function Callout({
         {onDismiss && (
           <button
             type="button"
-            onClick={onDismiss}
+            onClick={() => {
+              haptic("light");
+              onDismiss();
+            }}
             className={cn(
               "shrink-0 cursor-pointer hover:bg-primary/20 rounded-pill p-1.5 motion-safe:transition-colors",
               "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline",

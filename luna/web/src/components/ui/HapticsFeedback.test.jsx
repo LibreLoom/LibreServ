@@ -179,4 +179,31 @@ describe("UI Haptic Feedback Integration", () => {
     fireEvent.click(trigger);
     expect(hapticSpy).toHaveBeenCalledWith("light");
   });
+
+  it("Callout emits light haptic when dismissed", async () => {
+    const { default: Callout } = await import("../common/Callout.jsx");
+    const onDismiss = vi.fn();
+    render(
+      <Callout title="Heads up" onDismiss={onDismiss}>
+        Notification message
+      </Callout>
+    );
+    const dismissBtn = screen.getByRole("button", { name: /Dismiss/i });
+    fireEvent.click(dismissBtn);
+    expect(hapticSpy).toHaveBeenCalledWith("light");
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it("ModalCard close button emits light haptic when clicked", async () => {
+    const { default: ModalCard } = await import("../cards/ModalCard.jsx");
+    const onClose = vi.fn();
+    render(
+      <ModalCard open={true} onClose={onClose} title="Dismissable Modal">
+        <p>Modal content</p>
+      </ModalCard>
+    );
+    const closeBtn = screen.getByRole("button", { name: /Close/i });
+    fireEvent.click(closeBtn);
+    expect(hapticSpy).toHaveBeenCalledWith("light");
+  });
 });

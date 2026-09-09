@@ -134,6 +134,7 @@ export default function ModalCard({
   }, [finishExit]);
 
   const handleClose = useCallback(() => {
+    haptic("light");
     beginExit(true);
   }, [beginExit]);
 
