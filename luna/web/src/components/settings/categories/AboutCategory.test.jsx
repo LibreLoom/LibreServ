@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import { AuthProvider } from "../../../context/AuthContext";
 import AboutCategory from "./AboutCategory";
 
 const SHIPPED_KEY = "RWBUILTIN";
@@ -23,6 +25,19 @@ const SOURCE_RESPONSE = {
 function stubFetch(sourceBody) {
   return vi.fn(async (path, options) => {
     void options;
+    const u = String(path);
+    if (u.includes("/auth/me")) {
+      return new Response(JSON.stringify({ id: "1", username: "max", role: "admin" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.includes("/auth/status")) {
+      return new Response(JSON.stringify({ has_admin: true, connect_active: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     if (path.startsWith("/api/v1/health")) {
       return new Response(JSON.stringify({ status: "ok", product: "Luna", version: "0.1.0" }), {
         status: 200,
@@ -50,6 +65,16 @@ function stubFetch(sourceBody) {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (path.startsWith("/api/v1/system/health/check")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          summary: { passed: 1, failed: 0, skipped: 0 },
+          checks: { filesystem: { status: "passed", message: "ok" } },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
     if (path.startsWith("/api/v1/system/updates/source/keys")) {
       return new Response(JSON.stringify({ keys: ["RWFROMREPO"] }), {
@@ -83,9 +108,13 @@ function renderPage(fetchImpl) {
   vi.stubGlobal("fetch", fetchImpl);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}>
-      <AboutCategory />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={["/settings?cat=about"]}>
+      <QueryClientProvider client={client}>
+        <AuthProvider>
+          <AboutCategory />
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
