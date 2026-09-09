@@ -98,7 +98,7 @@ function DriveStateLabel({ state }) {
  * GET /api/v1/drives/{id}/summary. Never invents numbers when the drive is
  * unplugged or the summary is still loading.
  *
- * @param {{ drive: { id: string, label?: string, state: string } }} props
+ * @param {{ drive: { id: string, label?: string, state: string }, isAdmin?: boolean }} props
  */
 function DriveHomeCard({ drive, isAdmin = false }) {
   const ready = drive.state === "as_is" || drive.state === "readonly";
