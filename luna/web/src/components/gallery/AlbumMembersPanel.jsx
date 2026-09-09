@@ -9,9 +9,9 @@ import Spinner from "../ui/Spinner.jsx";
 import { apiErrorMessage, deleteJson, getJson, putJson } from "../../lib/api";
 
 /**
- * Minimal album members list + add/remove for the album owner.
- * Uses /api/v1/users when the signed-in user can list them (Admin);
- * otherwise only shows existing members.
+ * Album members list + add/remove for the album owner or an Admin.
+ * Uses /api/v1/users/directory so Members who own albums can pick people
+ * without the Admin-only user management API.
  *
  * @param {{ album: { home_drive_id: string, id: string, name?: string } }} props
  */
@@ -27,8 +27,8 @@ export default function AlbumMembersPanel({ album }) {
   });
 
   const users = useQuery({
-    queryKey: ["users-for-album"],
-    queryFn: () => getJson("/api/v1/users"),
+    queryKey: ["users-directory"],
+    queryFn: () => getJson("/api/v1/users/directory"),
     retry: false,
   });
 
@@ -61,7 +61,12 @@ export default function AlbumMembersPanel({ album }) {
   });
 
   const list = members.data || [];
-  const userOptions = (users.data || [])
+  const directory = users.data || [];
+  const labelFor = (userId) => {
+    const match = directory.find((u) => u.id === userId);
+    return match?.display_name || match?.username || userId;
+  };
+  const userOptions = directory
     .filter((u) => !list.some((m) => m.user_id === u.id))
     .map((u) => ({
       value: u.id,
@@ -90,14 +95,14 @@ export default function AlbumMembersPanel({ album }) {
               className="flex items-center justify-between gap-2 rounded-pill bg-primary text-secondary px-3 py-2"
             >
               <span className="text-sm font-mono truncate">
-                {m.user_id}
+                {labelFor(m.user_id)}
                 {m.role ? ` · ${m.role}` : ""}
               </span>
               <Button
                 variant="ghost"
                 size="iconSm"
                 surface="primary"
-                aria-label={`Remove ${m.user_id}`}
+                aria-label={`Remove ${labelFor(m.user_id)}`}
                 loading={removeMember.isPending && removeMember.variables === m.user_id}
                 onClick={() => removeMember.mutate(m.user_id)}
               >

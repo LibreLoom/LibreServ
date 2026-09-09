@@ -228,6 +228,19 @@ async fn get_setup(
         .and_then(|raw| serde_json::from_str::<SetupState>(&raw).ok())
         .unwrap_or_default();
     enrich_setup(&mut setup, &state, &addr, &headers);
+    // Members may learn the Luna name and whether setup finished; wizard
+    // draft steps stay Admin-only once accounts exist.
+    let is_admin = current
+        .as_ref()
+        .is_some_and(|Extension(u)| u.role == "admin");
+    if has_users && !is_admin {
+        setup.current_step = if setup.setup_completed {
+            "done".into()
+        } else {
+            default_step()
+        };
+        setup.step_data = Map::new();
+    }
     Ok(Json(setup))
 }
 

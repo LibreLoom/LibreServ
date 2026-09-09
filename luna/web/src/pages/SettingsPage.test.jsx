@@ -201,7 +201,7 @@ describe("SettingsPage", () => {
     stubFetch("user");
     renderPage();
     await screen.findByText("max");
-    expect(screen.getByText(/Some settings require an administrator/i)).toBeTruthy();
+    expect(screen.getByText(/You're signed in as a Member\. Ask an Admin to change External Services or About/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /External Services/i })).toBeNull();
   });

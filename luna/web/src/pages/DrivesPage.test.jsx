@@ -309,7 +309,7 @@ describe("DrivesPage", () => {
     });
     renderPage();
     expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Ask an administrator to share a folder, drive, or file with you/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ask an Admin to share a folder, drive, or file with you/i)).toBeInTheDocument();
     expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
   });
 

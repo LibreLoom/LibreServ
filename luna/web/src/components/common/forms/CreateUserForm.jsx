@@ -185,8 +185,8 @@ export default function CreateUserForm({
         <span className="text-accent font-sans text-sm motion-safe:transition-all shrink-0 inline-flex items-center gap-1.5">
           Role
           <InfoHint
-            label="What Admin means"
-            content="An admin can add users, change settings, and manage this Luna."
+            label="Admin vs Member"
+            content="Admins can add users, change settings, manage drives, and see everything. Members only use folders and albums shared with them."
           />
         </span>
         <Dropdown

@@ -100,7 +100,7 @@ function DriveStateLabel({ state }) {
  *
  * @param {{ drive: { id: string, label?: string, state: string } }} props
  */
-function DriveHomeCard({ drive }) {
+function DriveHomeCard({ drive, isAdmin = false }) {
   const ready = drive.state === "as_is" || drive.state === "readonly";
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -136,9 +136,11 @@ function DriveHomeCard({ drive }) {
             ? "Unplugged. Plug it back in when you want its files and space here."
             : drive.state === "ejected"
               ? "Safely removed. Plug it in again when you need it."
-              : "Luna ran into a problem with this drive. Open Drives for details."}
+              : isAdmin
+                ? "Luna ran into a problem with this drive. Open Drives for details."
+                : "Luna ran into a problem with this drive. Ask an Admin to check it."}
         </p>
-        {drive.state === "failed" ? (
+        {drive.state === "failed" && isAdmin ? (
           <Button size="sm" variant="outline" asChild>
             <Link to="/drives">Open Drives</Link>
           </Button>
@@ -738,6 +740,11 @@ export default function DashboardPage() {
     queryFn: () => getJson("/api/v1/me/access"),
     enabled: !isAdmin,
   });
+  const sharedAlbums = useQuery({
+    queryKey: ["gallery-albums"],
+    queryFn: () => getJson("/api/v1/gallery/albums"),
+    enabled: !isAdmin,
+  });
 
   // "Add drive" modal state — shown when user clicks the dashboard banner button.
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
@@ -817,6 +824,15 @@ export default function DashboardPage() {
   const attentionDrives = adopted.filter((drive) => drive.state === "failed");
   const recentJobs = Array.isArray(jobs.data) ? jobs.data : [];
   const grants = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
+  const albumsShared = Array.isArray(sharedAlbums.data) ? sharedAlbums.data : [];
+  const memberSharesLoading =
+    !isAdmin && (access.isLoading || sharedAlbums.isLoading || sharedAlbums.isPending);
+  const memberHasNothingShared =
+    !isAdmin &&
+    !drives.isLoading &&
+    !memberSharesLoading &&
+    grants.length === 0 &&
+    albumsShared.length === 0;
   const remoteOn = Boolean(connect.data?.enabled && connect.data?.tunnel_active);
   const remoteDomain = connect.data?.domain;
   const deviceTokenError =
@@ -836,7 +852,7 @@ export default function DashboardPage() {
       rightContent={
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {isAdmin ? <SoftwareUpdatePill /> : null}
-          <SystemHealthPill />
+          {isAdmin ? <SystemHealthPill /> : null}
         </div>
       }
     >
@@ -861,7 +877,7 @@ export default function DashboardPage() {
 
         <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
           {adopted.map((drive) => (
-            <DriveHomeCard key={drive.id} drive={drive} />
+            <DriveHomeCard key={drive.id} drive={drive} isAdmin={isAdmin} />
           ))}
 
           {isAdmin && pluggedIn.length > 0 && (
@@ -886,7 +902,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {attentionDrives.length > 0 && (
+          {isAdmin && attentionDrives.length > 0 && (
             <Card icon={TriangleAlert} title="Needs a look">
               <ul className="space-y-2">
                 {attentionDrives.map((drive) => (
@@ -903,7 +919,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {!drives.isLoading && adopted.length === 0 && (
+          {!drives.isLoading && adopted.length === 0 && isAdmin && (
             <EmptyState
               icon={HardDrive}
               title="No drives yet"
@@ -913,6 +929,14 @@ export default function DashboardPage() {
                   <Link to="/drives">Go to Drives</Link>
                 </Button>
               }
+            />
+          )}
+
+          {!drives.isLoading && memberHasNothingShared && (
+            <EmptyState
+              icon={HardDrive}
+              title="Nothing shared with you yet"
+              description="Ask an Admin to share a folder, drive, or album with you."
             />
           )}
 
@@ -931,6 +955,31 @@ export default function DashboardPage() {
                   </li>
                 ))}
               </ul>
+            </Card>
+          )}
+
+          {!isAdmin && !sharedAlbums.isLoading && albumsShared.length > 0 && (
+            <Card title="Albums shared with you">
+              <ul className="space-y-3">
+                {albumsShared.slice(0, 8).map((album) => (
+                  <li key={`${album.home_drive_id}:${album.id}`} className="flex items-center justify-between gap-3">
+                    <span className="text-primary text-sm">{album.name}</span>
+                    <TextLink
+                      surface="secondary"
+                      to={`/gallery#albums/${album.home_drive_id}/${album.id}`}
+                    >
+                      Open
+                    </TextLink>
+                  </li>
+                ))}
+              </ul>
+              {albumsShared.length > 8 ? (
+                <div className="mt-3">
+                  <TextLink surface="secondary" to="/gallery#albums">
+                    See all albums
+                  </TextLink>
+                </div>
+              ) : null}
             </Card>
           )}
         </div>

@@ -47,6 +47,7 @@ import Spinner from "../components/ui/Spinner.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
+import { useAuth } from "../context/AuthContext";
 import { haptic } from "../utils/haptics.js";
 import {
   apiErrorMessage,
@@ -58,6 +59,12 @@ import {
   postJson,
   putJson,
 } from "../lib/api";
+
+/** @param {{ owner_user_id?: string }|null|undefined} album @param {{ id?: string, role?: string }|null|undefined} user */
+function canManageAlbum(album, user) {
+  if (!album || !user) return false;
+  return user.role === "admin" || album.owner_user_id === user.id;
+}
 
 const SEGMENTS = [
   { value: "library", label: "Library" },
@@ -215,6 +222,8 @@ function readGridCols() {
 }
 
 export default function GalleryPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
   const initialHash =
     typeof window !== "undefined" ? parseGalleryHash(window.location.hash) : { segment: DEFAULT_SEGMENT };
@@ -329,10 +338,18 @@ export default function GalleryPage() {
     queryFn: () => getJson("/api/v1/gallery/status"),
     refetchInterval: (query) => (query.state.data?.busy ? 1500 : 8000),
   });
+  const drivesEmpty =
+    !drives.isLoading && Array.isArray(drives.data) && drives.data.length === 0;
+  // Members may have shared albums with no folder grants — probe albums before
+  // treating an empty drives list as “nothing to open.”
   const albums = useQuery({
     queryKey: ["gallery-albums"],
     queryFn: () => getJson("/api/v1/gallery/albums"),
-    enabled: activeSegment === "albums" || !!albumPick || newAlbumOpen,
+    enabled:
+      activeSegment === "albums" ||
+      !!albumPick ||
+      newAlbumOpen ||
+      (!isAdmin && drivesEmpty),
   });
   const places = useQuery({
     queryKey: ["gallery-places"],
@@ -568,8 +585,14 @@ export default function GalleryPage() {
   });
 
   const driveList = drives.data || [];
+  const albumList = Array.isArray(albums.data) ? albums.data : [];
   const looking = gallery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
+  const memberAlbumsGatePending =
+    !isAdmin &&
+    noDrives &&
+    (albums.isLoading || albums.isPending || (!albums.isFetched && !albums.isError));
+  const memberAlbumOnly = !isAdmin && noDrives && !memberAlbumsGatePending && albumList.length > 0;
   const galleryLoadError =
     gallery.isError && !looking
       ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
@@ -581,6 +604,17 @@ export default function GalleryPage() {
     !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
+    activeSegment === "library" &&
+    !search &&
+    !place &&
+    !albumView &&
+    !dayFilter &&
+    filterActiveCount === 0;
+  const albumOnlyLibraryEmpty =
+    memberAlbumOnly &&
+    !looking &&
+    !gallery.isLoading &&
+    photos.length === 0 &&
     activeSegment === "library" &&
     !search &&
     !place &&
@@ -1031,17 +1065,30 @@ export default function GalleryPage() {
     filters.albumMembership ||
     duplicatesView;
 
-  if (noDrives) {
+  if (noDrives && !memberAlbumOnly) {
+    if (memberAlbumsGatePending) {
+      return (
+        <Page title="Photos" titleId="gallery-title">
+          <GalleryLoadingStatus label="Loading photos…" />
+        </Page>
+      );
+    }
     return (
       <Page title="Photos" titleId="gallery-title">
         <EmptyState
           icon={PlugZap}
-          title="No drives yet"
-          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+          title={isAdmin ? "No drives yet" : "No photos you can open yet"}
+          description={
+            isAdmin
+              ? "Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              : "Ask an Admin to share a drive, folder, or album with photos. Luna will show them here once you have access."
+          }
           action={
-            <Button variant="primary" asChild>
-              <Link to="/drives">Go to Drives</Link>
-            </Button>
+            isAdmin ? (
+              <Button variant="primary" asChild>
+                <Link to="/drives">Go to Drives</Link>
+              </Button>
+            ) : undefined
           }
         />
       </Page>
@@ -1218,6 +1265,19 @@ export default function GalleryPage() {
         />
       )}
 
+      {albumOnlyLibraryEmpty && (
+        <EmptyState
+          icon={ImageIcon}
+          title="Shared photos are in Albums"
+          description="An Admin shared albums with you. Open Albums to see them."
+          action={
+            <Button variant="primary" onClick={() => handleSegmentChange("albums")}>
+              Open Albums
+            </Button>
+          }
+        />
+      )}
+
       {searchEmpty && (
         <EmptyState
           icon={ImageIcon}
@@ -1250,6 +1310,7 @@ export default function GalleryPage() {
         <AlbumsPanel
           albums={albums.data || []}
           loading={albums.isLoading}
+          currentUser={user}
           onOpen={tryOpenAlbum}
           onCreate={() => setNewAlbumOpen(true)}
           onDelete={(album) => {
@@ -1418,7 +1479,7 @@ export default function GalleryPage() {
                 Album from day
               </Button>
             )}
-            {albumView && (
+            {albumView && canManageAlbum(albumView, user) && (
               <>
                 <Button
                   variant="secondary"
@@ -1447,7 +1508,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {albumView && <AlbumMembersPanel album={albumView} />}
+      {albumView && canManageAlbum(albumView, user) && <AlbumMembersPanel album={albumView} />}
 
       {albumEmpty && (
         <EmptyState
@@ -1935,6 +1996,7 @@ GalleryLoadingStatus.propTypes = {
 function AlbumsPanel({
   albums,
   loading,
+  currentUser,
   onOpen,
   onCreate,
   onShare,
@@ -2010,7 +2072,9 @@ function AlbumsPanel({
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {sorted.map((album, index) => (
+          {sorted.map((album, index) => {
+            const manage = canManageAlbum(album, currentUser);
+            return (
             <div
               key={`${album.home_drive_id}-${album.id}`}
               className="rounded-large-element bg-secondary text-primary overflow-hidden animate-cascade-in motion-reduce:animate-none"
@@ -2047,9 +2111,11 @@ function AlbumsPanel({
                   <p className="text-xs mt-1">
                     {album.item_count} {album.item_count === 1 ? "item" : "items"}
                     {album.shared ? " · Shared" : ""}
+                    {!manage ? " · Shared with you" : ""}
                   </p>
                 </div>
               </button>
+              {manage ? (
               <div className="px-3 pb-3 flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -2090,8 +2156,10 @@ function AlbumsPanel({
                   <Trash2 size={16} aria-hidden="true" />
                 </Button>
               </div>
+              ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -2101,6 +2169,10 @@ function AlbumsPanel({
 AlbumsPanel.propTypes = {
   albums: PropTypes.array,
   loading: PropTypes.bool,
+  currentUser: PropTypes.shape({
+    id: PropTypes.string,
+    role: PropTypes.string,
+  }),
   onOpen: PropTypes.func,
   onCreate: PropTypes.func,
   onShare: PropTypes.func,

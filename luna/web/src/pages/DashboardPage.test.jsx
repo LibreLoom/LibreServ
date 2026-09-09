@@ -26,6 +26,7 @@ function jsonResponse(body, status = 200) {
  * @param {boolean} [opts.connectActive]
  * @param {any} [opts.jobs]
  * @param {any} [opts.access]
+ * @param {any} [opts.albums]
  * @param {Record<string, any>} [opts.summaries]
  */
 function stubFetch({
@@ -40,6 +41,7 @@ function stubFetch({
   connectActive = false,
   jobs = [],
   access = [],
+  albums = [],
   summaries = {
     d1: {
       id: "d1",
@@ -96,6 +98,7 @@ function stubFetch({
       }
       if (u.includes("/api/v1/jobs")) return jsonResponse(jobs);
       if (u.endsWith("/api/v1/me/access")) return jsonResponse(access);
+      if (u.includes("/api/v1/gallery/albums")) return jsonResponse(albums);
       const inspectMatch = u.match(/\/api\/v1\/drives\/([^/]+)\/inspect$/);
       if (inspectMatch) {
         return jsonResponse({
@@ -160,13 +163,50 @@ describe("DashboardPage", () => {
     expect(screen.queryByText(/Anywhere, free/i)).not.toBeInTheDocument();
   });
 
-  it("helps when there are no drives yet", async () => {
+  it("helps Admins when there are no drives yet", async () => {
     stubFetch({ drives: [] });
     renderPage();
     expect(await screen.findByText(/No drives yet/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
     expect(screen.queryByText(/No subscription/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/free forever/i)).not.toBeInTheDocument();
+  });
+
+  it("tells Members to ask an Admin when nothing is shared yet", async () => {
+    stubFetch({ username: "jamie", role: "user", drives: [], access: [], albums: [] });
+    renderPage();
+    expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Ask an Admin to share a folder, drive, or album with you/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Plug a USB drive/i)).not.toBeInTheDocument();
+  });
+
+  it("shows shared albums for Members with no folder grants", async () => {
+    stubFetch({
+      username: "jamie",
+      role: "user",
+      drives: [],
+      access: [],
+      albums: [
+        {
+          id: "al1",
+          home_drive_id: "d1",
+          name: "Beach day",
+          item_count: 4,
+          shared: true,
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText(/Albums shared with you/i)).toBeInTheDocument();
+    expect(screen.getByText("Beach day")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Open$/i })).toHaveAttribute(
+      "href",
+      "/gallery#albums/d1/al1",
+    );
+    expect(screen.queryByText(/Nothing shared with you yet/i)).not.toBeInTheDocument();
   });
 
   it("flags a newly plugged-in USB for admins", async () => {

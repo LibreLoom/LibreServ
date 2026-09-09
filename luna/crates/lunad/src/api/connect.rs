@@ -46,10 +46,19 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/connect/backup-sources", post(set_sources))
 }
 
-async fn config(State(state): State<AppState>) -> Json<Value> {
+async fn config(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can view Connect settings.",
+        ));
+    }
     let active = state.connect.is_connect_active();
     let st = state.connect.status();
-    Json(json!({
+    Ok(Json(json!({
         "connect_active": active,
         "device_token": {
             "present": active,
@@ -57,7 +66,7 @@ async fn config(State(state): State<AppState>) -> Json<Value> {
         "cloud_bind": {
             "state": if !active { "n/a" } else if st.enabled { "claimed" } else { "unclaimed" },
         },
-    }))
+    })))
 }
 
 async fn status(

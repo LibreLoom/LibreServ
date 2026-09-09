@@ -177,10 +177,14 @@ export default function FilesPage() {
           className="mt-4"
           icon={HardDrive}
           title="Drive not found"
-          description="Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+          description={
+            isAdmin
+              ? "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              : "Luna couldn't open this drive. Ask an Admin if you still need access."
+          }
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to="/drives">Go to Drives</Link>
+              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Files"}</Link>
             </Button>
           }
         />
@@ -191,10 +195,14 @@ export default function FilesPage() {
           className="mt-4"
           icon={HardDrive}
           title="Drive unplugged"
-          description="This drive is unplugged. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+          description={
+            isAdmin
+              ? "This drive is unplugged. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
+          }
           action={
             <Button size="sm" variant="primary" asChild>
-              <Link to="/drives">Go to Drives</Link>
+              <Link to="/drives">{isAdmin ? "Go to Drives" : "Back to Files"}</Link>
             </Button>
           }
         />

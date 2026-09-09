@@ -1138,24 +1138,39 @@ fn load_album_paths(
     mounts: &[(String, PathBuf)],
     filter: &ListFilter,
 ) -> anyhow::Result<Option<HashSet<(String, String)>>> {
-    let (Some(album_id), Some(home)) = (&filter.album_id, &filter.album_home_drive) else {
-        return Ok(None);
-    };
-    let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
-        return Ok(Some(HashSet::new()));
-    };
-    if !gallery_db_path(root).exists() {
-        return Ok(Some(HashSet::new()));
+    let album_id = filter
+        .album_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let home = filter
+        .album_home_drive
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match (album_id, home) {
+        (None, None) => Ok(None),
+        // Incomplete album filter must not fall through to an unfiltered library list.
+        (None, Some(_)) | (Some(_), None) => Ok(Some(HashSet::new())),
+        (Some(album_id), Some(home)) => {
+            let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
+                return Ok(Some(HashSet::new()));
+            };
+            if !gallery_db_path(root).exists() {
+                return Ok(Some(HashSet::new()));
+            }
+            let conn = open_drive_db(root)?;
+            let mut stmt =
+                conn.prepare("SELECT drive_id, path FROM album_items WHERE album_id = ?1")?;
+            let set = stmt
+                .query_map(params![album_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(Some(set))
+        }
     }
-    let conn = open_drive_db(root)?;
-    let mut stmt = conn.prepare("SELECT drive_id, path FROM album_items WHERE album_id = ?1")?;
-    let set = stmt
-        .query_map(params![album_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-    Ok(Some(set))
 }
 
 fn query_drive_photos(
@@ -1559,10 +1574,18 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
 }
 
 /// Distinct non-empty camera make/model pairs across mounts, ordered by count desc.
-pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCount>> {
+///
+/// When `path_grants` is `Some`, only photos under those grant prefixes (per drive)
+/// are counted — Members must not learn cameras from folders they cannot open.
+/// A drive missing from the map is denied (empty grant), not treated as Admin.
+/// `None` means unrestricted (Admin).
+pub fn list_cameras(
+    mounts: &[(String, PathBuf)],
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+) -> anyhow::Result<Vec<CameraCount>> {
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
-    for (_, root) in mounts {
+    for (drive_id, root) in mounts {
         if !gallery_db_path(root).exists() {
             continue;
         }
@@ -1571,21 +1594,23 @@ pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCo
             Err(_) => continue,
         };
         let mut stmt = conn.prepare(
-            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), COUNT(*)
+            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), path
              FROM photos
-             WHERE COALESCE(camera_make, '') != '' OR COALESCE(camera_model, '') != ''
-             GROUP BY COALESCE(camera_make, ''), COALESCE(camera_model, '')",
+             WHERE COALESCE(camera_make, '') != '' OR COALESCE(camera_model, '') != ''",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
+                row.get::<_, String>(2)?,
             ))
         })?;
         for row in rows.flatten() {
-            let (make, model, count) = row;
-            *map.entry((make, model)).or_insert(0) += count.max(0) as u64;
+            let (make, model, path) = row;
+            if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                continue;
+            }
+            *map.entry((make, model)).or_insert(0) += 1;
         }
     }
     let mut out: Vec<CameraCount> = map
@@ -1601,10 +1626,34 @@ pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCo
     Ok(out)
 }
 
+/// `path_grants = None` → Admin (allow all).
+/// `path_grants = Some(map)` → Member: only paths under that drive's prefixes;
+/// a missing drive key denies every path on that drive (never “allow all”).
+fn path_allowed_by_grants(
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    match path_grants {
+        None => true,
+        Some(grants) => match grants.get(drive_id) {
+            None => false,
+            Some(prefs) => prefs
+                .iter()
+                .any(|p| crate::grants::path_contains(p, path)),
+        },
+    }
+}
+
 /// Aggregate filter facet values (cameras, lenses, formats, ISO/focal ranges).
-pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<FilterFacets> {
+///
+/// See [`list_cameras`] for `path_grants` semantics.
+pub fn list_filter_facets(
+    mounts: &[(String, PathBuf)],
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+) -> anyhow::Result<FilterFacets> {
     use std::collections::HashMap;
-    let cameras = list_cameras(mounts)?;
+    let cameras = list_cameras(mounts, path_grants)?;
     let mut lenses: HashMap<String, u64> = HashMap::new();
     let mut formats: HashMap<String, u64> = HashMap::new();
     let mut iso_min: Option<u32> = None;
@@ -1612,7 +1661,7 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
     let mut focal_min: Option<f64> = None;
     let mut focal_max: Option<f64> = None;
 
-    for (_, root) in mounts {
+    for (drive_id, root) in mounts {
         if !gallery_db_path(root).exists() {
             continue;
         }
@@ -1622,22 +1671,27 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
         };
         {
             let mut stmt = conn.prepare(
-                "SELECT COALESCE(lens, ''), COUNT(*) FROM photos
-                 WHERE COALESCE(lens, '') != ''
-                 GROUP BY COALESCE(lens, '')",
+                "SELECT COALESCE(lens, ''), path FROM photos
+                 WHERE COALESCE(lens, '') != ''",
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             for row in rows.flatten() {
-                let (lens, count) = row;
-                *lenses.entry(lens).or_insert(0) += count.max(0) as u64;
+                let (lens, path) = row;
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                    continue;
+                }
+                *lenses.entry(lens).or_insert(0) += 1;
             }
         }
         {
             let mut stmt = conn.prepare("SELECT path FROM photos")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             for path in rows.flatten() {
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                    continue;
+                }
                 let ext = normalize_format_ext(&path_ext_lower(&path));
                 if ext.is_empty() {
                     continue;
@@ -1646,31 +1700,35 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
             }
         }
         {
-            let mut stmt = conn.prepare("SELECT MIN(iso), MAX(iso) FROM photos WHERE iso > 0")?;
-            let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
-                let min: Option<i64> = row.get(0)?;
-                let max: Option<i64> = row.get(1)?;
-                if let (Some(min), Some(max)) = (min, max) {
-                    let min = min.max(0) as u32;
-                    let max = max.max(0) as u32;
-                    iso_min = Some(iso_min.map_or(min, |v| v.min(min)));
-                    iso_max = Some(iso_max.map_or(max, |v| v.max(max)));
+            let mut stmt =
+                conn.prepare("SELECT iso, path FROM photos WHERE iso > 0")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows.flatten() {
+                let (iso, path) = row;
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                    continue;
                 }
-                Ok(())
-            });
+                let iso = iso.max(0) as u32;
+                iso_min = Some(iso_min.map_or(iso, |v| v.min(iso)));
+                iso_max = Some(iso_max.map_or(iso, |v| v.max(iso)));
+            }
         }
         {
             let mut stmt =
-                conn.prepare("SELECT MIN(focal_mm), MAX(focal_mm) FROM photos WHERE focal_mm > 0")?;
-            let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
-                let min: Option<f64> = row.get(0)?;
-                let max: Option<f64> = row.get(1)?;
-                if let (Some(min), Some(max)) = (min, max) {
-                    focal_min = Some(focal_min.map_or(min, |v| v.min(min)));
-                    focal_max = Some(focal_max.map_or(max, |v| v.max(max)));
+                conn.prepare("SELECT focal_mm, path FROM photos WHERE focal_mm > 0")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, f64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows.flatten() {
+                let (focal, path) = row;
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
+                    continue;
                 }
-                Ok(())
-            });
+                focal_min = Some(focal_min.map_or(focal, |v| v.min(focal)));
+                focal_max = Some(focal_max.map_or(focal, |v| v.max(focal)));
+            }
         }
     }
 
@@ -1852,7 +1910,11 @@ fn album_cover_thumb(home_drive_id: &str, cover_drive_id: &str, cover_path: &str
     thumb_url(drive, cover_path)
 }
 
-pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Result<Vec<Album>> {
+pub fn list_albums(
+    mounts: &[(String, PathBuf)],
+    user_id: &str,
+    include_all: bool,
+) -> anyhow::Result<Vec<Album>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
         if !gallery_db_path(root).exists() {
@@ -1862,16 +1924,23 @@ pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Resul
             Ok(c) => c,
             Err(_) => continue,
         };
-        let mut stmt = conn.prepare(
+        let sql = if include_all {
+            "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
+                    a.shared, a.allow_uploads, a.contrib_path, a.locked,
+                    (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
+             FROM albums a
+             ORDER BY a.created_at DESC"
+        } else {
             "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
                     a.shared, a.allow_uploads, a.contrib_path, a.locked,
                     (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
              FROM albums a
              WHERE a.owner_user_id = ?1
                 OR EXISTS (SELECT 1 FROM album_members m WHERE m.album_id = a.id AND m.user_id = ?1)
-             ORDER BY a.created_at DESC",
-        )?;
-        let rows = stmt.query_map(params![user_id], |row| {
+             ORDER BY a.created_at DESC"
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Album> {
             let cover_path: String = row.get(4)?;
             let cover_drive_id: String = row.get(5)?;
             Ok(Album {
@@ -1889,9 +1958,17 @@ pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Resul
                 locked: row.get::<_, i64>(9)? != 0,
                 item_count: row.get::<_, i64>(10)? as u64,
             })
-        })?;
-        for row in rows {
-            out.push(row?);
+        };
+        if include_all {
+            let rows = stmt.query_map([], map_row)?;
+            for row in rows {
+                out.push(row?);
+            }
+        } else {
+            let rows = stmt.query_map(params![user_id], map_row)?;
+            for row in rows {
+                out.push(row?);
+            }
         }
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
@@ -2531,6 +2608,70 @@ pub fn user_can_access_album(root: &Path, album: &Album, user_id: &str) -> anyho
     Ok(n > 0)
 }
 
+/// True when `path` on `drive_id` is in an album this user owns, joined, or (Admin) any album.
+///
+/// Used so Members can open photos through album membership without a folder grant.
+pub fn user_can_view_path_via_album(
+    mounts: &[(String, PathBuf)],
+    user_id: &str,
+    as_admin: bool,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    for (home, root) in mounts {
+        if !gallery_db_path(root).exists() {
+            continue;
+        }
+        let Ok(conn) = open_drive_db(root) else {
+            continue;
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT a.id, a.owner_user_id, a.contrib_path
+             FROM albums a
+             WHERE EXISTS (
+                 SELECT 1 FROM album_items i
+                 WHERE i.album_id = a.id AND i.drive_id = ?1 AND i.path = ?2
+             )
+             OR (
+                 a.contrib_path != ''
+                 AND ?1 = ?3
+                 AND (
+                     ?2 = a.contrib_path
+                     OR ?2 LIKE (a.contrib_path || '/%')
+                 )
+             )",
+        ) else {
+            continue;
+        };
+        let Ok(rows) = stmt.query_map(params![drive_id, path, home.as_str()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        }) else {
+            continue;
+        };
+        for row in rows.flatten() {
+            let (album_id, owner_user_id, _contrib) = row;
+            if as_admin || owner_user_id == user_id {
+                return true;
+            }
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM album_members WHERE album_id = ?1 AND user_id = ?2",
+                    params![album_id, user_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if n > 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn user_can_contribute(root: &Path, album: &Album, user_id: &str) -> anyhow::Result<bool> {
     if album.owner_user_id == user_id {
         return Ok(true);
@@ -2758,7 +2899,7 @@ mod tests {
 
         let album = create_album(&photos_dir, "d1", "u1", "Trip").unwrap();
         add_album_items(&photos_dir, &album.id, &[("d1".into(), "x.png".into())]).unwrap();
-        let albums = list_albums(&mounts, "u1").unwrap();
+        let albums = list_albums(&mounts, "u1", false).unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].item_count, 1);
 
@@ -2864,7 +3005,7 @@ mod tests {
         scan_drive("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let cameras = list_cameras(&mounts).unwrap();
+        let cameras = list_cameras(&mounts, None).unwrap();
         assert!(
             cameras
                 .iter()
@@ -2911,6 +3052,171 @@ mod tests {
     }
 
     #[test]
+    fn list_cameras_respects_path_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir_all(photos_dir.join("shared")).unwrap();
+        std::fs::create_dir_all(photos_dir.join("secret")).unwrap();
+        std::fs::write(
+            photos_dir.join("shared/canon.jpg"),
+            crate::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        )
+        .unwrap();
+        std::fs::write(
+            photos_dir.join("secret/nikon.jpg"),
+            crate::exif::jpeg_with_exif(
+                "2020:02:03 04:05:06",
+                Some("NIKON CORPORATION"),
+                Some("NIKON D850"),
+            ),
+        )
+        .unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir.clone())];
+        let mut grants = std::collections::HashMap::new();
+        grants.insert("d1".into(), vec!["shared".into()]);
+        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
+        assert!(
+            cameras
+                .iter()
+                .any(|c| c.make == "Canon" && c.model == "EOS R5"),
+            "expected Canon under grant: {cameras:?}"
+        );
+        assert!(
+            cameras
+                .iter()
+                .all(|c| !(c.make == "NIKON CORPORATION" && c.model == "NIKON D850")),
+            "Nikon outside grant must not appear: {cameras:?}"
+        );
+    }
+
+    #[test]
+    fn list_cameras_member_missing_drive_key_denies_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        std::fs::write(
+            photos_dir.join("canon.jpg"),
+            crate::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        )
+        .unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir)];
+        // Member map present but this drive has no entry — must not equal Admin None.
+        let grants = std::collections::HashMap::new();
+        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
+        assert!(
+            cameras.is_empty(),
+            "missing drive key under Some(grants) must deny: {cameras:?}"
+        );
+        let admin = list_cameras(&mounts, None).unwrap();
+        assert!(
+            admin
+                .iter()
+                .any(|c| c.make == "Canon" && c.model == "EOS R5"),
+            "Admin None still sees cameras: {admin:?}"
+        );
+    }
+
+    #[test]
+    fn list_albums_include_all_returns_every_album() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let a = create_album(root, "home", "u1", "Mine").unwrap();
+        let b = create_album(root, "home", "u2", "Theirs").unwrap();
+        let mounts = vec![("home".into(), root.to_path_buf())];
+        let member_view = list_albums(&mounts, "u1", false).unwrap();
+        assert_eq!(member_view.len(), 1);
+        assert_eq!(member_view[0].id, a.id);
+        let admin_view = list_albums(&mounts, "u1", true).unwrap();
+        assert_eq!(admin_view.len(), 2);
+        assert!(admin_view.iter().any(|x| x.id == a.id));
+        assert!(admin_view.iter().any(|x| x.id == b.id));
+    }
+
+    #[test]
+    fn album_member_can_view_item_without_folder_grant() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let album = create_album(root, "home", "owner", "Shared").unwrap();
+        add_album_items(root, &album.id, &[("home".into(), "secret/pic.jpg".into())]).unwrap();
+        upsert_member(root, &album.id, "member", "viewer").unwrap();
+        let mounts = vec![("home".into(), root.to_path_buf())];
+        assert!(user_can_view_path_via_album(
+            &mounts,
+            "member",
+            false,
+            "home",
+            "secret/pic.jpg"
+        ));
+        assert!(!user_can_view_path_via_album(
+            &mounts,
+            "stranger",
+            false,
+            "home",
+            "secret/pic.jpg"
+        ));
+        assert!(user_can_view_path_via_album(
+            &mounts,
+            "stranger",
+            true,
+            "home",
+            "secret/pic.jpg"
+        ));
+    }
+
+    #[test]
+    fn list_photos_album_id_without_home_does_not_list_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
+        png.save(photos_dir.join("private.png")).unwrap();
+        png.save(photos_dir.join("shared.png")).unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let album = create_album(&photos_dir, "d1", "owner", "Shared").unwrap();
+        add_album_items(
+            &photos_dir,
+            &album.id,
+            &[("d1".into(), "shared.png".into())],
+        )
+        .unwrap();
+        let mounts = vec![("d1".into(), photos_dir)];
+
+        let leaked = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                album_id: Some(album.id.clone()),
+                album_home_drive: None,
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert!(
+            leaked.items.is_empty(),
+            "album_id without album home must not return the unfiltered library"
+        );
+
+        let scoped = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                album_id: Some(album.id.clone()),
+                album_home_drive: Some("d1".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(scoped.items.len(), 1);
+        assert_eq!(scoped.items[0].path, "shared.png");
+    }
+
+    #[test]
     fn rich_exif_filters_and_facets() {
         let dir = tempfile::tempdir().unwrap();
         let photos_dir = dir.path().join("photos");
@@ -2940,7 +3246,7 @@ mod tests {
         scan_drive("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let facets = list_filter_facets(&mounts).unwrap();
+        let facets = list_filter_facets(&mounts, None).unwrap();
         assert!(
             facets
                 .lenses

@@ -3,24 +3,60 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import { AuthProvider } from "../context/AuthContext";
 import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
-/** @param {{ places?: unknown[], albums?: unknown[], albumsHold?: Promise<void>, galleryHold?: Promise<void>, galleryItems?: unknown[] | null }} [options] */
-function stubGalleryFetch({ places = [], albums = [], albumsHold, galleryHold, galleryItems } = {}) {
+/**
+ * @param {{
+ *   places?: unknown[],
+ *   albums?: unknown[],
+ *   albumsHold?: Promise<void>,
+ *   galleryHold?: Promise<void>,
+ *   galleryItems?: unknown[] | null,
+ *   role?: string,
+ *   drives?: unknown[] | null,
+ * }} [options]
+ */
+function stubGalleryFetch({
+  places = [],
+  albums = [],
+  albumsHold,
+  galleryHold,
+  galleryItems,
+  role = "admin",
+  drives = [
+    { id: "a", label: "Family" },
+    { id: "b", label: "Travel" },
+  ],
+} = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url) => {
       const u = String(url);
-      if (u.endsWith("/drives")) {
+      if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
         return new Response(
-          JSON.stringify([
-            { id: "a", label: "Family" },
-            { id: "b", label: "Travel" },
-          ]),
+          JSON.stringify({
+            id: "1",
+            username: role === "admin" ? "max" : "jamie",
+            role,
+            has_admin: true,
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
+      }
+      if (u.includes("/setup")) {
+        return new Response(
+          JSON.stringify({ name: "Luna", setup_completed: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify(drives ?? []), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/gallery/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
@@ -83,7 +119,9 @@ function renderGallery() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <GalleryPage />
+        <AuthProvider>
+          <GalleryPage />
+        </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -153,11 +191,23 @@ describe("GalleryPage", () => {
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
   });
 
-  it("points people to Drives when there is nothing to look in", async () => {
+  it("points Admins to Drives when there is nothing to look in", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url) => {
         const u = String(url);
+        if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
+          return new Response(
+            JSON.stringify({ id: "1", username: "max", role: "admin", has_admin: true }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (u.includes("/setup")) {
+          return new Response(
+            JSON.stringify({ name: "Luna", setup_completed: true }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
         if (u.includes("/gallery/status")) {
           return new Response(JSON.stringify(STATUS_OK), {
             status: 200,
@@ -179,6 +229,63 @@ describe("GalleryPage", () => {
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Search photos/i)).not.toBeInTheDocument();
     expect(document.querySelector("[data-slot=gallery-toolbar]")).toBeNull();
+  });
+
+  it("tells Members to ask an Admin when they have no drives", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
+          return new Response(
+            JSON.stringify({ id: "2", username: "jamie", role: "user", has_admin: true }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (u.includes("/setup")) {
+          return new Response(
+            JSON.stringify({ name: "Luna", setup_completed: true }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (u.includes("/gallery/status")) {
+          return new Response(JSON.stringify(STATUS_OK), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    renderGallery();
+    expect(await screen.findByText(/No photos you can open yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Ask an Admin to share a drive, folder, or album with photos/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+  });
+
+  it("lets album-only Members open Albums when they have no drives", async () => {
+    stubGalleryFetch({
+      role: "user",
+      drives: [],
+      galleryItems: [],
+      albums: [
+        {
+          id: "al-shared",
+          home_drive_id: "a",
+          name: "Family trip",
+          item_count: 3,
+          shared: true,
+          cover_thumb: null,
+        },
+      ],
+    });
+    renderGallery();
+    expect(await screen.findByText(/Shared photos are in Albums/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Open Albums/i }));
+    expect(await screen.findByRole("button", { name: /^Family trip\b/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No photos you can open yet/i)).not.toBeInTheDocument();
   });
 
   it("defaults the URL hash to #library when none is set", async () => {
@@ -573,6 +680,18 @@ describe("GalleryPage", () => {
     let busy = true;
     const fetchMock = vi.fn(async (url) => {
       const u = String(url);
+      if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
+        return new Response(
+          JSON.stringify({ id: "1", username: "max", role: "admin", has_admin: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/setup")) {
+        return new Response(
+          JSON.stringify({ name: "Luna", setup_completed: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (u.endsWith("/drives")) {
         return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
           status: 200,
@@ -624,7 +743,9 @@ describe("GalleryPage", () => {
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <GalleryPage />
+          <AuthProvider>
+            <GalleryPage />
+          </AuthProvider>
         </MemoryRouter>
       </QueryClientProvider>,
     );

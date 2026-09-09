@@ -289,6 +289,7 @@ FormField.propTypes = {
 
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const needsDeviceToken = isPublicLunaHost() && connectActive;
   const [form, setForm] = useState({
@@ -506,6 +507,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   // Luna already has an account — the wizard can't create another one.
   if (hasAdmin) {
     if (user) {
+      const isAdmin = user.role === "admin";
       return (
         <div className="flex flex-col items-center text-center">
           <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
@@ -514,16 +516,22 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
             You&rsquo;re signed in
           </h2>
-          <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            Signed in as <span className="font-mono text-primary">{user.username}</span>. This account manages Luna.
+          <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+            Signed in as <span className="font-mono text-primary">{user.username}</span>
+            {isAdmin
+              ? ". You're an Admin on this Luna."
+              : ". You're a Member. An Admin finishes setup and shares folders with you."}
           </p>
           <div className="mt-8 animate-in fade-in duration-300 delay-300">
             <Button
               variant="primary"
-              onClick={onContinue}
+              onClick={() => {
+                if (isAdmin) onContinue();
+                else navigate("/");
+              }}
               className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
             >
-              Continue
+              {isAdmin ? "Continue" : "Go to Home"}
               <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
             </Button>
           </div>
@@ -538,7 +546,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
           Sign in to continue
         </h2>
-        <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+        <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
           This Luna already has an account. Sign in with it to finish setup.
         </p>
         <div className="mt-8 animate-in fade-in duration-300 delay-300">
@@ -565,7 +573,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         {authSubStep === 0 && (
           <div className="mt-2 space-y-2">
             <p className="text-primary text-sm leading-relaxed font-sans">
-              You&apos;re creating the initial admin account. This account can access every file on Luna.
+              You&apos;re creating the first Admin account. An Admin can access every file on this Luna.
             </p>
             <p className="text-primary text-sm leading-relaxed font-sans">
               Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders.
@@ -752,7 +760,7 @@ function NameStep({ initialName, onFinish }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
           Name your Luna
         </h2>
-        <p className="text-primary/50 text-sm mt-2">
+        <p className="text-primary text-sm mt-2">
           This is the name you&rsquo;ll see when you open Luna. If you ever have two, each gets its own name.
         </p>
       </div>
@@ -830,7 +838,7 @@ function DoneStep({ name, onGoDrives }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
           {label} is ready.
         </h2>
-        <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+        <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
           Now plug in a USB drive. Luna will notice and won&rsquo;t touch a thing until you say so.
         </p>
 

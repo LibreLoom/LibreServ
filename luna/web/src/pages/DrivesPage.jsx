@@ -484,7 +484,7 @@ export default function DrivesPage() {
           <EmptyState
             icon={FolderOpen}
             title="Nothing shared with you yet"
-            description="Ask an administrator to share a folder, drive, or file with you."
+            description="Ask an Admin to share a folder, drive, or file with you."
           />
         )}
         <AccessSheet

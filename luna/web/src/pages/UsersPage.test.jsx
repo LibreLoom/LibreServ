@@ -120,6 +120,7 @@ describe("UsersPage", () => {
 
     expect(within(articles[1]).getByText("Alex")).toBeTruthy();
     expect(within(articles[1]).getByText("Member")).toBeTruthy();
+    expect(within(articles[1]).getByLabelText(/What Member means/i)).toBeTruthy();
     expect(within(articles[1]).getByRole("button", { name: /Remove Alex/i })).toBeTruthy();
   });
 
@@ -170,7 +171,7 @@ describe("UsersPage", () => {
     expect(within(dialog).getByLabelText(/^Name$/i)).toBeTruthy();
     expect(within(dialog).getByLabelText(/Username/i)).toBeTruthy();
     expect(within(dialog).getByLabelText("Role")).toBeTruthy();
-    expect(within(dialog).getByLabelText(/What Admin means/i)).toBeTruthy();
+    expect(within(dialog).getByLabelText(/Admin vs Member/i)).toBeTruthy();
 
     const password = within(dialog).getByLabelText(/^Password/i);
     const addBtn = within(dialog).getByRole("button", { name: /^Add user$/i });

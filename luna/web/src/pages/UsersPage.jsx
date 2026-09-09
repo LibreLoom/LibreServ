@@ -63,7 +63,7 @@ export default function UsersPage() {
       <Page title="Users">
         <Card padding>
           <p className="text-primary text-sm">
-            This page is for admins. Ask an admin if you need someone added or removed.
+            This page is for Admins. Ask an Admin if you need someone added or removed.
           </p>
         </Card>
       </Page>
@@ -164,14 +164,20 @@ export default function UsersPage() {
                             </Pill>
                             <InfoHint
                               label="What Admin means"
-                              content="An admin can add users, change settings, and manage this Luna."
+                              content="An Admin can add users, change settings, manage drives, and see everything on this Luna."
                             />
                           </span>
                         ) : (
-                          <Pill variant="default">
-                            <Shield size={12} className="mr-0.5" aria-hidden="true" />
-                            Member
-                          </Pill>
+                          <span className="inline-flex items-center gap-1">
+                            <Pill variant="default">
+                              <Shield size={12} className="mr-0.5" aria-hidden="true" />
+                              Member
+                            </Pill>
+                            <InfoHint
+                              label="What Member means"
+                              content="A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings."
+                            />
+                          </span>
                         ),
                     },
                     {
