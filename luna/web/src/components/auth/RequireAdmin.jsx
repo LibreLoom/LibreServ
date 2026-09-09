@@ -12,7 +12,7 @@ export default function RequireAdmin({ children, title = "This page is for admin
     <Page title={title} titleId="admin-only-title">
       <Card>
         <p className="text-primary text-sm">
-          This screen changes how everyone uses Luna. Ask an admin if you need something here.
+          This screen is for Admins. Members can use folders and albums shared with them — ask an Admin if you need something changed here.
         </p>
       </Card>
     </Page>

@@ -22,6 +22,64 @@ const GALLERY_DOWNLOAD_ZIP_MAX: usize = 200;
 type ApiError = (StatusCode, Json<Value>);
 type DriveMounts = Vec<(String, PathBuf)>;
 
+fn is_admin(user: &crate::auth::CurrentUser) -> bool {
+    user.role == "admin"
+}
+
+fn can_manage_album(user: &crate::auth::CurrentUser, album: &gallery::Album) -> bool {
+    is_admin(user) || album.owner_user_id == user.id
+}
+
+fn can_view_album(
+    user: &crate::auth::CurrentUser,
+    root: &FsPath,
+    album: &gallery::Album,
+) -> bool {
+    if is_admin(user) {
+        return true;
+    }
+    gallery::user_can_access_album(root, album, &user.id).unwrap_or(false)
+}
+
+fn can_contribute_album(
+    user: &crate::auth::CurrentUser,
+    root: &FsPath,
+    album: &gallery::Album,
+) -> bool {
+    if is_admin(user) {
+        return true;
+    }
+    gallery::user_can_contribute(root, album, &user.id).unwrap_or(false)
+}
+
+/// Path prefixes per drive for Members. `None` means Admin (unrestricted).
+fn path_grants_for_user(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+) -> Result<Option<std::collections::HashMap<String, Vec<String>>>, ApiError> {
+    if is_admin(user) {
+        return Ok(None);
+    }
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let grants = crate::db::list_grants_for_user(&conn, &user.id).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't check your folder access.",
+        )
+    })?;
+    let mut map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for g in grants {
+        map.entry(g.drive_id).or_default().push(g.path);
+    }
+    Ok(Some(map))
+}
+
 #[derive(Deserialize)]
 struct GalleryQuery {
     #[serde(default)]
@@ -509,7 +567,8 @@ async fn cameras(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
-    let cameras = gallery::list_cameras(&mounts).map_err(|_| {
+    let grants = path_grants_for_user(&state, &user)?;
+    let cameras = gallery::list_cameras(&mounts, grants.as_ref()).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list cameras.",
@@ -523,7 +582,8 @@ async fn filter_facets(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<gallery::FilterFacets>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
-    let facets = gallery::list_filter_facets(&mounts).map_err(|_| {
+    let grants = path_grants_for_user(&state, &user)?;
+    let facets = gallery::list_filter_facets(&mounts, grants.as_ref()).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't load photo filters.",
@@ -1289,7 +1349,7 @@ async fn list_albums(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<gallery::Album>>, (StatusCode, Json<Value>)> {
     let mounts = accessible_mounts(&state, &user, None)?;
-    let albums = gallery::list_albums(&mounts, &user.id).map_err(|_| {
+    let albums = gallery::list_albums(&mounts, &user.id, is_admin(&user)).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't list albums.",
@@ -1355,7 +1415,7 @@ async fn get_album(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !gallery::user_can_access_album(&root, &album, &user.id).unwrap_or(false) {
+    if !can_view_album(&user, &root, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to view this album.",
@@ -1379,10 +1439,10 @@ async fn patch_album(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id {
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only the album owner can change these settings.",
+            "Only the album owner or an Admin can change these settings.",
         ));
     }
     let cover = match (
@@ -1440,10 +1500,10 @@ async fn delete_album(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id {
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only the album owner can delete this album.",
+            "Only the album owner or an Admin can delete this album.",
         ));
     }
     gallery::delete_album(&root, &id).map_err(|_| {
@@ -1470,8 +1530,7 @@ async fn add_items(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    let can_add = album.owner_user_id == user.id
-        || gallery::user_can_contribute(&root, &album, &user.id).unwrap_or(false);
+    let can_add = can_contribute_album(&user, &root, &album);
     if !can_add {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1528,9 +1587,7 @@ async fn remove_item(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id
-        && !gallery::user_can_contribute(&root, &album, &user.id).unwrap_or(false)
-    {
+    if !can_contribute_album(&user, &root, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to change this album.",
@@ -1559,7 +1616,7 @@ async fn list_members(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !gallery::user_can_access_album(&root, &album, &user.id).unwrap_or(false) {
+    if !can_view_album(&user, &root, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to view this album.",
@@ -1589,10 +1646,10 @@ async fn put_member(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id {
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only the album owner can invite people.",
+            "Only the album owner or an Admin can invite people.",
         ));
     }
     let role = if body.role == "contributor" {
@@ -1623,10 +1680,10 @@ async fn delete_member(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id && user.id != user_id {
+    if !can_manage_album(&user, &album) && user.id != user_id {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only the album owner can remove members.",
+            "Only the album owner or an Admin can remove members.",
         ));
     }
     gallery::remove_member(&root, &id, &user_id).map_err(|_| {
@@ -1652,10 +1709,10 @@ async fn list_invites(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !gallery::user_can_access_album(&root, &album, &user.id).unwrap_or(false) {
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this album's invite links.",
+            "Only the album owner or an Admin can view invite links.",
         ));
     }
     let invites = gallery::list_invites(&root, &id).map_err(|_| {
@@ -1682,10 +1739,10 @@ async fn create_invite(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id {
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only the album owner can create invite links.",
+            "Only the album owner or an Admin can create invite links.",
         ));
     }
     let role = if body.role == "contributor" {
@@ -1726,10 +1783,10 @@ async fn delete_invite(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if album.owner_user_id != user.id {
+    if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only the album owner can remove invite links.",
+            "Only the album owner or an Admin can remove invite links.",
         ));
     }
     gallery::delete_invite(&root, &invite_id).map_err(|_| {

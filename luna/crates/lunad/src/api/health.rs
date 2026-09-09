@@ -1,10 +1,11 @@
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
 use crate::AppState;
+use crate::api::response::json_error;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -28,8 +29,15 @@ async fn health() -> Json<Value> {
 
 async fn comprehensive_check(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     method: axum::http::Method,
-) -> (StatusCode, Json<Value>) {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can check Luna's system health.",
+        ));
+    }
     let force = method == axum::http::Method::POST;
     let cache = state.health_cache.clone();
     let result = if force || cache.should_refresh() {
@@ -74,10 +82,10 @@ async fn comprehensive_check(
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    (
+    Ok((
         status,
         Json(serde_json::to_value(result).unwrap_or(json!({}))),
-    )
+    ))
 }
 
 fn uptime() -> u64 {
@@ -155,5 +163,39 @@ mod tests {
         assert_eq!(v["overall_pass"], true);
         assert!(v["checks"]["database"].is_object());
         assert!(v["checks"]["disk_space"].is_object());
+    }
+
+    #[tokio::test]
+    async fn comprehensive_check_rejects_member() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let _admin = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
+        let token = auth.issue(&member).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/system/health/check")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
     }
 }

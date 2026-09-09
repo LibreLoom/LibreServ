@@ -835,7 +835,7 @@ export default function DashboardPage() {
       rightContent={
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {isAdmin ? <SoftwareUpdatePill /> : null}
-          <SystemHealthPill />
+          {isAdmin ? <SystemHealthPill /> : null}
         </div>
       }
     >

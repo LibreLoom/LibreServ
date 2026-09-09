@@ -1559,10 +1559,17 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
 }
 
 /// Distinct non-empty camera make/model pairs across mounts, ordered by count desc.
-pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCount>> {
+///
+/// When `path_grants` is `Some`, only photos under those grant prefixes (per drive)
+/// are counted — Members must not learn cameras from folders they cannot open.
+/// `None` means unrestricted (Admin).
+pub fn list_cameras(
+    mounts: &[(String, PathBuf)],
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+) -> anyhow::Result<Vec<CameraCount>> {
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
-    for (_, root) in mounts {
+    for (drive_id, root) in mounts {
         if !gallery_db_path(root).exists() {
             continue;
         }
@@ -1570,22 +1577,25 @@ pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCo
             Ok(c) => c,
             Err(_) => continue,
         };
+        let prefixes = path_grants.and_then(|g| g.get(drive_id));
         let mut stmt = conn.prepare(
-            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), COUNT(*)
+            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), path
              FROM photos
-             WHERE COALESCE(camera_make, '') != '' OR COALESCE(camera_model, '') != ''
-             GROUP BY COALESCE(camera_make, ''), COALESCE(camera_model, '')",
+             WHERE COALESCE(camera_make, '') != '' OR COALESCE(camera_model, '') != ''",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
+                row.get::<_, String>(2)?,
             ))
         })?;
         for row in rows.flatten() {
-            let (make, model, count) = row;
-            *map.entry((make, model)).or_insert(0) += count.max(0) as u64;
+            let (make, model, path) = row;
+            if !path_allowed_by_grants(&path, prefixes) {
+                continue;
+            }
+            *map.entry((make, model)).or_insert(0) += 1;
         }
     }
     let mut out: Vec<CameraCount> = map
@@ -1601,10 +1611,24 @@ pub fn list_cameras(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<CameraCo
     Ok(out)
 }
 
+fn path_allowed_by_grants(path: &str, prefixes: Option<&Vec<String>>) -> bool {
+    match prefixes {
+        None => true,
+        Some(prefs) => prefs
+            .iter()
+            .any(|p| crate::grants::path_contains(p, path)),
+    }
+}
+
 /// Aggregate filter facet values (cameras, lenses, formats, ISO/focal ranges).
-pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<FilterFacets> {
+///
+/// See [`list_cameras`] for `path_grants` semantics.
+pub fn list_filter_facets(
+    mounts: &[(String, PathBuf)],
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+) -> anyhow::Result<FilterFacets> {
     use std::collections::HashMap;
-    let cameras = list_cameras(mounts)?;
+    let cameras = list_cameras(mounts, path_grants)?;
     let mut lenses: HashMap<String, u64> = HashMap::new();
     let mut formats: HashMap<String, u64> = HashMap::new();
     let mut iso_min: Option<u32> = None;
@@ -1612,7 +1636,7 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
     let mut focal_min: Option<f64> = None;
     let mut focal_max: Option<f64> = None;
 
-    for (_, root) in mounts {
+    for (drive_id, root) in mounts {
         if !gallery_db_path(root).exists() {
             continue;
         }
@@ -1620,24 +1644,30 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
             Ok(c) => c,
             Err(_) => continue,
         };
+        let prefixes = path_grants.and_then(|g| g.get(drive_id));
         {
             let mut stmt = conn.prepare(
-                "SELECT COALESCE(lens, ''), COUNT(*) FROM photos
-                 WHERE COALESCE(lens, '') != ''
-                 GROUP BY COALESCE(lens, '')",
+                "SELECT COALESCE(lens, ''), path FROM photos
+                 WHERE COALESCE(lens, '') != ''",
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             for row in rows.flatten() {
-                let (lens, count) = row;
-                *lenses.entry(lens).or_insert(0) += count.max(0) as u64;
+                let (lens, path) = row;
+                if !path_allowed_by_grants(&path, prefixes) {
+                    continue;
+                }
+                *lenses.entry(lens).or_insert(0) += 1;
             }
         }
         {
             let mut stmt = conn.prepare("SELECT path FROM photos")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             for path in rows.flatten() {
+                if !path_allowed_by_grants(&path, prefixes) {
+                    continue;
+                }
                 let ext = normalize_format_ext(&path_ext_lower(&path));
                 if ext.is_empty() {
                     continue;
@@ -1646,31 +1676,35 @@ pub fn list_filter_facets(mounts: &[(String, PathBuf)]) -> anyhow::Result<Filter
             }
         }
         {
-            let mut stmt = conn.prepare("SELECT MIN(iso), MAX(iso) FROM photos WHERE iso > 0")?;
-            let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
-                let min: Option<i64> = row.get(0)?;
-                let max: Option<i64> = row.get(1)?;
-                if let (Some(min), Some(max)) = (min, max) {
-                    let min = min.max(0) as u32;
-                    let max = max.max(0) as u32;
-                    iso_min = Some(iso_min.map_or(min, |v| v.min(min)));
-                    iso_max = Some(iso_max.map_or(max, |v| v.max(max)));
+            let mut stmt =
+                conn.prepare("SELECT iso, path FROM photos WHERE iso > 0")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows.flatten() {
+                let (iso, path) = row;
+                if !path_allowed_by_grants(&path, prefixes) {
+                    continue;
                 }
-                Ok(())
-            });
+                let iso = iso.max(0) as u32;
+                iso_min = Some(iso_min.map_or(iso, |v| v.min(iso)));
+                iso_max = Some(iso_max.map_or(iso, |v| v.max(iso)));
+            }
         }
         {
             let mut stmt =
-                conn.prepare("SELECT MIN(focal_mm), MAX(focal_mm) FROM photos WHERE focal_mm > 0")?;
-            let _: Result<(), rusqlite::Error> = stmt.query_row([], |row| {
-                let min: Option<f64> = row.get(0)?;
-                let max: Option<f64> = row.get(1)?;
-                if let (Some(min), Some(max)) = (min, max) {
-                    focal_min = Some(focal_min.map_or(min, |v| v.min(min)));
-                    focal_max = Some(focal_max.map_or(max, |v| v.max(max)));
+                conn.prepare("SELECT focal_mm, path FROM photos WHERE focal_mm > 0")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, f64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows.flatten() {
+                let (focal, path) = row;
+                if !path_allowed_by_grants(&path, prefixes) {
+                    continue;
                 }
-                Ok(())
-            });
+                focal_min = Some(focal_min.map_or(focal, |v| v.min(focal)));
+                focal_max = Some(focal_max.map_or(focal, |v| v.max(focal)));
+            }
         }
     }
 
@@ -1852,7 +1886,11 @@ fn album_cover_thumb(home_drive_id: &str, cover_drive_id: &str, cover_path: &str
     thumb_url(drive, cover_path)
 }
 
-pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Result<Vec<Album>> {
+pub fn list_albums(
+    mounts: &[(String, PathBuf)],
+    user_id: &str,
+    include_all: bool,
+) -> anyhow::Result<Vec<Album>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
         if !gallery_db_path(root).exists() {
@@ -1862,16 +1900,23 @@ pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Resul
             Ok(c) => c,
             Err(_) => continue,
         };
-        let mut stmt = conn.prepare(
+        let sql = if include_all {
+            "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
+                    a.shared, a.allow_uploads, a.contrib_path, a.locked,
+                    (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
+             FROM albums a
+             ORDER BY a.created_at DESC"
+        } else {
             "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
                     a.shared, a.allow_uploads, a.contrib_path, a.locked,
                     (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
              FROM albums a
              WHERE a.owner_user_id = ?1
                 OR EXISTS (SELECT 1 FROM album_members m WHERE m.album_id = a.id AND m.user_id = ?1)
-             ORDER BY a.created_at DESC",
-        )?;
-        let rows = stmt.query_map(params![user_id], |row| {
+             ORDER BY a.created_at DESC"
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Album> {
             let cover_path: String = row.get(4)?;
             let cover_drive_id: String = row.get(5)?;
             Ok(Album {
@@ -1889,9 +1934,17 @@ pub fn list_albums(mounts: &[(String, PathBuf)], user_id: &str) -> anyhow::Resul
                 locked: row.get::<_, i64>(9)? != 0,
                 item_count: row.get::<_, i64>(10)? as u64,
             })
-        })?;
-        for row in rows {
-            out.push(row?);
+        };
+        if include_all {
+            let rows = stmt.query_map([], map_row)?;
+            for row in rows {
+                out.push(row?);
+            }
+        } else {
+            let rows = stmt.query_map(params![user_id], map_row)?;
+            for row in rows {
+                out.push(row?);
+            }
         }
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
@@ -2758,7 +2811,7 @@ mod tests {
 
         let album = create_album(&photos_dir, "d1", "u1", "Trip").unwrap();
         add_album_items(&photos_dir, &album.id, &[("d1".into(), "x.png".into())]).unwrap();
-        let albums = list_albums(&mounts, "u1").unwrap();
+        let albums = list_albums(&mounts, "u1", false).unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].item_count, 1);
 
@@ -2864,7 +2917,7 @@ mod tests {
         scan_drive("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let cameras = list_cameras(&mounts).unwrap();
+        let cameras = list_cameras(&mounts, None).unwrap();
         assert!(
             cameras
                 .iter()
@@ -2911,6 +2964,61 @@ mod tests {
     }
 
     #[test]
+    fn list_cameras_respects_path_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir_all(photos_dir.join("shared")).unwrap();
+        std::fs::create_dir_all(photos_dir.join("secret")).unwrap();
+        std::fs::write(
+            photos_dir.join("shared/canon.jpg"),
+            crate::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        )
+        .unwrap();
+        std::fs::write(
+            photos_dir.join("secret/nikon.jpg"),
+            crate::exif::jpeg_with_exif(
+                "2020:02:03 04:05:06",
+                Some("NIKON CORPORATION"),
+                Some("NIKON D850"),
+            ),
+        )
+        .unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir.clone())];
+        let mut grants = std::collections::HashMap::new();
+        grants.insert("d1".into(), vec!["shared".into()]);
+        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
+        assert!(
+            cameras
+                .iter()
+                .any(|c| c.make == "Canon" && c.model == "EOS R5"),
+            "expected Canon under grant: {cameras:?}"
+        );
+        assert!(
+            cameras
+                .iter()
+                .all(|c| !(c.make == "NIKON CORPORATION" && c.model == "NIKON D850")),
+            "Nikon outside grant must not appear: {cameras:?}"
+        );
+    }
+
+    #[test]
+    fn list_albums_include_all_returns_every_album() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let a = create_album(root, "home", "u1", "Mine").unwrap();
+        let b = create_album(root, "home", "u2", "Theirs").unwrap();
+        let mounts = vec![("home".into(), root.to_path_buf())];
+        let member_view = list_albums(&mounts, "u1", false).unwrap();
+        assert_eq!(member_view.len(), 1);
+        assert_eq!(member_view[0].id, a.id);
+        let admin_view = list_albums(&mounts, "u1", true).unwrap();
+        assert_eq!(admin_view.len(), 2);
+        assert!(admin_view.iter().any(|x| x.id == a.id));
+        assert!(admin_view.iter().any(|x| x.id == b.id));
+    }
+
+    #[test]
     fn rich_exif_filters_and_facets() {
         let dir = tempfile::tempdir().unwrap();
         let photos_dir = dir.path().join("photos");
@@ -2940,7 +3048,7 @@ mod tests {
         scan_drive("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
-        let facets = list_filter_facets(&mounts).unwrap();
+        let facets = list_filter_facets(&mounts, None).unwrap();
         assert!(
             facets
                 .lenses

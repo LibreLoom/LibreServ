@@ -47,6 +47,7 @@ import Spinner from "../components/ui/Spinner.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
+import { useAuth } from "../context/AuthContext";
 import {
   apiErrorMessage,
   deleteJson,
@@ -57,6 +58,12 @@ import {
   postJson,
   putJson,
 } from "../lib/api";
+
+/** @param {{ owner_user_id?: string }|null|undefined} album @param {{ id?: string, role?: string }|null|undefined} user */
+function canManageAlbum(album, user) {
+  if (!album || !user) return false;
+  return user.role === "admin" || album.owner_user_id === user.id;
+}
 
 const SEGMENTS = [
   { value: "library", label: "Library" },
@@ -214,6 +221,7 @@ function readGridCols() {
 }
 
 export default function GalleryPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const initialHash =
     typeof window !== "undefined" ? parseGalleryHash(window.location.hash) : { segment: DEFAULT_SEGMENT };
@@ -1222,6 +1230,7 @@ export default function GalleryPage() {
         <AlbumsPanel
           albums={albums.data || []}
           loading={albums.isLoading}
+          currentUser={user}
           onOpen={tryOpenAlbum}
           onCreate={() => setNewAlbumOpen(true)}
           onDelete={(album) => {
@@ -1391,7 +1400,7 @@ export default function GalleryPage() {
                 Album from day
               </Button>
             )}
-            {albumView && (
+            {albumView && canManageAlbum(albumView, user) && (
               <>
                 <Button
                   variant="secondary"
@@ -1420,7 +1429,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {albumView && <AlbumMembersPanel album={albumView} />}
+      {albumView && canManageAlbum(albumView, user) && <AlbumMembersPanel album={albumView} />}
 
       {albumEmpty && (
         <EmptyState
@@ -1908,6 +1917,7 @@ GalleryLoadingStatus.propTypes = {
 function AlbumsPanel({
   albums,
   loading,
+  currentUser,
   onOpen,
   onCreate,
   onShare,
@@ -1983,7 +1993,9 @@ function AlbumsPanel({
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {sorted.map((album, index) => (
+          {sorted.map((album, index) => {
+            const manage = canManageAlbum(album, currentUser);
+            return (
             <div
               key={`${album.home_drive_id}-${album.id}`}
               className="rounded-large-element bg-secondary text-primary overflow-hidden animate-cascade-in motion-reduce:animate-none"
@@ -2013,9 +2025,11 @@ function AlbumsPanel({
                   <p className="text-xs mt-1">
                     {album.item_count} {album.item_count === 1 ? "item" : "items"}
                     {album.shared ? " · Shared" : ""}
+                    {!manage ? " · Shared with you" : ""}
                   </p>
                 </div>
               </button>
+              {manage ? (
               <div className="px-3 pb-3 flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -2056,8 +2070,10 @@ function AlbumsPanel({
                   <Trash2 size={16} aria-hidden="true" />
                 </Button>
               </div>
+              ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -2067,6 +2083,10 @@ function AlbumsPanel({
 AlbumsPanel.propTypes = {
   albums: PropTypes.array,
   loading: PropTypes.bool,
+  currentUser: PropTypes.shape({
+    id: PropTypes.string,
+    role: PropTypes.string,
+  }),
   onOpen: PropTypes.func,
   onCreate: PropTypes.func,
   onShare: PropTypes.func,

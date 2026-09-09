@@ -65,6 +65,12 @@ async fn create(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<CreateProtection>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can manage protected folders.",
+        ));
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -141,4 +147,50 @@ async fn run(
     Ok(Json(
         json!({ "started": true, "message": "Luna is refreshing the protected copy." }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use crate::{AppState, db};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn create_protection_rejects_member() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let _admin = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
+        let token = auth.issue(&member).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/protections")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"source_drive_id":"d1","source_path":"photos","target_drive_id":"d2"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    }
 }

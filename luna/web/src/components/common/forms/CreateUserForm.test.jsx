@@ -144,6 +144,6 @@ describe("CreateUserForm", () => {
     render(<CreateUserForm onSubmit={vi.fn()} />);
     const form = document.querySelector('[data-slot="create-user-form"]');
     expect(form).toBeTruthy();
-    expect(within(/** @type {HTMLElement} */ (form)).getByLabelText(/What Admin means/i)).toBeTruthy();
+    expect(within(/** @type {HTMLElement} */ (form)).getByLabelText(/Admin vs Member/i)).toBeTruthy();
   });
 });
