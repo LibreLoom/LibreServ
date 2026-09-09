@@ -61,6 +61,13 @@ func CSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Cookie-authenticated browser calls: require Origin to match BaseURL
+		// (same defense as LibreServ Connect PortalOriginCheck). originAllowed
+		// was already unit-tested but never wired into the request path.
+		if !originAllowed(r) {
+			JSONError(w, http.StatusForbidden, "This page expired. Refresh and try again.")
+			return
+		}
 		c, err := r.Cookie(csrfCookieName)
 		got := r.Header.Get("X-CSRF-Token")
 		if got == "" {
@@ -105,8 +112,12 @@ func originAllowed(r *http.Request) bool {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return false
 	}
+	if base == "" {
+		// No BaseURL configured: require Origin host to match this request.
+		return strings.EqualFold(u.Host, r.Host)
+	}
 	bu, err := url.Parse(base)
-	if err != nil {
+	if err != nil || bu.Scheme == "" || bu.Host == "" {
 		return false
 	}
 	return strings.EqualFold(u.Scheme, bu.Scheme) && strings.EqualFold(u.Host, bu.Host)
