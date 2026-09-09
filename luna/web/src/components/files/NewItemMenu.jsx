@@ -96,6 +96,7 @@ export default function NewItemMenu({ onPick, ids }) {
       pick(single);
       return;
     }
+    haptic("light");
     if (isOpen) {
       close();
       return;

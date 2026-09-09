@@ -108,4 +108,75 @@ describe("UI Haptic Feedback Integration", () => {
     );
     expect(hapticSpy).toHaveBeenCalledWith("warning");
   });
+
+  it("Button emits variant-specific haptic patterns and respects haptic prop", async () => {
+    const { default: Button } = await import("./Button.jsx");
+    const { rerender } = render(<Button>Standard</Button>);
+    fireEvent.click(screen.getByRole("button", { name: "Standard" }));
+    expect(hapticSpy).toHaveBeenCalledWith("medium");
+
+    hapticSpy.mockClear();
+    rerender(<Button variant="ghost">Ghost action</Button>);
+    fireEvent.click(screen.getByRole("button", { name: "Ghost action" }));
+    expect(hapticSpy).toHaveBeenCalledWith("light");
+
+    hapticSpy.mockClear();
+    rerender(<Button variant="outline">Outline action</Button>);
+    fireEvent.click(screen.getByRole("button", { name: "Outline action" }));
+    expect(hapticSpy).toHaveBeenCalledWith("light");
+
+    hapticSpy.mockClear();
+    rerender(<Button variant="accent">Accent submit</Button>);
+    fireEvent.click(screen.getByRole("button", { name: "Accent submit" }));
+    expect(hapticSpy).toHaveBeenCalledWith("heavy");
+
+    hapticSpy.mockClear();
+    rerender(<Button variant="danger">Delete</Button>);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(hapticSpy).toHaveBeenCalledWith("error");
+
+    hapticSpy.mockClear();
+    rerender(<Button variant="danger" haptic="warning">Confirm Warning</Button>);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Warning" }));
+    expect(hapticSpy).toHaveBeenCalledWith("warning");
+  });
+
+  it("ModalCard emits medium haptic on presentation and supports openHaptic suppression", async () => {
+    const { default: ModalCard } = await import("../cards/ModalCard.jsx");
+    const { rerender } = render(
+      <ModalCard open={false} title="Test Modal">
+        <p>Modal content</p>
+      </ModalCard>
+    );
+    expect(hapticSpy).not.toHaveBeenCalled();
+
+    rerender(
+      <ModalCard open={true} title="Test Modal">
+        <p>Modal content</p>
+      </ModalCard>
+    );
+    expect(hapticSpy).toHaveBeenCalledWith("medium");
+
+    hapticSpy.mockClear();
+    rerender(
+      <ModalCard open={true} openHaptic={false} title="Suppressed Modal">
+        <p>Modal content</p>
+      </ModalCard>
+    );
+    expect(hapticSpy).not.toHaveBeenCalled();
+  });
+
+  it("Dropdown emits light haptic when toggling open", async () => {
+    const { default: Dropdown } = await import("../common/Dropdown.jsx");
+    render(
+      <Dropdown
+        options={[{ value: "1", label: "One" }]}
+        value="1"
+        onChange={() => {}}
+      />
+    );
+    const trigger = screen.getByRole("button", { name: /One/i });
+    fireEvent.click(trigger);
+    expect(hapticSpy).toHaveBeenCalledWith("light");
+  });
 });

@@ -116,6 +116,7 @@ export default function ConfirmModal({
       size="sm"
       initialFocusRef={initialFocusRef}
       overlayClassName={overlayClassName}
+      openHaptic={false}
     >
       {({ close }) => (
         <>

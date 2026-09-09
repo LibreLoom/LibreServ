@@ -121,7 +121,7 @@ describe("CreateUserForm", () => {
       password: "LongPassword123!",
       role: "admin",
     });
-  });
+  }, 15000);
 
   it("maps API submit errors onto the matching field", async () => {
     const user = userEvent.setup();

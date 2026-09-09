@@ -7,6 +7,7 @@ import Dropdown from "../common/Dropdown";
 import PageNotice from "../common/PageNotice";
 import ShakeTarget from "../ui/ShakeTarget";
 import { postJson, apiErrorMessage } from "../../lib/api";
+import { haptic } from "../../utils/haptics";
 
 const LINK_ERROR = "Couldn't create that link. Check that the file or folder is still on this drive, then try again.";
 
@@ -40,10 +41,12 @@ export default function CreateShareModal({
     onSuccess: (data) => {
       if (!data?.url) {
         const msg = LINK_ERROR;
+        haptic("error");
         setError(msg);
         onError?.(msg);
         return;
       }
+      haptic("success");
       setError(null);
       const url = window.location.origin + data.url;
       try {
@@ -54,6 +57,7 @@ export default function CreateShareModal({
       setResult({ ...data, fullUrl: url });
     },
     onError: (err) => {
+      haptic("error");
       const msg = apiErrorMessage(err, LINK_ERROR);
       setError(msg);
       onError?.(msg);

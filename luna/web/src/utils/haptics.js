@@ -151,7 +151,7 @@ function toVibratePattern(vibrations, defaultIntensity) {
 
 export function isHapticsEnabled() {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem("luna_haptics_enabled");
     return stored === null ? true : JSON.parse(stored);
   } catch {
     return true;
@@ -160,7 +160,9 @@ export function isHapticsEnabled() {
 
 export function setHapticsEnabled(enabled) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Boolean(enabled)));
+    const val = JSON.stringify(Boolean(enabled));
+    localStorage.setItem(STORAGE_KEY, val);
+    localStorage.setItem("luna_haptics_enabled", val);
   } catch {
     /* storage unavailable — the toggle still works for this session */
   }

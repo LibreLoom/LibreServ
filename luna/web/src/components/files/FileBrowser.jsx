@@ -332,7 +332,8 @@ export default function FileBrowser({
     breadcrumbExtra,
   ]);
 
-  function openFolder(folderPath) {
+  function openFolder(folderPath, { feedback = true } = {}) {
+    if (feedback) haptic("medium");
     setPath(folderPath);
   }
 
@@ -397,7 +398,7 @@ export default function FileBrowser({
   function openEntry(ctx) {
     haptic("medium");
     if (ctx.entry.kind === "dir") {
-      openFolder(ctx.fullPath);
+      openFolder(ctx.fullPath, { feedback: false });
       return;
     }
     if (onOpenFile && openableKind(ctx.entry.name)) {

@@ -11,6 +11,7 @@ import ShakeTarget from "../ui/ShakeTarget";
 import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { haptic } from "../../utils/haptics.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 function pathKey(value) {
@@ -108,20 +109,36 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         target_drive_id: targetDrive,
       }),
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: ["protections"] });
       setError(null);
       setTargetDrive("");
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
   const runProtect = useMutation({
     mutationFn: (id) => postJson(`/api/v1/protections/${id}/run`, {}),
-    onError: (err) => setError(apiErrorMessage(err)),
+    onSuccess: () => {
+      haptic("success");
+    },
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
   const stopProtect = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/protections/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["protections"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
+    onSuccess: () => {
+      haptic("success");
+      queryClient.invalidateQueries({ queryKey: ["protections"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
 
   const saveCloud = useMutation({
@@ -131,9 +148,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       return res;
     },
     onSuccess: () => {
+      haptic("success");
       setError(null);
     },
     onError: (err) => {
+      haptic("error");
       setPendingCloudIntent(null);
       setError(apiErrorMessage(err));
     },

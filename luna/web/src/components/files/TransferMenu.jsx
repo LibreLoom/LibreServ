@@ -126,9 +126,11 @@ export default function TransferMenu({
 
   function handleTriggerClick() {
     if (!hasOtherDrives) {
+      haptic("selection");
       onPick(currentDriveId);
       return;
     }
+    haptic("light");
     if (isOpen) {
       close();
     } else {

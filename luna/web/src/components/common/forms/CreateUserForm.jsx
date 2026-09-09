@@ -7,6 +7,7 @@ import Dropdown from "../Dropdown";
 import Button from "../../ui/Button";
 import ModalErrorNotice from "../ModalErrorNotice";
 import { InfoHint } from "../../ui/Tooltip";
+import { haptic } from "../../../utils/haptics.js";
 import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
 import {
   PASSWORD_FIELD_PLACEHOLDER,
@@ -105,6 +106,7 @@ export default function CreateUserForm({
       e.preventDefault();
       const validationErrors = validateForm();
       if (Object.keys(validationErrors).length > 0) {
+        haptic("error");
         setErrors(/** @type {any} */ (validationErrors));
         return;
       }
