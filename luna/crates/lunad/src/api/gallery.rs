@@ -80,6 +80,34 @@ fn path_grants_for_user(
     Ok(Some(map))
 }
 
+/// Folder grant, Admin, or album membership (for viewing shared album photos).
+fn can_view_gallery_path(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    path: &str,
+) -> Result<bool, ApiError> {
+    {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        if crate::auth::can_access(user, &conn, drive_id, path, false) {
+            return Ok(true);
+        }
+    }
+    let mounts = all_mounted(state)?;
+    Ok(gallery::user_can_view_path_via_album(
+        &mounts,
+        &user.id,
+        is_admin(user),
+        drive_id,
+        path,
+    ))
+}
+
 #[derive(Deserialize)]
 struct GalleryQuery {
     #[serde(default)]
@@ -412,23 +440,53 @@ async fn timeline(
     Query(query): Query<GalleryQuery>,
 ) -> Result<Json<gallery::GalleryPage>, (StatusCode, Json<Value>)> {
     if let Some(drive_id) = query.drive_id.as_deref() {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        if !crate::auth::has_drive_access(&user, &conn, drive_id) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to view this drive.",
-            ));
+        // Album view authorizes via album membership below; library still needs a drive grant.
+        if query.album_id.is_none() {
+            let conn = state.db.lock().map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna's index is busy. Try again.",
+                )
+            })?;
+            if !crate::auth::has_drive_access(&user, &conn, drive_id) {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "You don't have permission to view this drive.",
+                ));
+            }
         }
     }
-    let mounts = accessible_mounts(&state, &user, None)?;
+    let viewing_album = query.album_id.is_some();
+    // Album view: include every mounted drive so Members can see album items
+    // without a folder grant. Library view stays grant-scoped.
+    let mounts = if viewing_album {
+        if let (Some(album_id), Some(home)) =
+            (query.album_id.as_deref(), query.album_home.as_deref())
+        {
+            let root = resolve_mount(&state, home)?;
+            let album = gallery::get_album(&root, home, album_id)
+                .map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't open that album.",
+                    )
+                })?
+                .ok_or_else(|| {
+                    json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album.")
+                })?;
+            if !can_view_album(&user, &root, &album) {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "You don't have permission to view this album.",
+                ));
+            }
+        }
+        all_mounted(&state)?
+    } else {
+        accessible_mounts(&state, &user, None)?
+    };
     let limit = query.limit.unwrap_or(80).clamp(1, 500);
     let offset = query.offset.unwrap_or(0);
-    let viewing_album = query.album_id.is_some();
     let archived = query.archived.unwrap_or(false);
     let filter = ListFilter {
         q: query.q.filter(|s| !s.trim().is_empty()),
@@ -511,6 +569,9 @@ async fn timeline(
             )
         })?;
         items.extend(page.items.into_iter().filter(|photo| {
+            if viewing_album {
+                return true;
+            }
             crate::auth::can_access(&user, &conn, &photo.drive_id, &photo.path, false)
         }));
         drop(conn);
@@ -689,19 +750,11 @@ async fn thumb(
     Query(query): Query<ThumbQuery>,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        if !crate::auth::can_access(&user, &conn, &query.drive_id, &query.path, false) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to view this.",
-            ));
-        }
+    if !can_view_gallery_path(&state, &user, &query.drive_id, &query.path)? {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this.",
+        ));
     }
     if let Some(cached) = state.ram_cache.get_thumb(&query.drive_id, &query.path) {
         return serve_thumb_bytes(cached.bytes, cached.mtime_secs, cached.etag, &headers);
@@ -1147,19 +1200,11 @@ async fn preview(
     Query(query): Query<ThumbQuery>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        if !crate::auth::can_access(&user, &conn, &query.drive_id, &query.path, false) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to view this.",
-            ));
-        }
+    if !can_view_gallery_path(&state, &user, &query.drive_id, &query.path)? {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this.",
+        ));
     }
     let root = resolve_mount(&state, &query.drive_id)?;
     let (abs, content_type, filename) =
@@ -1187,14 +1232,8 @@ async fn download_zip(
         ));
     }
     {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
         for item in &body.items {
-            if !crate::auth::can_access(&user, &conn, &item.drive_id, &item.path, false) {
+            if !can_view_gallery_path(&state, &user, &item.drive_id, &item.path)? {
                 return Err(json_error(
                     StatusCode::FORBIDDEN,
                     "You don't have permission to download one of these photos.",
@@ -1348,7 +1387,9 @@ async fn list_albums(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<gallery::Album>>, (StatusCode, Json<Value>)> {
-    let mounts = accessible_mounts(&state, &user, None)?;
+    // Scan every mounted drive so Members still see albums they own or joined
+    // even without a folder grant on that drive. SQL still filters by membership.
+    let mounts = all_mounted(&state)?;
     let albums = gallery::list_albums(&mounts, &user.id, is_admin(&user)).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -2584,6 +2584,70 @@ pub fn user_can_access_album(root: &Path, album: &Album, user_id: &str) -> anyho
     Ok(n > 0)
 }
 
+/// True when `path` on `drive_id` is in an album this user owns, joined, or (Admin) any album.
+///
+/// Used so Members can open photos through album membership without a folder grant.
+pub fn user_can_view_path_via_album(
+    mounts: &[(String, PathBuf)],
+    user_id: &str,
+    as_admin: bool,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    for (home, root) in mounts {
+        if !gallery_db_path(root).exists() {
+            continue;
+        }
+        let Ok(conn) = open_drive_db(root) else {
+            continue;
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT a.id, a.owner_user_id, a.contrib_path
+             FROM albums a
+             WHERE EXISTS (
+                 SELECT 1 FROM album_items i
+                 WHERE i.album_id = a.id AND i.drive_id = ?1 AND i.path = ?2
+             )
+             OR (
+                 a.contrib_path != ''
+                 AND ?1 = ?3
+                 AND (
+                     ?2 = a.contrib_path
+                     OR ?2 LIKE (a.contrib_path || '/%')
+                 )
+             )",
+        ) else {
+            continue;
+        };
+        let Ok(rows) = stmt.query_map(params![drive_id, path, home.as_str()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        }) else {
+            continue;
+        };
+        for row in rows.flatten() {
+            let (album_id, owner_user_id, _contrib) = row;
+            if as_admin || owner_user_id == user_id {
+                return true;
+            }
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM album_members WHERE album_id = ?1 AND user_id = ?2",
+                    params![album_id, user_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if n > 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn user_can_contribute(root: &Path, album: &Album, user_id: &str) -> anyhow::Result<bool> {
     if album.owner_user_id == user_id {
         return Ok(true);
@@ -3016,6 +3080,37 @@ mod tests {
         assert_eq!(admin_view.len(), 2);
         assert!(admin_view.iter().any(|x| x.id == a.id));
         assert!(admin_view.iter().any(|x| x.id == b.id));
+    }
+
+    #[test]
+    fn album_member_can_view_item_without_folder_grant() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let album = create_album(root, "home", "owner", "Shared").unwrap();
+        add_album_items(root, &album.id, &[("home".into(), "secret/pic.jpg".into())]).unwrap();
+        upsert_member(root, &album.id, "member", "viewer").unwrap();
+        let mounts = vec![("home".into(), root.to_path_buf())];
+        assert!(user_can_view_path_via_album(
+            &mounts,
+            "member",
+            false,
+            "home",
+            "secret/pic.jpg"
+        ));
+        assert!(!user_can_view_path_via_album(
+            &mounts,
+            "stranger",
+            false,
+            "home",
+            "secret/pic.jpg"
+        ));
+        assert!(user_can_view_path_via_album(
+            &mounts,
+            "stranger",
+            true,
+            "home",
+            "secret/pic.jpg"
+        ));
     }
 
     #[test]
