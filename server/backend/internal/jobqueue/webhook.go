@@ -86,7 +86,7 @@ func (ws *WebhookService) Start() {
 	ws.logger.Info("webhook service started")
 }
 
-// Stophalts the webhook service and cleanup goroutine
+// Stop halts the webhook service and cleanup goroutine
 func (ws *WebhookService) Stop() {
 	ws.mu.Lock()
 	if !ws.started {
@@ -124,7 +124,6 @@ func (ws *WebhookService) TriggerWebhook(webhookURL string, job *Job, duration t
 		return
 	}
 
-	// Parse URL first to check scheme
 	parsedURL, err := url.Parse(webhookURL)
 	if err != nil {
 		ws.logger.Warn("invalid webhook URL, skipping delivery",
@@ -134,7 +133,6 @@ func (ws *WebhookService) TriggerWebhook(webhookURL string, job *Job, duration t
 		return
 	}
 
-	// Check HTTPS requirement
 	if ws.config.RequireHTTPS && parsedURL.Scheme != "https" {
 		ws.logger.Warn("webhook URL must use HTTPS (RequireHTTPS is enabled), skipping delivery",
 			"job_id", job.ID,
@@ -142,7 +140,6 @@ func (ws *WebhookService) TriggerWebhook(webhookURL string, job *Job, duration t
 		return
 	}
 
-	// Validate URL for security (SSRF protection)
 	if err := validateWebhookURL(webhookURL, ws.config.AllowPrivateIPs); err != nil {
 		ws.logger.Warn("invalid webhook URL, skipping delivery",
 			"job_id", job.ID,
@@ -177,13 +174,10 @@ func (ws *WebhookService) TriggerWebhook(webhookURL string, job *Job, duration t
 	ws.deliveries[delivery.ID] = delivery
 	ws.mu.Unlock()
 
-	// Try to acquire semaphore without blocking job processing
 	select {
 	case ws.semaphore <- struct{}{}:
-		// Acquired semaphore, deliver asynchronously
 		go func() {
 			defer func() {
-				// Recover from panics and release semaphore
 				if r := recover(); r != nil {
 					ws.logger.Error("webhook delivery panic recovered", "webhook_id", delivery.ID, "panic", r)
 				}
@@ -192,13 +186,10 @@ func (ws *WebhookService) TriggerWebhook(webhookURL string, job *Job, duration t
 			ws.deliver(delivery)
 		}()
 	default:
-		// Semaphore full, log warning and skip webhook
 		ws.logger.Warn("webhook delivery skipped: max concurrent webhooks reached",
 			"job_id", job.ID,
 			"webhook_id", delivery.ID,
 			"max_concurrent", ws.config.MaxConcurrentWebhooks)
-
-		// Update delivery status to failed
 		ws.mu.Lock()
 		delivery.Status = WebhookStatusFailed
 		delivery.LastError = "webhook skipped: max concurrent limit reached"
@@ -227,7 +218,6 @@ func (ws *WebhookService) deliver(delivery *WebhookDelivery) {
 
 		err := ws.sendWebhook(delivery)
 
-		// Update delivery state with mutex protection
 		ws.mu.Lock()
 		delivery.Attempts = attempt + 1
 		delivery.UpdatedAt = time.Now()
