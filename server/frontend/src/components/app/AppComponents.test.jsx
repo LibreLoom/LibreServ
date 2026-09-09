@@ -1,1 +1,1 @@
-LOAD_FROM_LOCAL
+USE_FILE_/tmp/orig_from_git.jsx
