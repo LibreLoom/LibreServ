@@ -12,14 +12,106 @@ import SegmentedControl from "../common/SegmentedControl";
 import Button from "../ui/Button.jsx";
 import { haptic } from "../../utils/haptics.js";
 
+function useIsDesktop() {
+  const read = () => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return true;
+    }
+    return window.matchMedia("(min-width: 768px)").matches;
+  };
+  const [desktop, setDesktop] = useState(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => setDesktop(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", mq.matches !== undefined ? onChange : onChange);
+  }, []);
+  return desktop;
+}
+
 const pillShell =
   "flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 border-2 border-primary/20 focus-within:border-accent transition-colors";
 
+const searchFieldShell =
+  "relative flex-1 min-w-0 bg-primary text-secondary rounded-pill";
+
 const searchInputClass =
-  "w-full pl-11 pr-10 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm";
+  "w-full pl-11 pr-9 py-2 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm";
 
 /**
- * Calm Photos chrome: segments + a few icon buttons. Search and filters stay tucked away.
+ * @param {{
+ *   id: string,
+ *   value: string,
+ *   onChange: (e: any) => void,
+ *   placeholder: string,
+ *   className?: string,
+ *   onClear?: () => void,
+ * }} props
+ */
+function GallerySearchInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  className,
+  onClear,
+}) {
+  return (
+    <div className={cn(searchFieldShell, className)}>
+      <Search
+        size={18}
+        className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
+        aria-hidden="true"
+      />
+      <input
+        id={id}
+        type="search"
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && value) {
+            e.preventDefault();
+            haptic("light");
+            if (onClear) onClear();
+            else onChange({ target: { value: "" } });
+          }
+        }}
+        aria-label="Search photos"
+        className={searchInputClass}
+      />
+      {value ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-accent hover:text-secondary rounded-pill transition-colors"
+          onClick={() => {
+            haptic("light");
+            if (onClear) onClear();
+            else onChange({ target: { value: "" } });
+          }}
+        >
+          <X size={15} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+GallerySearchInput.propTypes = {
+  id: PropTypes.string.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  placeholder: PropTypes.string.isRequired,
+  className: PropTypes.string,
+  onClear: PropTypes.func,
+};
+
+/**
+ * Photos navigation bar:
+ * - On large screens (desktop): unified single bar with search, actions, and category segments.
+ * - On small screens (mobile): splits apart into two bars — search bar on top, category bar below it.
  *
  * @param {{
  *   segments: Array<{value:string,label:string}>,
@@ -40,6 +132,7 @@ const searchInputClass =
  *   onRescan?: () => void,
  *   rescanPending?: boolean,
  *   onOpenShortcuts?: () => void,
+ *   isDesktop?: boolean,
  * }} props
  */
 export default function GalleryToolbar({
@@ -48,8 +141,6 @@ export default function GalleryToolbar({
   onSegmentChange,
   query,
   onQueryChange,
-  searchOpen: searchOpenProp,
-  onSearchOpenChange,
   selectMode = false,
   onSelectModeChange,
   onOpenDates,
@@ -61,25 +152,12 @@ export default function GalleryToolbar({
   onRescan,
   rescanPending = false,
   onOpenShortcuts,
+  isDesktop: isDesktopProp,
 }) {
-  const [internalSearchOpen, setInternalSearchOpen] = useState(false);
+  const isDesktopAuto = useIsDesktop();
+  const isDesktop = isDesktopProp !== undefined ? isDesktopProp : isDesktopAuto;
   const [moreOpen, setMoreOpen] = useState(false);
-  const searchInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
   const moreRef = useRef(/** @type {HTMLDivElement|null} */ (null));
-
-  const controlled = typeof onSearchOpenChange === "function";
-  const searchOpen = controlled ? !!searchOpenProp : internalSearchOpen;
-
-  function setSearchOpen(open) {
-    if (controlled) onSearchOpenChange?.(open);
-    else setInternalSearchOpen(open);
-  }
-
-  useEffect(() => {
-    if (!searchOpen) return undefined;
-    const id = requestAnimationFrame(() => searchInputRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [searchOpen]);
 
   useEffect(() => {
     if (!moreOpen) return undefined;
@@ -91,21 +169,6 @@ export default function GalleryToolbar({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [moreOpen]);
-
-  function clearAndCloseSearch() {
-    haptic("light");
-    if (query) {
-      onQueryChange({ target: { value: "" } });
-    }
-    setSearchOpen(false);
-  }
-
-  function onSearchKeyDown(e) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      clearAndCloseSearch();
-    }
-  }
 
   const selectButton =
     showSelect && onSelectModeChange ? (
@@ -125,20 +188,6 @@ export default function GalleryToolbar({
 
   const iconButtons = (
     <div className="flex items-center gap-0.5 shrink-0 pr-0.5">
-      <Button
-        type="button"
-        size="iconSm"
-        variant={searchOpen || query ? "accent" : "ghost"}
-        className="shrink-0"
-        aria-label="Search photos"
-        aria-pressed={searchOpen}
-        onClick={() => {
-          haptic("light");
-          setSearchOpen(!searchOpen);
-        }}
-      >
-        <Search size={16} />
-      </Button>
       {onOpenFilters && (
         <Button
           type="button"
@@ -262,95 +311,59 @@ export default function GalleryToolbar({
     </div>
   );
 
-  return (
-    <div className="mb-6 space-y-3" data-slot="gallery-toolbar">
-      <div className={cn(pillShell, "flex flex-wrap justify-between gap-1")}>
-        <div className="min-w-0 flex-1 overflow-x-auto py-1 pl-1.5 pr-1">
-          <SegmentedControl
-            options={segments}
-            value={segment}
-            onChange={onSegmentChange}
-            surface="secondary"
-            className="w-max min-w-full sm:w-auto"
+  const clearQuery = () => {
+    onQueryChange({ target: { value: "" } });
+  };
+
+  if (isDesktop) {
+    return (
+      <div data-slot="gallery-toolbar" className="mb-6 space-y-3">
+        <div className={cn(pillShell, "flex items-center whitespace-nowrap")}>
+          <GallerySearchInput
+            id="photo-search"
+            value={query}
+            onChange={onQueryChange}
+            placeholder="Search photos…"
+            onClear={clearQuery}
           />
+          {iconButtons}
+          <div className="pr-1.5 py-1 shrink-0">
+            <SegmentedControl
+              options={segments}
+              value={segment}
+              onChange={onSegmentChange}
+              surface="secondary"
+            />
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div data-slot="gallery-toolbar" className="mb-6 space-y-3">
+      {/* Top bar on small screens: Search bar + actions */}
+      <div className={cn(pillShell, "flex items-center")}>
+        <GallerySearchInput
+          id="photo-search-mobile"
+          value={query}
+          onChange={onQueryChange}
+          placeholder="Search photos…"
+          onClear={clearQuery}
+        />
         {iconButtons}
       </div>
 
-      {searchOpen && (
-        <div
-          className={cn(pillShell, "animate-nav-slide-in")}
-          data-slot="gallery-search-row"
-        >
-          <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
-            <Search
-              size={18}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
-              aria-hidden="true"
-            />
-            <input
-              ref={searchInputRef}
-              id="photo-search"
-              type="search"
-              placeholder="Search photos…"
-              value={query}
-              onChange={onQueryChange}
-              onKeyDown={onSearchKeyDown}
-              aria-label="Search photos"
-              className={searchInputClass}
-            />
-            <Button
-              type="button"
-              size="iconSm"
-              variant="ghost"
-              surface="primary"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2"
-              aria-label="Close search"
-              onClick={clearAndCloseSearch}
-            >
-              <X size={16} />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!searchOpen && !!query && (
-        <div className="flex flex-wrap gap-2" data-slot="gallery-search-chip">
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
-            onClick={() => {
-              haptic("light");
-              setSearchOpen(true);
-            }}
-            aria-label={`Search: ${query}. Click to edit.`}
-          >
-            <Search size={14} aria-hidden="true" />
-            <span className="max-w-[14rem] truncate">{query}</span>
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label="Clear search"
-              className="rounded-pill p-0.5 hover:bg-primary hover:text-secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                haptic("light");
-                onQueryChange({ target: { value: "" } });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  haptic("light");
-                  onQueryChange({ target: { value: "" } });
-                }
-              }}
-            >
-              <X size={14} />
-            </span>
-          </button>
-        </div>
-      )}
+      {/* Bottom bar on small screens: Category bar below the search bar */}
+      <div className={cn(pillShell, "justify-center py-1 px-1.5")}>
+        <SegmentedControl
+          options={segments}
+          value={segment}
+          onChange={onSegmentChange}
+          surface="secondary"
+          className="w-full"
+        />
+      </div>
     </div>
   );
 }
@@ -379,4 +392,5 @@ GalleryToolbar.propTypes = {
   onRescan: PropTypes.func,
   rescanPending: PropTypes.bool,
   onOpenShortcuts: PropTypes.func,
+  isDesktop: PropTypes.bool,
 };
