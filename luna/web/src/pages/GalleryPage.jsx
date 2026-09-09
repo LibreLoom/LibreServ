@@ -222,6 +222,7 @@ function readGridCols() {
 
 export default function GalleryPage() {
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
   const initialHash =
     typeof window !== "undefined" ? parseGalleryHash(window.location.hash) : { segment: DEFAULT_SEGMENT };
@@ -1019,12 +1020,18 @@ export default function GalleryPage() {
       <Page title="Photos" titleId="gallery-title">
         <EmptyState
           icon={PlugZap}
-          title="No drives yet"
-          description="Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+          title={isAdmin ? "No drives yet" : "No photos you can open yet"}
+          description={
+            isAdmin
+              ? "Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              : "Ask an Admin to share a drive or folder with photos. Luna will show them here once you have access."
+          }
           action={
-            <Button variant="primary" asChild>
-              <Link to="/drives">Go to Drives</Link>
-            </Button>
+            isAdmin ? (
+              <Button variant="primary" asChild>
+                <Link to="/drives">Go to Drives</Link>
+              </Button>
+            ) : undefined
           }
         />
       </Page>

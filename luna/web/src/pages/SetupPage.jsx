@@ -288,6 +288,7 @@ FormField.propTypes = {
 
 function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const { user, register, login } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const needsDeviceToken = isPublicLunaHost() && connectActive;
   const [form, setForm] = useState({
@@ -503,6 +504,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   // Luna already has an account — the wizard can't create another one.
   if (hasAdmin) {
     if (user) {
+      const isAdmin = user.role === "admin";
       return (
         <div className="flex flex-col items-center text-center">
           <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
@@ -513,17 +515,20 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           </h2>
           <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
             Signed in as <span className="font-mono text-primary">{user.username}</span>
-            {user.role === "admin"
+            {isAdmin
               ? ". You're an Admin on this Luna."
-              : ". You're a Member — an Admin finishes setup."}
+              : ". You're a Member. An Admin finishes setup and shares folders with you."}
           </p>
           <div className="mt-8 animate-in fade-in duration-300 delay-300">
             <Button
               variant="primary"
-              onClick={onContinue}
+              onClick={() => {
+                if (isAdmin) onContinue();
+                else navigate("/");
+              }}
               className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
             >
-              Continue
+              {isAdmin ? "Continue" : "Go to Home"}
               <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
             </Button>
           </div>

@@ -99,7 +99,7 @@ function DriveStateLabel({ state }) {
  *
  * @param {{ drive: { id: string, label?: string, state: string } }} props
  */
-function DriveHomeCard({ drive }) {
+function DriveHomeCard({ drive, isAdmin = false }) {
   const ready = drive.state === "as_is" || drive.state === "readonly";
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -135,9 +135,11 @@ function DriveHomeCard({ drive }) {
             ? "Unplugged. Plug it back in when you want its files and space here."
             : drive.state === "ejected"
               ? "Safely removed. Plug it in again when you need it."
-              : "Luna ran into a problem with this drive. Open Drives for details."}
+              : isAdmin
+                ? "Luna ran into a problem with this drive. Open Drives for details."
+                : "Luna ran into a problem with this drive. Ask an Admin to check it."}
         </p>
-        {drive.state === "failed" ? (
+        {drive.state === "failed" && isAdmin ? (
           <Button size="sm" variant="outline" asChild>
             <Link to="/drives">Open Drives</Link>
           </Button>
@@ -860,7 +862,7 @@ export default function DashboardPage() {
 
         <div className="flex-1 grid grid-cols-1 gap-6 content-start order-2 md:order-1">
           {adopted.map((drive) => (
-            <DriveHomeCard key={drive.id} drive={drive} />
+            <DriveHomeCard key={drive.id} drive={drive} isAdmin={isAdmin} />
           ))}
 
           {isAdmin && pluggedIn.length > 0 && (
@@ -885,7 +887,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {attentionDrives.length > 0 && (
+          {isAdmin && attentionDrives.length > 0 && (
             <Card icon={TriangleAlert} title="Needs a look">
               <ul className="space-y-2">
                 {attentionDrives.map((drive) => (
@@ -902,7 +904,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {!drives.isLoading && adopted.length === 0 && (
+          {!drives.isLoading && adopted.length === 0 && isAdmin && (
             <EmptyState
               icon={HardDrive}
               title="No drives yet"
@@ -912,6 +914,14 @@ export default function DashboardPage() {
                   <Link to="/drives">Go to Drives</Link>
                 </Button>
               }
+            />
+          )}
+
+          {!drives.isLoading && !isAdmin && grants.length === 0 && (
+            <EmptyState
+              icon={HardDrive}
+              title="Nothing shared with you yet"
+              description="Ask an Admin to share a folder or drive with you."
             />
           )}
 

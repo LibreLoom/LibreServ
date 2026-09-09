@@ -160,13 +160,22 @@ describe("DashboardPage", () => {
     expect(screen.queryByText(/Anywhere, free/i)).not.toBeInTheDocument();
   });
 
-  it("helps when there are no drives yet", async () => {
+  it("helps Admins when there are no drives yet", async () => {
     stubFetch({ drives: [] });
     renderPage();
     expect(await screen.findByText(/No drives yet/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Drives/i })).toHaveAttribute("href", "/drives");
     expect(screen.queryByText(/No subscription/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/free forever/i)).not.toBeInTheDocument();
+  });
+
+  it("tells Members to ask an Admin when nothing is shared yet", async () => {
+    stubFetch({ username: "jamie", role: "user", drives: [], access: [] });
+    renderPage();
+    expect(await screen.findByText(/Nothing shared with you yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ask an Admin to share a folder or drive with you/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Plug a USB drive/i)).not.toBeInTheDocument();
   });
 
   it("flags a newly plugged-in USB for admins", async () => {

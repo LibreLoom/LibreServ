@@ -66,7 +66,7 @@ export default function SettingsSidebar({
         {!isAdmin && (
           <p className="px-3 mt-3 flex items-center gap-1.5 text-xs text-primary">
             <Lock size={ICON_SIZE.xs} aria-hidden="true" className="shrink-0" />
-            Member view — External Services and About are for Admins.
+            Member view — only Admins change External Services and About.
           </p>
         )}
       </div>
