@@ -154,6 +154,7 @@ export default function Button({
   tooltip,
   title,
   onClick,
+  haptic: hapticProp,
   ...props
 }) {
   const ref = useRef(null);
@@ -169,9 +170,18 @@ export default function Button({
   const buttonClass = cn(buttonVariants(cvaProps), className);
 
   // Haptic feedback on every press — destructive actions get a harsh buzz,
-  // significant actions (accent submit) get a heavy tap, standard taps get medium.
+  // significant actions (accent submit) get a heavy tap, ghost/outline get light,
+  // nav buttons get selection, standard taps get medium.
   const handleClick = (event) => {
-    haptic(variant === "danger" ? "error" : variant === "accent" ? "heavy" : "medium");
+    let pattern = hapticProp;
+    if (pattern === undefined) {
+      if (variant === "danger") pattern = "error";
+      else if (variant === "accent") pattern = "heavy";
+      else if (variant === "ghost" || variant === "outline") pattern = "light";
+      else if (variant === "nav") pattern = "selection";
+      else pattern = "medium";
+    }
+    if (pattern) haptic(pattern);
     onClick?.(event);
   };
 

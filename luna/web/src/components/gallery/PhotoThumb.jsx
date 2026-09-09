@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Heart, Play } from "lucide-react";
+import { haptic } from "../../utils/haptics.js";
 
 const LONG_PRESS_MS = 450;
 
@@ -60,6 +61,7 @@ export default function PhotoThumb({
   function startLong(e) {
     // Desktop drag-to-select: primary button down starts a range drag.
     if (selectMode && e.button === 0 && onDragSelectStart) {
+      haptic("selection");
       onDragSelectStart(photo);
       onToggle?.(photo, { range: false });
       toggledOnPointerDown.current = true;
@@ -68,6 +70,7 @@ export default function PhotoThumb({
     longFired.current = false;
     longTimer.current = setTimeout(() => {
       longFired.current = true;
+      haptic("rigid");
       onLongPress?.(photo);
     }, LONG_PRESS_MS);
   }
@@ -82,9 +85,11 @@ export default function PhotoThumb({
         toggledOnPointerDown.current = false;
         return;
       }
+      haptic("selection");
       onToggle?.(photo, { range: e.shiftKey });
       return;
     }
+    haptic("medium");
     onOpen?.(photo);
   }
 
@@ -97,10 +102,14 @@ export default function PhotoThumb({
       onPointerLeave={clearLong}
       onPointerCancel={clearLong}
       onPointerEnter={() => {
-        if (selectMode && onDragSelectEnter) onDragSelectEnter(photo);
+        if (selectMode && onDragSelectEnter) {
+          haptic("selection");
+          onDragSelectEnter(photo);
+        }
       }}
       onContextMenu={(e) => {
         e.preventDefault();
+        haptic("rigid");
         onLongPress?.(photo);
       }}
       style={animationStyle}
@@ -149,12 +158,14 @@ export default function PhotoThumb({
           aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
           onClick={(e) => {
             e.stopPropagation();
+            haptic("selection");
             onFavoriteToggle(photo, e);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               e.stopPropagation();
+              haptic("selection");
               onFavoriteToggle(photo, /** @type {any} */ (e));
             }
           }}

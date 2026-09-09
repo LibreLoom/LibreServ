@@ -28,6 +28,7 @@ import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../l
 import { describeDriveHealth } from "../lib/driveHealth";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
+import { haptic } from "../utils/haptics.js";
 
 /** @param {number} n @param {string} one @param {string} many */
 function pluralCount(n, one, many) {
@@ -412,30 +413,42 @@ export default function DrivesPage() {
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
       // InspectModal closes via ModalCard's animated close (not an instant unmount).
+      haptic("success");
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
+    },
+    onError: () => {
+      haptic("error");
     },
   });
 
   const eject = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
     onSuccess: () => {
+      haptic("success");
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't eject this drive safely.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Luna couldn't eject this drive safely."));
+    },
   });
 
   const remove = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/remove`, {}),
     onSuccess: () => {
+      haptic("success");
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't remove this drive.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Luna couldn't remove this drive."));
+    },
   });
 
   const adoptError = adopt.isError

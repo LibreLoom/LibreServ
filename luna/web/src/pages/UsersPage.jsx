@@ -16,6 +16,7 @@ import { InfoHint } from "../components/ui/Tooltip";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import CreateUserForm from "../components/common/forms/CreateUserForm";
+import { haptic } from "../utils/haptics.js";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
@@ -33,20 +34,26 @@ export default function UsersPage() {
   const createMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/users", body),
     onSuccess: () => {
+      haptic("success");
       setCreating(false);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: (err) => setError(apiErrorMessage(err, "Couldn't add this user. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err, "Couldn't add this user. Try again."));
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/users/${id}`),
     onSuccess: () => {
+      haptic("success");
       setUserToDelete(null);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (err) => {
+      haptic("error");
       setError(apiErrorMessage(err, "Couldn't remove this user. Try again."));
     },
   });

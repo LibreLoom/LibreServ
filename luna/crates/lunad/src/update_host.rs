@@ -18,10 +18,17 @@ pub(crate) fn is_blocked_update_host_ip(ip: std::net::IpAddr) -> bool {
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
                 || v6.is_unspecified()
+                || v6.is_multicast()
             {
                 return true;
             }
-            if let Some(v4) = v6.to_ipv4_mapped() {
+            // Cover both IPv4-mapped (::ffff:a.b.c.d) and the deprecated
+            // IPv4-compatible form (::a.b.c.d). Checking only mapped left
+            // ::127.0.0.1 / ::10.0.0.1 etc. unblocked.
+            //
+            // Keep the loopback check above: `::1`.to_ipv4() is Some(0.0.0.1),
+            // which is not itself a blocked IPv4.
+            if let Some(v4) = v6.to_ipv4() {
                 return is_blocked_update_host_ip(std::net::IpAddr::V4(v4));
             }
             false
@@ -90,4 +97,59 @@ pub(crate) fn validate_api_base_host(api_base: &str) -> Result<(), &'static str>
         let _ = saw_any;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().expect(s)
+    }
+
+    #[test]
+    fn blocks_v4_private_and_special() {
+        assert!(is_blocked_update_host_ip(ip("127.0.0.1")));
+        assert!(is_blocked_update_host_ip(ip("10.0.0.1")));
+        assert!(is_blocked_update_host_ip(ip("192.168.1.1")));
+        assert!(is_blocked_update_host_ip(ip("169.254.1.1")));
+        assert!(is_blocked_update_host_ip(ip("100.64.0.1")));
+        assert!(is_blocked_update_host_ip(ip("0.0.0.0")));
+        assert!(!is_blocked_update_host_ip(ip("8.8.8.8")));
+    }
+
+    #[test]
+    fn blocks_v6_mapped_and_compatible_private() {
+        // IPv4-mapped (already covered before this fix).
+        assert!(is_blocked_update_host_ip(ip("::ffff:127.0.0.1")));
+        assert!(is_blocked_update_host_ip(ip("::ffff:10.1.2.3")));
+        assert!(is_blocked_update_host_ip(ip("::ffff:192.168.0.9")));
+        // Deprecated IPv4-compatible form — the gap this patch closes.
+        assert!(is_blocked_update_host_ip(ip("::127.0.0.1")));
+        assert!(is_blocked_update_host_ip(ip("::10.0.0.1")));
+        assert!(is_blocked_update_host_ip(ip("::192.168.1.1")));
+        assert!(is_blocked_update_host_ip(ip("::169.254.169.254")));
+        assert!(is_blocked_update_host_ip(ip("::100.64.1.2")));
+        // Public mapped/compatible stay allowed.
+        assert!(!is_blocked_update_host_ip(ip("::ffff:8.8.8.8")));
+        assert!(!is_blocked_update_host_ip(ip("::8.8.8.8")));
+    }
+
+    #[test]
+    fn blocks_native_v6_local_ranges() {
+        assert!(is_blocked_update_host_ip(ip("::1")));
+        assert!(is_blocked_update_host_ip(ip("fc00::1")));
+        assert!(is_blocked_update_host_ip(ip("fe80::1")));
+        assert!(is_blocked_update_host_ip(ip("ff02::1")));
+        assert!(!is_blocked_update_host_ip(ip("2001:4860:4860::8888")));
+    }
+
+    #[test]
+    fn validate_rejects_compatible_literal_in_api_base() {
+        assert!(validate_api_base_host("http://[::192.168.0.1]/api/v1").is_err());
+        assert!(validate_api_base_host("https://[::ffff:10.0.0.1]/api/v1").is_err());
+        assert!(validate_api_base_host("http://[::1]/api/v1").is_err());
+        assert!(validate_api_base_host("https://8.8.8.8/api/v1").is_ok());
+    }
 }

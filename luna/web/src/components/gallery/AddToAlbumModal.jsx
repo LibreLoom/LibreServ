@@ -7,6 +7,7 @@ import Button from "../ui/Button.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * @param {{ home_drive_id: string, id: string }} album
@@ -131,7 +132,10 @@ export default function AddToAlbumModal({
                         role="option"
                         aria-selected={selected}
                         disabled={adding}
-                        onClick={() => setSelectedKey(key)}
+                        onClick={() => {
+                          haptic("selection");
+                          setSelectedKey(key);
+                        }}
                         className={cn(
                           "w-full flex items-center gap-3 rounded-pill px-4 py-2.5 text-left motion-safe:transition-colors",
                           "outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary",

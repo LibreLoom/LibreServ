@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useState, useId } from "react";
 import { cn } from "@/lib/utils";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../utils/haptics.js";
 
 export default function CollapsibleSection({
   title,
@@ -29,7 +30,10 @@ export default function CollapsibleSection({
     <div data-slot="collapsible" className={wrapperClass}>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          haptic("light");
+          setOpen(!open);
+        }}
         className={cn(
           "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",

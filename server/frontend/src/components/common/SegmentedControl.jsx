@@ -20,7 +20,7 @@ export default function SegmentedControl({
         "relative inline-grid bg-primary/10 rounded-pill p-[3px]",
         className
       )}
-      style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
       role="radiogroup"
     >
       <div
@@ -51,7 +51,7 @@ export default function SegmentedControl({
               onChange(optValue);
             }}
             className={cn(
-              "relative z-10 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill",
+              "relative z-10 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-pill min-w-0",
               "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
               disabled
                 ? "text-accent opacity-50 cursor-not-allowed"
@@ -65,8 +65,8 @@ export default function SegmentedControl({
             aria-disabled={disabled || undefined}
             aria-label={label}
           >
-            {Icon && <Icon size={ICON_SIZE.sm} />}
-            <span>{label}</span>
+            {Icon && <Icon size={ICON_SIZE.sm} className="shrink-0" />}
+            <span className="truncate text-center w-full">{label}</span>
           </button>
         );
         return title ? (

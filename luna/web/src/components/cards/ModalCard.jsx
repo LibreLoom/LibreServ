@@ -57,6 +57,7 @@ function prefersReducedMotion() {
  * @property {string} [overlayClassName] Extra classes on the fixed overlay (e.g. raise
  *   z-index above PhotoLightbox's z-[80] or another ModalCard with `NESTED_OVERLAY_CLASS`
  *   / `z-[90]`). Default overlay is `z-50`.
+ * @property {"selection"|"light"|"medium"|"heavy"|"rigid"|"soft"|"success"|"warning"|"error"|"nudge"|false} [openHaptic]
  */
 
 /** @param {ModalCardProps} props */
@@ -73,6 +74,7 @@ export default function ModalCard({
   initialFocusRef,
   loading = false,
   overlayClassName = "",
+  openHaptic = "medium",
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [present, setPresent] = useState(open);
@@ -81,6 +83,7 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const prevOpenRef = useRef(false);
   // Rebind when the portal remounts after exit — a mount-only observer would
   // miss the second open and leave height:auto (content jumps instead of easing).
   // isAnimating: keep overflow clipped while height eases to new content.
@@ -131,11 +134,16 @@ export default function ModalCard({
   }, [finishExit]);
 
   const handleClose = useCallback(() => {
+    haptic("light");
     beginExit(true);
   }, [beginExit]);
 
   useEffect(() => {
     if (open) {
+      if (!prevOpenRef.current && openHaptic) {
+        haptic(openHaptic);
+      }
+      prevOpenRef.current = true;
       clearExitTimer();
       isClosingRef.current = false;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
@@ -144,11 +152,12 @@ export default function ModalCard({
       setPresent(true);
       return;
     }
+    prevOpenRef.current = false;
     if (present && !isClosingRef.current) {
       beginExit(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, openHaptic]);
 
   useEffect(() => () => clearExitTimer(), [clearExitTimer]);
 

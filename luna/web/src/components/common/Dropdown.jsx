@@ -117,6 +117,7 @@ export default function Dropdown({
 
   const handleToggle = () => {
     if (disabled) return;
+    haptic("light");
     if (isOpen) {
       close();
     } else {

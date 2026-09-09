@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by GalleryPage */
+/* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by GalleryPage and tests */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -6,6 +6,7 @@ import Spinner from "../ui/Spinner.jsx";
 import Button from "../ui/Button.jsx";
 import PhotoThumb from "./PhotoThumb.jsx";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
+import { haptic } from "../../utils/haptics.js";
 
 /** @param {number|null|undefined} ts */
 export function dayKey(ts) {
@@ -157,6 +158,7 @@ export default function PhotoTimeline({
   }, []);
 
   const toggleCollapsed = useCallback((key) => {
+    haptic("light");
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -204,7 +206,10 @@ export default function PhotoTimeline({
                 <button
                   type="button"
                   id={`day-${group.key}`}
-                  onClick={() => onDayClick(group.key, group.label)}
+                  onClick={() => {
+                    haptic("selection");
+                    onDayClick(group.key, group.label);
+                  }}
                   className="font-mono text-sm text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-pill"
                 >
                   {group.label}
@@ -225,7 +230,10 @@ export default function PhotoTimeline({
                   size="sm"
                   variant="outline"
                   surface="primary"
-                  onClick={() => onSelectDay(group.items.map((i) => i.photo))}
+                  onClick={() => {
+                    haptic("selection");
+                    onSelectDay(group.items.map((i) => i.photo));
+                  }}
                 >
                   Select day
                 </Button>

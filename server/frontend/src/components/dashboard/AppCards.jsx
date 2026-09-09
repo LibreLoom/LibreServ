@@ -9,6 +9,7 @@ import StatusPill from "../common/StatusPill";
 import { useApps } from "../../hooks/useApps";
 import { useIsNarrow } from "../../hooks/useIsNarrow";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { sanitizeURL } from "../../lib/sanitize";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -39,7 +40,7 @@ function AppCardInner({ app }) {
   const [isNarrow, ref] = useIsNarrow(220);
   const isRunning = app.status === "running";
   const uptime = isRunning ? app.uptime_seconds : app.downtime_seconds;
-  const appUrl = app.url || app.backends?.[0]?.url || "";
+  const appUrl = sanitizeURL(app.url || app.backends?.[0]?.url || "");
   const uptimeLabel = isRunning ? "Uptime" : "Downtime";
 
   return (

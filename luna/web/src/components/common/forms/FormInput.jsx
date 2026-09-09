@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import useShakeOnError from "../../../hooks/useShakeOnError";
 import FieldLabel from "./FieldLabel";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../../utils/haptics.js";
 
 const ICONS = {
   username: User,
@@ -105,7 +106,10 @@ export default function FormInput({
           />
           <button
             type="button"
-            onClick={() => setShowPassword(!showPassword)}
+            onClick={() => {
+              haptic("light");
+              setShowPassword(!showPassword);
+            }}
             className={cn(
               "absolute right-4 top-1/2 -translate-y-1/2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline rounded-pill p-1 cursor-pointer",
               eyeTone,

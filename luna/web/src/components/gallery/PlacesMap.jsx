@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { ImageIcon, MapPin } from "lucide-react";
+import { Crop, ImageIcon, MapPin } from "lucide-react";
 import Supercluster from "supercluster";
 import {
   MapContainer,
@@ -16,6 +16,8 @@ import Button from "../ui/Button.jsx";
 import Card from "../cards/Card.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import Spinner from "../ui/Spinner.jsx";
+import { haptic } from "../../utils/haptics.js";
+import MapAreaDraw from "./MapAreaDraw.jsx";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -169,7 +171,10 @@ export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
           variant="primary"
           size="sm"
           className="shrink-0 px-3"
-          onClick={() => onSelect?.(place)}
+          onClick={() => {
+            haptic("medium");
+            onSelect?.(place);
+          }}
         >
           Open
         </Button>
@@ -181,7 +186,10 @@ export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
             size="sm"
             variant="outline"
             className="w-full"
-            onClick={() => onDrawArea()}
+            onClick={() => {
+              haptic("light");
+              onDrawArea();
+            }}
           >
             Draw a custom area…
           </Button>
@@ -267,9 +275,13 @@ function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
             center={[lat, lon]}
             radius={radius}
             eventHandlers={{
+              click: () => {
+                haptic("selection");
+              },
               dblclick: (e) => {
                 if (!isCluster || expandZoom == null) return;
                 e.originalEvent?.preventDefault?.();
+                haptic("medium");
                 map.setView([lat, lon], expandZoom, { animate: true });
               },
             }}
@@ -311,12 +323,61 @@ ClusterMarkers.propTypes = {
   onDrawArea: PropTypes.func,
 };
 
-/** Full-bleed Leaflet Places map with zoom-based photo clustering. */
-export default function PlacesMap({ places, loading = false, onSelect, onDrawArea = undefined }) {
+/**
+ * Full-bleed Leaflet Places map with zoom-based photo clustering and on-map custom area drawing.
+ *
+ * @param {{
+ *   places?: Array<any>,
+ *   loading?: boolean,
+ *   onSelect?: (place: any) => void,
+ *   onDrawArea?: () => void,
+ *   drawMode?: boolean,
+ *   onDrawModeChange?: (active: boolean) => void,
+ * }} props
+ */
+export default function PlacesMap({
+  places,
+  loading = false,
+  onSelect,
+  onDrawArea = undefined,
+  drawMode: drawModeProp = undefined,
+  onDrawModeChange = undefined,
+}) {
+  const [internalDrawMode, setInternalDrawMode] = useState(false);
+  const isDrawMode = drawModeProp !== undefined ? drawModeProp : internalDrawMode;
+  const setDrawMode = useCallback(
+    (val) => {
+      if (onDrawModeChange) onDrawModeChange(val);
+      else setInternalDrawMode(val);
+    },
+    [onDrawModeChange],
+  );
+
+  const [drawnBbox, setDrawnBbox] = useState(/** @type {[number, number, number, number]|null} */ (null));
+
   const markers = useMemo(
     () => (places || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)),
     [places],
   );
+
+  const matchedCount = useMemo(() => {
+    if (!drawnBbox) return 0;
+    const [west, south, east, north] = drawnBbox;
+    let total = 0;
+    for (const m of markers) {
+      if (m.lon >= west && m.lon <= east && m.lat >= south && m.lat <= north) {
+        total += m.count || 1;
+      }
+    }
+    return total;
+  }, [drawnBbox, markers]);
+
+  const handleStartDraw = useCallback(() => {
+    haptic("light");
+    setDrawMode(true);
+    setDrawnBbox(null);
+    onDrawArea?.();
+  }, [setDrawMode, onDrawArea]);
 
   if (loading) {
     return (
@@ -344,15 +405,92 @@ export default function PlacesMap({ places, loading = false, onSelect, onDrawAre
   /** @type {[number, number]} */
   const center = [markers[0].lat, markers[0].lon];
 
-  // Card owns the pop-in (same clip pattern as EmptyState / other gallery
-  // panels). flex-1 fills the Places overview column; overflow clips Leaflet
-  // tiles to the rounded card without fighting the entrance animation.
   return (
     <Card
       noHeightAnim
       padding={false}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
     >
+      {/* Floating Draw Mode Toolbar */}
+      {isDrawMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-[calc(100%-1.5rem)] pointer-events-auto">
+          {!drawnBbox ? (
+            <div className="flex items-center gap-2 bg-secondary text-primary px-3.5 py-2 rounded-pill shadow-xl ring-2 ring-accent text-xs font-mono animate-nav-slide-in">
+              <Crop size={15} className="shrink-0 text-accent animate-pulse" aria-hidden="true" />
+              <span className="font-medium">Draw custom area</span>
+              <span className="text-accent hidden sm:inline">· Drag across the map</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="ml-1 h-6 px-2 text-xs rounded-pill"
+                onClick={() => {
+                  haptic("light");
+                  setDrawMode(false);
+                  setDrawnBbox(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-center gap-2 bg-secondary text-primary px-3.5 py-2 rounded-pill shadow-xl ring-2 ring-accent text-xs font-mono animate-nav-slide-in">
+              <span className="font-medium">
+                {matchedCount === 0
+                  ? "No photos in area"
+                  : `${matchedCount} ${matchedCount === 1 ? "photo" : "photos"} in area`}
+              </span>
+              {matchedCount > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="accent"
+                  className="h-7 px-3 text-xs rounded-pill"
+                  onClick={() => {
+                    haptic("medium");
+                    onSelect?.({
+                      key: `bbox:${drawnBbox.map((n) => n.toFixed(5)).join(",")}`,
+                      label: "Custom area",
+                      count: matchedCount,
+                      place_bbox: drawnBbox,
+                    });
+                    setDrawMode(false);
+                    setDrawnBbox(null);
+                  }}
+                >
+                  Open photos
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2.5 text-xs rounded-pill"
+                onClick={() => {
+                  haptic("selection");
+                  setDrawnBbox(null);
+                }}
+              >
+                Redraw
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs rounded-pill"
+                onClick={() => {
+                  haptic("light");
+                  setDrawMode(false);
+                  setDrawnBbox(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <MapContainer
         center={center}
         zoom={4}
@@ -367,7 +505,14 @@ export default function PlacesMap({ places, loading = false, onSelect, onDrawAre
         />
         <InvalidateOnResize />
         <FitBounds points={markers} />
-        <ClusterMarkers markers={markers} onSelect={onSelect} onDrawArea={onDrawArea} />
+        <ClusterMarkers markers={markers} onSelect={onSelect} onDrawArea={handleStartDraw} />
+        <MapAreaDraw
+          active={isDrawMode}
+          value={drawnBbox}
+          onChange={(bbox) => {
+            setDrawnBbox(bbox);
+          }}
+        />
       </MapContainer>
     </Card>
   );
@@ -378,4 +523,6 @@ PlacesMap.propTypes = {
   loading: PropTypes.bool,
   onSelect: PropTypes.func,
   onDrawArea: PropTypes.func,
+  drawMode: PropTypes.bool,
+  onDrawModeChange: PropTypes.func,
 };

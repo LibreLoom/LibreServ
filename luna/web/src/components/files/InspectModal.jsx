@@ -169,7 +169,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                       )}
                       <div className="flex gap-3 flex-wrap">
                         {!confirmFormat ? (
-                          <Button variant="danger" onClick={() => setConfirmFormat(true)}>
+                          <Button variant="danger" haptic="warning" onClick={() => setConfirmFormat(true)}>
                             Format
                           </Button>
                         ) : (
@@ -219,7 +219,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                   {adoptError && <PageNotice variant="error" className="mt-2">{adoptError}</PageNotice>}
                   <div className="mt-4 flex gap-3">
                     {needsErase && !confirmErase ? (
-                      <Button variant="danger" onClick={() => setConfirmErase(true)}>
+                      <Button variant="danger" haptic="warning" onClick={() => setConfirmErase(true)}>
                         Erase and add this drive
                       </Button>
                     ) : (

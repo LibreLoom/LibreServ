@@ -1,8 +1,9 @@
-/* eslint-disable react-refresh/only-export-components -- scrubber exports date helpers used by GalleryPage */
+/* eslint-disable react-refresh/only-export-components -- scrubber exports date helpers used by GalleryPage and tests */
 import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
+import { haptic } from "../../utils/haptics.js";
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -102,6 +103,7 @@ export default function YearScrubber({ photos = [], onPick, open = false, onClos
                     size="sm"
                     variant={entry.year === (year ?? active?.year) ? "accent" : "outline"}
                     onClick={() => {
+                      haptic("selection");
                       setYear(entry.year);
                       const start = new Date(entry.year, 0, 1, 0, 0, 0, 0);
                       const end = new Date(entry.year, 11, 31, 23, 59, 59, 999);
@@ -126,6 +128,7 @@ export default function YearScrubber({ photos = [], onPick, open = false, onClos
                       size="sm"
                       variant="secondary"
                       onClick={() => {
+                        haptic("selection");
                         const bounds = monthBoundsLocal(active.year, m);
                         onPick({ ...bounds, kind: "month" });
                         close();
@@ -158,6 +161,7 @@ export default function YearScrubber({ photos = [], onPick, open = false, onClos
               onClick={() => {
                 const bounds = dayBoundsLocal(dateInput);
                 if (!bounds) return;
+                haptic("selection");
                 onPick({ ...bounds, kind: "day" });
                 close();
               }}

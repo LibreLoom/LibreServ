@@ -17,6 +17,9 @@ func TestProbeLunaHealth(t *testing.T) {
 	prev := lunaHealthHTTPClient
 	lunaHealthHTTPClient = &http.Client{
 		Timeout: lunaHealthProbeTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test-only self-signed cert
 		},
@@ -63,6 +66,9 @@ func TestProbeDomainProvisioned(t *testing.T) {
 	prev := lunaHealthHTTPClient
 	lunaHealthHTTPClient = &http.Client{
 		Timeout: lunaHealthProbeTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test-only self-signed cert
 		},
@@ -95,5 +101,42 @@ func TestProbeDomainProvisioned(t *testing.T) {
 
 	if probeDomainProvisioned("127.0.0.1:1") {
 		t.Fatal("closed port should not be provisioned")
+	}
+}
+
+func TestProbeLunaHealthRejectsRedirect(t *testing.T) {
+	internalHit := false
+	internal := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		internalHit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer internal.Close()
+
+	redir := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internal.URL+"/api/v1/health", http.StatusFound)
+	}))
+	defer redir.Close()
+
+	prev := lunaHealthHTTPClient
+	lunaHealthHTTPClient = &http.Client{
+		Timeout: lunaHealthProbeTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test-only self-signed cert
+		},
+	}
+	defer func() { lunaHealthHTTPClient = prev }()
+
+	host := strings.TrimPrefix(redir.URL, "https://")
+	if probeLunaHealth(host) {
+		t.Fatal("redirect response must not count as healthy")
+	}
+	if probeDomainProvisioned(host) {
+		t.Fatal("redirect response must not count as provisioned")
+	}
+	if internalHit {
+		t.Fatal("health client must not follow redirects to another host")
 	}
 }

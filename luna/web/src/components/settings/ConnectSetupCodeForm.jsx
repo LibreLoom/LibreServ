@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { haptic } from "../../utils/haptics.js";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
 const LUNA_CONNECT_HOST = "connect.luna.libreloom.org";
@@ -25,6 +26,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const saveCode = useMutation({
     mutationFn: () => postJson("/api/v1/connect/device-token", { token: code.trim() }),
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       queryClient.invalidateQueries({ queryKey: ["auth-status"] });
       setError(null);
@@ -32,6 +34,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
       setCode("");
     },
     onError: (err) => {
+      haptic("error");
       setSaved(false);
       setError(apiErrorMessage(err));
     },
@@ -39,6 +42,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const removeToken = useMutation({
     mutationFn: () => deleteJson("/api/v1/connect/device-token"),
     onSuccess: () => {
+      haptic("medium");
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       queryClient.invalidateQueries({ queryKey: ["auth-status"] });
       setError(null);
@@ -46,6 +50,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
       setCode("");
     },
     onError: (err) => {
+      haptic("error");
       setError(apiErrorMessage(err));
     },
   });

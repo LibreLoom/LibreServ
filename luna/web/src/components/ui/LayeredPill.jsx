@@ -2,6 +2,7 @@ import { cloneElement } from "react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "./Tooltip.jsx";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * LayeredPill — the dual-layer segmented pill (settled format, do not deviate).
@@ -99,7 +100,10 @@ export default function LayeredPill({
             <button
               ref={actionRef}
               type="button"
-              onClick={onAction}
+              onClick={() => {
+                haptic("light");
+                onAction();
+              }}
               disabled={actionDisabled}
               aria-label={actionAriaLabel}
               className={cn(

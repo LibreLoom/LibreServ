@@ -231,6 +231,26 @@ Before ANY UI work:
 #### 5. Preserve monospace style
 - Simplex Mono is the brand identity. Typography: monospace for headings/code (FreeMono / monospace family like Courier New), Noto Sans for body. Keep the mono typography identity — do NOT replace with a generic sans-serif.
 
+#### Haptics & Tactile Feedback (non-negotiable)
+
+The entire UI must be felt, not just seen. Every interactive surface, card, modal, gesture (long-press, swipe, drag/drop, FAB corner snap), navigation link, and state outcome (shake error, copy success, mutation success) must emit consistent, intentional, and tasteful tactile haptic feedback using Luna's PWM-modulated vibration engine (`luna/web/src/utils/haptics.js`).
+
+**Semantic presets (use explicitly):**
+- `selection`: Segmented controls, tabs, nav links (`NavLink`), table rows (`onRowClick`), checkboxes, dropdown items, filter toggles, photo thumbnails, year/month scrubbers.
+- `light`: Micro-interactions, gentle UI toggles, tooltip pins (`InfoHint`/`TermHint`), password reveal eye toggle, search open/close/clear, filter chip dismissal, accordion expand/collapse, pill action button clicks.
+- `medium`: Substantial actions, card buttons, opening files/folders, lightbox opens, custom bounding box draws, library rescans, device token removal.
+- `heavy`: High-gravity events, file drops in folders or upload dropzones.
+- `rigid`: Physical resistance, boundary snap, drag starts, swipe resistance past library edges, FAB corner latching, long-press threshold activation.
+- `success`: Positive outcomes, save completed, album created, file/folder mutation done, login success, setup completion (`STEP.DONE`), copy to clipboard.
+- `warning`: Destructive or high-impact prompts opening (`ConfirmModal` danger/warning variants, trash prompts).
+- `error`: Synchronous validation errors and alerts (wired directly to `shakeElement()`), API mutation failures, clipboard copy rejections.
+
+**Rules for haptics:**
+- **Synchronize with visual animation**: E.g. `shakeElement()` automatically triggers `haptic("error")` synchronously with the CSS shake animation; FAB corner latching triggers `haptic("rigid")` on physical snap.
+- **No passive buzzing**: NEVER vibrate on hover, passive page scrolling, or regular text input keystrokes.
+- **No double-buzzing**: If a button click already gave feedback, don't buzz again for the immediate action unless it's a distinct asynchronous completion (e.g. async mutation `onSuccess` / `onError`).
+- **Respect user settings**: Always route through `haptic()` which honors `luna_haptics_enabled` in localStorage.
+
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git

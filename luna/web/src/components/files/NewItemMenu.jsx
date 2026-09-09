@@ -6,6 +6,7 @@ import Button from "../ui/Button.jsx";
 import { cn } from "@/lib/utils";
 import { createKindsFor, groupedCreateKinds } from "../../lib/createKinds.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * One New button that opens a growing list of create kinds.
@@ -85,6 +86,7 @@ export default function NewItemMenu({ onPick, ids }) {
   }, [isOpen, updatePosition]);
 
   function pick(kind) {
+    haptic("selection");
     onPick(kind);
     if (isOpen) close();
   }
@@ -94,6 +96,7 @@ export default function NewItemMenu({ onPick, ids }) {
       pick(single);
       return;
     }
+    haptic("light");
     if (isOpen) {
       close();
       return;

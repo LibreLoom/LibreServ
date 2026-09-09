@@ -11,6 +11,7 @@ import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * View images/videos or edit plaintext for a drive file.
@@ -115,8 +116,10 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
         form,
       );
       setSavedText(text);
+      haptic("success");
       onSaved?.();
     } catch (err) {
+      haptic("error");
       setError(apiErrorMessage(err, "Couldn't save your changes. Try again."));
     } finally {
       setSaving(false);
@@ -195,7 +198,10 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
                   surface="secondary"
                   aria-label="Full view"
                   ref={fullViewButtonRef}
-                  onClick={() => setExpanded(true)}
+                  onClick={() => {
+                    haptic("light");
+                    setExpanded(true);
+                  }}
                 >
                   <Maximize2 size={ICON_SIZE.sm} aria-hidden="true" />
                   Full view
@@ -249,7 +255,10 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
           type="button"
           /* color-scan: ignore-next-line cinema ghost exit button */
           className="absolute top-4 right-4 md:top-6 md:right-6 z-10 flex h-10 w-10 items-center justify-center rounded-pill bg-white/10 text-white hover:bg-white/20 active:bg-white/30 motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black no-focus-outline"
-          onClick={() => setExpanded(false)}
+          onClick={() => {
+            haptic("light");
+            setExpanded(false);
+          }}
           aria-label="Exit full view"
         >
           <X size={ICON_SIZE.xxl} aria-hidden="true" />

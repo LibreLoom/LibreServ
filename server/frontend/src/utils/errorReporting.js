@@ -90,7 +90,13 @@ export function setupGlobalErrorHandlers() {
  * @returns {string} Unique error identifier
  */
 function generateErrorId() {
-  return Math.random().toString(36).substr(2, 9).toUpperCase();
+  const bytes = new Uint8Array(5);
+  crypto.getRandomValues(bytes);
+  let id = "";
+  for (const b of bytes) {
+    id += b.toString(36).padStart(2, "0");
+  }
+  return id.slice(0, 9).toUpperCase();
 }
 
 /**

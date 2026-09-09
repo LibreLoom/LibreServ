@@ -9,6 +9,7 @@ import PageNotice from "../components/common/PageNotice";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage, deleteJson, postJson, putBinaryProgress } from "../lib/api";
 import { filesFromDataTransfer } from "../lib/collectUploadFiles";
+import { haptic } from "../utils/haptics.js";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const UPLOAD_PARALLEL = 2;
@@ -405,6 +406,7 @@ export default function PublicSharePage() {
                   onDrop={async (e) => {
                     e.preventDefault();
                     setDragOver(false);
+                    haptic("heavy");
                     const files = await filesFromDataTransfer(e.dataTransfer);
                     addFiles(files);
                   }}
@@ -423,7 +425,15 @@ export default function PublicSharePage() {
               </Card>
             )}
             {rel && (
-              <Button variant="outline" surface="primary" size="sm" onClick={() => openRel(parentRel(rel))}>
+              <Button
+                variant="outline"
+                surface="primary"
+                size="sm"
+                onClick={() => {
+                  haptic("medium");
+                  openRel(parentRel(rel));
+                }}
+              >
                 ↑ Up one folder
               </Button>
             )}
@@ -434,7 +444,10 @@ export default function PublicSharePage() {
                     <button
                       type="button"
                       className="flex items-center gap-3 text-left flex-1 min-w-0 text-primary"
-                      onClick={() => openRel(joinRel(rel, entry.name))}
+                      onClick={() => {
+                        haptic("medium");
+                        openRel(joinRel(rel, entry.name));
+                      }}
                     >
                       <Folder size={18} className="text-accent shrink-0" />
                       <span className="font-mono text-sm truncate">{entry.name}</span>

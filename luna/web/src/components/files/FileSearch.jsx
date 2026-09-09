@@ -220,9 +220,14 @@ export default function FileSearch() {
     focusTrigger();
   }, [focusTrigger]);
 
-  const beginClose = useCallback(() => {
+  /** @param {any} [feedback="light"] */
+  const beginClose = useCallback((feedback = "light") => {
     if (!present || isClosingRef.current) return;
-    haptic("light");
+    if (typeof feedback === "string") {
+      haptic(/** @type {any} */ (feedback));
+    } else if (feedback !== false && !(feedback && typeof feedback === "object" && "nativeEvent" in feedback)) {
+      haptic("light");
+    }
     isClosingRef.current = true;
     setIsClosing(true);
 
@@ -428,7 +433,7 @@ export default function FileSearch() {
                             to={href}
                             aria-label={openLabel}
                             className="absolute inset-0 z-0 rounded-large-element"
-                            onClick={beginClose}
+                            onClick={() => beginClose("medium")}
                           />
                           <div className="relative z-10 flex items-center gap-2 min-w-0 pointer-events-none">
                             {isDir ? (

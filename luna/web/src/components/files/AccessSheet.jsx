@@ -13,6 +13,7 @@ import { useAuth } from "../../context/AuthContext";
 import { TermHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 import { dedupeIdenticalGrants, pathKey } from "../../lib/shareTree.js";
+import { haptic } from "../../utils/haptics.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const PERMISSION_OPTIONS = [
@@ -154,6 +155,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     mutationFn: (body) => postJson("/api/v1/grants", body),
     onMutate: () => { setError(null); setGrantError(null); },
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
@@ -161,6 +163,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
       setPersonId("");
     },
     onError: (err) => {
+      haptic("error");
       const msg = apiErrorMessage(err, "Couldn't grant access. Try again.");
       setError(msg);
       setGrantError(msg);
@@ -171,25 +174,39 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     mutationFn: ({ id, permission: next }) => patchJson(`/api/v1/grants/${id}`, { permission: next }),
     onMutate: ({ id }) => setUpdatingGrantId(id),
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Couldn't change that person's access. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err, "Couldn't change that person's access. Try again."));
+    },
     onSettled: () => setUpdatingGrantId(null),
   });
   const revokeGrant = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/grants/${id}`),
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
     },
-    onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that person's access. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err, "Couldn't remove that person's access. Try again."));
+    },
   });
   const revokeShare = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/shares/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shares"] }),
-    onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that link.")),
+    onSuccess: () => {
+      haptic("success");
+      queryClient.invalidateQueries({ queryKey: ["shares"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err, "Couldn't remove that link."));
+    },
   });
 
   function personName(userId) {

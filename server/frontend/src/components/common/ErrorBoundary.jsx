@@ -4,6 +4,16 @@ import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
 
+function generateErrorId() {
+  const bytes = new Uint8Array(5);
+  crypto.getRandomValues(bytes);
+  let id = "";
+  for (const b of bytes) {
+    id += b.toString(36).padStart(2, "0");
+  }
+  return id.slice(0, 9).toUpperCase();
+}
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -11,11 +21,12 @@ class ErrorBoundary extends Component {
       hasError: false,
       error: null,
       errorInfo: null,
+      errorId: null,
     };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true, error };
+    return { hasError: true, error, errorId: generateErrorId() };
   }
 
   componentDidCatch(error, errorInfo) {
@@ -129,7 +140,7 @@ class ErrorBoundary extends Component {
               <p>If this problem persists, please contact support.</p>
               <p className="mt-1">
                 Error ID:{" "}
-                {Math.random().toString(36).substr(2, 9).toUpperCase()}
+                {this.state.errorId}
               </p>
             </div>
           </div>
