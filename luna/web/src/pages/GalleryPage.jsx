@@ -335,10 +335,18 @@ export default function GalleryPage() {
     queryFn: () => getJson("/api/v1/gallery/status"),
     refetchInterval: (query) => (query.state.data?.busy ? 1500 : 8000),
   });
+  const drivesEmpty =
+    !drives.isLoading && Array.isArray(drives.data) && drives.data.length === 0;
+  // Members may have shared albums with no folder grants — probe albums before
+  // treating an empty drives list as “nothing to open.”
   const albums = useQuery({
     queryKey: ["gallery-albums"],
     queryFn: () => getJson("/api/v1/gallery/albums"),
-    enabled: activeSegment === "albums" || !!albumPick || newAlbumOpen,
+    enabled:
+      activeSegment === "albums" ||
+      !!albumPick ||
+      newAlbumOpen ||
+      (!isAdmin && drivesEmpty),
   });
   const places = useQuery({
     queryKey: ["gallery-places"],
@@ -574,8 +582,14 @@ export default function GalleryPage() {
   });
 
   const driveList = drives.data || [];
+  const albumList = Array.isArray(albums.data) ? albums.data : [];
   const looking = gallery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
+  const memberAlbumsGatePending =
+    !isAdmin &&
+    noDrives &&
+    (albums.isLoading || albums.isPending || (!albums.isFetched && !albums.isError));
+  const memberAlbumOnly = !isAdmin && noDrives && !memberAlbumsGatePending && albumList.length > 0;
   const galleryLoadError =
     gallery.isError && !looking
       ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
@@ -587,6 +601,17 @@ export default function GalleryPage() {
     !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
+    activeSegment === "library" &&
+    !search &&
+    !place &&
+    !albumView &&
+    !dayFilter &&
+    filterActiveCount === 0;
+  const albumOnlyLibraryEmpty =
+    memberAlbumOnly &&
+    !looking &&
+    !gallery.isLoading &&
+    photos.length === 0 &&
     activeSegment === "library" &&
     !search &&
     !place &&
@@ -1015,7 +1040,14 @@ export default function GalleryPage() {
     filters.albumMembership ||
     duplicatesView;
 
-  if (noDrives) {
+  if (noDrives && !memberAlbumOnly) {
+    if (memberAlbumsGatePending) {
+      return (
+        <Page title="Photos" titleId="gallery-title">
+          <GalleryLoadingStatus label="Loading photos…" />
+        </Page>
+      );
+    }
     return (
       <Page title="Photos" titleId="gallery-title">
         <EmptyState
@@ -1024,7 +1056,7 @@ export default function GalleryPage() {
           description={
             isAdmin
               ? "Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
-              : "Ask an Admin to share a drive or folder with photos. Luna will show them here once you have access."
+              : "Ask an Admin to share a drive, folder, or album with photos. Luna will show them here once you have access."
           }
           action={
             isAdmin ? (
@@ -1200,6 +1232,19 @@ export default function GalleryPage() {
               onClick={() => rescan.mutate()}
             >
               Look again
+            </Button>
+          }
+        />
+      )}
+
+      {albumOnlyLibraryEmpty && (
+        <EmptyState
+          icon={ImageIcon}
+          title="Shared photos are in Albums"
+          description="An Admin shared albums with you. Open Albums to see them."
+          action={
+            <Button variant="primary" onClick={() => handleSegmentChange("albums")}>
+              Open Albums
             </Button>
           }
         />

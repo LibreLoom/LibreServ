@@ -16,6 +16,7 @@ const STATUS_OK = { scanning: false, pending: 0, busy: false };
  *   galleryHold?: Promise<void>,
  *   galleryItems?: unknown[] | null,
  *   role?: string,
+ *   drives?: unknown[] | null,
  * }} [options]
  */
 function stubGalleryFetch({
@@ -25,6 +26,10 @@ function stubGalleryFetch({
   galleryHold,
   galleryItems,
   role = "admin",
+  drives = [
+    { id: "a", label: "Family" },
+    { id: "b", label: "Travel" },
+  ],
 } = {}) {
   vi.stubGlobal(
     "fetch",
@@ -48,13 +53,10 @@ function stubGalleryFetch({
         );
       }
       if (u.endsWith("/drives")) {
-        return new Response(
-          JSON.stringify([
-            { id: "a", label: "Family" },
-            { id: "b", label: "Travel" },
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify(drives ?? []), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/gallery/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
@@ -257,8 +259,33 @@ describe("GalleryPage", () => {
     );
     renderGallery();
     expect(await screen.findByText(/No photos you can open yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Ask an Admin to share a drive or folder with photos/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Ask an Admin to share a drive, folder, or album with photos/i),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Go to Drives/i })).not.toBeInTheDocument();
+  });
+
+  it("lets album-only Members open Albums when they have no drives", async () => {
+    stubGalleryFetch({
+      role: "user",
+      drives: [],
+      galleryItems: [],
+      albums: [
+        {
+          id: "al-shared",
+          home_drive_id: "a",
+          name: "Family trip",
+          item_count: 3,
+          shared: true,
+          cover_thumb: null,
+        },
+      ],
+    });
+    renderGallery();
+    expect(await screen.findByText(/Shared photos are in Albums/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Open Albums/i }));
+    expect(await screen.findByRole("button", { name: /^Family trip\b/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No photos you can open yet/i)).not.toBeInTheDocument();
   });
 
   it("defaults the URL hash to #library when none is set", async () => {
