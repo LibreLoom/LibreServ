@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -148,5 +149,34 @@ func TestDNSPublishNeeded(t *testing.T) {
 	}
 	if dnsPublishNeeded(a, zero) {
 		t.Fatal("invalid observed IP must not publish")
+	}
+}
+
+func TestDDNSService_ConcurrentDoubleStop(t *testing.T) {
+	db := &database.DB{}
+	providerMgr := NewDNSProviderManager(db)
+	auditLogger := &audit.Service{}
+
+	svc := NewDDNSService(db, providerMgr, auditLogger)
+	svc.Start()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			svc.Stop()
+		}()
+	}
+	wg.Wait()
+
+	if svc.IsRunning() {
+		t.Fatal("service should not be running after concurrent Stop()")
+	}
+
+	// Idempotent after concurrent stop
+	svc.Stop()
+	if svc.IsRunning() {
+		t.Fatal("service should stay stopped")
 	}
 }

@@ -23,6 +23,7 @@ type DDNSService struct {
 	stop         chan struct{}
 	stopped      chan struct{}
 	running      bool
+	stopping     bool
 	ready        chan struct{}
 	lastUpdate   time.Time
 	lastError    error
@@ -82,6 +83,7 @@ func (s *DDNSService) Start() {
 	s.stopped = make(chan struct{})
 	s.ready = make(chan struct{})
 	s.running = true
+	s.stopping = false
 	s.mu.Unlock()
 
 	go s.run()
@@ -95,8 +97,17 @@ func (s *DDNSService) Stop() {
 		s.mu.Unlock()
 		return
 	}
+	if s.stopping {
+		// Another Stop already closed s.stop; wait without closing again.
+		s.mu.Unlock()
+		<-s.stopped
+		return
+	}
 	// Signal stop without holding mu across Wait: UpdateDNS also takes mu
 	// after DetectPublicIP, so holding it here deadlocked Stop vs run.
+	// Set stopping under the same lock as close so concurrent Stop cannot
+	// close(s.stop) twice (panic).
+	s.stopping = true
 	close(s.stop)
 	s.mu.Unlock()
 
@@ -104,6 +115,7 @@ func (s *DDNSService) Stop() {
 
 	s.mu.Lock()
 	s.running = false
+	s.stopping = false
 	s.mu.Unlock()
 	s.logger.Info("DDNS auto-update service stopped")
 }
