@@ -72,8 +72,12 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := network.ProbeTCP(host, port, 2*time.Second)
+	status := http.StatusOK
 	if !res.Reachable {
-		w.WriteHeader(http.StatusServiceUnavailable)
+		// Set status once via JSON so Content-Type is applied before WriteHeader.
+		// A prior WriteHeader(503) then JSON(..., 200) left real ResponseWriters
+		// without application/json (headers locked after the first WriteHeader).
+		status = http.StatusServiceUnavailable
 	}
-	JSON(w, http.StatusOK, res)
+	JSON(w, status, res)
 }
