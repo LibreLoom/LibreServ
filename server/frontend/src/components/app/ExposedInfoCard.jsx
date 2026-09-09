@@ -4,6 +4,7 @@ import Card from "../cards/Card";
 import Button from "../ui/Button";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
 import { canUseClipboard, copyToClipboard as clipboardCopy } from "../../utils/clipboard";
+import { sanitizeURL } from "../../lib/sanitize";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const GROUP_LABELS = {
@@ -97,9 +98,14 @@ export function ExposedInfoCard({ info }) {
     };
 
     if (field.type === "url" && field.value) {
+      const safeHref = sanitizeURL(String(field.value));
+      // Reject javascript:/data:/etc. so exposed_info cannot become an XSS vector.
+      if (!safeHref) {
+        return <span className="font-mono text-secondary">{String(field.value)}</span>;
+      }
       return (
         <a
-          href={String(field.value)}
+          href={safeHref}
           target="_blank"
           rel="noopener noreferrer"
           className="link-accent"
