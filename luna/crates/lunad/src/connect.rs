@@ -1275,7 +1275,6 @@ fn nix_kill(pid: i32) -> std::io::Result<()> {
     }
 }
 
-
 /// True when `path` exists, is large enough to be a real binary, and `--version` exits 0.
 fn cloudflared_looks_runnable(path: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(path) else {
@@ -1293,7 +1292,6 @@ fn cloudflared_looks_runnable(path: &Path) -> bool {
         .map(|s| s.success())
         .unwrap_or(false)
 }
-
 
 /// Classify an HTTP 403 from Connect or a fronting gateway.
 /// Authentic Connect unbind is JSON. Cloudflare managed challenges are HTML (+ cf-mitigated).

@@ -1638,9 +1638,7 @@ fn path_allowed_by_grants(
         None => true,
         Some(grants) => match grants.get(drive_id) {
             None => false,
-            Some(prefs) => prefs
-                .iter()
-                .any(|p| crate::grants::path_contains(p, path)),
+            Some(prefs) => prefs.iter().any(|p| crate::grants::path_contains(p, path)),
         },
     }
 }
@@ -1700,8 +1698,7 @@ pub fn list_filter_facets(
             }
         }
         {
-            let mut stmt =
-                conn.prepare("SELECT iso, path FROM photos WHERE iso > 0")?;
+            let mut stmt = conn.prepare("SELECT iso, path FROM photos WHERE iso > 0")?;
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })?;
@@ -1716,8 +1713,7 @@ pub fn list_filter_facets(
             }
         }
         {
-            let mut stmt =
-                conn.prepare("SELECT focal_mm, path FROM photos WHERE focal_mm > 0")?;
+            let mut stmt = conn.prepare("SELECT focal_mm, path FROM photos WHERE focal_mm > 0")?;
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, f64>(0)?, row.get::<_, String>(1)?))
             })?;

@@ -30,11 +30,7 @@ fn can_manage_album(user: &crate::auth::CurrentUser, album: &gallery::Album) -> 
     is_admin(user) || album.owner_user_id == user.id
 }
 
-fn can_view_album(
-    user: &crate::auth::CurrentUser,
-    root: &FsPath,
-    album: &gallery::Album,
-) -> bool {
+fn can_view_album(user: &crate::auth::CurrentUser, root: &FsPath, album: &gallery::Album) -> bool {
     if is_admin(user) {
         return true;
     }
@@ -72,8 +68,7 @@ fn path_grants_for_user(
             "Luna couldn't check your folder access.",
         )
     })?;
-    let mut map: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for g in grants {
         map.entry(g.drive_id).or_default().push(g.path);
     }
