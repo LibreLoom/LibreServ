@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -129,4 +130,23 @@ func TestDDNSService_ConcurrentAccess(t *testing.T) {
 	}()
 
 	<-done
+}
+
+func TestDNSPublishNeeded(t *testing.T) {
+	zero := netip.Addr{}
+	a := netip.MustParseAddr("203.0.113.10")
+	b := netip.MustParseAddr("198.51.100.20")
+
+	if !dnsPublishNeeded(zero, a) {
+		t.Fatal("first observation must publish DNS")
+	}
+	if dnsPublishNeeded(a, a) {
+		t.Fatal("unchanged IP must not publish")
+	}
+	if !dnsPublishNeeded(a, b) {
+		t.Fatal("changed IP must publish")
+	}
+	if dnsPublishNeeded(a, zero) {
+		t.Fatal("invalid observed IP must not publish")
+	}
 }
