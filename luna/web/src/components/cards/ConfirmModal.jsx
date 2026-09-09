@@ -1,10 +1,11 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "./ModalCard";
 import Callout from "../common/Callout";
 import ModalErrorNotice from "../common/ModalErrorNotice";
 import Button from "../ui/Button";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../utils/haptics.js";
 
 // Maps the modal's semantic variant to the canonical Button variant.
 // "warning" keeps its yellow fill via a className override since Button has
@@ -84,6 +85,12 @@ export default function ConfirmModal({
     };
   }
   const snap = snapRef.current;
+
+  useEffect(() => {
+    if (open && (variant === "danger" || variant === "danger-undoable" || variant === "warning")) {
+      haptic("warning");
+    }
+  }, [open, variant]);
 
   const iconColor =
     snap.variant === "danger" || snap.variant === "danger-undoable"

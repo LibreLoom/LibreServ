@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by GalleryFilterSheet */
+/* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by GalleryFilterSheet and tests */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import {
@@ -11,6 +11,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "../ui/Button.jsx";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * @param {[number, number, number, number]|null|undefined} bbox west,south,east,north
@@ -98,6 +99,7 @@ function DrawRectangle({ value, onChange }) {
       const tiny =
         Math.abs(bbox[2] - bbox[0]) < 0.00005 && Math.abs(bbox[3] - bbox[1]) < 0.00005;
       if (tiny) return;
+      haptic("medium");
       onChange?.(bbox);
     },
   });
@@ -191,7 +193,15 @@ export default function GeozoneMap({
           {value ? summary() : "No area selected"}
         </p>
         {value && (
-          <Button type="button" size="sm" variant="outline" onClick={() => onChange?.(null)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              haptic("light");
+              onChange?.(null);
+            }}
+          >
             Clear zone
           </Button>
         )}

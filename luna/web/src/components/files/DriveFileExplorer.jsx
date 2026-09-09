@@ -21,6 +21,7 @@ import PageNotice from "../common/PageNotice.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
 import ShakeTarget from "../ui/ShakeTarget.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError.js";
+import { haptic } from "../../utils/haptics.js";
 import {
   apiErrorMessage,
   deleteJson,
@@ -480,28 +481,40 @@ export default function DriveFileExplorer({
     },
     // Modal dismisses via ModalCard close() so exit animation can play.
     onSuccess: (_d, paths) => {
+      haptic("success");
       invalidate(paths);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again."));
+    },
   });
 
   const mkdirMutation = useMutation({
     mutationFn: (/** @type {string} */ fullPath) =>
       postJson(`/api/v1/drives/${driveId}/files/mkdir`, { path: fullPath }),
     onSuccess: () => {
+      haptic("success");
       invalidate();
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't create that folder. Try another name.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Couldn't create that folder. Try another name."));
+    },
   });
 
   const createFileMutation = useMutation({
     mutationFn: (/** @type {string} */ fullPath) =>
       postJson(`/api/v1/drives/${driveId}/files/create`, { path: fullPath }),
     onSuccess: (_data, fullPath) => {
+      haptic("success");
       invalidate();
       if (createKind?.openAfter === "text") setViewerPath(fullPath);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't create that file. Try another name.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Couldn't create that file. Try another name."));
+    },
   });
 
   function openCreate(kind) {
@@ -534,9 +547,13 @@ export default function DriveFileExplorer({
         new_name: newName,
       }),
     onSuccess: () => {
+      haptic("success");
       invalidate();
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't rename that. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Couldn't rename that. Try again."));
+    },
   });
 
   const transferMutation = useMutation({
@@ -553,12 +570,16 @@ export default function DriveFileExplorer({
       }
     },
     onSuccess: (_d, vars) => {
+      haptic("success");
       invalidate();
       if (vars.driveId && vars.driveId !== driveId) {
         queryClient.invalidateQueries({ queryKey: ["files", vars.driveId] });
       }
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't start that transfer. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Couldn't start that transfer. Try again."));
+    },
   });
 
   const internalMoveMutation = useMutation({
@@ -575,12 +596,16 @@ export default function DriveFileExplorer({
       }
     },
     onSuccess: (_d, vars) => {
+      haptic("success");
       invalidate([...vars.paths, joinPath(vars.destFolder, "x")]);
       if (vars.destDriveId && vars.destDriveId !== driveId) {
         queryClient.invalidateQueries({ queryKey: ["files", vars.destDriveId] });
       }
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't move those files. Try again.")),
+    onError: (err) => {
+      haptic("error");
+      setActionError(apiErrorMessage(err, "Couldn't move those files. Try again."));
+    },
   });
 
   const deleteSnapRef = useRef(/** @type {string[]|null} */ (null));

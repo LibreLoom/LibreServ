@@ -12,6 +12,7 @@ import { ICON_SIZE } from "@/lib/ui-tokens";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { haptic } from "../../utils/haptics.js";
 
 const TRANSITION = {
   duration: "duration-200",
@@ -246,6 +247,7 @@ export default function Navbar() {
       window.innerHeight,
     );
 
+    haptic("rigid");
     setPosition(snap);
     localStorage.setItem(HAMBURGER_STORAGE_KEY, JSON.stringify(snap));
   };
@@ -352,6 +354,7 @@ export default function Navbar() {
   }, [isMobileMenuOpen]);
 
   const closeMobileMenu = () => {
+    haptic("light");
     setIsMobileMenuOpen(false);
     menuButtonRef.current?.focus();
   };
@@ -365,7 +368,12 @@ export default function Navbar() {
     () =>
       visibleNav.map((item) => (
         <React.Fragment key={`desktopNav-${item.to}`}>
-          <NavLink to={item.to} end={item.end} className={navButtonClasses}>
+          <NavLink
+            to={item.to}
+            end={item.end}
+            className={navButtonClasses}
+            onClick={() => haptic("selection")}
+          >
             <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
             <span>{item.label}</span>
           </NavLink>
@@ -395,7 +403,10 @@ export default function Navbar() {
                 aria-label="User menu"
                 aria-haspopup="menu"
                 aria-expanded={isUserMenuOpen}
-                onClick={() => setIsUserMenuOpen((v) => !v)}
+                onClick={() => {
+                  haptic("light");
+                  setIsUserMenuOpen((v) => !v);
+                }}
               >
                 {user?.username || ""}
               </button>
@@ -405,7 +416,10 @@ export default function Navbar() {
                 aria-label="User menu"
                 aria-haspopup="menu"
                 aria-expanded={isUserMenuOpen}
-                onClick={() => setIsUserMenuOpen((v) => !v)}
+                onClick={() => {
+                  haptic("light");
+                  setIsUserMenuOpen((v) => !v);
+                }}
               >
                 <User size={ICON_SIZE.md} aria-hidden="true" />
               </button>
@@ -421,6 +435,7 @@ export default function Navbar() {
                     type="button"
                     role="menuitem"
                     onClick={async () => {
+                      haptic("light");
                       setIsUserMenuOpen(false);
                       await logout();
                     }}
@@ -441,7 +456,12 @@ export default function Navbar() {
         type="button"
         className={cn("xl:hidden", "fixed", "bottom-5", "right-5", "flex", "flex-col", "justify-center", "items-center", "w-[60px]", "h-[60px]", "bg-secondary", "border-2", "border-accent", "rounded-full", "cursor-grab", "p-0", "z-[1001]", "touch-none", "select-none", isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "active" : "")}
         style={getHamburgerStyle()}
-        onClick={() => !hasMoved && setIsMobileMenuOpen(!isMobileMenuOpen)}
+        onClick={() => {
+          if (!hasMoved) {
+            haptic("light");
+            setIsMobileMenuOpen(!isMobileMenuOpen);
+          }
+        }}
         onMouseDown={handleDragStart}
         onTouchStart={handleDragStart}
         aria-label="Toggle menu"
@@ -482,7 +502,10 @@ export default function Navbar() {
                   to={item.to}
                   end={item.end}
                   className={mobileMenuItemClasses}
-                  onClick={closeMobileMenu}
+                  onClick={() => {
+                    haptic("selection");
+                    closeMobileMenu();
+                  }}
                   ref={index === 0 ? firstNavLinkRef : null}
                 >
                   <item.icon size={ICON_SIZE.lg} aria-hidden="true" />

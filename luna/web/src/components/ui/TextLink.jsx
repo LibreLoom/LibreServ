@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * TextLink — an inline text link that contrasts on both surfaces.
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
  * @param {import("react").ReactNode} [props.children]
  * @param {object} [props.state]   Router state for the destination (passed straight to Link).
  * @param {boolean} [props.draggable]
+ * @param {(e: React.MouseEvent) => void} [props.onClick]
  * @param {object} [props.rest]
  */
 export default function TextLink({
@@ -29,19 +31,26 @@ export default function TextLink({
   surface = "primary",
   className = "",
   children,
+  onClick,
   ...rest
 }) {
   const hoverText = surface === "secondary" ? "hover:text-primary" : "hover:text-secondary";
   const classes = cn("text-accent", hoverText, "motion-safe:transition-colors", className);
+
+  const handleClick = (e) => {
+    haptic("light");
+    onClick?.(e);
+  };
+
   if (to) {
     return (
-      <Link to={to} className={classes} {...rest}>
+      <Link to={to} className={classes} onClick={handleClick} {...rest}>
         {children}
       </Link>
     );
   }
   return (
-    <a href={href} className={classes} {...rest}>
+    <a href={href} className={classes} onClick={handleClick} {...rest}>
       {children}
     </a>
   );

@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import Pill from "./Pill.jsx";
 import { useSoftwareUpdates } from "../../hooks/useSoftwareUpdates.jsx";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * SoftwareUpdatePill — shows in the dashboard header when a Luna software
@@ -18,6 +19,7 @@ export default function SoftwareUpdatePill() {
   return (
     <Link
       to="/settings#about"
+      onClick={() => haptic("light")}
       data-slot="software-update-pill"
       className="rounded-pill no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 motion-safe:transition-transform active:motion-safe:scale-95"
       aria-label={`Software update ${version} available. Open Settings to install.`}

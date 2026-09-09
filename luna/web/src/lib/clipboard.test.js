@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { canUseClipboard, copyToClipboard, copyWithFeedback } from "./clipboard.js";
+import * as haptics from "../utils/haptics.js";
 
 describe("clipboard", () => {
   const originalClipboard = navigator.clipboard;
   const originalSecure = window.isSecureContext;
+  let hapticSpy;
 
   beforeEach(() => {
+    hapticSpy = vi.spyOn(haptics, "haptic").mockImplementation(() => {});
     Object.defineProperty(window, "isSecureContext", {
       configurable: true,
       get: () => true,
@@ -17,6 +20,7 @@ describe("clipboard", () => {
   });
 
   afterEach(() => {
+    hapticSpy.mockRestore();
     Object.defineProperty(window, "isSecureContext", {
       configurable: true,
       get: () => originalSecure,
@@ -50,6 +54,7 @@ describe("clipboard", () => {
   it("copyToClipboard writes text when available", async () => {
     await expect(copyToClipboard("hello")).resolves.toBe(true);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("hello");
+    expect(hapticSpy).toHaveBeenCalledWith("success");
   });
 
   it("copyToClipboard returns false on insecure pages without calling writeText", async () => {
@@ -59,12 +64,14 @@ describe("clipboard", () => {
     });
     await expect(copyToClipboard("secret")).resolves.toBe(false);
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(hapticSpy).toHaveBeenCalledWith("error");
   });
 
   it("copyWithFeedback flips copied state only on success", async () => {
     const setCopied = vi.fn();
     await expect(copyWithFeedback("tok", setCopied)).resolves.toBe(true);
     expect(setCopied).toHaveBeenCalledWith(true);
+    expect(hapticSpy).toHaveBeenCalledWith("success");
   });
 
   it("copyWithFeedback does not flip state when insecure", async () => {
@@ -75,5 +82,6 @@ describe("clipboard", () => {
     const setCopied = vi.fn();
     await expect(copyWithFeedback("tok", setCopied)).resolves.toBe(false);
     expect(setCopied).not.toHaveBeenCalled();
+    expect(hapticSpy).toHaveBeenCalledWith("error");
   });
 });

@@ -23,6 +23,7 @@ import { memberAccessRoots } from "../lib/shareTree.js";
 import useConnectActive from "../hooks/useConnectActive.js";
 import InspectModal from "../components/files/InspectModal.jsx";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
+import { haptic } from "../utils/haptics.js";
 
 const STATE_PILLS = {
   as_is: "success",
@@ -971,6 +972,7 @@ export default function DashboardPage() {
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
                         ].join(" ")}
                         onClick={() => {
+                          haptic("selection");
                           inspect.reset();
                           adopt.reset();
                           setDrivePickerOpen(false);

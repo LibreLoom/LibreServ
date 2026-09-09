@@ -52,6 +52,7 @@ import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics.js";
 
 /** @type {import("react").Context<null | {
  *   delayMs: number,
@@ -206,6 +207,7 @@ function HintShell({
   const onClick = (event) => {
     event.preventDefault();
     event.stopPropagation();
+    haptic("light");
     if (open && pinned) hide();
     else {
       clearTimers();

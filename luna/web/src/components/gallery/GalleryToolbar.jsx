@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import SegmentedControl from "../common/SegmentedControl";
 import Button from "../ui/Button.jsx";
+import { haptic } from "../../utils/haptics.js";
 
 const pillShell =
   "flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 border-2 border-primary/20 focus-within:border-accent transition-colors";
@@ -92,6 +93,7 @@ export default function GalleryToolbar({
   }, [moreOpen]);
 
   function clearAndCloseSearch() {
+    haptic("light");
     if (query) {
       onQueryChange({ target: { value: "" } });
     }
@@ -112,7 +114,10 @@ export default function GalleryToolbar({
         size="sm"
         variant={selectMode ? "accent" : "ghost"}
         className="shrink-0"
-        onClick={() => onSelectModeChange(!selectMode)}
+        onClick={() => {
+          haptic("selection");
+          onSelectModeChange(!selectMode);
+        }}
       >
         {selectMode ? "Cancel" : "Select"}
       </Button>
@@ -127,7 +132,10 @@ export default function GalleryToolbar({
         className="shrink-0"
         aria-label="Search photos"
         aria-pressed={searchOpen}
-        onClick={() => setSearchOpen(!searchOpen)}
+        onClick={() => {
+          haptic("light");
+          setSearchOpen(!searchOpen);
+        }}
       >
         <Search size={16} />
       </Button>
@@ -142,7 +150,10 @@ export default function GalleryToolbar({
               ? `Filters, ${filterActiveCount} active`
               : "Filters"
           }
-          onClick={onOpenFilters}
+          onClick={() => {
+            haptic("light");
+            onOpenFilters();
+          }}
         >
           <Filter size={16} />
           {filterActiveCount > 0 && (
@@ -165,7 +176,10 @@ export default function GalleryToolbar({
           aria-label="More options"
           aria-haspopup="menu"
           aria-expanded={moreOpen}
-          onClick={() => setMoreOpen((v) => !v)}
+          onClick={() => {
+            haptic("light");
+            setMoreOpen((v) => !v);
+          }}
         >
           <MoreHorizontal size={16} />
         </Button>
@@ -187,6 +201,7 @@ export default function GalleryToolbar({
                       className="min-w-[2rem]"
                       aria-label={`${n} columns`}
                       onClick={() => {
+                        haptic("selection");
                         onColumnsChange(n);
                         setMoreOpen(false);
                       }}
@@ -203,6 +218,7 @@ export default function GalleryToolbar({
                 role="menuitem"
                 className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors"
                 onClick={() => {
+                  haptic("light");
                   setMoreOpen(false);
                   onOpenDates();
                 }}
@@ -218,6 +234,7 @@ export default function GalleryToolbar({
                 disabled={rescanPending}
                 className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors disabled:opacity-50"
                 onClick={() => {
+                  haptic("medium");
                   setMoreOpen(false);
                   onRescan();
                 }}
@@ -231,6 +248,7 @@ export default function GalleryToolbar({
                 role="menuitem"
                 className="flex w-full items-center gap-2 rounded-pill px-3 py-2 text-sm text-left hover:bg-primary hover:text-secondary transition-colors"
                 onClick={() => {
+                  haptic("light");
                   setMoreOpen(false);
                   onOpenShortcuts();
                 }}
@@ -301,7 +319,10 @@ export default function GalleryToolbar({
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
-            onClick={() => setSearchOpen(true)}
+            onClick={() => {
+              haptic("light");
+              setSearchOpen(true);
+            }}
             aria-label={`Search: ${query}. Click to edit.`}
           >
             <Search size={14} aria-hidden="true" />
@@ -313,12 +334,14 @@ export default function GalleryToolbar({
               className="rounded-pill p-0.5 hover:bg-primary hover:text-secondary"
               onClick={(e) => {
                 e.stopPropagation();
+                haptic("light");
                 onQueryChange({ target: { value: "" } });
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   e.stopPropagation();
+                  haptic("light");
                   onQueryChange({ target: { value: "" } });
                 }
               }}

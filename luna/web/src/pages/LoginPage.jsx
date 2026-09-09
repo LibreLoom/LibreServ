@@ -6,6 +6,7 @@ import Card from "../components/cards/Card";
 import StepTransition from "../components/common/StepTransition";
 import Button from "../components/ui/Button";
 import FormInput from "../components/common/forms/FormInput";
+import { haptic } from "../utils/haptics.js";
 
 const LOGIN_STEPS = ["form"];
 
@@ -81,6 +82,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
+      haptic("success");
       navigate(returnTo, { replace: true });
     } catch (err) {
       setErrorStatus(err.status || "NetworkError");

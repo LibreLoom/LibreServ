@@ -1,3 +1,5 @@
+import { haptic } from "./haptics.js";
+
 export const SHAKE_DURATION_MS = 500;
 
 const SHAKE_EASING = "cubic-bezier(0.36, 0.07, 0.19, 0.97)";
@@ -15,7 +17,7 @@ const SHAKE_KEYFRAMES = [
 ];
 
 /**
- * Apple-style horizontal shake on a DOM element.
+ * Apple-style horizontal shake on a DOM element with synchronous error haptic.
  * @param {Element | null | undefined} el
  * @param {number} [durationMs]
  * @returns {Animation | undefined}
@@ -23,6 +25,7 @@ const SHAKE_KEYFRAMES = [
 export function shakeElement(el, durationMs = SHAKE_DURATION_MS) {
   if (!el || typeof el.animate !== "function") return undefined;
 
+  haptic("error");
   el.getAnimations().forEach((animation) => animation.cancel());
 
   return el.animate(SHAKE_KEYFRAMES, {

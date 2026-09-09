@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../utils/haptics.js";
 
 const variants = {
   default:
@@ -69,6 +70,11 @@ export default function CardButton({
 
   const classes = cn("flex items-center gap-2 rounded-pill p-2 cursor-pointer", transitionClass, ringClass, alignClass, variantClasses, className, "h-full w-full");
 
+  const handleClick = (event) => {
+    haptic(variant === "nav" ? "selection" : variant === "danger" ? "error" : "medium");
+    onClick?.(event);
+  };
+
   const label = children ?? actionLabel;
   const content = (
     <>
@@ -91,6 +97,7 @@ export default function CardButton({
         rel="noopener noreferrer"
         aria-label={actionLabel}
         id={id}
+        onClick={handleClick}
         className={classes}
       >
         {content}
@@ -106,6 +113,7 @@ export default function CardButton({
         aria-label={actionLabel}
         aria-current={ariaCurrent}
         id={id}
+        onClick={handleClick}
         className={classes}
       >
         {content}
@@ -117,7 +125,7 @@ export default function CardButton({
     <button
       data-slot="card-button"
       type={type}
-      onClick={onClick}
+      onClick={handleClick}
       aria-label={actionLabel}
       aria-current={ariaCurrent}
       id={id}

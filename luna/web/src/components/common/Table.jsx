@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics.js";
 
 const CELL_BASE = "py-2.5 bg-secondary text-primary";
 const CELL_FIRST = "pl-3 rounded-l-large-element";
@@ -79,6 +80,7 @@ export default function Table({
                     onRowClick
                       ? () => {
                           if (window.getSelection()?.toString()) return;
+                          haptic("selection");
                           onRowClick(row, rowIndex);
                         }
                       : undefined
@@ -168,6 +170,7 @@ export default function Table({
                       ? () => {
                           // Don't hijack a click that was really a text selection.
                           if (window.getSelection()?.toString()) return;
+                          haptic("selection");
                           onRowClick(row, rowIndex);
                         }
                       : undefined

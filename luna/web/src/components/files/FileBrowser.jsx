@@ -23,6 +23,7 @@ import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import TransferMenu from "./TransferMenu.jsx";
+import { haptic } from "../../utils/haptics.js";
 import { getJson } from "../../lib/api.js";
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
 import { openableKind } from "../../lib/fileKinds.js";
@@ -351,6 +352,7 @@ export default function FileBrowser({
   }
 
   function toggleOne(fullPath, { additive = false, range = false } = {}) {
+    haptic("selection");
     if (!multiSelect) {
       setSelectedPaths(selectedPaths[0] === fullPath ? [] : [fullPath]);
       setLastClicked(fullPath);
@@ -382,15 +384,18 @@ export default function FileBrowser({
   }
 
   function selectAllVisible() {
+    haptic("selection");
     setSelectedPaths(entryPaths);
   }
 
   function clearSelection() {
+    haptic("selection");
     setSelectedPaths([]);
     setLastClicked(null);
   }
 
   function openEntry(ctx) {
+    haptic("medium");
     if (ctx.entry.kind === "dir") {
       openFolder(ctx.fullPath);
       return;
@@ -405,8 +410,11 @@ export default function FileBrowser({
     setDragOver(false);
     setDropTarget(null);
     const files = await filesFromDataTransfer(event.dataTransfer);
-    if (files.length && onUploadFiles) {
-      await onUploadFiles(files, destPath);
+    if (files.length) {
+      haptic("heavy");
+      if (onUploadFiles) {
+        await onUploadFiles(files, destPath);
+      }
     }
   }
 
@@ -417,6 +425,7 @@ export default function FileBrowser({
       event.preventDefault();
       return;
     }
+    haptic("rigid");
     const paths = selectedPaths.includes(ctx.fullPath) && selectedPaths.length
       ? selectedPaths
       : [ctx.fullPath];
@@ -431,6 +440,7 @@ export default function FileBrowser({
     event.preventDefault();
     event.stopPropagation();
     setDropTarget(null);
+    haptic("heavy");
     const osFiles = await filesFromDataTransfer(event.dataTransfer);
     if (osFiles.length && onUploadFiles) {
       await onUploadFiles(osFiles, destFolder);

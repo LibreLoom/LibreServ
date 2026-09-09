@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by gallery pages */
+/* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by gallery pages and tests */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
@@ -21,6 +21,7 @@ import { contentHref, downloadHref, folderHref, fmtSize } from "../../lib/paths.
 import { Link } from "react-router-dom";
 import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
+import { haptic } from "../../utils/haptics.js";
 
 /** Full-screen gallery lightbox layer. Modals opened from it must stack higher. */
 export const LIGHTBOX_Z_CLASS = "z-[80]";
@@ -128,11 +129,29 @@ export default function PhotoLightbox({
   useEffect(() => {
     if (!photo) return undefined;
     function onKey(e) {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft" && index > 0) onIndexChange(index - 1);
-      if (e.key === "ArrowRight" && index < photos.length - 1) onIndexChange(index + 1);
+      if (e.key === "Escape") {
+        haptic("light");
+        onClose();
+      }
+      if (e.key === "ArrowLeft") {
+        if (index > 0) {
+          haptic("selection");
+          onIndexChange(index - 1);
+        } else {
+          haptic("rigid");
+        }
+      }
+      if (e.key === "ArrowRight") {
+        if (index < photos.length - 1) {
+          haptic("selection");
+          onIndexChange(index + 1);
+        } else {
+          haptic("rigid");
+        }
+      }
       if (!guest && (e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
+        haptic("selection");
         onFavorite?.(photo);
       }
       if (!guest && e.key === "Delete") {
@@ -140,6 +159,7 @@ export default function PhotoLightbox({
         onTrash?.(photo);
       }
       if ((e.key === "i" || e.key === "I") && !e.metaKey && !e.ctrlKey) {
+        haptic("light");
         setInfoOpen((v) => !v);
       }
     }
@@ -172,8 +192,22 @@ export default function PhotoLightbox({
     if (end == null) return;
     const dx = end - start;
     if (Math.abs(dx) < 60) return;
-    if (dx < 0 && index < photos.length - 1) onIndexChange(index + 1);
-    if (dx > 0 && index > 0) onIndexChange(index - 1);
+    if (dx < 0) {
+      if (index < photos.length - 1) {
+        haptic("selection");
+        onIndexChange(index + 1);
+      } else {
+        haptic("rigid");
+      }
+    }
+    if (dx > 0) {
+      if (index > 0) {
+        haptic("selection");
+        onIndexChange(index - 1);
+      } else {
+        haptic("rigid");
+      }
+    }
   }
 
   return createPortal(
@@ -205,7 +239,10 @@ export default function PhotoLightbox({
               className="rounded-full"
               aria-label={slideshow ? "Stop slideshow" : "Start slideshow"}
               aria-pressed={slideshow}
-              onClick={() => onSlideshowChange(!slideshow)}
+              onClick={() => {
+                haptic("light");
+                onSlideshowChange(!slideshow);
+              }}
             >
               <Play size={18} fill={slideshow ? "currentColor" : "none"} />
             </Button>
@@ -217,7 +254,10 @@ export default function PhotoLightbox({
             className="rounded-full"
             aria-label="Photo details"
             aria-pressed={infoOpen}
-            onClick={() => setInfoOpen((v) => !v)}
+            onClick={() => {
+              haptic("light");
+              setInfoOpen((v) => !v);
+            }}
           >
             <Info size={18} />
           </Button>
@@ -226,7 +266,10 @@ export default function PhotoLightbox({
             surface="primary"
             size="icon"
             className="rounded-full"
-            onClick={onClose}
+            onClick={() => {
+              haptic("light");
+              onClose();
+            }}
             aria-label="Close"
           >
             <X size={20} />
@@ -242,7 +285,10 @@ export default function PhotoLightbox({
             size="icon"
             className="absolute left-2 z-10 rounded-full shrink-0"
             aria-label="Previous"
-            onClick={() => onIndexChange(index - 1)}
+            onClick={() => {
+              haptic("selection");
+              onIndexChange(index - 1);
+            }}
           >
             <ChevronLeft size={28} />
           </Button>
@@ -278,7 +324,10 @@ export default function PhotoLightbox({
             size="icon"
             className="absolute right-2 z-10 rounded-full shrink-0"
             aria-label="Next"
-            onClick={() => onIndexChange(index + 1)}
+            onClick={() => {
+              haptic("selection");
+              onIndexChange(index + 1);
+            }}
           >
             <ChevronRight size={28} />
           </Button>
@@ -313,14 +362,25 @@ export default function PhotoLightbox({
               variant="ghost"
               size="sm"
               loading={favoriting}
-              onClick={() => onFavorite?.(photo)}
+              onClick={() => {
+                haptic("selection");
+                onFavorite?.(photo);
+              }}
               aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
             >
               <Heart size={18} fill={photo.favorited ? "currentColor" : "none"} />
             </Button>
           )}
           {!guest && (
-            <Button variant="ghost" size="sm" onClick={() => onAlbum?.(photo)} aria-label="Add to album">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                haptic("light");
+                onAlbum?.(photo);
+              }}
+              aria-label="Add to album"
+            >
               <Images size={18} />
             </Button>
           )}
@@ -328,31 +388,50 @@ export default function PhotoLightbox({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onSetCover(photo)}
+              onClick={() => {
+                haptic("selection");
+                onSetCover(photo);
+              }}
               aria-label="Set as album cover"
             >
               Set as cover
             </Button>
           )}
           {!guest && (
-            <Button variant="ghost" size="sm" onClick={() => onShare?.(photo)} aria-label="Share link">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                haptic("light");
+                onShare?.(photo);
+              }}
+              aria-label="Share link"
+            >
               <Link2 size={18} />
             </Button>
           )}
           {!guest && onEdit && photo.kind !== "video" && (
-            <Button variant="ghost" size="sm" onClick={() => onEdit(photo)} aria-label="Crop or rotate">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                haptic("light");
+                onEdit(photo);
+              }}
+              aria-label="Crop or rotate"
+            >
               <Crop size={18} />
             </Button>
           )}
           <Button variant="ghost" size="sm" asChild>
-            <a href={dl} download>
+            <a href={dl} download onClick={() => haptic("light")}>
               <Download size={18} />
               <span className="sr-only">Download</span>
             </a>
           </Button>
           {!guest && photo.drive_id && (
             <Button variant="ghost" size="sm" asChild>
-              <Link to={folderHref(photo.drive_id, folder)}>
+              <Link to={folderHref(photo.drive_id, folder)} onClick={() => haptic("selection")}>
                 <FolderOpen size={18} />
                 <span className="sr-only">Open folder</span>
               </Link>
@@ -362,7 +441,10 @@ export default function PhotoLightbox({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onTrash?.(photo)}
+              onClick={() => {
+                haptic("warning");
+                onTrash?.(photo);
+              }}
               aria-label="Move to trash"
             >
               <Trash2 size={18} />

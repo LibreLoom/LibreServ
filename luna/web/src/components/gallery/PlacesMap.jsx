@@ -16,6 +16,7 @@ import Button from "../ui/Button.jsx";
 import Card from "../cards/Card.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import Spinner from "../ui/Spinner.jsx";
+import { haptic } from "../../utils/haptics.js";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -169,7 +170,10 @@ export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
           variant="primary"
           size="sm"
           className="shrink-0 px-3"
-          onClick={() => onSelect?.(place)}
+          onClick={() => {
+            haptic("medium");
+            onSelect?.(place);
+          }}
         >
           Open
         </Button>
@@ -181,7 +185,10 @@ export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
             size="sm"
             variant="outline"
             className="w-full"
-            onClick={() => onDrawArea()}
+            onClick={() => {
+              haptic("light");
+              onDrawArea();
+            }}
           >
             Draw a custom area…
           </Button>
@@ -267,9 +274,13 @@ function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
             center={[lat, lon]}
             radius={radius}
             eventHandlers={{
+              click: () => {
+                haptic("selection");
+              },
               dblclick: (e) => {
                 if (!isCluster || expandZoom == null) return;
                 e.originalEvent?.preventDefault?.();
+                haptic("medium");
                 map.setView([lat, lon], expandZoom, { animate: true });
               },
             }}

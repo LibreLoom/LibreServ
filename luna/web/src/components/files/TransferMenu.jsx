@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import { ChevronDown, HardDrive } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics.js";
 
 /**
  * Dropdown menu for Copy and Move actions in file browser.
@@ -137,6 +138,7 @@ export default function TransferMenu({
   }
 
   function handleOptionPick(driveId) {
+    haptic("selection");
     close();
     onPick(driveId);
   }

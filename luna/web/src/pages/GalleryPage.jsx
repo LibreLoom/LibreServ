@@ -47,6 +47,7 @@ import Spinner from "../components/ui/Spinner.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
+import { haptic } from "../utils/haptics.js";
 import {
   apiErrorMessage,
   deleteJson,
@@ -717,6 +718,7 @@ export default function GalleryPage() {
       return album;
     },
     onSuccess: (album) => {
+      haptic("success");
       setNewAlbumOpen(false);
       setNewAlbumName("");
       setNewAlbumSeed(null);
@@ -728,7 +730,10 @@ export default function GalleryPage() {
         setShareAlbum(album);
       }
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
 
   const setAlbumCover = useMutation({
@@ -741,10 +746,14 @@ export default function GalleryPage() {
       });
     },
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
       setUndoNotice("Album cover updated.");
     },
-    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't set that album cover.")),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err, "Luna couldn't set that album cover."));
+    },
   });
 
   const renameAlbumMut = useMutation({
@@ -752,21 +761,31 @@ export default function GalleryPage() {
     mutationFn: ({ album, name }) =>
       patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { name }),
     onSuccess: (_d, { album, name }) => {
+      haptic("success");
       setRenameAlbum(null);
       setAlbumView((cur) =>
         cur && cur.id === album.id ? { ...cur, name } : cur,
       );
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
 
   const lockAlbumMut = useMutation({
     /** @param {{ album: object, locked: boolean }} args */
     mutationFn: ({ album, locked }) =>
       patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { locked }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["gallery-albums"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
+    onSuccess: () => {
+      haptic("success");
+      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+    },
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
 
   const deleteAlbum = useMutation({
@@ -774,6 +793,7 @@ export default function GalleryPage() {
     mutationFn: (album) =>
       deleteJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`),
     onSuccess: (_data, album) => {
+      haptic("success");
       setTrashAlbum(null);
       setAlbumView((current) =>
         current && current.id === album.id && current.home_drive_id === album.home_drive_id
@@ -783,7 +803,10 @@ export default function GalleryPage() {
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
   });
 
   const addToAlbum = useMutation({
@@ -1027,6 +1050,7 @@ export default function GalleryPage() {
     <Page
       title="Photos"
       titleId="gallery-title"
+      headerClassName={placesMapOverview ? "mb-4 shrink-0" : "mb-8"}
       className={
         placesMapOverview
           ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden pb-6 xl:pb-[108px]"
@@ -1065,6 +1089,7 @@ export default function GalleryPage() {
               type="button"
               className="inline-flex items-center gap-2 rounded-pill bg-secondary text-primary border-2 border-primary/20 px-3 py-1.5 text-sm font-mono hover:border-accent transition-colors"
               onClick={() => {
+                haptic("light");
                 setFilters((prev) => clearFilterChip(prev, chip.id));
                 if (chip.id === "dates") setDayFilter(null);
               }}
@@ -1080,6 +1105,7 @@ export default function GalleryPage() {
             variant="outline"
             surface="primary"
             onClick={() => {
+              haptic("light");
               setFilters({ ...EMPTY_FILTERS });
               setDayFilter(null);
             }}
@@ -1993,7 +2019,14 @@ function AlbumsPanel({
               }}
               data-slot="album-card"
             >
-              <button type="button" className="block w-full text-left" onClick={() => onOpen(album)}>
+              <button
+                type="button"
+                className="block w-full text-left"
+                onClick={() => {
+                  haptic("medium");
+                  onOpen(album);
+                }}
+              >
                 <div className="aspect-square bg-primary text-secondary relative">
                   {album.cover_thumb ? (
                     <img src={album.cover_thumb} alt="" className="h-full w-full object-cover" />

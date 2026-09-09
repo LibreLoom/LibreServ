@@ -35,6 +35,7 @@ import PreflightStep from "../components/setup/PreflightStep.jsx";
 import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
+import { haptic } from "../utils/haptics.js";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
@@ -405,11 +406,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const animateAuthSub = authSubAnimatedRef.current;
 
   const goSubNext = () => {
+    haptic("selection");
     authSubAnimatedRef.current = true;
     setAuthSubDir("right");
     setAuthSubStep((s) => Math.min(s + 1, authFields.length - 1));
   };
   const goSubPrev = () => {
+    haptic("selection");
     authSubAnimatedRef.current = true;
     setAuthSubDir("left");
     setAuthSubStep((s) => Math.max(s - 1, 0));
@@ -620,7 +623,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPw((v) => !v)}
+                  onClick={() => {
+                    haptic("light");
+                    setShowPw((v) => !v);
+                  }}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-primary hover:text-primary motion-safe:transition-colors motion-safe:duration-150"
                   aria-label={showPw ? "Hide password" : "Show password"}
                 >
@@ -809,6 +815,10 @@ NameStep.propTypes = {
 
 // ─── STEP: Done ───────────────────────────────────────────────────────────────
 function DoneStep({ name, onGoDrives }) {
+  useEffect(() => {
+    haptic("success");
+  }, []);
+
   const label = name || "Luna";
   return (
     <div className="flex flex-col items-center text-center">
@@ -830,7 +840,10 @@ function DoneStep({ name, onGoDrives }) {
         <div className="mt-8 animate-in fade-in duration-300 delay-400">
           <Button
             variant="primary"
-            onClick={onGoDrives}
+            onClick={() => {
+              haptic("medium");
+              onGoDrives();
+            }}
             className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
           >
             Go to drives
