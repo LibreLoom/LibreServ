@@ -3,7 +3,14 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="$ROOT/os/build-rootfs.sh"
+ASSEMBLER="$ROOT/os/build-rootfs.sh"
+FRAGS="$ROOT/os/lib/build-rootfs.d"
+CF_BAKE="$ROOT/os/lib/cloudflared-bake.sh"
+# Assemble frags into a temp script so static asserts scan the real body.
+BUILD="$(mktemp)"
+trap 'rm -f "$BUILD"' EXIT
+# shellcheck disable=SC2012
+cat $(ls "$FRAGS"/*.frag | sort) > "$BUILD"
 
 assert_file_has() {
 	file="$1"
@@ -71,12 +78,20 @@ assert_file_has "$BUILD" 'luna-run' \
 	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"
 assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
-assert_file_has "$BUILD" 'cloudflared' \
+assert_file_has "$ASSEMBLER" 'build-rootfs.d' \
+	"build-rootfs.sh must assemble lib/build-rootfs.d frags"
+assert_file_has "$CF_BAKE" 'CLOUDFLARED_VERSION' \
+	"rootfs must ship pinned cloudflared-bake helper"
+assert_file_has "$CF_BAKE" 'keeping baked cloudflared' \
+	"rootfs must skip pinned refresh when a good baked cloudflared already exists"
+assert_file_has "$BUILD" 'luna_cloudflared_download' \
 	"rootfs must ship cloudflared so Luna Connect tunnels can start"
-assert_file_has "$BUILD" 'keeping baked cloudflared' \
-	"rootfs must skip latest refresh when a good baked cloudflared already exists"
-assert_file_has "$BUILD" 'lunad can also install on demand' \
-	"rootfs comment must note lunad on-demand install to data_dir/bin"
+assert_file_lacks "$BUILD" '/latest/download' \
+	"rootfs must never fetch unpinned cloudflared /latest/"
+assert_file_lacks "$CF_BAKE" '/latest/download' \
+	"cloudflared-bake must never fetch unpinned /latest/"
+assert_file_has "$CF_BAKE" 'lunad can also install on demand' \
+	"cloudflared-bake must mention on-demand install"
 assert_file_has "$BUILD" 'PATH=/usr/local/sbin:/usr/local/bin' \
 	"lunad OpenRC service must include /usr/local/bin in PATH for cloudflared"
 assert_file_has "$BUILD" 'tty1::respawn:/usr/local/bin/luna-console' \
