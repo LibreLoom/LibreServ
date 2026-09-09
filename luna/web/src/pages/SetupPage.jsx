@@ -512,7 +512,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
             You&rsquo;re signed in
           </h2>
           <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-            Signed in as <span className="font-mono text-primary">{user.username}</span>. This account manages Luna.
+            Signed in as <span className="font-mono text-primary">{user.username}</span>
+            {user.role === "admin"
+              ? ". You're an Admin on this Luna."
+              : ". You're a Member — an Admin finishes setup."}
           </p>
           <div className="mt-8 animate-in fade-in duration-300 delay-300">
             <Button
@@ -562,7 +565,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         {authSubStep === 0 && (
           <div className="mt-2 space-y-2">
             <p className="text-primary text-sm leading-relaxed font-sans">
-              You&apos;re creating the initial admin account. This account can access every file on Luna.
+              You&apos;re creating the first Admin account. An Admin can access every file on this Luna.
             </p>
             <p className="text-primary text-sm leading-relaxed font-sans">
               Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders.
