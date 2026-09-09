@@ -11,7 +11,14 @@ import (
 
 const lunaHealthProbeTimeout = 8 * time.Second
 
-var lunaHealthHTTPClient = &http.Client{Timeout: lunaHealthProbeTimeout}
+// lunaHealthHTTPClient probes customer hostnames. Never follow redirects: a Luna
+// (or anything answering /api/v1/health) could 302 Connect into RFC1918 / metadata.
+var lunaHealthHTTPClient = &http.Client{
+	Timeout: lunaHealthProbeTimeout,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 // probeLunaHealth checks whether Luna's public HTTPS health endpoint responds.
 func probeLunaHealth(hostname string) bool {
