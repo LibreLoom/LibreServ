@@ -16,7 +16,10 @@ describe("error reporting utilities", () => {
     vi.spyOn(console, "groupEnd").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(Math, "random").mockReturnValue(0.123456789);
+    vi.spyOn(crypto, "getRandomValues").mockImplementation((arr) => {
+      for (let i = 0; i < arr.length; i++) arr[i] = (i + 1) * 17;
+      return arr;
+    });
   });
 
   afterEach(() => {
@@ -95,7 +98,7 @@ describe("error reporting utilities", () => {
   });
 
   it("parses JSON or returns a chosen default", () => {
-    expect(safeJsonParse('{"enabled":true}')).toEqual({ enabled: true });
+    expect(safeJsonParse('{\"enabled\":true}')).toEqual({ enabled: true });
     expect(safeJsonParse("not-json", { enabled: false })).toEqual({
       enabled: false,
     });
