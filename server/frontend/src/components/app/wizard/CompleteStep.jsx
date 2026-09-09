@@ -3,6 +3,7 @@ import { CheckCircle, ExternalLink, ArrowLeft } from "lucide-react";
 import Button from "../../ui/Button";
 import CopyableValue from "../../ui/CopyableValue";
 import { ICON_SIZE } from "@/lib/ui-tokens";
+import { sanitizeURL } from "../../../lib/sanitize";
 
 function CompleteStep({ app, instance, onDone }) {
   const subdomain = instance?.subdomain;
@@ -10,7 +11,7 @@ function CompleteStep({ app, instance, onDone }) {
   // Prefer the backend-provided public URL (correct http/https scheme) over
   // reconstructing it — the backend sets instance.url via EnsurePublicURL on
   // the install path, so it already reflects https when AutoHTTPS is on.
-  const appUrl = instance?.url || instance?.backends?.[0]?.url || "";
+  const appUrl = sanitizeURL(instance?.url || instance?.backends?.[0]?.url || "");
   const generatedPassword = instance?.config?.admin_password || instance?.config?._generated_password;
 
   return (
