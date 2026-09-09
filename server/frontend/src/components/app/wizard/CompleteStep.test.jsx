@@ -60,4 +60,15 @@ describe("CompleteStep", () => {
     );
     expect(screen.queryByRole("link", { name: /open app/i })).toBeNull();
   });
+
+  it("does not render an Open App link for rejected javascript: URLs", () => {
+    render(
+      <CompleteStep
+        app={{ name: "Test App" }}
+        instance={{ url: "javascript:alert(1)" }}
+        onDone={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: /open app/i })).toBeNull();
+  });
 });
