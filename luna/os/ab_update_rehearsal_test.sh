@@ -28,9 +28,15 @@ assert_file_has "$OS/lib/flash-disk.sh" 'name=LUNA_DATA' "flash must create LUNA
 assert_file_has "$OS/lib/flash-disk.sh" 'luna_boot_ok' "flash must write tryboot grubenv keys"
 assert_file_has "$OS/lib/flash-disk.sh" 'os-image.sha256' "flash must record OS image hash on data"
 
-assert_file_has "$OS/build-rootfs.sh" 'LABEL=LUNA_DATA /var/lib/luna' "rootfs must mount data"
-assert_file_has "$OS/build-rootfs.sh" 'luna-run' "OpenRC must prefer data-dir lunad"
-assert_file_has "$OS/build-rootfs.sh" 'remount,ro,noatime' "root must remount read-only"
+# build-rootfs.sh is a thin frag assembler; scan assembled body like rootfs_test.sh.
+FRAGS="$OS/lib/build-rootfs.d"
+_ROOTFS_BODY="$(mktemp)"
+# shellcheck disable=SC2012
+cat $(ls "$FRAGS"/*.frag | sort) > "$_ROOTFS_BODY"
+assert_file_has "$_ROOTFS_BODY" 'LABEL=LUNA_DATA /var/lib/luna' "rootfs must mount data"
+assert_file_has "$_ROOTFS_BODY" 'luna-run' "OpenRC must prefer data-dir lunad"
+assert_file_has "$_ROOTFS_BODY" 'remount,ro,noatime' "root must remount read-only"
+rm -f "$_ROOTFS_BODY"
 
 assert_file_has "$OS/make-image.sh" 'luna-os-x86_64.img' "make-image must produce the OTA slot asset"
 assert_file_has "$OS/build-iso.sh" 'make-image.sh' "ISO build must produce the slot image"

@@ -3,7 +3,7 @@
 # Sourced by build-rootfs.sh — never use GitHub floating latest tag.
 # shellcheck shell=sh
 
-CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.7.3}"
+CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.8.3}"
 
 luna_cloudflared_arch() {
     case "$1" in
