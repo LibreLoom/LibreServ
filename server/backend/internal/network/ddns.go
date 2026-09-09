@@ -23,6 +23,7 @@ type DDNSService struct {
 	stop         chan struct{}
 	stopped      chan struct{}
 	running      bool
+	stopping     bool
 	ready        chan struct{}
 	lastUpdate   time.Time
 	lastError    error
@@ -82,6 +83,7 @@ func (s *DDNSService) Start() {
 	s.stopped = make(chan struct{})
 	s.ready = make(chan struct{})
 	s.running = true
+	s.stopping = false
 	s.mu.Unlock()
 
 	go s.run()
@@ -91,15 +93,30 @@ func (s *DDNSService) Start() {
 
 func (s *DDNSService) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.running {
+		s.mu.Unlock()
 		return
 	}
-
+	if s.stopping {
+		// Another Stop already closed s.stop; wait without closing again.
+		s.mu.Unlock()
+		<-s.stopped
+		return
+	}
+	// Signal stop without holding mu across Wait: UpdateDNS also takes mu
+	// after DetectPublicIP, so holding it here deadlocked Stop vs run.
+	// Set stopping under the same lock as close so concurrent Stop cannot
+	// close(s.stop) twice (panic).
+	s.stopping = true
 	close(s.stop)
+	s.mu.Unlock()
+
 	<-s.stopped
+
+	s.mu.Lock()
 	s.running = false
+	s.stopping = false
+	s.mu.Unlock()
 	s.logger.Info("DDNS auto-update service stopped")
 }
 
@@ -131,16 +148,31 @@ func (s *DDNSService) run() {
 	s.mu.RUnlock()
 	close(s.ready)
 
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Publish immediately on start (do not wait a full interval) while still
+	// honoring stop between ticks. A buffered kick fires once.
+	kick := make(chan struct{}, 1)
+	kick <- struct{}{}
+
 	for {
-		ticker := time.NewTicker(interval)
 		select {
+		case <-kick:
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_ = s.UpdateDNS(ctx)
+			cancel()
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			s.UpdateDNS(ctx)
+			_ = s.UpdateDNS(ctx)
 			cancel()
 			s.mu.RLock()
-			interval = s.interval
+			next := s.interval
 			s.mu.RUnlock()
+			if next != interval {
+				interval = next
+				ticker.Reset(interval)
+			}
 		case <-s.stop:
 			return
 		}
@@ -158,23 +190,27 @@ func (s *DDNSService) UpdateDNS(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
-	ipChanged := s.currentIP.IsValid() && s.currentIP != publicIP
+	previous := s.currentIP
 	s.currentIP = publicIP
 	hook := s.ipChangeHook
 	s.mu.Unlock()
 
-	if !ipChanged {
+	if !dnsPublishNeeded(previous, publicIP) {
 		s.logger.Debug("Public IP unchanged", "ip", publicIP)
 		return nil
 	}
 
-	s.logger.Info("Public IP changed", "new_ip", publicIP)
-	// Notify the report loop so it regenerates immediately rather than
-	// serving a stale report until the next 15-min tick. Run it async:
-	// regeneration (STUN+UPnP+probes, ~20s) must not delay the DNS write
-	// that follows right after an IP change (review minor 3).
-	if hook != nil {
-		go hook()
+	if previous.IsValid() {
+		s.logger.Info("Public IP changed", "old_ip", previous, "new_ip", publicIP)
+		// Notify the report loop so it regenerates immediately rather than
+		// serving a stale report until the next 15-min tick. Run it async:
+		// regeneration (STUN+UPnP+probes, ~20s) must not delay the DNS write
+		// that follows right after an IP change (review minor 3).
+		if hook != nil {
+			go hook()
+		}
+	} else {
+		s.logger.Info("Public IP observed", "ip", publicIP)
 	}
 
 	cfg, err := s.providerMgr.GetConfig(ctx)
@@ -234,4 +270,17 @@ func (s *DDNSService) UpdateDNS(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// dnsPublishNeeded reports whether an observed public IP should trigger a DNS
+// write. First observation (no previous) and real IP changes both need a write;
+// an unchanged IP must not.
+func dnsPublishNeeded(previous, observed netip.Addr) bool {
+	if !observed.IsValid() {
+		return false
+	}
+	if !previous.IsValid() {
+		return true
+	}
+	return previous != observed
 }
