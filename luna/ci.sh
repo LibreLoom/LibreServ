@@ -50,17 +50,20 @@ sh os/iso/find-media_test.sh
 sh os/debian-live/debian_live_test.sh
 sh os/rapidinstall_wait_test.sh
 sh os/rootfs_test.sh
-for f in os/build-rootfs.sh os/make-image.sh; do
-	grep -q 'os/lib/alpine-image.sh' "$f" || {
-		echo "$f must source os/lib/alpine-image.sh" >&2
-		exit 1
-	}
-done
+# build-rootfs.sh is a thin concat wrapper; alpine-image lives in the frags.
+grep -q 'os/lib/alpine-image.sh' os/make-image.sh || {
+	echo "os/make-image.sh must source os/lib/alpine-image.sh" >&2
+	exit 1
+}
+grep -rq 'os/lib/alpine-image.sh' os/lib/build-rootfs.d/ || {
+	echo "os/lib/build-rootfs.d must source os/lib/alpine-image.sh" >&2
+	exit 1
+}
 grep -q 'live-build' os/make-iso.sh || {
 	echo "os/make-iso.sh must use host live-build" >&2
 	exit 1
 }
-if grep -q 'alpine:latest' os/build-rootfs.sh os/make-image.sh os/lib/alpine-image.sh; then
+if grep -rq 'alpine:latest' os/make-image.sh os/lib/alpine-image.sh os/lib/build-rootfs.d/; then
 	echo "Alpine OS image scripts must not default to alpine:latest" >&2
 	exit 1
 fi
