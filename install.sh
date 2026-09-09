@@ -20,6 +20,9 @@ USER="libreserv"
 SERVICE_NAME="libreserv"
 NO_SYSTEMD=false
 RESTIC_VERSION="0.19.1"
+# Upstream SHA256 of restic_${RESTIC_VERSION}_linux_{amd64,arm64}.bz2 (from restic SHA256SUMS).
+RESTIC_SHA256_LINUX_AMD64="f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
+RESTIC_SHA256_LINUX_ARM64="a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465"
 
 # Baked-in LibreServ minisign public key (keys/libreserv.minisign.pub). Do not fetch this from Forgejo.
 RELEASE_MINISIGN_PUB='untrusted comment: minisign public key 48EB64CB69EA36CD
@@ -293,7 +296,7 @@ prompt_version() {
     fi
 }
 
-# Get latest LibreServ release (tag vX.Y.Z only — skip luna-v* and connect-v*)
+# Get latest LibreServ release (tag vX.Y.Z only -- skip luna-v* and connect-v*)
 get_latest_release() {
     log_info "Fetching latest release information..."
     local response
@@ -429,31 +432,104 @@ download_binary() {
     cleanup_download_temps
 }
 
-# Download restic binary for restic-based backups
+# Download restic binary for restic-based backups.
+# Prefer install-lib/download-restic.sh when present (full checkout).
+# Curl-onefile installs use the inline verified path below — no install-parts required.
+# Verify the .bz2 against baked-in upstream SHA256SUMS before decompressing --
+# same trust bar as the LibreServ binary (checksum before overwrite).
 download_restic() {
     local restic_dir="${DATA_DIR}/bin"
     local restic_path="${restic_dir}/restic"
+    local root helper
+    root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+    helper="${root}/install-lib/download-restic.sh"
 
-    if [ -x "${restic_path}" ]; then
-        log_info "restic already installed at ${restic_path}"
+    if [ -f "${helper}" ]; then
+        log_info "Downloading restic ${RESTIC_VERSION} for ${OS}/${ARCH} (verified helper)..."
+        mkdir -p "${restic_dir}"
+        if ! RESTIC_OWNER="${USER}:${USER}" RESTIC_VERSION="${RESTIC_VERSION}" RESTIC_ARCH="${ARCH}" \
+            bash "${helper}" "${restic_path}"; then
+            log_warn "restic verified download failed; install manually: https://restic.net/downloads/"
+        fi
         return
     fi
 
-    log_info "Downloading restic ${RESTIC_VERSION} for ${OS}/${ARCH}..."
+    log_info "Downloading restic ${RESTIC_VERSION} for ${OS}/${ARCH} (inline verify)..."
     mkdir -p "${restic_dir}"
 
+    # SHA256 of restic_${RESTIC_VERSION}_linux_${ARCH}.bz2 from
+    # https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/SHA256SUMS
+    # Update these when bumping RESTIC_VERSION.
+    local expected_hash=""
+    case "${ARCH}" in
+        amd64) expected_hash="${RESTIC_SHA256_LINUX_AMD64}" ;;
+        arm64) expected_hash="${RESTIC_SHA256_LINUX_ARM64}" ;;
+        *)
+            log_warn "No baked-in restic checksum for ${ARCH}; skipping automatic install"
+            log_warn "Install restic manually: https://restic.net/downloads/"
+            return
+            ;;
+    esac
+    if [ -z "${expected_hash}" ]; then
+        log_warn "Empty restic checksum constant; skipping automatic install"
+        return
+    fi
+
     local url="https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_${ARCH}.bz2"
-    if ! curl -fsSL "${url}" | bzip2 -d > "${restic_path}.tmp" 2>/dev/null; then
-        rm -f "${restic_path}.tmp"
+    local tmp_bz2 tmp_bin
+    tmp_bz2="$(mktemp)"
+    tmp_bin="$(mktemp "${restic_dir}/.restic.download.XXXXXX")"
+
+    cleanup_restic_temps() {
+        rm -f "${tmp_bz2}" "${tmp_bin}"
+        return 0
+    }
+
+    if ! curl -fsSL --proto '=https' --tlsv1.2 "${url}" -o "${tmp_bz2}"; then
+        cleanup_restic_temps
         log_warn "Failed to download restic; incremental backups will require manual installation"
         log_warn "Install restic manually: https://restic.net/downloads/"
         return
     fi
 
-    chmod +x "${restic_path}.tmp"
-    mv "${restic_path}.tmp" "${restic_path}"
+    local actual_hash
+    actual_hash="$(sha256sum "${tmp_bz2}" | awk '{print $1}')"
+    if [ "${actual_hash}" != "${expected_hash}" ]; then
+        cleanup_restic_temps
+        log_warn "restic checksum mismatch -- refusing to install untrusted binary"
+        log_warn "Expected: ${expected_hash}"
+        log_warn "Got:      ${actual_hash}"
+        log_warn "Install restic manually: https://restic.net/downloads/"
+        return
+    fi
+
+    if ! bzip2 -d -c "${tmp_bz2}" > "${tmp_bin}"; then
+        cleanup_restic_temps
+        log_warn "Failed to decompress restic; incremental backups will require manual installation"
+        return
+    fi
+    rm -f "${tmp_bz2}"
+    tmp_bz2=""
+
+    chmod +x "${tmp_bin}"
+
+    # Harden existing-dest skip: hash on-disk binary, not just a version string.
+    if [ -x "${restic_path}" ]; then
+        local ondisk fresh
+        ondisk="$(sha256sum "${restic_path}" | awk '{print $1}')"
+        fresh="$(sha256sum "${tmp_bin}" | awk '{print $1}')"
+        if [ "${ondisk}" = "${fresh}" ]; then
+            cleanup_restic_temps
+            log_info "restic ${RESTIC_VERSION} already installed and hash-verified at ${restic_path}"
+            return
+        fi
+        log_info "existing restic at ${restic_path} hash mismatch; replacing with verified binary"
+    fi
+
+    mv -f "${tmp_bin}" "${restic_path}"
+    tmp_bin=""
     chown "${USER}:${USER}" "${restic_path}"
-    log_info "restic ${RESTIC_VERSION} installed to ${restic_path}"
+    log_info "restic ${RESTIC_VERSION} verified and installed to ${restic_path}"
 }
 
 # Create catalog directory for repo-based apps
@@ -493,9 +569,9 @@ create_config() {
 
     cat > "${CONFIG_DIR}/libreserv.yaml" <<EOF
 # LibreServ Configuration
-# All paths and settings have code defaults — this file only contains secrets.
+# All paths and settings have code defaults -- this file only contains secrets.
 # DB-backed settings (logging.level, smtp.*, server.mode, etc.) must be
-# changed via the Settings UI — editing this file has no effect after first boot.
+# changed via the Settings UI -- editing this file has no effect after first boot.
 
 server:
   host: "0.0.0.0"
