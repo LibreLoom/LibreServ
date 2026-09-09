@@ -34,6 +34,10 @@ func parseTimestamp(s string) time.Time {
 }
 
 func (m *DNSProviderManager) GetConfig(ctx context.Context) (*DNSProviderConfig, error) {
+	// Zero-value / closed DB must not nil-deref (tests and early boot).
+	if m == nil || m.db == nil || m.db.SQL() == nil {
+		return nil, nil
+	}
 	row := m.db.QueryRowContext(ctx,
 		`SELECT id, provider, domain, api_token, enabled, created_at, updated_at,
 		        nameserver, tsig_key_name, tsig_secret, hmac_algorithm
