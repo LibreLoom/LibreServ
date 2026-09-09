@@ -1577,6 +1577,7 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
 ///
 /// When `path_grants` is `Some`, only photos under those grant prefixes (per drive)
 /// are counted — Members must not learn cameras from folders they cannot open.
+/// A drive missing from the map is denied (empty grant), not treated as Admin.
 /// `None` means unrestricted (Admin).
 pub fn list_cameras(
     mounts: &[(String, PathBuf)],
@@ -1592,7 +1593,6 @@ pub fn list_cameras(
             Ok(c) => c,
             Err(_) => continue,
         };
-        let prefixes = path_grants.and_then(|g| g.get(drive_id));
         let mut stmt = conn.prepare(
             "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), path
              FROM photos
@@ -1607,7 +1607,7 @@ pub fn list_cameras(
         })?;
         for row in rows.flatten() {
             let (make, model, path) = row;
-            if !path_allowed_by_grants(&path, prefixes) {
+            if !path_allowed_by_grants(path_grants, drive_id, &path) {
                 continue;
             }
             *map.entry((make, model)).or_insert(0) += 1;
@@ -1626,12 +1626,22 @@ pub fn list_cameras(
     Ok(out)
 }
 
-fn path_allowed_by_grants(path: &str, prefixes: Option<&Vec<String>>) -> bool {
-    match prefixes {
+/// `path_grants = None` → Admin (allow all).
+/// `path_grants = Some(map)` → Member: only paths under that drive's prefixes;
+/// a missing drive key denies every path on that drive (never “allow all”).
+fn path_allowed_by_grants(
+    path_grants: Option<&std::collections::HashMap<String, Vec<String>>>,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    match path_grants {
         None => true,
-        Some(prefs) => prefs
-            .iter()
-            .any(|p| crate::grants::path_contains(p, path)),
+        Some(grants) => match grants.get(drive_id) {
+            None => false,
+            Some(prefs) => prefs
+                .iter()
+                .any(|p| crate::grants::path_contains(p, path)),
+        },
     }
 }
 
@@ -1659,7 +1669,6 @@ pub fn list_filter_facets(
             Ok(c) => c,
             Err(_) => continue,
         };
-        let prefixes = path_grants.and_then(|g| g.get(drive_id));
         {
             let mut stmt = conn.prepare(
                 "SELECT COALESCE(lens, ''), path FROM photos
@@ -1670,7 +1679,7 @@ pub fn list_filter_facets(
             })?;
             for row in rows.flatten() {
                 let (lens, path) = row;
-                if !path_allowed_by_grants(&path, prefixes) {
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
                     continue;
                 }
                 *lenses.entry(lens).or_insert(0) += 1;
@@ -1680,7 +1689,7 @@ pub fn list_filter_facets(
             let mut stmt = conn.prepare("SELECT path FROM photos")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             for path in rows.flatten() {
-                if !path_allowed_by_grants(&path, prefixes) {
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
                     continue;
                 }
                 let ext = normalize_format_ext(&path_ext_lower(&path));
@@ -1698,7 +1707,7 @@ pub fn list_filter_facets(
             })?;
             for row in rows.flatten() {
                 let (iso, path) = row;
-                if !path_allowed_by_grants(&path, prefixes) {
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
                     continue;
                 }
                 let iso = iso.max(0) as u32;
@@ -1714,7 +1723,7 @@ pub fn list_filter_facets(
             })?;
             for row in rows.flatten() {
                 let (focal, path) = row;
-                if !path_allowed_by_grants(&path, prefixes) {
+                if !path_allowed_by_grants(path_grants, drive_id, &path) {
                     continue;
                 }
                 focal_min = Some(focal_min.map_or(focal, |v| v.min(focal)));
@@ -3078,6 +3087,34 @@ mod tests {
                 .iter()
                 .all(|c| !(c.make == "NIKON CORPORATION" && c.model == "NIKON D850")),
             "Nikon outside grant must not appear: {cameras:?}"
+        );
+    }
+
+    #[test]
+    fn list_cameras_member_missing_drive_key_denies_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        std::fs::write(
+            photos_dir.join("canon.jpg"),
+            crate::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        )
+        .unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let mounts = vec![("d1".into(), photos_dir)];
+        // Member map present but this drive has no entry — must not equal Admin None.
+        let grants = std::collections::HashMap::new();
+        let cameras = list_cameras(&mounts, Some(&grants)).unwrap();
+        assert!(
+            cameras.is_empty(),
+            "missing drive key under Some(grants) must deny: {cameras:?}"
+        );
+        let admin = list_cameras(&mounts, None).unwrap();
+        assert!(
+            admin
+                .iter()
+                .any(|c| c.make == "Canon" && c.model == "EOS R5"),
+            "Admin None still sees cameras: {admin:?}"
         );
     }
 

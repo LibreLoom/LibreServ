@@ -513,7 +513,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
             You&rsquo;re signed in
           </h2>
-          <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+          <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
             Signed in as <span className="font-mono text-primary">{user.username}</span>
             {isAdmin
               ? ". You're an Admin on this Luna."
@@ -543,7 +543,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
           Sign in to continue
         </h2>
-        <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+        <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
           This Luna already has an account. Sign in with it to finish setup.
         </p>
         <div className="mt-8 animate-in fade-in duration-300 delay-300">
@@ -754,7 +754,7 @@ function NameStep({ initialName, onFinish }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
           Name your Luna
         </h2>
-        <p className="text-primary/50 text-sm mt-2">
+        <p className="text-primary text-sm mt-2">
           This is the name you&rsquo;ll see when you open Luna. If you ever have two, each gets its own name.
         </p>
       </div>
@@ -828,7 +828,7 @@ function DoneStep({ name, onGoDrives }) {
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
           {label} is ready.
         </h2>
-        <p className="text-primary/50 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+        <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
           Now plug in a USB drive. Luna will notice and won&rsquo;t touch a thing until you say so.
         </p>
 

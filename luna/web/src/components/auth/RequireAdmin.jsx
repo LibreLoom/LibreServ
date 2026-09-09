@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 /**
  * Gate for pages only an admin should use.
  */
-export default function RequireAdmin({ children, title = "This page is for admins" }) {
+export default function RequireAdmin({ children, title = "This page is for Admins" }) {
   const { user } = useAuth();
   if (user?.role === "admin") return children;
   return (
