@@ -2,7 +2,7 @@ package network
 
 import (
 	"fmt"
-	stdlog "log"
+	"log"
 	"log/slog"
 	"net"
 
@@ -118,7 +118,7 @@ func localIPs() ([]net.IP, error) {
 	return ips, nil
 }
 
-func (m *MDNSService) stdLog() *stdlog.Logger {
+func (m *MDNSService) stdLog() *log.Logger {
 	return slog.NewLogLogger(m.logger.Handler(), slog.LevelDebug)
 }
 

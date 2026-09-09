@@ -1,19 +1,21 @@
 package network
 
 import (
-	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"strings"
 )
 
-// log routes legacy printf-style Caddy logs through slog so call sites in
-// caddy.go can keep using log.Printf without a full-file rewrite.
-var log = caddySlog{}
+// caddySlogWriter routes the process default log.Logger (used by caddy.go
+// log.Printf call sites) through slog without rewriting the large caddy.go.
+type caddySlogWriter struct{}
 
-type caddySlog struct{}
-
-func (caddySlog) Printf(format string, v ...any) {
-	msg := fmt.Sprintf(format, v...)
+func (caddySlogWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimSuffix(string(p), "\n")
+	if msg == "" {
+		return len(p), nil
+	}
 	attrs := []any{"component", "caddy"}
 	switch {
 	case strings.HasPrefix(msg, "ERROR:"):
@@ -26,4 +28,14 @@ func (caddySlog) Printf(format string, v ...any) {
 	default:
 		slog.Info(msg, attrs...)
 	}
+	return len(p), nil
 }
+
+func init() {
+	// Only caddy.go still uses the default stdlib logger in this binary.
+	log.SetFlags(0)
+	log.SetPrefix("")
+	log.SetOutput(caddySlogWriter{})
+}
+
+var _ io.Writer = caddySlogWriter{}

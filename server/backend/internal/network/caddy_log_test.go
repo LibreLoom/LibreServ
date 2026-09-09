@@ -2,6 +2,7 @@ package network
 
 import (
 	"bytes"
+	"log"
 	"log/slog"
 	"strings"
 	"testing"
@@ -12,6 +13,11 @@ func TestCaddySlogPrintfLevels(t *testing.T) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	// Re-assert default logger routing in case other tests muted it.
+	log.SetFlags(0)
+	log.SetPrefix("")
+	log.SetOutput(caddySlogWriter{})
 
 	cases := []struct {
 		msg   string
