@@ -1,45 +1,19 @@
 /* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by GalleryFilterSheet and tests */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
+import { Crop, Hand, RotateCcw } from "lucide-react";
 import {
   MapContainer,
   TileLayer,
   CircleMarker,
-  Rectangle,
   useMap,
-  useMapEvents,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "../ui/Button.jsx";
 import { haptic } from "../../utils/haptics.js";
+import MapAreaDraw, { bboxToBounds, boundsToBbox } from "./MapAreaDraw.jsx";
 
-/**
- * @param {[number, number, number, number]|null|undefined} bbox west,south,east,north
- * @returns {[[number, number], [number, number]]|null}
- */
-export function bboxToBounds(bbox) {
-  if (!bbox || bbox.length !== 4) return null;
-  const [west, south, east, north] = bbox;
-  if (![west, south, east, north].every((n) => Number.isFinite(n))) return null;
-  return [
-    [south, west],
-    [north, east],
-  ];
-}
-
-/**
- * @param {[[number, number], [number, number]]} bounds
- * @returns {[number, number, number, number]}
- */
-export function boundsToBbox(bounds) {
-  const [[s1, w1], [s2, w2]] = bounds;
-  return [
-    Math.min(w1, w2),
-    Math.min(s1, s2),
-    Math.max(w1, w2),
-    Math.max(s1, s2),
-  ];
-}
+export { bboxToBounds, boundsToBbox };
 
 function FitPlaces({ points }) {
   const map = useMap();
@@ -70,58 +44,9 @@ function FitBbox({ bbox }) {
   return null;
 }
 
-function DrawRectangle({ value, onChange }) {
-  const [draft, setDraft] = useState(/** @type {[[number,number],[number,number]]|null} */ (null));
-  const [origin, setOrigin] = useState(/** @type {[number, number]|null} */ (null));
-
-  useMapEvents({
-    mousedown(e) {
-      if (e.originalEvent?.button != null && e.originalEvent.button !== 0) return;
-      // Avoid starting a draw while interacting with controls.
-      const t = e.originalEvent?.target;
-      if (t instanceof Element && t.closest(".leaflet-control")) return;
-      setOrigin([e.latlng.lat, e.latlng.lng]);
-      setDraft([
-        [e.latlng.lat, e.latlng.lng],
-        [e.latlng.lat, e.latlng.lng],
-      ]);
-    },
-    mousemove(e) {
-      if (!origin) return;
-      setDraft([origin, [e.latlng.lat, e.latlng.lng]]);
-    },
-    mouseup(e) {
-      if (!origin) return;
-      const next = [origin, [e.latlng.lat, e.latlng.lng]];
-      setOrigin(null);
-      setDraft(null);
-      const bbox = boundsToBbox(/** @type {[[number, number], [number, number]]} */ (next));
-      const tiny =
-        Math.abs(bbox[2] - bbox[0]) < 0.00005 && Math.abs(bbox[3] - bbox[1]) < 0.00005;
-      if (tiny) return;
-      haptic("medium");
-      onChange?.(bbox);
-    },
-  });
-
-  const shown = draft || bboxToBounds(value);
-  if (!shown) return null;
-
-  return (
-    <Rectangle
-      bounds={shown}
-      pathOptions={{
-        color: "var(--color-secondary)",
-        weight: 2,
-        fillColor: "var(--color-accent)",
-        fillOpacity: 0.25,
-      }}
-    />
-  );
-}
-
 /**
  * Leaflet map for drawing a geographic filter zone (bounding box).
+ * Supports both mouse and mobile touch drag drawing.
  *
  * @param {{
  *   places?: Array<{ lat: number, lon: number, key?: string, label?: string }>,
@@ -136,8 +61,10 @@ export default function GeozoneMap({
   value = null,
   onChange,
   className = "",
-  height = "14rem",
+  height = "16rem",
 }) {
+  const [mode, setMode] = useState(/** @type {"pan"|"draw"} */ (value ? "pan" : "draw"));
+
   const points = useMemo(
     () =>
       (places || []).filter(
@@ -154,7 +81,47 @@ export default function GeozoneMap({
 
   return (
     <div className={className} data-slot="geozone-map">
-      <p className="mb-2 text-sm">Drag on the map to choose an area.</p>
+      {/* Mode toolbar */}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div
+          role="group"
+          aria-label="Map interaction mode"
+          className="flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 border-2 border-primary/20"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "pan" ? "accent" : "ghost"}
+            className="rounded-pill px-3 text-xs"
+            onClick={() => {
+              haptic("selection");
+              setMode("pan");
+            }}
+          >
+            <Hand size={14} className="mr-1.5" aria-hidden="true" />
+            Pan map
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "draw" ? "accent" : "ghost"}
+            className="rounded-pill px-3 text-xs"
+            onClick={() => {
+              haptic("selection");
+              setMode("draw");
+            }}
+          >
+            <Crop size={14} className="mr-1.5" aria-hidden="true" />
+            Draw area
+          </Button>
+        </div>
+        <p className="text-xs text-accent">
+          {mode === "draw"
+            ? "Click & drag or drag with finger to select an area"
+            : "Drag to move around the map"}
+        </p>
+      </div>
+
       <div
         className="overflow-hidden rounded-large-element border-2 border-secondary/30 bg-primary text-secondary"
         style={{ height }}
@@ -185,26 +152,51 @@ export default function GeozoneMap({
               }}
             />
           ))}
-          <DrawRectangle value={value} onChange={onChange} />
+          <MapAreaDraw
+            active={mode === "draw"}
+            value={value}
+            onChange={(bbox) => {
+              onChange?.(bbox);
+              setMode("pan");
+            }}
+          />
         </MapContainer>
       </div>
+
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-mono">
           {value ? summary() : "No area selected"}
         </p>
-        {value && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              haptic("light");
-              onChange?.(null);
-            }}
-          >
-            Clear zone
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {value && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                haptic("selection");
+                setMode("draw");
+              }}
+            >
+              <RotateCcw size={13} className="mr-1.5" aria-hidden="true" />
+              Redraw
+            </Button>
+          )}
+          {value && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                haptic("light");
+                onChange?.(null);
+                setMode("draw");
+              }}
+            >
+              Clear zone
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

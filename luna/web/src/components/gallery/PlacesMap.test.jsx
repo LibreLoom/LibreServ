@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import PlacesMap, { PlacePopupContent } from "./PlacesMap.jsx";
 
@@ -7,7 +8,12 @@ vi.mock("react-leaflet", () => {
     setView: () => {},
     fitBounds: () => {},
     invalidateSize: () => {},
-    getContainer: () => document.createElement("div"),
+    getContainer: () => {
+      const el = document.createElement("div");
+      el.style.cursor = "default";
+      el.style.touchAction = "auto";
+      return el;
+    },
     getZoom: () => 4,
     getBounds: () => ({
       getWest: () => -180,
@@ -15,6 +21,9 @@ vi.mock("react-leaflet", () => {
       getEast: () => 180,
       getNorth: () => 90,
     }),
+    dragging: { enable: vi.fn(), disable: vi.fn() },
+    touchZoom: { enable: vi.fn(), disable: vi.fn() },
+    doubleClickZoom: { enable: vi.fn(), disable: vi.fn() },
   };
   return {
     MapContainer: ({ children, className }) => (
@@ -33,6 +42,7 @@ vi.mock("react-leaflet", () => {
     CircleMarker: ({ children }) => <div>{children}</div>,
     Popup: ({ children }) => <div>{children}</div>,
     Tooltip: ({ children }) => <div>{children}</div>,
+    Rectangle: ({ bounds }) => <div data-testid="rectangle" data-bounds={JSON.stringify(bounds)} />,
     // Stable map identity — a fresh object each render recreated
     // refreshClusters forever and OOMed the worker.
     useMap: () => mapStub,
@@ -67,6 +77,23 @@ describe("PlacePopupContent", () => {
     expect(screen.getByText("11 photos")).toBeInTheDocument();
     expect(screen.queryByText(/^11$/)).not.toBeInTheDocument();
   });
+
+  it("offers Draw a custom area button in popup when onDrawArea is provided", async () => {
+    const user = userEvent.setup();
+    const onDrawArea = vi.fn();
+    render(
+      <PlacePopupContent
+        place={{ key: "p1", label: "Yosemite", count: 11, cover_thumb: "" }}
+        onSelect={vi.fn()}
+        onDrawArea={onDrawArea}
+      />,
+    );
+
+    const drawBtn = screen.getByRole("button", { name: /Draw a custom area…/i });
+    expect(drawBtn).toBeInTheDocument();
+    await user.click(drawBtn);
+    expect(onDrawArea).toHaveBeenCalled();
+  });
 });
 
 describe("PlacesMap", () => {
@@ -100,7 +127,6 @@ describe("PlacesMap", () => {
     // Fills the Gallery Places flex parent instead of a capped vh/px height.
     expect(card?.className).toMatch(/\bflex-1\b/);
     expect(card?.className).toMatch(/\bmin-h-0\b/);
-    expect(card?.className).toMatch(/\bmin-h-0\b/);
     expect(card?.className).not.toMatch(/70vh/);
   });
 
@@ -114,5 +140,26 @@ describe("PlacesMap", () => {
     const tileLayer = screen.getByTestId("tile-layer");
     expect(tileLayer).toBeInTheDocument();
     expect(tileLayer).toHaveAttribute("data-referrer-policy", "strict-origin-when-cross-origin");
+  });
+
+  it("displays floating draw custom area toolbar when drawMode is active", async () => {
+    const user = userEvent.setup();
+    const onDrawModeChange = vi.fn();
+    render(
+      <PlacesMap
+        places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
+        drawMode={true}
+        onDrawModeChange={onDrawModeChange}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Draw custom area")).toBeInTheDocument();
+    expect(screen.getByText(/Drag across the map/i)).toBeInTheDocument();
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    expect(cancelBtn).toBeInTheDocument();
+
+    await user.click(cancelBtn);
+    expect(onDrawModeChange).toHaveBeenCalledWith(false);
   });
 });

@@ -232,6 +232,7 @@ export default function GalleryPage() {
   const [duplicatesView, setDuplicatesView] = useState(false);
   const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS }));
   const [place, setPlace] = useState(null);
+  const [placesDrawMode, setPlacesDrawMode] = useState(false);
   const [albumView, setAlbumView] = useState(null);
   const [dayFilter, setDayFilter] = useState(
     /** @type {{ ymd: string, from: number, to: number, label: string }|null} */ (
@@ -311,6 +312,7 @@ export default function GalleryPage() {
     (next) => {
       if (!SEGMENT_IDS.includes(next) || next === activeSegment) return;
       setPlace(null);
+      setPlacesDrawMode(false);
       setAlbumView(null);
       setDayFilter(null);
       setDuplicatesView(false);
@@ -318,7 +320,7 @@ export default function GalleryPage() {
       window.location.hash = next;
       setSegment(next);
     },
-    [activeSegment, setPlace, setAlbumView, setDayFilter, setDuplicatesView, setFilters, setSegment],
+    [activeSegment, setPlace, setPlacesDrawMode, setAlbumView, setDayFilter, setDuplicatesView, setFilters, setSegment],
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
@@ -1306,25 +1308,24 @@ export default function GalleryPage() {
             <Button
               type="button"
               size="sm"
-              variant="outline"
+              variant={placesDrawMode ? "accent" : "outline"}
               surface="primary"
               onClick={() => {
-                setFilterFocus("where");
-                setFiltersOpen(true);
+                haptic("selection");
+                setPlacesDrawMode((prev) => !prev);
               }}
             >
-              Draw a custom area…
+              {placesDrawMode ? "Exit draw mode" : "Draw a custom area…"}
             </Button>
           </div>
           <PlacesMap
             places={places.data || []}
             loading={places.isLoading}
+            drawMode={placesDrawMode}
+            onDrawModeChange={setPlacesDrawMode}
             onSelect={(p) => {
               setPlace(p);
-            }}
-            onDrawArea={() => {
-              setFilterFocus("where");
-              setFiltersOpen(true);
+              setPlacesDrawMode(false);
             }}
           />
         </div>
