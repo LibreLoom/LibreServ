@@ -120,6 +120,7 @@ describe("UsersPage", () => {
 
     expect(within(articles[1]).getByText("Alex")).toBeTruthy();
     expect(within(articles[1]).getByText("Member")).toBeTruthy();
+    expect(within(articles[1]).getByLabelText(/What Member means/i)).toBeTruthy();
     expect(within(articles[1]).getByRole("button", { name: /Remove Alex/i })).toBeTruthy();
   });
 
