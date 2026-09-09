@@ -1138,24 +1138,39 @@ fn load_album_paths(
     mounts: &[(String, PathBuf)],
     filter: &ListFilter,
 ) -> anyhow::Result<Option<HashSet<(String, String)>>> {
-    let (Some(album_id), Some(home)) = (&filter.album_id, &filter.album_home_drive) else {
-        return Ok(None);
-    };
-    let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
-        return Ok(Some(HashSet::new()));
-    };
-    if !gallery_db_path(root).exists() {
-        return Ok(Some(HashSet::new()));
+    let album_id = filter
+        .album_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let home = filter
+        .album_home_drive
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match (album_id, home) {
+        (None, None) => Ok(None),
+        // Incomplete album filter must not fall through to an unfiltered library list.
+        (None, Some(_)) | (Some(_), None) => Ok(Some(HashSet::new())),
+        (Some(album_id), Some(home)) => {
+            let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
+                return Ok(Some(HashSet::new()));
+            };
+            if !gallery_db_path(root).exists() {
+                return Ok(Some(HashSet::new()));
+            }
+            let conn = open_drive_db(root)?;
+            let mut stmt =
+                conn.prepare("SELECT drive_id, path FROM album_items WHERE album_id = ?1")?;
+            let set = stmt
+                .query_map(params![album_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(Some(set))
+        }
     }
-    let conn = open_drive_db(root)?;
-    let mut stmt = conn.prepare("SELECT drive_id, path FROM album_items WHERE album_id = ?1")?;
-    let set = stmt
-        .query_map(params![album_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-    Ok(Some(set))
 }
 
 fn query_drive_photos(
@@ -3111,6 +3126,57 @@ mod tests {
             "home",
             "secret/pic.jpg"
         ));
+    }
+
+    #[test]
+    fn list_photos_album_id_without_home_does_not_list_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
+        png.save(photos_dir.join("private.png")).unwrap();
+        png.save(photos_dir.join("shared.png")).unwrap();
+        scan_drive("d1", &photos_dir).unwrap();
+        let album = create_album(&photos_dir, "d1", "owner", "Shared").unwrap();
+        add_album_items(
+            &photos_dir,
+            &album.id,
+            &[("d1".into(), "shared.png".into())],
+        )
+        .unwrap();
+        let mounts = vec![("d1".into(), photos_dir)];
+
+        let leaked = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                album_id: Some(album.id.clone()),
+                album_home_drive: None,
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert!(
+            leaked.items.is_empty(),
+            "album_id without album home must not return the unfiltered library"
+        );
+
+        let scoped = list_photos(
+            &mounts,
+            None,
+            &ListFilter {
+                album_id: Some(album.id.clone()),
+                album_home_drive: Some("d1".into()),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .unwrap();
+        assert_eq!(scoped.items.len(), 1);
+        assert_eq!(scoped.items[0].path, "shared.png");
     }
 
     #[test]

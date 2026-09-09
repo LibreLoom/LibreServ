@@ -439,30 +439,22 @@ async fn timeline(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<GalleryQuery>,
 ) -> Result<Json<gallery::GalleryPage>, (StatusCode, Json<Value>)> {
-    if let Some(drive_id) = query.drive_id.as_deref() {
-        // Album view authorizes via album membership below; library still needs a drive grant.
-        if query.album_id.is_none() {
-            let conn = state.db.lock().map_err(|_| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna's index is busy. Try again.",
-                )
-            })?;
-            if !crate::auth::has_drive_access(&user, &conn, drive_id) {
-                return Err(json_error(
-                    StatusCode::FORBIDDEN,
-                    "You don't have permission to view this drive.",
-                ));
-            }
-        }
-    }
-    let viewing_album = query.album_id.is_some();
-    // Album view: include every mounted drive so Members can see album items
-    // without a folder grant. Library view stays grant-scoped.
-    let mounts = if viewing_album {
-        if let (Some(album_id), Some(home)) =
-            (query.album_id.as_deref(), query.album_home.as_deref())
-        {
+    let album_id = query
+        .album_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let album_home = query
+        .album_home
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    // Album view needs both ids before we widen mounts or skip folder grants.
+    // A lone album_id used to mount every drive and skip can_access — refuse that.
+    let viewing_album = match (album_id, album_home) {
+        (None, None) => false,
+        (Some(album_id), Some(home)) => {
             let root = resolve_mount(&state, home)?;
             let album = gallery::get_album(&root, home, album_id)
                 .map_err(|_| {
@@ -480,7 +472,36 @@ async fn timeline(
                     "You don't have permission to view this album.",
                 ));
             }
+            true
         }
+        _ => {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "To open an album, Luna needs both the album and which drive keeps it.",
+            ));
+        }
+    };
+
+    if let Some(drive_id) = query.drive_id.as_deref() {
+        // Album view authorizes via album membership above; library still needs a drive grant.
+        if !viewing_album {
+            let conn = state.db.lock().map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna's index is busy. Try again.",
+                )
+            })?;
+            if !crate::auth::has_drive_access(&user, &conn, drive_id) {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "You don't have permission to view this drive.",
+                ));
+            }
+        }
+    }
+    // Album view: include every mounted drive so Members can see album items
+    // without a folder grant. Library view stays grant-scoped.
+    let mounts = if viewing_album {
         all_mounted(&state)?
     } else {
         accessible_mounts(&state, &user, None)?
@@ -2340,5 +2361,88 @@ mod tests {
         .unwrap();
         assert_eq!(n, 2);
         assert!(zip_path.metadata().unwrap().len() > 20);
+    }
+
+    #[tokio::test]
+    async fn member_album_id_without_home_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let mount = dir.path().join("photos-vol");
+        std::fs::create_dir_all(&mount).unwrap();
+        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]));
+        png.save(mount.join("secret.png")).unwrap();
+        crate::gallery::scan_drive("d-photos", &mount).unwrap();
+        let album = crate::gallery::create_album(&mount, "d-photos", "owner", "Private").unwrap();
+        crate::gallery::add_album_items(
+            &mount,
+            &album.id,
+            &[("d-photos".into(), "secret.png".into())],
+        )
+        .unwrap();
+        db::upsert_drive(
+            &conn,
+            "d-photos",
+            "Family Photos",
+            "as_is",
+            "ext4",
+            "sdz",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        // First account is always Admin; Member must be the second user.
+        let _admin = auth
+            .register("Admin", "Admin", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Member", "Member", "hunter22hunter1", "user")
+            .unwrap();
+        assert_eq!(member.role, "user");
+        let token = auth.issue(&member).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/gallery?album_id={}", album.id))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "album_id alone must not open the full library"
+        );
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/gallery?album_id={}&album_home=d-photos",
+                        album.id
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "non-members must not view albums they were not invited to"
+        );
     }
 }
