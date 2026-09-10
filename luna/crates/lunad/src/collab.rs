@@ -37,10 +37,6 @@ struct Room {
     seq: u64,
     backlog: Vec<ServerEvent>,
     last_event: Instant,
-    /// Single active editor. Full-document ops are last-write-wins; only one
-    /// ACL-writable peer may edit at a time so concurrent typists do not
-    /// silently clobber each other.
-    writer_peer_id: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -112,10 +108,6 @@ pub enum ServerEvent {
     Evict {
         reason: String,
     },
-    /// Active editor lease moved (or cleared).
-    EditorChanged {
-        peer_id: Option<u64>,
-    },
 }
 
 #[derive(Debug)]
@@ -156,7 +148,6 @@ impl CollabHub {
                 seq: 0,
                 backlog: Vec::new(),
                 last_event: Instant::now(),
-                writer_peer_id: None,
             }
         });
         if room.peers.len() >= MAX_PEERS_PER_ROOM {
@@ -172,12 +163,6 @@ impl CollabHub {
         };
         room.peers.insert(peer_id, peer.clone());
         room.last_event = Instant::now();
-        let mut became_writer = false;
-        if can_write && room.writer_peer_id.is_none() {
-            room.writer_peer_id = Some(peer_id);
-            became_writer = true;
-        }
-        let is_editor = room.writer_peer_id == Some(peer_id);
         // Subscribe before PeerJoin so this peer does not miss concurrent ops
         // between catchup clone and subscribe (and so we can skip our own join).
         let rx = room.tx.subscribe();
@@ -187,15 +172,10 @@ impl CollabHub {
             peer_id,
             seq: room.seq,
             peers,
-            can_write: is_editor,
+            can_write,
             catchup,
         };
         let _ = room.tx.send(ServerEvent::PeerJoin { peer });
-        if became_writer {
-            let _ = room.tx.send(ServerEvent::EditorChanged {
-                peer_id: Some(peer_id),
-            });
-        }
         Ok((peer_id, rx, welcome))
     }
 
@@ -207,15 +187,6 @@ impl CollabHub {
         room.peers.remove(&peer_id);
         room.last_event = Instant::now();
         let _ = room.tx.send(ServerEvent::PeerLeave { peer_id });
-        if room.writer_peer_id == Some(peer_id) {
-            let next = room
-                .peers
-                .values()
-                .find(|p| p.can_write)
-                .map(|p| p.peer_id);
-            room.writer_peer_id = next;
-            let _ = room.tx.send(ServerEvent::EditorChanged { peer_id: next });
-        }
     }
 
     pub async fn handle(
@@ -240,9 +211,9 @@ impl CollabHub {
                 None
             }
             ClientMsg::Op { payload } => {
-                if !can_write || room.writer_peer_id != Some(peer_id) {
+                if !can_write {
                     return Some(ServerEvent::Error {
-                        message: "Someone else is editing this file right now. You can still watch.".into(),
+                        message: "You can read this file, but you do not have permission to edit it.".into(),
                     });
                 }
                 let payload_bytes = payload.to_string().len();
@@ -262,9 +233,9 @@ impl CollabHub {
                 None
             }
             ClientMsg::Saved { size } => {
-                if !can_write || room.writer_peer_id != Some(peer_id) {
+                if !can_write {
                     return Some(ServerEvent::Error {
-                        message: "Someone else is editing this file right now. You can still watch.".into(),
+                        message: "You can read this file, but you do not have permission to edit it.".into(),
                     });
                 }
                 let _ = room.tx.send(ServerEvent::Saved { peer_id, size });
@@ -386,7 +357,7 @@ mod tests {
                 a,
                 true,
                 ClientMsg::Op {
-                    payload: serde_json::json!({"engine":"luna-fallback/1","text":"hi"}),
+                    payload: serde_json::json!({"engine":"eurooffice","text":"hi"}),
                 },
             )
             .await;
@@ -406,9 +377,8 @@ mod tests {
         }
     }
 
-    
     #[tokio::test]
-    async fn single_writer_lease() {
+    async fn multi_writer_live_ops() {
         let hub = CollabHub::new();
         let key = CollabHub::room_key("d", "f.docx");
         let (a, mut rx_a, welcome_a) = hub
@@ -424,53 +394,42 @@ mod tests {
             .await
             .unwrap();
         match welcome_b {
-            ServerEvent::Welcome { can_write, .. } => assert!(!can_write),
+            ServerEvent::Welcome { can_write, .. } => assert!(can_write),
             other => panic!("unexpected {other:?}"),
         }
         while rx_a.try_recv().is_ok() {}
         while rx_b.try_recv().is_ok() {}
-        let denied = hub
-            .handle(
-                &key,
-                b,
-                true,
-                ClientMsg::Op {
-                    payload: serde_json::json!({"text":"nope"}),
-                },
-            )
-            .await;
-        assert!(matches!(denied, Some(ServerEvent::Error { .. })));
-        let allowed = hub
+        assert!(hub
             .handle(
                 &key,
                 a,
                 true,
                 ClientMsg::Op {
-                    payload: serde_json::json!({"text":"ok"}),
+                    payload: serde_json::json!({"text":"from-a"}),
                 },
             )
-            .await;
-        assert!(allowed.is_none());
-        let event = rx_b.recv().await.unwrap();
-        assert!(matches!(event, ServerEvent::Op { .. }));
-        hub.leave(&key, a).await;
-        // Bea should become editor after Ada leaves.
-        let mut saw = false;
-        for _ in 0..8 {
-            match rx_b.try_recv() {
-                Ok(ServerEvent::EditorChanged { peer_id }) => {
-                    assert_eq!(peer_id, Some(b));
-                    saw = true;
-                    break;
-                }
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-        assert!(saw, "expected EditorChanged after writer left");
+            .await
+            .is_none());
+        let from_a = rx_b.recv().await.unwrap();
+        assert!(matches!(from_a, ServerEvent::Op { peer_id, .. } if peer_id == a));
+        // Sender also sees its own fan-out; drain it so the next recv is B's op.
+        let _ = rx_a.recv().await.unwrap();
+        assert!(hub
+            .handle(
+                &key,
+                b,
+                true,
+                ClientMsg::Op {
+                    payload: serde_json::json!({"text":"from-b"}),
+                },
+            )
+            .await
+            .is_none());
+        let from_b = rx_a.recv().await.unwrap();
+        assert!(matches!(from_b, ServerEvent::Op { peer_id, .. } if peer_id == b));
     }
 
-#[tokio::test]
+    #[tokio::test]
     async fn rejects_write_when_read_only() {
         let hub = CollabHub::new();
         let key = CollabHub::room_key("d", "f.docx");

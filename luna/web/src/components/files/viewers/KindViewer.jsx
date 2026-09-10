@@ -37,9 +37,10 @@ export const VIEWER_BY_KIND = {
  *   path: string,
  *   canWrite?: boolean,
  *   onSaved?: () => void,
+ *   onClose?: () => void,
  * }} props
  */
-export default function KindViewer({ kind, driveId, path, canWrite = true, onSaved }) {
+export default function KindViewer({ kind, driveId, path, canWrite = true, onSaved, onClose }) {
   const Viewer = kind ? VIEWER_BY_KIND[kind] : null;
   if (!Viewer) return null;
   return (
@@ -48,6 +49,7 @@ export default function KindViewer({ kind, driveId, path, canWrite = true, onSav
       path={path}
       canWrite={canWrite}
       onSaved={onSaved}
+      onClose={onClose}
     />
   );
 }
@@ -58,4 +60,5 @@ KindViewer.propTypes = {
   path: PropTypes.string.isRequired,
   canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
+  onClose: PropTypes.func,
 };

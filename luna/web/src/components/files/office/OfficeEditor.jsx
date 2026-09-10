@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
-import Card from "../../cards/Card.jsx";
-import FallbackOfficeEditor from "./FallbackOfficeEditor.jsx";
+import PropTypes from "prop-types";
+import { Download } from "lucide-react";
+import Button from "../../ui/Button.jsx";
+import PageNotice from "../../common/PageNotice.jsx";
+import { downloadHref, pathBasename } from "../../../lib/paths.js";
+import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "../../../utils/haptics.js";
+import EuroOfficeHost from "./EuroOfficeHost.jsx";
+import { probeEuroOffice } from "./euroOfficeApi.js";
 
 /**
- * Office entry point. Optional EuroOffice AGPL assets may live under /eurooffice;
- * until a DocsAPI bridge ships, editing always uses the collaborative fallback
- * (same WebSocket protocol). When assets are present we show an AGPL notice.
+ * Office entry — EuroOffice or nothing.
+ * Luna does not ship a built-in office editor. If EuroOffice assets are missing,
+ * we show a clear message and Download.
  *
  * @param {{
  *   driveId: string,
@@ -15,43 +22,91 @@ import FallbackOfficeEditor from "./FallbackOfficeEditor.jsx";
  *   onClose?: () => void,
  * }} props
  */
-export default function OfficeEditor(props) {
-  const [euroNotice, setEuroNotice] = useState(false);
+export default function OfficeEditor({ driveId, path, canWrite = false, onSaved, onClose }) {
+  const [phase, setPhase] = useState(/** @type {"checking"|"ready"|"missing"} */ ("checking"));
+  const name = pathBasename(path) || path;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetch("/eurooffice/web-apps/apps/api/documents/api.js", {
-          method: "HEAD",
-          credentials: "same-origin",
-        });
-        if (!cancelled) setEuroNotice(res.ok);
-      } catch {
-        if (!cancelled) setEuroNotice(false);
-      }
+      const ok = await probeEuroOffice();
+      if (!cancelled) setPhase(ok ? "ready" : "missing");
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [driveId, path]);
+
+  if (phase === "checking") {
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-primary text-secondary">
+        <p className="font-mono text-sm motion-safe:animate-pulse">Checking for EuroOffice…</p>
+      </div>
+    );
+  }
+
+  if (phase === "missing") {
+    return (
+      <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-primary p-6 text-secondary">
+        <div className="w-full max-w-lg space-y-3">
+          <h3 className="font-mono text-lg text-secondary">EuroOffice is not on this Luna</h3>
+          <p className="text-sm text-secondary">
+            Office files open only in EuroOffice. Luna does not include a built-in editor.
+            Install the EuroOffice pack on this Luna (see{" "}
+            <span className="font-mono">luna/docs/eurooffice.md</span>), or download the file
+            and open it on another device.
+          </p>
+          <PageNotice variant="info" surface="primary">
+            Needed file:{" "}
+            <span className="font-mono">
+              /eurooffice/web-apps/apps/api/documents/api.js
+            </span>
+          </PageNotice>
+          <div className="flex flex-wrap gap-3 pt-1">
+            <Button
+              variant="secondary"
+              surface="primary"
+              asChild
+              onClick={() => haptic("light")}
+            >
+              <a href={downloadHref(driveId, path)}>
+                <Download size={ICON_SIZE.sm} aria-hidden="true" />
+                Download {name}
+              </a>
+            </Button>
+            {onClose ? (
+              <Button
+                type="button"
+                variant="outline"
+                surface="primary"
+                onClick={() => {
+                  haptic("light");
+                  onClose();
+                }}
+              >
+                Close
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {euroNotice ? (
-        <div className="shrink-0 px-3 pt-2">
-          <Card className="!p-3" noPopIn surface="primary">
-            <p className="text-sm text-secondary">
-              EuroOffice files are on this Luna (AGPL). Editing still uses Luna&apos;s built-in
-              collaborative text mode until the EuroOffice bridge is enabled. See{" "}
-              <span className="font-mono">luna/docs/eurooffice.md</span>.
-            </p>
-          </Card>
-        </div>
-      ) : null}
-      <div className="min-h-0 flex-1">
-        <FallbackOfficeEditor {...props} />
-      </div>
-    </div>
+    <EuroOfficeHost
+      driveId={driveId}
+      path={path}
+      canWrite={canWrite}
+      onSaved={onSaved}
+    />
   );
 }
+
+OfficeEditor.propTypes = {
+  driveId: PropTypes.string.isRequired,
+  path: PropTypes.string.isRequired,
+  canWrite: PropTypes.bool,
+  onSaved: PropTypes.func,
+  onClose: PropTypes.func,
+};

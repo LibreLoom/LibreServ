@@ -2,8 +2,8 @@
  * Thin WebSocket client for Luna collab rooms.
  * Protocol mirrors lunad `collab` ServerEvent / ClientMsg (snake_case JSON).
  *
- * Op payloads are opaque JSON. The fallback editor uses:
- *   { engine: "luna-fallback/1", text: string }
+ * Op payloads are opaque JSON for EuroOffice (or future bridges).
+ * Luna does not interpret them.
  */
 
 /**

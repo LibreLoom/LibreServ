@@ -8,6 +8,7 @@ import PageNotice from "../common/PageNotice.jsx";
 import ShakeTarget from "../ui/ShakeTarget.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import KindViewer from "./viewers/KindViewer.jsx";
+import OfficeEditor from "./office/OfficeEditor.jsx";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
@@ -16,6 +17,7 @@ import { haptic } from "../../utils/haptics.js";
 
 /**
  * View images/videos or edit plaintext for a drive file.
+ * Office files open fullscreen in EuroOffice (or a clear missing-pack state).
  *
  * @param {{
  *   driveId: string,
@@ -29,6 +31,7 @@ import { haptic } from "../../utils/haptics.js";
 export default function FileViewer({ driveId, path, onClose, onSaved, open = true, canWrite = true }) {
   const name = pathBasename(path) || path;
   const kind = openableKind(name);
+  const isOffice = kind === "office";
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
   const [loading, setLoading] = useState(kind === "text");
@@ -38,6 +41,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const previewKey = `${driveId}:${path}:${open}`;
   const [expandedScope, setExpandedScope] = useState(previewKey);
   const exitButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const officeCloseRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const fullViewButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const wasExpandedRef = useRef(false);
 
@@ -76,6 +80,27 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [expanded]);
+
+  useEffect(() => {
+    if (!open || !isOffice) return undefined;
+
+    officeCloseRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        haptic("light");
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [open, isOffice, onClose]);
 
   useEffect(() => {
     if (!open || !path || kind !== "text") return undefined;
@@ -136,6 +161,53 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const isDirty = text !== savedText;
   const canFullView = kind === "image" || kind === "video";
 
+  if (open && isOffice) {
+    return createPortal(
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={name}
+        className="fixed inset-0 z-[80] flex flex-col bg-primary text-secondary motion-safe:animate-page-enter"
+      >
+        <header className="relative flex shrink-0 items-center gap-3 border-b border-secondary/20 px-4 py-3 pr-16 md:px-6 md:pr-20">
+          <h2 className="min-w-0 truncate font-mono text-base font-semibold text-secondary md:text-lg">
+            {name}
+          </h2>
+          <a
+            href={downloadHref(driveId, path)}
+            className="ml-auto hidden shrink-0 items-center gap-2 rounded-pill border-2 border-secondary/30 px-3 py-1.5 font-mono text-xs text-secondary hover:border-accent motion-safe:transition-colors sm:inline-flex focus-visible:ring-2 focus-visible:ring-accent"
+            onClick={() => haptic("light")}
+          >
+            <Download size={ICON_SIZE.sm} aria-hidden="true" />
+            Download
+          </a>
+          <button
+            ref={officeCloseRef}
+            type="button"
+            className="absolute top-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-pill bg-secondary text-primary hover:opacity-90 active:scale-95 motion-safe:transition focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary no-focus-outline md:top-4 md:right-4"
+            onClick={() => {
+              haptic("light");
+              onClose();
+            }}
+            aria-label="Close editor"
+          >
+            <X size={ICON_SIZE.xxl} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1">
+          <OfficeEditor
+            driveId={driveId}
+            path={path}
+            canWrite={canWrite}
+            onSaved={onSaved}
+            onClose={onClose}
+          />
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   return (
     <>
       <ModalCard
@@ -186,13 +258,14 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
               )
             )}
 
-            {open && kind && kind !== "image" && kind !== "video" && kind !== "text" && (
+            {open && kind && kind !== "image" && kind !== "video" && kind !== "text" && kind !== "office" && (
               <KindViewer
                 kind={kind}
                 driveId={driveId}
                 path={path}
                 canWrite={canWrite}
                 onSaved={onSaved}
+                onClose={onClose}
               />
             )}
 
