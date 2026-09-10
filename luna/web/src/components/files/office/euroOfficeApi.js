@@ -3,15 +3,31 @@
 export const EUROOFFICE_API_SRC = "/eurooffice/web-apps/apps/api/documents/api.js";
 
 /**
+ * True only when a real EuroOffice JS pack is served — not Luna's HTML SPA fallback.
  * @returns {Promise<boolean>}
  */
 export async function probeEuroOffice() {
   try {
-    const res = await fetch(EUROOFFICE_API_SRC, {
+    const head = await fetch(EUROOFFICE_API_SRC, {
       method: "HEAD",
       credentials: "same-origin",
     });
-    return res.ok;
+    if (!head.ok) return false;
+    const headCt = (head.headers.get("content-type") || "").toLowerCase();
+    if (headCt.includes("html")) return false;
+
+    // Confirm bytes: unknown paths fall through to Luna's SPA index.html (200).
+    const get = await fetch(EUROOFFICE_API_SRC, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { Range: "bytes=0-127" },
+    });
+    if (!get.ok && get.status !== 206) return false;
+    const getCt = (get.headers.get("content-type") || "").toLowerCase();
+    if (getCt.includes("html")) return false;
+    const snippet = (await get.text()).trimStart();
+    if (!snippet || snippet.startsWith("<!") || snippet.startsWith("<html")) return false;
+    return true;
   } catch {
     return false;
   }
