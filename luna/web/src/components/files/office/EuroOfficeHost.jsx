@@ -2,13 +2,15 @@ import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import PageNotice from "../../common/PageNotice.jsx";
 import { useAuth } from "../../../context/AuthContext.jsx";
-import { contentHref, pathBasename } from "../../../lib/paths.js";
+import { pathBasename } from "../../../lib/paths.js";
 import {
-  euroOfficeDocumentKey,
+  createEuroOfficeSession,
   euroOfficeDocumentType,
   loadEuroOfficeDocsApi,
 } from "./euroOfficeApi.js";
 import { CollabSocket } from "./collabSocket.js";
+
+const OPEN_TIMEOUT_MS = 45_000;
 
 /**
  * Fullscreen EuroOffice DocsAPI host with Luna collab presence.
@@ -58,6 +60,8 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
   useEffect(() => {
     let cancelled = false;
     let editor = /** @type {{ destroyEditor?: () => void } | null} */ (null);
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timeoutId;
 
     (async () => {
       setStatus("loading");
@@ -69,34 +73,58 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
         return;
       }
       try {
+        const session = await createEuroOfficeSession(driveId, path);
+        if (cancelled) return;
         const DocsAPI = await loadEuroOfficeDocsApi();
         if (cancelled) return;
-        const url = new URL(contentHref(driveId, path), window.location.origin).toString();
+
         const userName =
-          user?.display_name || user?.username || (canWrite ? "Editor" : "Viewer");
-        const userId = user?.id != null ? String(user.id) : "luna-user";
+          user?.display_name ||
+          user?.username ||
+          session?.user?.name ||
+          (canWrite ? "Editor" : "Viewer");
+        const userId =
+          user?.id != null
+            ? String(user.id)
+            : session?.user?.id != null
+              ? String(session.user.id)
+              : "luna-user";
+        const write =
+          typeof session?.can_write === "boolean" ? session.can_write && canWrite : canWrite;
+
+        timeoutId = setTimeout(() => {
+          if (cancelled) return;
+          setStatus((prev) => {
+            if (prev !== "loading") return prev;
+            setError(
+              "EuroOffice is taking too long to open. Check that Document Server can reach this Luna, then try again.",
+            );
+            return "error";
+          });
+        }, OPEN_TIMEOUT_MS);
 
         editor = new DocsAPI.DocEditor(placeholderId, {
           width: "100%",
           height: "100%",
           type: "desktop",
-          documentType: docType,
+          documentType: session.document_type || docType,
           document: {
-            title: name,
-            url,
-            fileType: (name.split(".").pop() || "").toLowerCase(),
-            key: euroOfficeDocumentKey(driveId, path),
+            title: session.title || name,
+            url: session.document_url,
+            fileType: session.file_type || (name.split(".").pop() || "").toLowerCase(),
+            key: session.key,
             permissions: {
-              edit: Boolean(canWrite),
+              edit: Boolean(write),
               download: true,
               print: true,
-              review: Boolean(canWrite),
-              comment: Boolean(canWrite),
+              review: Boolean(write),
+              comment: Boolean(write),
             },
           },
           editorConfig: {
-            mode: canWrite ? "edit" : "view",
+            mode: write ? "edit" : "view",
             lang: "en",
+            callbackUrl: session.callback_url,
             user: { id: userId, name: userName },
             customization: {
               anonymous: { request: false },
@@ -117,7 +145,6 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
               if (!cancelled) setStatus("ready");
             },
             onDocumentStateChange: (event) => {
-              // EuroOffice reports dirty state; saves are owned by EuroOffice.
               if (event?.data === false) onSaved?.();
             },
             onError: (event) => {
@@ -147,6 +174,7 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
 
     return () => {
       cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
       try {
         editor?.destroyEditor?.();
       } catch {
@@ -158,9 +186,7 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
     };
   }, [driveId, path, canWrite, name, placeholderId, user, onSaved]);
 
-  const others = peers
-    .map((p) => p.username)
-    .filter(Boolean);
+  const others = peers.map((p) => p.username).filter(Boolean);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-primary text-secondary">

@@ -22,6 +22,7 @@ pub mod collab;
 pub mod files;
 pub mod gallery;
 pub mod jobs;
+pub mod office;
 pub mod uploads;
 
 pub fn router() -> Router<AppState> {
@@ -44,4 +45,5 @@ pub fn router() -> Router<AppState> {
         .merge(uploads::router())
         .merge(jobs::router())
         .merge(updates::router())
+        .merge(office::router())
 }

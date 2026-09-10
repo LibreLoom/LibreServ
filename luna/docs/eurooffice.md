@@ -13,11 +13,16 @@ Luna never runs a Document Server container as part of the Luna product.
 3. **If EuroOffice is missing:** the file opens in the **normal modal** with a
    clear “not installed” message and Download. No fullscreen for an error.
 4. **If EuroOffice is present:** Luna escalates to a **fullscreen** shell
-   (close top-right), loads DocsAPI, and mounts EuroOffice for live editing.
-   Peers also join the Luna collab socket for presence.
-5. Collab relay: `GET /api/v1/collab/ws?drive_id=&path=`. Document bytes still
-   move through the normal files API (and EuroOffice’s own save path when the
-   pack provides one).
+   (close top-right), mints a short-lived office session
+   (`POST /api/v1/office/session`), loads DocsAPI, and mounts EuroOffice for
+   live editing. Peers also join the Luna collab socket for presence.
+5. Document Server fetches the file from
+   `/api/v1/public/office/content?token=…` (no browser cookies) and posts saves
+   to `/api/v1/public/office/callback?token=…`. Set `LUNA_OFFICE_FETCH_ORIGIN`
+   to a base URL the Document Server container can reach (dev default:
+   `http://host.containers.internal:8090`).
+6. Collab relay: `GET /api/v1/collab/ws?drive_id=&path=`. Document bytes still
+   move through the office session URLs (and EuroOffice’s own save path).
 
 ## Installing EuroOffice assets (required to edit)
 
@@ -47,9 +52,12 @@ podman rm "$cid"
 lunad serves `{data_dir}/eurooffice` at `/eurooffice` when that directory exists.
 
 Optional for local DocsAPI runtime (conversion / co-authoring endpoints): run the
-Document Server container on the side (e.g. `:8088`) and proxy `/sdkjs`,
-`/coauthoring`, etc. from the Vite dev server. That helper is **not** Luna’s
-product Document Server — production Luna stays client-pack + thin relay.
+Document Server container on the side (e.g. `:8088`). In Vite dev, Luna loads
+DocsAPI from that server (`VITE_EUROOFFICE_DS_URL`, default
+`http://127.0.0.1:8088`) so editor assets and `/coauthoring` resolve correctly.
+That helper is **not** Luna’s product Document Server — production Luna stays
+client-pack + thin relay, with a companion Document Server only when you choose
+to run one.
 
 Distributors who ship EuroOffice assets must comply with AGPL-3.0 (source offer,
 license notice). See [`THIRD_PARTY_EUROOFFICE.md`](../THIRD_PARTY_EUROOFFICE.md).

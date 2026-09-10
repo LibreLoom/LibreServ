@@ -36,6 +36,17 @@ pub struct Claims {
     pub tv: i64,
 }
 
+/// Short-lived bridge token for Document Server file fetch/save.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfficeClaims {
+    pub typ: String,
+    pub sub: String,
+    pub drive_id: String,
+    pub path: String,
+    pub write: bool,
+    pub exp: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentUser {
     pub id: String,
@@ -259,6 +270,55 @@ impl AuthService {
             &jsonwebtoken::EncodingKey::from_secret(&self.signing_key()),
         )
         .map_err(|e| AuthError::Token(e.to_string()))
+    }
+
+    /// Mint a short-lived token for Document Server to fetch/save a file.
+    pub fn issue_office_token(
+        &self,
+        user_id: &str,
+        drive_id: &str,
+        path: &str,
+        write: bool,
+        ttl_secs: i64,
+    ) -> Result<String, AuthError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let claims = OfficeClaims {
+            typ: "luna_office".into(),
+            sub: user_id.to_string(),
+            drive_id: drive_id.to_string(),
+            path: path.to_string(),
+            write,
+            exp: now + ttl_secs.max(60),
+        };
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(&self.signing_key()),
+        )
+        .map_err(|e| AuthError::Token(e.to_string()))
+    }
+
+    /// Validate an office bridge token from Document Server.
+    pub fn verify_office_token(
+        &self,
+        token: &str,
+    ) -> Result<OfficeClaims, AuthError> {
+        let data = jsonwebtoken::decode::<OfficeClaims>(
+            token,
+            &jsonwebtoken::DecodingKey::from_secret(&self.signing_key()),
+            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        )
+        .map_err(|e| AuthError::Token(e.to_string()))?;
+        if data.claims.typ != "luna_office" {
+            return Err(AuthError::Token("wrong token type".into()));
+        }
+        if data.claims.drive_id.trim().is_empty() || data.claims.path.trim().is_empty() {
+            return Err(AuthError::Token("incomplete office token".into()));
+        }
+        Ok(data.claims)
     }
 
     pub fn user(&self, id: &str) -> Result<Option<UserRow>, AuthError> {

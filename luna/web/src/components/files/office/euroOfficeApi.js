@@ -3,7 +3,30 @@
 export const EUROOFFICE_API_SRC = "/eurooffice/web-apps/apps/api/documents/api.js";
 
 /**
+ * Browser-reachable Document Server origin for DocsAPI (dev helper).
+ * Empty in production builds unless `VITE_EUROOFFICE_DS_URL` is set.
+ */
+export function euroOfficeDocumentServerOrigin() {
+  const fromEnv =
+    typeof import.meta !== "undefined" && import.meta.env?.VITE_EUROOFFICE_DS_URL
+      ? String(import.meta.env.VITE_EUROOFFICE_DS_URL).trim().replace(/\/$/, "")
+      : "";
+  if (fromEnv) return fromEnv;
+  if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+    return "http://127.0.0.1:8088";
+  }
+  return "";
+}
+
+export function euroOfficeDocsApiSrc() {
+  const ds = euroOfficeDocumentServerOrigin();
+  if (ds) return `${ds}/web-apps/apps/api/documents/api.js`;
+  return EUROOFFICE_API_SRC;
+}
+
+/**
  * True only when a real EuroOffice JS pack is served — not Luna's HTML SPA fallback.
+ * Fullscreen editing still needs a Document Server runtime for conversion.
  * @returns {Promise<boolean>}
  */
 export async function probeEuroOffice() {
@@ -16,7 +39,6 @@ export async function probeEuroOffice() {
     const headCt = (head.headers.get("content-type") || "").toLowerCase();
     if (headCt.includes("html")) return false;
 
-    // Confirm bytes: unknown paths fall through to Luna's SPA index.html (200).
     const get = await fetch(EUROOFFICE_API_SRC, {
       method: "GET",
       credentials: "same-origin",
@@ -34,7 +56,7 @@ export async function probeEuroOffice() {
 }
 
 /**
- * Load DocsAPI once. Resolves with `window.DocsAPI`.
+ * Load DocsAPI once. Prefers a side Document Server in dev so conversion works.
  * @returns {Promise<object>}
  */
 export function loadEuroOfficeDocsApi() {
@@ -51,16 +73,46 @@ export function loadEuroOfficeDocsApi() {
       existing.addEventListener("error", () => reject(new Error("EuroOffice failed to load.")));
       return;
     }
-    const script = document.createElement("script");
-    script.src = EUROOFFICE_API_SRC;
-    script.async = true;
-    script.dataset.lunaEurooffice = "1";
-    script.onload = () => {
-      if (window.DocsAPI?.DocEditor) resolve(window.DocsAPI);
-      else reject(new Error("EuroOffice script loaded without DocsAPI."));
+    const preferred = euroOfficeDocsApiSrc();
+    const fallback = EUROOFFICE_API_SRC;
+    const tryLoad = (src, allowFallback) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.dataset.lunaEurooffice = "1";
+      script.onload = () => {
+        if (window.DocsAPI?.DocEditor) resolve(window.DocsAPI);
+        else if (allowFallback && src !== fallback) {
+          script.remove();
+          tryLoad(fallback, false);
+        } else {
+          reject(new Error("EuroOffice script loaded without DocsAPI."));
+        }
+      };
+      script.onerror = () => {
+        if (allowFallback && src !== fallback) {
+          script.remove();
+          tryLoad(fallback, false);
+        } else {
+          reject(new Error("EuroOffice failed to load."));
+        }
+      };
+      document.head.appendChild(script);
     };
-    script.onerror = () => reject(new Error("EuroOffice failed to load."));
-    document.head.appendChild(script);
+    tryLoad(preferred, preferred !== fallback);
+  });
+}
+
+/**
+ * Ask lunad for Document Server–reachable document + callback URLs.
+ * @param {string} driveId
+ * @param {string} path
+ */
+export async function createEuroOfficeSession(driveId, path) {
+  const { postJson } = await import("../../../lib/api.js");
+  return postJson("/api/v1/office/session", {
+    drive_id: driveId,
+    path,
   });
 }
 
@@ -80,6 +132,7 @@ export function euroOfficeDocumentType(pathOrName) {
 
 /**
  * Stable-enough DocsAPI document key for co-editing when EuroOffice supports it.
+ * Prefer the server-minted session key when opening a file.
  * @param {string} driveId
  * @param {string} path
  */
