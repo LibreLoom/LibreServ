@@ -37,8 +37,9 @@ export default defineConfig({
     // compares Origin to Host; rewriting Host to :8090 makes every Vite-dev
     // POST look cross-site and returns 403 "Cross-site request blocked."
     proxy: {
-      "/api": { target: "http://localhost:8090", changeOrigin: false },
+      "/api": { target: "http://localhost:8090", changeOrigin: false, ws: true },
       "/health": { target: "http://localhost:8090", changeOrigin: false },
+      "/eurooffice": { target: "http://localhost:8090", changeOrigin: false },
     },
   },
   test: {

@@ -3,6 +3,7 @@ pub mod at_rest;
 pub mod auth;
 pub mod budget;
 pub mod cloud_backup;
+pub mod collab;
 pub mod config;
 pub mod connect;
 pub mod console;
@@ -77,6 +78,7 @@ pub struct AppState {
     pub ram_cache: crate::ram_cache::RamCache,
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub collab: std::sync::Arc<crate::collab::CollabHub>,
 }
 
 impl AppState {
@@ -139,6 +141,7 @@ impl AppState {
             ram_cache: crate::ram_cache::RamCache::new(),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            collab: Arc::new(crate::collab::CollabHub::new()),
         }
     }
 

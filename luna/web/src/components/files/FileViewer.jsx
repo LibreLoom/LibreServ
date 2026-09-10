@@ -7,6 +7,7 @@ import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
 import ShakeTarget from "../ui/ShakeTarget.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
+import KindViewer from "./viewers/KindViewer.jsx";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
@@ -183,6 +184,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
                   />
                 </ShakeTarget>
               )
+            )}
+
+            {open && kind && kind !== "image" && kind !== "video" && kind !== "text" && (
+              <KindViewer
+                kind={kind}
+                driveId={driveId}
+                path={path}
+                canWrite={canWrite}
+                onSaved={onSaved}
+              />
             )}
 
             {!kind && (

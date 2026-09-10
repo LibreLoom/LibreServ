@@ -27,6 +27,7 @@ import {
   deleteJson,
   getDrives,
   getJson,
+  postForm,
   postFormProgress,
   postJson,
   putBinaryProgress,
@@ -35,6 +36,7 @@ import { ICON_SIZE } from "@/lib/ui-tokens";
 import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
+import { blankOfficeStub } from "../../lib/officeStubs.js";
 import {
   downloadHref,
   folderHref as defaultFolderHref,
@@ -504,12 +506,32 @@ export default function DriveFileExplorer({
   });
 
   const createFileMutation = useMutation({
-    mutationFn: (/** @type {string} */ fullPath) =>
-      postJson(`/api/v1/drives/${driveId}/files/create`, { path: fullPath }),
+    mutationFn: async (/** @type {string} */ fullPath) => {
+      if (createKind?.stub) {
+        const folder = fullPath.includes("/")
+          ? fullPath.slice(0, fullPath.lastIndexOf("/"))
+          : "";
+        const name = fullPath.split("/").pop() || fullPath;
+        const blob = blankOfficeStub(createKind.stub);
+        const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+        const form = new FormData();
+        form.append("path", folder);
+        form.append("file", file);
+        await postForm(
+          `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=0`,
+          form,
+        );
+        return fullPath;
+      }
+      await postJson(`/api/v1/drives/${driveId}/files/create`, { path: fullPath });
+      return fullPath;
+    },
     onSuccess: (_data, fullPath) => {
       haptic("success");
       invalidate();
-      if (createKind?.openAfter === "text") setViewerPath(fullPath);
+      if (createKind?.openAfter === "text" || createKind?.openAfter === "viewer") {
+        setViewerPath(fullPath);
+      }
     },
     onError: (err) => {
       haptic("error");
@@ -527,7 +549,11 @@ export default function DriveFileExplorer({
     if (!createKind) return Promise.reject(new Error("Choose what to create."));
     const parsed = parseCreateName(
       createName,
-      createKind.defaultExt ? { defaultExt: createKind.defaultExt } : {},
+      createKind.stub
+        ? { forceExt: createKind.defaultExt || `.${createKind.stub}` }
+        : createKind.defaultExt
+          ? { defaultExt: createKind.defaultExt }
+          : {},
     );
     if (parsed.error) {
       setActionError(parsed.error);

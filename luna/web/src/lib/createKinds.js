@@ -1,11 +1,7 @@
-import { FilePlus, FolderPlus } from "lucide-react";
+import { FilePlus, FileSpreadsheet, FileText, FolderPlus, Presentation } from "lucide-react";
 
 /**
  * Things people can make from the New menu.
- *
- * Add office types here later (document, spreadsheet, slides). The menu
- * groups by `group` and stays one New button no matter how long this list
- * gets.
  *
  * @typedef {{
  *   id: string,
@@ -13,12 +9,13 @@ import { FilePlus, FolderPlus } from "lucide-react";
  *   group: string,
  *   icon: import("react").ElementType,
  *   action: "mkdir" | "create-file",
- *   openAfter?: "text",
+ *   openAfter?: "text" | "viewer",
  *   title: string,
  *   nameLabel: string,
  *   confirmLabel: string,
  *   defaultName: string,
  *   defaultExt?: string,
+ *   stub?: "docx" | "xlsx" | "pptx",
  * }} CreateKind
  */
 
@@ -47,6 +44,48 @@ export const CREATE_KINDS = [
     confirmLabel: "Create file",
     defaultName: "note.txt",
     defaultExt: ".txt",
+  },
+  {
+    id: "document",
+    label: "Document",
+    group: "Office",
+    icon: FileText,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New document",
+    nameLabel: "Name for this document",
+    confirmLabel: "Create document",
+    defaultName: "Document.docx",
+    defaultExt: ".docx",
+    stub: "docx",
+  },
+  {
+    id: "spreadsheet",
+    label: "Spreadsheet",
+    group: "Office",
+    icon: FileSpreadsheet,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New spreadsheet",
+    nameLabel: "Name for this spreadsheet",
+    confirmLabel: "Create spreadsheet",
+    defaultName: "Spreadsheet.xlsx",
+    defaultExt: ".xlsx",
+    stub: "xlsx",
+  },
+  {
+    id: "presentation",
+    label: "Presentation",
+    group: "Office",
+    icon: Presentation,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New presentation",
+    nameLabel: "Name for this presentation",
+    confirmLabel: "Create presentation",
+    defaultName: "Presentation.pptx",
+    defaultExt: ".pptx",
+    stub: "pptx",
   },
 ];
 

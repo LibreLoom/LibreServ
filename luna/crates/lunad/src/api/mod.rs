@@ -18,6 +18,7 @@ use axum::Router;
 
 use crate::AppState;
 
+pub mod collab;
 pub mod files;
 pub mod gallery;
 pub mod jobs;
@@ -37,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .merge(network::router())
         .merge(setup::router())
         .merge(drives::router())
+        .merge(collab::router())
         .merge(files::router())
         .merge(gallery::router())
         .merge(uploads::router())

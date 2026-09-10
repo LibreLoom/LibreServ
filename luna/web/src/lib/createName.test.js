@@ -21,3 +21,10 @@ describe("parseCreateName", () => {
     expect(parseCreateName("note.txt", { defaultExt: ".txt" })).toEqual({ name: "note.txt" });
   });
 });
+
+  it("forces the stub extension for office creates", () => {
+    expect(parseCreateName("Report.odt", { forceExt: ".docx" })).toEqual({ name: "Report.docx" });
+    expect(parseCreateName("Notes", { forceExt: "xlsx" })).toEqual({ name: "Notes.xlsx" });
+    expect(parseCreateName("Deck.pptx", { forceExt: ".pptx" })).toEqual({ name: "Deck.pptx" });
+  });
+

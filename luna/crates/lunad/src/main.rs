@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use tower_http::services::ServeDir;
 
 use lunad::{AppState, api, config::Config, db, drives::DriveManager, mount::CommandMounter};
 
@@ -403,6 +404,18 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+        // Drop empty collab rooms after they go idle.
+    {
+        let hub = state.collab.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                ticker.tick().await;
+                hub.evict_idle().await;
+            }
+        });
+    }
+
     let protected_api = api::router()
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -416,13 +429,15 @@ async fn main() -> anyhow::Result<()> {
             state.clone(),
             touch_io_activity,
         ));
-    let app = axum::Router::new()
-        .merge(protected_api)
-        .merge(lunad::dav::router())
-        .with_state(state)
-        .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
-            lunad::staticweb::handle(uri.path())
-        }));
+    let eurooffice_dir = cfg.data_dir.join("eurooffice");
+    let mut app = axum::Router::new().merge(protected_api).merge(lunad::dav::router());
+    if eurooffice_dir.is_dir() {
+        tracing::info!(dir = %eurooffice_dir.display(), "serving EuroOffice assets");
+        app = app.nest_service("/eurooffice", ServeDir::new(eurooffice_dir));
+    }
+    let app = app.with_state(state).fallback(axum::routing::get(|uri: axum::http::Uri| async move {
+        lunad::staticweb::handle(uri.path())
+    }));
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;

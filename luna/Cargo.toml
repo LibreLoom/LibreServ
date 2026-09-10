@@ -13,7 +13,7 @@ rust-version = "1.96"
 aes-gcm = "0.10"
 anyhow = "1"
 argon2 = "0.5"
-axum = { version = "0.8", features = ["multipart", "macros"] }
+axum = { version = "0.8", features = ["multipart", "macros", "ws"] }
 base64 = "0.22"
 blake3 = "1"
 getrandom = "0.2"
