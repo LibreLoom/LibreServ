@@ -1,7 +1,8 @@
 //! USB flash drive password recovery.
 //!
-//! When a user plugs in a USB flash drive with `pwreset-<device_token>.luna` at
-//! its root, lunad validates the device token, parses the JSON configuration,
+//! When a user plugs in a USB flash drive with `pwreset-<device_token>.luna` (or
+//! `pwreset.luna` if no device token is configured on Luna) at its root,
+//! lunad validates the device token, parses the JSON configuration,
 //! and resets or provisions accounts accordingly.
 //!
 //! Format (JSON):

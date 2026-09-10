@@ -10,7 +10,7 @@
 //! recovery card and future docs:
 //!
 //!   If you forget your password
-//!   1. Create a password recovery file (pwreset-<device_token>.luna).
+//!   1. Create a password recovery file (pwreset-<device_token>.luna, or pwreset.luna if no device token is configured).
 //!   2. Save the file to the root of a USB flash drive.
 //!   3. Plug the USB flash drive into Luna.
 //!   4. Wait about 10 seconds for Luna to detect the drive and apply the new password.
@@ -42,7 +42,7 @@ pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 /// Not rendered in the Luna web UI — keep in sync with the module comment above.
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
-    "Create a password recovery file (pwreset-<device_token>.luna) using the recovery wizard.",
+    "Create a password recovery file (pwreset-<device_token>.luna, or pwreset.luna if no device token is configured) using the recovery wizard.",
     "Save the file directly onto a USB flash drive (not inside a folder).",
     "Plug the USB flash drive into Luna.",
     "Wait about 10 seconds for Luna to detect the drive and apply the new password (the file is renamed to .done).",
