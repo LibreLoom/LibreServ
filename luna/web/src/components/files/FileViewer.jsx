@@ -9,6 +9,7 @@ import ShakeTarget from "../ui/ShakeTarget.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import KindViewer from "./viewers/KindViewer.jsx";
 import OfficeEditor from "./office/OfficeEditor.jsx";
+import { probeEuroOffice } from "./office/euroOfficeApi.js";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import { contentHref, downloadHref, pathBasename } from "../../lib/paths.js";
@@ -17,7 +18,8 @@ import { haptic } from "../../utils/haptics.js";
 
 /**
  * View images/videos or edit plaintext for a drive file.
- * Office files open fullscreen in EuroOffice (or a clear missing-pack state).
+ * Office files stay in the normal modal while EuroOffice is missing or still
+ * checking, and open fullscreen only when EuroOffice is ready.
  *
  * @param {{
  *   driveId: string,
@@ -32,6 +34,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const name = pathBasename(path) || path;
   const kind = openableKind(name);
   const isOffice = kind === "office";
+  const [officePhase, setOfficePhase] = useState(
+    /** @type {"checking"|"ready"|"missing"} */ ("checking"),
+  );
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
   const [loading, setLoading] = useState(kind === "text");
@@ -49,6 +54,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
     setExpandedScope(previewKey);
     setExpanded(false);
     setError(null);
+    setOfficePhase("checking");
   }
 
   useEffect(() => {
@@ -82,7 +88,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   }, [expanded]);
 
   useEffect(() => {
-    if (!open || !isOffice) return undefined;
+    const fullscreenOffice = open && isOffice && officePhase === "ready";
+    if (!fullscreenOffice) return undefined;
 
     officeCloseRef.current?.focus();
 
@@ -100,7 +107,21 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [open, isOffice, onClose]);
+  }, [open, isOffice, officePhase, onClose]);
+
+  useEffect(() => {
+    if (!open || !isOffice) return undefined;
+    let cancelled = false;
+    setOfficePhase("checking");
+    (async () => {
+      const ok = await probeEuroOffice();
+      if (!cancelled) setOfficePhase(ok ? "ready" : "missing");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isOffice, driveId, path]);
+
 
   useEffect(() => {
     if (!open || !path || kind !== "text") return undefined;
@@ -156,12 +177,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
     kind === "image" ? name
       : kind === "video" ? name
         : kind === "text" ? (canWrite ? `Edit ${name}` : name)
-          : name;
+          : isOffice ? name
+            : name;
 
   const isDirty = text !== savedText;
   const canFullView = kind === "image" || kind === "video";
 
-  if (open && isOffice) {
+  const officeReady = open && isOffice && officePhase === "ready";
+  const officeInModal = open && isOffice && officePhase !== "ready";
+
+  if (officeReady) {
     return createPortal(
       <div
         role="dialog"
@@ -201,12 +226,15 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
             canWrite={canWrite}
             onSaved={onSaved}
             onClose={onClose}
+            phase={officePhase}
+            layout="fullscreen"
           />
         </div>
       </div>,
       document.body,
     );
   }
+
 
   return (
     <>
@@ -258,6 +286,18 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
               )
             )}
 
+            {officeInModal && (
+              <OfficeEditor
+                driveId={driveId}
+                path={path}
+                canWrite={canWrite}
+                onSaved={onSaved}
+                onClose={onClose}
+                phase={officePhase}
+                layout="modal"
+              />
+            )}
+
             {open && kind && kind !== "image" && kind !== "video" && kind !== "text" && kind !== "office" && (
               <KindViewer
                 kind={kind}
@@ -275,6 +315,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
               </p>
             )}
 
+            {!officeInModal && (
             <div className="mt-4 flex flex-wrap gap-3">
               {canFullView && (
                 <Button
@@ -322,6 +363,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
               Close
             </Button>
           </div>
+            )}
         </>
       )}
     </ModalCard>

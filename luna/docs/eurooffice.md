@@ -3,17 +3,18 @@
 Luna opens office files in the browser with **EuroOffice only**. There is no
 built-in Luna office editor. The heavy editor is EuroOffice on the client.
 Lunad only serves the optional asset pack and runs a thin collab relay.
-Luna never runs a Document Server container.
+Luna never runs a Document Server container as part of the Luna product.
 
 ## How it works
 
-1. Opening a `.docx` / `.xlsx` / `.pptx` (and related) file opens a **fullscreen**
-   shell (close control top-right) and mounts `OfficeEditor`.
-2. Luna probes `HEAD /eurooffice/web-apps/apps/api/documents/api.js`.
-3. **If EuroOffice is present:** Luna loads DocsAPI and mounts EuroOffice for
-   live editing. Peers also join the Luna collab socket for presence.
-4. **If EuroOffice is missing:** Luna shows a clear “not installed” message and
-   Download. It does **not** fall back to a plain-text editor.
+1. Opening a `.docx` / `.xlsx` / `.pptx` (and related) file mounts `OfficeEditor`.
+2. Luna probes `/eurooffice/web-apps/apps/api/documents/api.js` (must be real
+   JavaScript — not Luna’s HTML SPA fallback).
+3. **If EuroOffice is missing:** the file opens in the **normal modal** with a
+   clear “not installed” message and Download. No fullscreen for an error.
+4. **If EuroOffice is present:** Luna escalates to a **fullscreen** shell
+   (close top-right), loads DocsAPI, and mounts EuroOffice for live editing.
+   Peers also join the Luna collab socket for presence.
 5. Collab relay: `GET /api/v1/collab/ws?drive_id=&path=`. Document bytes still
    move through the normal files API (and EuroOffice’s own save path when the
    pack provides one).
@@ -22,17 +23,33 @@ Luna never runs a Document Server container.
 
 EuroOffice is AGPL-3.0. LibreServ does **not** ship the binaries in git.
 
-On a Luna device (or your build host):
+Place the EuroOffice `web-apps` / `sdkjs` tree under Luna’s data dir so this
+file exists:
 
-```bash
-# Example — adjust to the release you redistribute under AGPL obligations
-sudo mkdir -p /var/lib/luna/eurooffice
-# Place the EuroOffice web-apps / sdkjs tree so this file exists:
-#   /var/lib/luna/eurooffice/web-apps/apps/api/documents/api.js
+```text
+{data_dir}/eurooffice/web-apps/apps/api/documents/api.js
 ```
 
-lunad serves `{data_dir}/eurooffice` at `/eurooffice` when that directory exists
-(`data_dir` defaults to Luna’s configured data directory).
+In this cloud/dev checkout, `data_dir` is `luna/dev` (`LUNA_DATA_DIR`).
+
+### From the EuroOffice Document Server image (dev)
+
+```bash
+# Pull and extract static assets into the Luna data dir
+cid=$(podman create ghcr.io/euro-office/documentserver:latest)
+mkdir -p "$LUNA_DATA_DIR/eurooffice"
+podman cp "$cid:/var/www/euro-office/documentserver/web-apps" "$LUNA_DATA_DIR/eurooffice/web-apps"
+podman cp "$cid:/var/www/euro-office/documentserver/sdkjs" "$LUNA_DATA_DIR/eurooffice/sdkjs"
+podman rm "$cid"
+# Restart lunad so it nests ServeDir for /eurooffice
+```
+
+lunad serves `{data_dir}/eurooffice` at `/eurooffice` when that directory exists.
+
+Optional for local DocsAPI runtime (conversion / co-authoring endpoints): run the
+Document Server container on the side (e.g. `:8088`) and proxy `/sdkjs`,
+`/coauthoring`, etc. from the Vite dev server. That helper is **not** Luna’s
+product Document Server — production Luna stays client-pack + thin relay.
 
 Distributors who ship EuroOffice assets must comply with AGPL-3.0 (source offer,
 license notice). See [`THIRD_PARTY_EUROOFFICE.md`](../THIRD_PARTY_EUROOFFICE.md).

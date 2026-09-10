@@ -39,7 +39,16 @@ export default defineConfig({
     proxy: {
       "/api": { target: "http://localhost:8090", changeOrigin: false, ws: true },
       "/health": { target: "http://localhost:8090", changeOrigin: false },
+      // Static EuroOffice pack (and SPA fallback) from lunad.
       "/eurooffice": { target: "http://localhost:8090", changeOrigin: false },
+      // When a local Document Server is running (:8088) for DocsAPI runtime
+      // paths that api.js requests from the site origin, forward them.
+      "/sdkjs": { target: "http://127.0.0.1:8088", changeOrigin: true },
+      "/fonts": { target: "http://127.0.0.1:8088", changeOrigin: true },
+      "/dictionaries": { target: "http://127.0.0.1:8088", changeOrigin: true },
+      "/coauthoring": { target: "http://127.0.0.1:8088", changeOrigin: true, ws: true },
+      "/cache": { target: "http://127.0.0.1:8088", changeOrigin: true },
+      "/doc": { target: "http://127.0.0.1:8088", changeOrigin: true },
     },
   },
   test: {
