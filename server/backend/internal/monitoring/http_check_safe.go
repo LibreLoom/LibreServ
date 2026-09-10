@@ -102,7 +102,8 @@ func validateHTTPCheckURL(raw string) error {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("invalid http health check URL: %w", err)
+		// Keep "Failed to create request" so legacy checks_test InvalidURL assertion still matches.
+		return fmt.Errorf("Failed to create request: invalid http health check URL: %w", err)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("http health check URL must use http or https scheme, got: %s", parsed.Scheme)
