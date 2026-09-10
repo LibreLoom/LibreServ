@@ -18,12 +18,12 @@ type HTTPCheck struct {
 }
 
 // NewHTTPCheck creates an HTTP health check with a timeout.
+// The client refuses redirects and dials only destinations that pass
+// validateHTTPCheckURL (loopback and public; private/metadata blocked).
 func NewHTTPCheck(cfg HTTPCheckConfig, timeout time.Duration) *HTTPCheck {
 	return &HTTPCheck{
-		Config: cfg,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		Config:     cfg,
+		httpClient: newHTTPCheckClient(timeout),
 	}
 }
 
@@ -37,6 +37,12 @@ func (h *HTTPCheck) Run(ctx context.Context) CheckResult {
 	result := CheckResult{
 		CheckType: h.Type(),
 		Timestamp: time.Now(),
+	}
+
+	if err := validateHTTPCheckURL(h.Config.URL); err != nil {
+		result.Status = HealthStatusUnhealthy
+		result.Message = fmt.Sprintf("Blocked health check URL: %v", err)
+		return result
 	}
 
 	method := h.Config.Method
