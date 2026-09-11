@@ -211,7 +211,7 @@ type chatResponse struct {
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens        int `json:"prompt_tokens"`
-		CompletionTokens    int `json:"total_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
 		TotalTokens         int `json:"total_tokens"`
 		PromptTokensDetails struct {
 			CachedTokens int `json:"cached_tokens"`
@@ -412,7 +412,7 @@ func (p *Provider) openaiChatStream(ctx context.Context, model string, messages 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(data))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	p.setAuthHeaders(req)
