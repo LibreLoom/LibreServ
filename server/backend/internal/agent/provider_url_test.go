@@ -86,11 +86,11 @@ func TestInferenceHTTPClientRefusesRedirect(t *testing.T) {
 
 func TestNewProviderUsesSecureClient(t *testing.T) {
 	t.Parallel()
-	p := NewProvider("https://api.example.com/v1", "k")
-	if p.HTTPClient == nil || p.HTTPClient.CheckRedirect == nil {
+	client := newInferenceHTTPClient(0)
+	if client == nil || client.CheckRedirect == nil {
 		t.Fatal("expected CheckRedirect to be set")
 	}
-	if err := p.HTTPClient.CheckRedirect(nil, nil); err != errInferenceRedirect {
+	if err := client.CheckRedirect(nil, nil); err != errInferenceRedirect {
 		t.Fatalf("CheckRedirect = %v, want errInferenceRedirect", err)
 	}
 }
