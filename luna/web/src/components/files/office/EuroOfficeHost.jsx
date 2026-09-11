@@ -19,8 +19,11 @@ const OPEN_TIMEOUT_MS = 45_000;
  * @param {{ peer_id: number, username: string }[]} peers
  * @param {boolean} canWrite
  */
-function presenceLabel(status, peers, canWrite) {
-  const others = peers.map((p) => p.username).filter(Boolean);
+function presenceLabel(status, peers, canWrite, selfName = "") {
+  const self = String(selfName || "").toLowerCase();
+  const others = peers
+    .map((p) => p.username)
+    .filter((name) => name && name.toLowerCase() !== self);
   let base =
     status === "loading"
       ? "Starting EuroOffice…"
@@ -95,9 +98,11 @@ export default function EuroOfficeHost({
     };
   }, [driveId, path]);
 
+  const selfName = user?.display_name || user?.username || "";
+
   useEffect(() => {
-    onPresenceChange?.(presenceLabel(status, peers, canWrite));
-  }, [status, peers, canWrite, onPresenceChange]);
+    onPresenceChange?.(presenceLabel(status, peers, canWrite, selfName));
+  }, [status, peers, canWrite, onPresenceChange, selfName]);
 
   useEffect(() => {
     let cancelled = false;
