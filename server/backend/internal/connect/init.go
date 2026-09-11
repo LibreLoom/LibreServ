@@ -23,7 +23,7 @@ func NewClientFromEnv() Client {
 	if os.Getenv("LIBRESERV_CONNECT_FAKE") == "true" {
 		fake := NewFakeClient()
 		if key != "" {
-			fake.Activate(context.TODO(), key)
+			fake.Activate(context.Background(), key)
 		}
 		return fake
 	}

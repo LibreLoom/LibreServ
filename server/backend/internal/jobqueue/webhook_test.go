@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,18 +15,11 @@ func newTestWebhookService() *WebhookService {
 		Timeout:               30 * time.Second,
 		MaxRetries:            3,
 		RetryDelay:            1 * time.Minute,
-		AllowPrivateIPs:       true,
+		AllowPrivateIPs:       true, // httptest listener is loopback
 		RequireHTTPS:          false,
 		MaxConcurrentWebhooks: 100,
 	}
-	return &WebhookService{
-		config:     cfg,
-		client:     &http.Client{Timeout: cfg.Timeout},
-		logger:     slog.Default().With("component", "webhook_service"),
-		deliveries: make(map[string]*WebhookDelivery),
-		stopCh:     make(chan struct{}),
-		semaphore:  make(chan struct{}, cfg.MaxConcurrentWebhooks),
-	}
+	return NewWebhookService(cfg, slog.Default().With("component", "webhook_service"))
 }
 
 func TestWebhookService_TriggerWebhook_Success(t *testing.T) {
@@ -183,5 +177,97 @@ func TestWebhookService_CleanupOldDeliveries(t *testing.T) {
 	}
 	if _, ok := ws.deliveries["recent"]; !ok {
 		t.Error("recent delivery should still exist")
+	}
+}
+
+func TestIsBlockedWebhookIP(t *testing.T) {
+	cases := []struct {
+		ip   string
+		want bool
+	}{
+		{"8.8.8.8", false},
+		{"1.1.1.1", false},
+		{"127.0.0.1", true},
+		{"10.0.0.1", true},
+		{"192.168.1.1", true},
+		{"172.16.5.5", true},
+		{"169.254.169.254", true},
+		{"100.64.1.1", true},
+		{"0.0.0.0", true},
+		{"::1", true},
+		{"::ffff:127.0.0.1", true},
+		{"::ffff:10.1.2.3", true},
+		{"::ffff:8.8.8.8", false},
+		// Deprecated IPv4-compatible form — the gap this harden closes.
+		{"::127.0.0.1", true},
+		{"::10.0.0.1", true},
+		{"::169.254.169.254", true},
+		{"::100.64.1.1", true},
+		{"2001:4860:4860::8888", false},
+	}
+	for _, tt := range cases {
+		ip := net.ParseIP(tt.ip)
+		if ip == nil {
+			t.Fatalf("ParseIP(%q) failed", tt.ip)
+		}
+		if got := isBlockedWebhookIP(ip); got != tt.want {
+			t.Errorf("isBlockedWebhookIP(%q) = %v, want %v", tt.ip, got, tt.want)
+		}
+		if got := isPrivateIP(tt.ip); got != tt.want {
+			t.Errorf("isPrivateIP(%q) = %v, want %v", tt.ip, got, tt.want)
+		}
+	}
+	if !isPrivateIP("localhost") {
+		t.Error("isPrivateIP(localhost) = false, want true")
+	}
+}
+
+func TestValidateWebhookURL_BlocksPrivateAndCompat(t *testing.T) {
+	blocked := []string{
+		"http://127.0.0.1/hook",
+		"http://10.0.0.5/hook",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://[::ffff:127.0.0.1]/hook",
+		"http://[::127.0.0.1]/hook",
+		"http://[::10.0.0.1]/hook",
+		"http://[::169.254.169.254]/hook",
+		"http://localhost/hook",
+		"ftp://example.com/hook",
+	}
+	for _, raw := range blocked {
+		if err := validateWebhookURL(raw, false); err == nil {
+			t.Errorf("validateWebhookURL(%q) = nil, want error", raw)
+		}
+	}
+	if err := validateWebhookURL("https://example.com/hook", false); err != nil {
+		t.Errorf("validateWebhookURL(public) unexpected error: %v", err)
+	}
+	// allowPrivate still permits loopback for local/dev delivery
+	if err := validateWebhookURL("http://127.0.0.1/hook", true); err != nil {
+		t.Errorf("validateWebhookURL(loopback, allowPrivate) unexpected error: %v", err)
+	}
+}
+
+func TestWebhookClient_RefusesRedirects(t *testing.T) {
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("redirect target should not be fetched")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer final.Close()
+
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL, http.StatusFound)
+	}))
+	defer redir.Close()
+
+	ws := newTestWebhookService()
+	delivery := &WebhookDelivery{
+		ID:         "redir-test",
+		WebhookURL: redir.URL,
+		Payload:    WebhookPayload{JobID: "j1", WebhookID: "redir-test"},
+	}
+	err := ws.sendWebhook(delivery)
+	if err == nil {
+		t.Fatal("sendWebhook followed redirect; want error")
 	}
 }

@@ -22,7 +22,7 @@ func (e *EntitlementChecker) Refresh() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	status, err := e.client.Status(context.TODO())
+	status, err := e.client.Status(context.Background())
 	if err != nil {
 		// Clear stale status — the Connect server is unreachable or
 		// the device is no longer active. Either way, we can't trust
