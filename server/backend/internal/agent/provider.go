@@ -25,18 +25,10 @@ type Provider struct {
 
 func NewProvider(baseURL, apiKey string) *Provider {
 	return &Provider{
-		BaseURL:   strings.TrimRight(baseURL, "/"),
-		APIKey:    apiKey,
-		APIFormat: "openai",
-		HTTPClient: &http.Client{
-			Timeout: 5 * time.Minute,
-			Transport: &http.Transport{
-				MaxIdleConns:        50,
-				MaxIdleConnsPerHost: 20,
-				MaxConnsPerHost:     30,
-				IdleConnTimeout:     90 * time.Second,
-			},
-		},
+		BaseURL:    strings.TrimRight(baseURL, "/"),
+		APIKey:     apiKey,
+		APIFormat:  "openai",
+		HTTPClient: newInferenceHTTPClient(5 * time.Minute),
 	}
 }
 
@@ -47,6 +39,10 @@ func newBYOKProvider(cfg *config.Config) *Provider {
 	baseURL := cfg.Support.UserBaseURL
 	if baseURL == "" {
 		baseURL = cfg.Support.InferenceBaseURL
+	}
+	if err := ValidateInferenceBaseURL(baseURL); err != nil {
+		slog.Warn("rejecting BYOK inference base URL", "error", err)
+		return nil
 	}
 	p := NewProvider(baseURL, cfg.Support.UserAPIKey)
 	if cfg.Support.UserAPIFormat != "" {
@@ -97,6 +93,10 @@ func NewAIProvider(ctx context.Context, client connect.Client, checker *connect.
 	if ok {
 		if svc, found := status.Services[connect.ServiceAI]; found && svc.State == connect.ServiceConnected {
 			if cfg.Support.InferenceBaseURL != "" && cfg.Support.UserAPIKey != "" {
+				if err := ValidateInferenceBaseURL(cfg.Support.InferenceBaseURL); err != nil {
+					slog.Warn("rejecting Connect inference base URL", "error", err)
+					return nil
+				}
 				p := NewProvider(cfg.Support.InferenceBaseURL, cfg.Support.UserAPIKey)
 				if cfg.Support.UserAPIFormat != "" {
 					p.APIFormat = cfg.Support.UserAPIFormat
@@ -118,6 +118,10 @@ func NewAIProvider(ctx context.Context, client connect.Client, checker *connect.
 	}
 	creds, err := client.Provision(ctx, connect.ServiceAI)
 	if err != nil || creds == nil || creds.AI == nil {
+		return nil
+	}
+	if err := ValidateInferenceBaseURL(creds.AI.BaseURL); err != nil {
+		slog.Warn("rejecting provisioned inference base URL", "error", err)
 		return nil
 	}
 	p := NewProvider(creds.AI.BaseURL, creds.AI.APIKey)
@@ -207,7 +211,7 @@ type chatResponse struct {
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens        int `json:"prompt_tokens"`
-		CompletionTokens    int `json:"completion_tokens"`
+		CompletionTokens    int `json:"total_tokens"`
 		TotalTokens         int `json:"total_tokens"`
 		PromptTokensDetails struct {
 			CachedTokens int `json:"cached_tokens"`
@@ -408,7 +412,7 @@ func (p *Provider) openaiChatStream(ctx context.Context, model string, messages 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	p.setAuthHeaders(req)
@@ -466,304 +470,4 @@ func (p *Provider) parseSSE(r io.Reader, ch chan<- SSEChunk) {
 	if err := scanner.Err(); err != nil {
 		ch <- SSEChunk{Err: fmt.Errorf("stream ended before completion: %w", err)}
 	}
-}
-
-// --- Anthropic Messages API support ---
-
-type anthropicMessage struct {
-	Role    string                  `json:"role"`
-	Content []anthropicContentBlock `json:"content"`
-}
-
-type anthropicContentBlock struct {
-	Type  string                 `json:"type"`
-	Text  string                 `json:"text,omitempty"`
-	ID    string                 `json:"id,omitempty"`
-	Name  string                 `json:"name,omitempty"`
-	Input map[string]interface{} `json:"input,omitempty"`
-
-	// For tool_result content blocks
-	ToolUseID string `json:"tool_use_id,omitempty"`
-	Content_  string `json:"content,omitempty"` // nested content for tool_result
-}
-
-type anthropicTool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	InputSchema interface{} `json:"input_schema,omitempty"`
-}
-
-type anthropicRequest struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
-	System    string             `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	Tools     []anthropicTool    `json:"tools,omitempty"`
-	Stream    bool               `json:"stream,omitempty"`
-}
-
-type anthropicResponse struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Role    string `json:"role"`
-	Content []struct {
-		Type  string                 `json:"type"`
-		Text  string                 `json:"text,omitempty"`
-		ID    string                 `json:"id,omitempty"`
-		Name  string                 `json:"name,omitempty"`
-		Input map[string]interface{} `json:"input,omitempty"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
-	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-}
-
-func (p *Provider) anthropicSetHeaders(req *http.Request) {
-	req.Header.Set("x-api-key", p.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("Content-Type", "application/json")
-}
-
-func (p *Provider) anthropicMessagesURL() string {
-	return p.BaseURL + "/messages"
-}
-
-func (p *Provider) anthropicModelsURL() string {
-	return p.BaseURL + "/models"
-}
-
-func (p *Provider) anthropicChat(ctx context.Context, model string, messages []Message, toolDefs []map[string]interface{}) (*AgentResponse, *UsageInfo, error) {
-	reqMsgs, systemPrompt := p.toAnthropicMessages(messages)
-
-	body := anthropicRequest{
-		Model:     model,
-		MaxTokens: 16384,
-		System:    systemPrompt,
-		Messages:  reqMsgs,
-		Stream:    false,
-	}
-
-	if len(toolDefs) > 0 {
-		for _, td := range toolDefs {
-			fn, ok := td["function"]
-			if !ok {
-				continue
-			}
-			fnMap, ok := fn.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			name, _ := fnMap["name"].(string)
-			desc, _ := fnMap["description"].(string)
-			if name == "" {
-				continue
-			}
-
-			// parameters may be map[string]interface{} (deserialized from JSON)
-			// or json.RawMessage (set directly by ToolDefinitions()).
-			var inputSchema interface{}
-			switch p := fnMap["parameters"].(type) {
-			case map[string]interface{}:
-				inputSchema = p
-			case json.RawMessage:
-				if len(p) > 0 {
-					var parsed map[string]interface{}
-					if err := json.Unmarshal(p, &parsed); err == nil {
-						inputSchema = parsed
-					}
-				}
-			}
-
-			body.Tools = append(body.Tools, anthropicTool{
-				Name:        name,
-				Description: desc,
-				InputSchema: inputSchema,
-			})
-		}
-	}
-
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.anthropicMessagesURL(), bytes.NewReader(data))
-	if err != nil {
-		return nil, nil, fmt.Errorf("create request: %w", err)
-	}
-	p.anthropicSetHeaders(req)
-
-	resp, err := p.HTTPClient.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, nil, fmt.Errorf("anthropic API returned %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var aResp anthropicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&aResp); err != nil {
-		return nil, nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	result := &AgentResponse{}
-	for _, block := range aResp.Content {
-		switch block.Type {
-		case "text":
-			result.Content += block.Text
-		case "tool_use":
-			args, _ := json.Marshal(block.Input)
-			if len(args) == 0 {
-				args = json.RawMessage("{}")
-			}
-			result.ToolCalls = append(result.ToolCalls, AgentToolCall{
-				ID:        block.ID,
-				Name:      block.Name,
-				Arguments: args,
-			})
-		}
-	}
-
-	usage := &UsageInfo{
-		InputTokens:  aResp.Usage.InputTokens,
-		OutputTokens: aResp.Usage.OutputTokens,
-	}
-	usage.CostUSD = calculateCost(model, usage.InputTokens, usage.OutputTokens, usage.CacheTokens)
-
-	return result, usage, nil
-}
-
-func (p *Provider) toAnthropicMessages(messages []Message) ([]anthropicMessage, string) {
-	var systemParts []string
-	var rawMsgs []anthropicMessage
-
-	// First pass: extract system messages and convert others
-	for _, m := range messages {
-		switch m.Role {
-		case "system":
-			systemParts = append(systemParts, m.Content)
-		case "user":
-			rawMsgs = append(rawMsgs, anthropicMessage{
-				Role: "user",
-				Content: []anthropicContentBlock{{
-					Type: "text",
-					Text: m.Content,
-				}},
-			})
-		case "assistant":
-			blocks := []anthropicContentBlock{}
-			if m.Content != "" {
-				blocks = append(blocks, anthropicContentBlock{Type: "text", Text: m.Content})
-			}
-			for _, tc := range m.ToolCalls {
-				var input map[string]interface{}
-				if err := json.Unmarshal(tc.Arguments, &input); err != nil {
-					input = map[string]interface{}{}
-				}
-				blocks = append(blocks, anthropicContentBlock{
-					Type:  "tool_use",
-					ID:    tc.ID,
-					Name:  tc.Name,
-					Input: input,
-				})
-			}
-			rawMsgs = append(rawMsgs, anthropicMessage{Role: "assistant", Content: blocks})
-		case "tool":
-			rawMsgs = append(rawMsgs, anthropicMessage{
-				Role: "user",
-				Content: []anthropicContentBlock{{
-					Type:      "tool_result",
-					ToolUseID: m.ToolCallID,
-					Content_:  m.Content,
-				}},
-			})
-		}
-	}
-
-	// Second pass: merge consecutive same-role messages to satisfy Anthropic's
-	// strict user/assistant alternation requirement.
-	var result []anthropicMessage
-	for _, msg := range rawMsgs {
-		if len(result) > 0 && result[len(result)-1].Role == msg.Role {
-			// Merge content blocks into the previous message
-			result[len(result)-1].Content = append(result[len(result)-1].Content, msg.Content...)
-		} else {
-			result = append(result, msg)
-		}
-	}
-
-	return result, strings.Join(systemParts, "\n\n")
-}
-
-func (p *Provider) anthropicModels(ctx context.Context) ([]ModelInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.anthropicModelsURL(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	p.anthropicSetHeaders(req)
-
-	resp, err := p.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic models API returned %d", resp.StatusCode)
-	}
-
-	// Umans returns OpenAI-compatible /v1/models format even with x-api-key auth
-	var modelsResp ModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	return modelsResp.Data, nil
-}
-
-func (p *Provider) anthropicChatStream(ctx context.Context, model string, messages []Message) (<-chan SSEChunk, error) {
-	reqMsgs, systemPrompt := p.toAnthropicMessages(messages)
-
-	body := anthropicRequest{
-		Model:     model,
-		MaxTokens: 16384,
-		System:    systemPrompt,
-		Messages:  reqMsgs,
-		Stream:    true,
-	}
-
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.anthropicMessagesURL(), bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	p.anthropicSetHeaders(req)
-	req.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("anthropic API returned %d", resp.StatusCode)
-	}
-
-	ch := make(chan SSEChunk, 256)
-	go func() {
-		defer close(ch)
-		defer resp.Body.Close()
-		p.parseSSE(resp.Body, ch)
-	}()
-
-	return ch, nil
 }
