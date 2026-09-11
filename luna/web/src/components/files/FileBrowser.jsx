@@ -1032,7 +1032,7 @@ export default function FileBrowser({
         ) : (
           <ul
             ref={listRef}
-            className={["m-0 p-0 list-none", showingStaleListing ? "pointer-events-none" : ""]
+            className={["m-0 p-0 list-none flex flex-col", showingStaleListing ? "pointer-events-none" : ""]
               .filter(Boolean)
               .join(" ")}
             aria-label="Files and folders"
@@ -1047,7 +1047,7 @@ export default function FileBrowser({
                     padY,
                     "bg-secondary text-primary",
                     isTrashDrop ? "bg-accent/20 ring-2 ring-accent ring-inset" : "",
-                    "border-b border-primary/15",
+                    "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                   ].join(" ")}
                   onDragOver={(e) => {
@@ -1128,7 +1128,7 @@ export default function FileBrowser({
                     "bg-secondary text-primary",
                     isSelected || listDropHighlight ? "bg-accent/20" : "",
                     isDrop ? "bg-accent/20 ring-2 ring-accent ring-inset" : "",
-                    "border-b border-primary/15 last:border-b-0",
+                    "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                     canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
                   ].filter(Boolean).join(" ")}
