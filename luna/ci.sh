@@ -71,9 +71,15 @@ fi
 echo "==> desktop (GTK / libadwaita)"
 (
   cd desktop
-  cargo fmt --check
-  cargo test
-  cargo build --release
+  if pkg-config --atleast-version=4.14 gtk4 2>/dev/null && pkg-config --atleast-version=1.5 libadwaita-1 2>/dev/null; then
+    cargo=(cargo)
+  else
+    echo "    host GTK/libadwaita too old for luna/desktop; building in container via scripts/cargo-in-container.sh"
+    cargo=(./scripts/cargo-in-container.sh)
+  fi
+  "${cargo[@]}" fmt --check
+  "${cargo[@]}" test
+  "${cargo[@]}" build --release
 )
 
 echo "==> mobile unit tests"

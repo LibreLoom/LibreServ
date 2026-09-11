@@ -34,6 +34,18 @@ sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
 sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 ```
 
+## Building on hosts with old GTK
+
+If the host GTK is older than 4.14 (or libadwaita older than 1.5), build inside
+an ubuntu:24.04 Podman container instead:
+
+```sh
+./scripts/cargo-in-container.sh build --release
+```
+
+`luna/ci.sh` does this automatically. Output goes to `target/container` and
+never mixes with host builds.
+
 ## Rapid development (GTK)
 
 Two terminals:

@@ -1,0 +1,9 @@
+FROM docker.io/library/ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      build-essential pkg-config curl ca-certificates git \
+      libgtk-4-dev libadwaita-1-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.96.0 --component rustfmt \
+    && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
+WORKDIR /src
