@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import PageNotice from "../../common/PageNotice.jsx";
 import { useAuth } from "../../../context/AuthContext.jsx";
+import { useTheme } from "../../../hooks/useTheme.jsx";
 import { pathBasename } from "../../../lib/paths.js";
 import {
   createEuroOfficeSession,
@@ -13,25 +14,62 @@ import { CollabSocket } from "./collabSocket.js";
 const OPEN_TIMEOUT_MS = 45_000;
 
 /**
- * Fullscreen EuroOffice DocsAPI host with Luna collab presence.
- * No Luna-built-in editor — EuroOffice is the only editor surface.
+ * Presence line for the parent fullscreen chrome (FileViewer owns the frame).
+ * @param {"loading"|"ready"|"error"} status
+ * @param {{ peer_id: number, username: string }[]} peers
+ * @param {boolean} canWrite
+ */
+function presenceLabel(status, peers, canWrite) {
+  const others = peers.map((p) => p.username).filter(Boolean);
+  let base =
+    status === "loading"
+      ? "Starting EuroOffice…"
+      : others.length
+        ? `Live · ${others.join(", ")}`
+        : "Live · only you";
+  if (!canWrite) base = `${base} · view only`;
+  return base;
+}
+
+/**
+ * Absolute URL for a public Luna web asset (DocsAPI logo must be absolute).
+ * @param {string} path
+ */
+function publicAssetUrl(path) {
+  if (typeof window === "undefined") return path;
+  const base = window.location.origin.replace(/\/$/, "");
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+/**
+ * EuroOffice DocsAPI host. FileViewer owns the fullscreen chrome; this component
+ * only mounts the editor and reports presence upward.
  *
  * @param {{
  *   driveId: string,
  *   path: string,
  *   canWrite?: boolean,
  *   onSaved?: () => void,
+ *   onPresenceChange?: (label: string) => void,
  * }} props
  */
-export default function EuroOfficeHost({ driveId, path, canWrite = false, onSaved }) {
+export default function EuroOfficeHost({
+  driveId,
+  path,
+  canWrite = false,
+  onSaved,
+  onPresenceChange,
+}) {
   const mountId = useId().replace(/:/g, "");
   const placeholderId = `luna-eurooffice-${mountId}`;
   const editorRef = useRef(/** @type {{ destroyEditor?: () => void } | null} */ (null));
   const { user } = useAuth();
+  const { resolvedTheme } = useTheme();
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [peers, setPeers] = useState(/** @type {{ peer_id: number, username: string }[]} */ ([]));
   const name = pathBasename(path) || path;
+  const uiTheme = resolvedTheme === "dark" ? "theme-dark" : "theme-light";
 
   useEffect(() => {
     const sock = new CollabSocket(driveId, path);
@@ -56,6 +94,10 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
       sock.close();
     };
   }, [driveId, path]);
+
+  useEffect(() => {
+    onPresenceChange?.(presenceLabel(status, peers, canWrite));
+  }, [status, peers, canWrite, onPresenceChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +177,12 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
               help: false,
               hideRightMenu: false,
               autosave: true,
+              uiTheme,
+              logo: {
+                image: publicAssetUrl("/favicon.svg"),
+                imageDark: publicAssetUrl("/favicon-dark.svg"),
+                url: typeof window !== "undefined" ? window.location.origin : "",
+              },
             },
           },
           events: {
@@ -184,25 +232,10 @@ export default function EuroOfficeHost({ driveId, path, canWrite = false, onSave
       const node = document.getElementById(placeholderId);
       if (node) node.replaceChildren();
     };
-  }, [driveId, path, canWrite, name, placeholderId, user, onSaved]);
-
-  const others = peers.map((p) => p.username).filter(Boolean);
+  }, [driveId, path, canWrite, name, placeholderId, user, onSaved, uiTheme]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-primary text-secondary">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-secondary/20 px-4 py-2 pr-16 md:pr-20">
-        <p className="min-w-0 truncate font-mono text-xs text-secondary">
-          {status === "loading"
-            ? "Starting EuroOffice…"
-            : others.length
-              ? `Live · ${others.join(", ")}`
-              : "Live · only you"}
-          {canWrite ? "" : " · view only"}
-        </p>
-        <p className="ml-auto hidden font-mono text-[10px] text-secondary sm:block">
-          EuroOffice (AGPL)
-        </p>
-      </div>
       {error ? (
         <div className="shrink-0 px-4 pt-3">
           <PageNotice variant="error" surface="primary">
@@ -229,4 +262,5 @@ EuroOfficeHost.propTypes = {
   path: PropTypes.string.isRequired,
   canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
+  onPresenceChange: PropTypes.func,
 };

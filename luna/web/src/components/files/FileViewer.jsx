@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { Check, Download, Maximize2, Save, X } from "lucide-react";
+import HeaderCard from "../cards/HeaderCard.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
@@ -37,6 +38,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
   const [officePhase, setOfficePhase] = useState(
     /** @type {"checking"|"ready"|"missing"} */ ("checking"),
   );
+  const [officePresence, setOfficePresence] = useState("");
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
   const [loading, setLoading] = useState(kind === "text");
@@ -55,6 +57,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
     setExpanded(false);
     setError(null);
     setOfficePhase("checking");
+    setOfficePresence("");
   }
 
   useEffect(() => {
@@ -194,41 +197,55 @@ export default function FileViewer({ driveId, path, onClose, onSaved, open = tru
         aria-label={name}
         className="fixed inset-0 z-[80] flex flex-col bg-primary text-secondary motion-safe:animate-page-enter"
       >
-        <header className="relative flex shrink-0 items-center gap-3 border-b border-secondary/20 px-4 py-3 pr-16 md:px-6 md:pr-20">
-          <h2 className="min-w-0 truncate font-mono text-base font-semibold text-secondary md:text-lg">
-            {name}
-          </h2>
-          <a
-            href={downloadHref(driveId, path)}
-            className="ml-auto hidden shrink-0 items-center gap-2 rounded-pill border-2 border-secondary/30 px-3 py-1.5 font-mono text-xs text-secondary hover:border-accent motion-safe:transition-colors sm:inline-flex focus-visible:ring-2 focus-visible:ring-accent"
-            onClick={() => haptic("light")}
-          >
-            <Download size={ICON_SIZE.sm} aria-hidden="true" />
-            Download
-          </a>
+        <div className="relative shrink-0 px-3 pt-3 md:px-4 md:pt-4">
+          <HeaderCard
+            title={name}
+            titleClassName="text-base md:text-lg"
+            leftContent={
+              officePresence ? (
+                <p className="max-w-[14rem] truncate font-mono text-xs text-primary md:max-w-xs">
+                  {officePresence}
+                </p>
+              ) : null
+            }
+            rightContent={
+              <div className="flex items-center gap-2 pr-10">
+                <Button variant="outline" surface="secondary" size="sm" asChild>
+                  <a href={downloadHref(driveId, path)}>
+                    <Download size={ICON_SIZE.sm} aria-hidden="true" />
+                    Download
+                  </a>
+                </Button>
+              </div>
+            }
+          />
+          {/* Match ModalCard close chrome — Button does not forward refs for focus restore. */}
           <button
             ref={officeCloseRef}
             type="button"
-            className="absolute top-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-pill bg-secondary text-primary hover:opacity-90 active:scale-95 motion-safe:transition focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary no-focus-outline md:top-4 md:right-4"
+            className="absolute top-5 right-5 z-10 rounded-pill p-2 text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary no-focus-outline md:top-6 md:right-6"
             onClick={() => {
               haptic("light");
               onClose();
             }}
             aria-label="Close editor"
           >
-            <X size={ICON_SIZE.xxl} aria-hidden="true" />
+            <X size={ICON_SIZE.xl} aria-hidden="true" />
           </button>
-        </header>
-        <div className="min-h-0 flex-1">
-          <OfficeEditor
-            driveId={driveId}
-            path={path}
-            canWrite={canWrite}
-            onSaved={onSaved}
-            onClose={onClose}
-            phase={officePhase}
-            layout="fullscreen"
-          />
+        </div>
+        <div className="min-h-0 flex-1 p-3 pt-2 md:p-4 md:pt-3">
+          <div className="h-full min-h-0 overflow-hidden rounded-large-element border border-secondary/20 bg-primary text-secondary">
+            <OfficeEditor
+              driveId={driveId}
+              path={path}
+              canWrite={canWrite}
+              onSaved={onSaved}
+              onClose={onClose}
+              onPresenceChange={setOfficePresence}
+              phase={officePhase}
+              layout="fullscreen"
+            />
+          </div>
         </div>
       </div>,
       document.body,
