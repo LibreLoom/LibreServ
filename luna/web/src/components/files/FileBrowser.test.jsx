@@ -64,6 +64,21 @@ describe("FileBrowser", () => {
     );
   });
 
+  it("rounds the last file row so the accent inset hugs the card edge", async () => {
+    stubListing({
+      "": [
+        { name: "Personal", kind: "dir", size: 0, hidden: false },
+        { name: "Work", kind: "dir", size: 0, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    expect(await screen.findByText("Work")).toBeInTheDocument();
+    const lastRow = document.querySelector('[data-file-path="Work"]');
+    expect(lastRow?.className).toMatch(/last:rounded-b-large-element/);
+    const firstRow = document.querySelector('[data-file-path="Personal"]');
+    expect(firstRow?.className).toMatch(/last:rounded-b-large-element/);
+  });
+
   it("navigates into a folder and back up", async () => {
     stubListing({
       "": [{ name: "album", kind: "dir", size: 0, hidden: false }],
