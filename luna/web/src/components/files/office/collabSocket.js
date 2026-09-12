@@ -48,6 +48,9 @@ export class CollabSocket {
     this._closed = false;
     /** @type {number | null} */
     this.peerId = null;
+    this._attempts = 0;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._retryTimer = null;
   }
 
   connect() {
@@ -55,9 +58,10 @@ export class CollabSocket {
     const url = browserCollabWsUrl(this.driveId, this.path);
     const ws = new WebSocket(url);
     this.ws = ws;
-    this.onStatus?.("connecting");
+    this.onStatus?.(this._attempts === 0 ? "connecting" : "reconnecting");
 
     ws.addEventListener("open", () => {
+      this._attempts = 0;
       this.onStatus?.("open");
       ws.send(
         JSON.stringify({
@@ -79,12 +83,30 @@ export class CollabSocket {
     });
 
     ws.addEventListener("close", () => {
+      if (this.ws === ws) this.ws = null;
       this.onStatus?.("closed");
+      this._scheduleReconnect();
     });
 
     ws.addEventListener("error", () => {
       this.onStatus?.("error");
     });
+  }
+
+  /**
+   * Retry a dropped socket with backoff so a lunad restart or a transient
+   * proxy hiccup does not leave the editor silently disconnected.
+   * Gives up after MAX_RECONNECT_ATTEMPTS — the user reopens the file.
+   */
+  _scheduleReconnect() {
+    if (this._closed || this._retryTimer != null) return;
+    if (this._attempts >= CollabSocket.MAX_RECONNECT_ATTEMPTS) return;
+    const delay = Math.min(1000 * 2 ** this._attempts, 15000);
+    this._attempts += 1;
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null;
+      this.connect();
+    }, delay);
   }
 
   /**
@@ -109,6 +131,10 @@ export class CollabSocket {
 
   close() {
     this._closed = true;
+    if (this._retryTimer != null) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+    }
     try {
       this.ws?.close();
     } catch {
@@ -117,6 +143,9 @@ export class CollabSocket {
     this.ws = null;
   }
 }
+
+/** Cap retries so a permanently rejected upgrade does not spam the server. */
+CollabSocket.MAX_RECONNECT_ATTEMPTS = 8;
 
 /**
  * Functional wrapper kept for callers that prefer a closure API.

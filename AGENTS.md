@@ -227,6 +227,7 @@ Before ANY UI work:
 - **Layering**: surfaces inside surfaces, each panel setting explicit contrast on itself. Layered depth, not a single flat card.
 - **Pills**: `rounded-pill` (9999px) for buttons/chips/badges/pills; `rounded-large-element` (24px) for cards/containers/rows. Border radius: pill `9999px`, card/large `24px`.
 - **Animation**: intentional motion/transitions on state changes (hover, open/close, loading, status swap). Motion should feel crafted, not absent.
+- **One outline per element**: never stack a `border` and a `ring` (or two rings) as simultaneous visible outlines — that's the banned double-outline look. `border` is for persistent state, `ring` for transient affordances (hover, drag target). Keep the border width (`border-transparent`) for size stability when the resting border is hidden. `focus-visible` rings for keyboard a11y are allowed.
 
 #### 5. Preserve monospace style
 - Simplex Mono is the brand identity. Typography: monospace for headings/code (FreeMono / monospace family like Courier New), Noto Sans for body. Keep the mono typography identity — do NOT replace with a generic sans-serif.
@@ -266,7 +267,7 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`LUNA_CONNECT_URL=http://127.0.0.1:18765 make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
 - **Luna Connect mock (Cloud Agents):** `.cursor/start.sh` runs `luna/scripts/seed-mock-connect.sh`, which starts the mock on `:18765`, sets subdomain `max` → `max.luna.servers.libreloom.org`, unlocks cloud backup, and mints `luna/dev/device-token` when missing. Override with `LUNA_MOCK_SUBDOMAIN` / `LUNA_MOCK_DOMAIN`. Control with `make -C luna mock-connect ARGS="status|domain set …|backup unlock|…"`. See `luna/README.md` → Luna Connect Mock.
-- **Luna companion rapid-dev:** from `luna/`, `make companion-dev` prints the recipe. `make daemon-dev` (cargo-watch lunad), `make desktop-dev` (GTK cargo-watch + auto sign-in), `make mobile-dev` (Android `installDebug` + relaunch on save; needs `adb`). See `luna/desktop/README.md` and `luna/mobile/README.md`.
+- **Luna companion rapid-dev:** from `luna/`, `make companion-dev` prints the recipe. `make daemon-dev` (cargo-watch lunad), `make desktop-dev` (GTK cargo-watch + auto sign-in), `make mobile-dev` (Android `installDebug` + relaunch on save; needs `adb`). See `luna/desktop/README.md` and `luna/mobile/README.md`. Office-editing dev: `make eurooffice` extracts the EuroOffice asset pack into `luna/dev/` and runs a Document Server sidecar on `:8088` (see `luna/docs/eurooffice.md`).
 - `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
 
 ---

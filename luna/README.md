@@ -32,6 +32,13 @@ make mobile-dev      # Android: installDebug + relaunch on save (needs adb)
 
 See `desktop/README.md` and `mobile/README.md` for env vars and details.
 
+## Third-party components
+
+Luna can optionally load EuroOffice (AGPL-3.0) web assets for in-browser
+office editing. Those assets are never committed to this repo — see
+[THIRD_PARTY_EUROOFFICE.md](THIRD_PARTY_EUROOFFICE.md) for the license notice
+and source offer, and [docs/eurooffice.md](docs/eurooffice.md) for setup.
+
 ## Luna Connect Mock
 
 For local development and testing without connecting to the real Luna Connect cloud service (`connect.luna.libreloom.org`), Luna includes a complete mock server in `scripts/mock-connect.py` and `scripts/mock-connect.sh`.

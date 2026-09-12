@@ -19,6 +19,8 @@ import ModalErrorNotice from "../components/common/ModalErrorNotice";
 import { showPageLevelError } from "../lib/modalScopedError";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
+import DriveMenu from "../components/files/DriveMenu";
+import useDriveMove from "../hooks/useDriveMove";
 import {
   apiErrorMessage,
   deleteJson,
@@ -29,6 +31,7 @@ import {
 import { folderHref, fmtSize } from "../lib/paths";
 import { useAuth } from "../context/AuthContext";
 import { hasWriteOnDrive } from "../lib/shareTree.js";
+import { isPresentDrive } from "../lib/drives.js";
 
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
@@ -105,8 +108,19 @@ export default function FilesPage() {
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't cancel that job. Try again.")),
   });
 
+  // Header drive-menu drops: move dragged files to the top of that drive.
+  const moveFilesMutation = useDriveMove({ driveId: id, onError: setActionError });
+
   const activeJobs = (jobs.data || []).filter(jobBusy);
   const trashItems = trash.data || [];
+
+  // Same conditions the explorer used for the in-list strip: only when the
+  // file browser itself can render and more than one drive is ready.
+  const presentDriveCount = (drives.data || []).filter(isPresentDrive).length;
+  const showDriveMenu = !inTrash
+    && drive != null
+    && drive.state !== "missing"
+    && presentDriveCount > 1;
 
   const trashModalOpen = restoreTarget != null || purgeTarget != null;
 
@@ -114,6 +128,14 @@ export default function FilesPage() {
     <Page
       title={inTrash ? "Trash" : (drive ? drive.label : "Files")}
       titleId="files-title"
+      leftContent={showDriveMenu ? (
+        <DriveMenu
+          drives={drives.data}
+          currentDriveId={id}
+          onDropPaths={(destDriveId, paths, sourceDriveId) =>
+            moveFilesMutation.mutate({ paths, destFolder: "", destDriveId, fromDriveId: sourceDriveId })}
+        />
+      ) : undefined}
       rightContent={<FileSearch />}
     >
       {activeJobs.length > 0 && (

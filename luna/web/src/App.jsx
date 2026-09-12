@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Agentation } from "agentation";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -61,6 +62,8 @@ function PhotosToGalleryRedirect() {
 export default function App() {
   return (
     <ThemeProvider>
+      {/* Dev-only annotation toolbar; tree-shaken out of production builds. */}
+      {import.meta.env.DEV && <Agentation />}
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>

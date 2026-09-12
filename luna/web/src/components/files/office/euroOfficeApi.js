@@ -117,16 +117,63 @@ export async function createEuroOfficeSession(driveId, path) {
 }
 
 /**
+ * Force-save the open editor session. DocsAPI has no client-side save command —
+ * `editor.serviceCommand("forcesave")` posts an `internalCommand` the iframe
+ * apps do not handle — so lunad forwards the `forcesave` to the Document
+ * Server command service. This resolves once the DS accepts; the file lands on
+ * disk when the DS posts the save callback, after which the editor fires
+ * `onDocumentStateChange` with `data === false`.
+ *
+ * @param {string} driveId
+ * @param {string} path
+ * @param {string} key session key returned by {@link createEuroOfficeSession}
+ */
+export async function forceSaveEuroOffice(driveId, path, key) {
+  const { postJson } = await import("../../../lib/api.js");
+  return postJson("/api/v1/office/forcesave", {
+    drive_id: driveId,
+    path,
+    key,
+  });
+}
+
+/**
+ * Extension → DocsAPI `documentType`. Mirrors the fileType table the bundled
+ * DocsAPI validates against (luna/dev/eurooffice/web-apps/apps/api/documents/
+ * api.js, `_checkConfigParams`) — the only documentType values it accepts are
+ * word/cell/slide/pdf/diagram. djvu/xps/oxps open in the pdf editor; vsdx and
+ * friends in the visio (diagram) editor.
+ */
+const WORD_EXT = new Set([
+  "doc", "docx", "odt", "gdoc", "txt", "rtf", "mht", "htm", "html", "mhtml",
+  "epub", "docm", "dot", "dotm", "dotx", "fodt", "ott", "fb2", "xml",
+  "oform", "docxf", "sxw", "stw", "wps", "wpt", "pages", "hwp", "hwpx",
+  "md", "hml",
+]);
+const CELL_EXT = new Set([
+  "xls", "xlsx", "ods", "csv", "tsv", "gsheet", "xlsm", "xlt", "xltm",
+  "xltx", "fods", "ots", "xlsb", "sxc", "et", "ett", "numbers",
+]);
+const SLIDE_EXT = new Set([
+  "pps", "ppsx", "ppt", "pptx", "odp", "gslides", "pot", "potm", "potx",
+  "ppsm", "pptm", "fodp", "otp", "sxi", "dps", "dpt", "key", "odg",
+]);
+const PDF_EXT = new Set(["pdf", "djvu", "xps", "oxps"]);
+const DIAGRAM_EXT = new Set(["vsdx", "vssx", "vstx", "vsdm", "vssm", "vstm"]);
+
+/**
  * @param {string} pathOrName
- * @returns {"word"|"cell"|"slide"|null}
+ * @returns {"word"|"cell"|"slide"|"pdf"|"diagram"|null}
  */
 export function euroOfficeDocumentType(pathOrName) {
   const base = String(pathOrName || "").split("/").pop() || "";
   const dot = base.lastIndexOf(".");
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
-  if (["doc", "docx", "odt", "rtf", "txt"].includes(ext)) return "word";
-  if (["xls", "xlsx", "ods", "csv"].includes(ext)) return "cell";
-  if (["ppt", "pptx", "odp"].includes(ext)) return "slide";
+  if (WORD_EXT.has(ext)) return "word";
+  if (CELL_EXT.has(ext)) return "cell";
+  if (SLIDE_EXT.has(ext)) return "slide";
+  if (PDF_EXT.has(ext)) return "pdf";
+  if (DIAGRAM_EXT.has(ext)) return "diagram";
   return null;
 }
 

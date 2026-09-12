@@ -19,6 +19,8 @@ import EuroOfficeHost from "./EuroOfficeHost.jsx";
  *   onSaved?: () => void,
  *   onClose?: () => void,
  *   onPresenceChange?: (label: string) => void,
+ *   onSaveStateChange?: (hasUnsaved: boolean) => void,
+ *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
  *   phase: "checking"|"ready"|"missing",
  *   layout?: "modal"|"fullscreen",
  * }} props
@@ -30,6 +32,8 @@ export default function OfficeEditor({
   onSaved,
   onClose,
   onPresenceChange,
+  onSaveStateChange,
+  onRegisterSave,
   phase,
   layout = "modal",
 }) {
@@ -113,6 +117,8 @@ export default function OfficeEditor({
       canWrite={canWrite}
       onSaved={onSaved}
       onPresenceChange={onPresenceChange}
+      onSaveStateChange={onSaveStateChange}
+      onRegisterSave={onRegisterSave}
     />
   );
 }
@@ -124,6 +130,8 @@ OfficeEditor.propTypes = {
   onSaved: PropTypes.func,
   onClose: PropTypes.func,
   onPresenceChange: PropTypes.func,
+  onSaveStateChange: PropTypes.func,
+  onRegisterSave: PropTypes.func,
   phase: PropTypes.oneOf(["checking", "ready", "missing"]).isRequired,
   layout: PropTypes.oneOf(["modal", "fullscreen"]),
 };

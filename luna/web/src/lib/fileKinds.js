@@ -10,7 +10,7 @@ const VIDEO_EXT = new Set([
 
 /** Plaintext we let people edit in Luna (saved via upload). */
 const TEXT_EXT = new Set([
-  "txt", "text", "md", "markdown", "csv", "tsv", "json", "jsonc",
+  "txt", "text", "json", "jsonc",
   "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "log",
   "css", "scss", "less", "html", "htm", "svg",
   "js", "jsx", "mjs", "cjs", "ts", "tsx",
@@ -19,6 +19,9 @@ const TEXT_EXT = new Set([
   "env", "gitignore", "dockerfile", "makefile", "r", "rb", "php",
   "sql", "graphql", "vue", "svelte",
 ]);
+
+/** Markdown — editable text with a rendered preview (MarkdownEditor). */
+const MARKDOWN_EXT = new Set(["md", "markdown"]);
 
 const PDF_EXT = new Set(["pdf"]);
 
@@ -44,11 +47,33 @@ const CALENDAR_EXT = new Set(["ics"]);
 
 const CONTACT_EXT = new Set(["vcf"]);
 
-/** Office docs open in the EuroOffice collab editor. */
+/**
+ * Office docs open in the EuroOffice collab editor. Mirrors the supported
+ * fileType list declared by the bundled DocsAPI
+ * (luna/dev/eurooffice/web-apps/apps/api/documents/api.js). Plaintext formats
+ * DocsAPI also accepts (txt, md, htm, html, xml) stay on Luna's text editor;
+ * pdf/epub keep their own viewers as fallback when EuroOffice isn't installed.
+ */
 const OFFICE_EXT = new Set([
-  "doc", "docx", "odt", "rtf",
-  "xls", "xlsx", "ods",
-  "ppt", "pptx", "odp",
+  // word processor
+  "doc", "docx", "docm", "dot", "dotx", "dotm",
+  "odt", "fodt", "ott", "sxw", "stw",
+  "rtf", "epub", "fb2", "mht", "mhtml",
+  "wps", "wpt", "hwp", "hwpx", "hml", "pages",
+  "oform", "docxf", "gdoc",
+  // spreadsheet
+  "xls", "xlsx", "xlsm", "xlsb", "xlt", "xltx", "xltm",
+  "ods", "fods", "ots", "sxc",
+  "csv", "tsv",
+  "et", "ett", "numbers", "gsheet",
+  // presentation
+  "ppt", "pptx", "pptm", "pps", "ppsx", "ppsm", "pot", "potx", "potm",
+  "odp", "fodp", "otp", "sxi", "odg",
+  "dps", "dpt", "key", "gslides",
+  // pdf + fixed-layout (EuroOffice pdf editor)
+  "pdf", "djvu", "xps", "oxps",
+  // diagrams (EuroOffice visio editor)
+  "vsdx", "vssx", "vstx", "vsdm", "vssm", "vstm",
 ]);
 
 /**
@@ -92,6 +117,11 @@ export function isTextFile(name) {
     return /^(readme|license|licence|changelog|todo|authors|copying)$/i.test(base);
   }
   return false;
+}
+
+/** @param {string} name */
+export function isMarkdownFile(name) {
+  return MARKDOWN_EXT.has(fileExtension(name));
 }
 
 /** @param {string} name */
@@ -157,7 +187,7 @@ export function isCadFile(name) {
 }
 
 /**
- * @typedef {"image"|"video"|"text"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"cad"} OpenableKind
+ * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"cad"} OpenableKind
  */
 
 /**
@@ -179,6 +209,7 @@ export function openableKind(name) {
   if (isContactFile(name)) return "contact";
   if (isArchiveFile(name)) return "archive";
   if (isCadFile(name)) return "cad";
+  if (isMarkdownFile(name)) return "markdown";
   if (isTextFile(name)) return "text";
   return null;
 }

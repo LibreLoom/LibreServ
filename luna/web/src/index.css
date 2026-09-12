@@ -251,6 +251,48 @@ select:focus:not(:focus-visible) {
     }
 }
 
+/* File viewer fullscreen overlays — fade + gentle scale for z-[80] takeovers. */
+@keyframes file-viewer-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+    to {
+        opacity: 1;
+        /* `none`, not scale(1): same as .pop-in — a held transform on the
+           fixed overlay becomes a containing block/compositing layer. */
+        transform: none;
+    }
+}
+
+@keyframes file-viewer-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+.file-viewer-enter {
+    animation: file-viewer-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
+    will-change: transform, opacity;
+}
+
+.file-viewer-exit {
+    animation: file-viewer-out var(--motion-duration-medium1) var(--motion-easing-emphasized-accelerate) both;
+    will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .file-viewer-enter,
+    .file-viewer-exit {
+        animation: none;
+    }
+}
+
 .skip-link {
     position: absolute;
     top: 0.75rem;
@@ -831,12 +873,28 @@ select:focus:not(:focus-visible) {
     }
 }
 
+/* Mirror of slide-in-from-left-pop for exits — drifts back out to the left. */
+@keyframes slide-out-to-left-pop {
+    from {
+        opacity: 1;
+        transform: none;
+    }
+    to {
+        opacity: 0;
+        transform: translateX(-32px) scale(0.96);
+    }
+}
+
 .slide-in-from-right-pop {
     animation-name: slide-in-from-right-pop;
 }
 
 .slide-in-from-left-pop {
     animation-name: slide-in-from-left-pop;
+}
+
+.slide-out-to-left-pop {
+    animation-name: slide-out-to-left-pop;
 }
 
 .duration-200 {
@@ -874,7 +932,9 @@ select:focus:not(:focus-visible) {
     .pop-in,
     .pop-out,
     .animate-in,
-    .animate-out {
+    .animate-out,
+    .slide-in-from-left-pop,
+    .slide-out-to-left-pop {
         animation: none !important;
     }
     .animate-md-bar-1,

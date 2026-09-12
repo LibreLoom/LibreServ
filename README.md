@@ -48,4 +48,6 @@ Needs: Podman + `podman-compose`. Copy `server/backend/configs/libreserv.yaml.ex
 
 ## License
 
-AGPL 3.0. See [LICENSE](LICENSE).
+AGPL 3.0. See [LICENSE](LICENSE). Luna can optionally load third-party AGPL
+components (EuroOffice) that are never committed to this repo — see
+[luna/THIRD_PARTY_EUROOFFICE.md](luna/THIRD_PARTY_EUROOFFICE.md).

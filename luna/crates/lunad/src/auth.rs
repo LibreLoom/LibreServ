@@ -302,10 +302,7 @@ impl AuthService {
     }
 
     /// Validate an office bridge token from Document Server.
-    pub fn verify_office_token(
-        &self,
-        token: &str,
-    ) -> Result<OfficeClaims, AuthError> {
+    pub fn verify_office_token(&self, token: &str) -> Result<OfficeClaims, AuthError> {
         let data = jsonwebtoken::decode::<OfficeClaims>(
             token,
             &jsonwebtoken::DecodingKey::from_secret(&self.signing_key()),

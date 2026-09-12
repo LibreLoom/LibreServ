@@ -2,9 +2,11 @@ SHELL := /bin/bash
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
+DS_PORT ?= 8088
+DS_IMAGE ?= ghcr.io/euro-office/documentserver:latest
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev
+.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-ds eurooffice-ds-stop
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -24,6 +26,8 @@ run: build
 dev: build-daemon
 	@echo "==> luna dev — daemon http://localhost:$(PORT) + UI http://localhost:3000"
 	@echo "    Tip: spawn test drives with: make mock-drive ARGS=\"spawn <name> <preset>\""
+	@[ -d "$(DATA_DIR)/eurooffice" ] || \
+	  echo "    Tip: office editing needs EuroOffice assets + DS sidecar: make eurooffice"
 	@trap 'kill 0' EXIT; \
 	  LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT) & \
 	  (cd web && npm install --no-audit --no-fund >/dev/null && npm run dev) & \
@@ -52,6 +56,31 @@ mock-drive:
 
 mock-connect:
 	bash scripts/mock-connect.sh $(ARGS)
+
+# EuroOffice dev pack (AGPL, never committed): extract web-apps/sdkjs/fonts into
+# $(DATA_DIR)/eurooffice, then run a Document Server sidecar on :$(DS_PORT) for
+# DocsAPI/co-authoring. See docs/eurooffice.md.
+eurooffice: eurooffice-assets eurooffice-ds
+
+eurooffice-assets:
+	LUNA_DATA_DIR="$(DATA_DIR)" EUROOFFICE_IMAGE="$(DS_IMAGE)" \
+		bash scripts/install-eurooffice-assets.sh
+
+# JWT_ENABLED=false: this is a local dev helper only — production never runs
+# it, so request signing between lunad and the DS is unnecessary here.
+# ALLOW_PRIVATE_IP_ADDRESS=true: the DS fetches documents from lunad over
+# host.containers.internal, which resolves to a private/link-local address.
+eurooffice-ds:
+	podman image exists "$(DS_IMAGE)" || podman pull "$(DS_IMAGE)"
+	podman rm -f eurooffice-ds 2>/dev/null || true
+	podman run -d --name eurooffice-ds \
+		--add-host=host.containers.internal:host-gateway \
+		-p $(DS_PORT):80 -e JWT_ENABLED=false \
+		-e ALLOW_PRIVATE_IP_ADDRESS=true "$(DS_IMAGE)"
+	@echo "==> EuroOffice DS on http://127.0.0.1:$(DS_PORT) (boots in ~30-60s)"
+
+eurooffice-ds-stop:
+	podman rm -f eurooffice-ds
 
 dev-daemon: build-daemon
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)

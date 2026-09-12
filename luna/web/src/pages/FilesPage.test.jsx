@@ -144,14 +144,53 @@ describe("FilesPage", () => {
     expect(screen.queryByRole("heading", { name: /Open as a folder on a computer/i })).not.toBeInTheDocument();
   });
 
-  it("shows a drive switcher when more than one drive is ready", async () => {
+  it("shows a drive menu when more than one drive is ready", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
     });
     renderFiles();
-    expect(await screen.findByRole("navigation", { name: "Drives" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Photos Drive \(here\)/ })).toHaveAttribute("href", "/drives/d1");
-    expect(screen.getByRole("link", { name: "Spare Drive" })).toHaveAttribute("href", "/drives/d2");
+    const trigger = await screen.findByRole("button", { name: "Drives: Photos Drive" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole("menu", { name: "Drives" });
+    // The drive being browsed sits on the trigger, not in the list.
+    expect(within(menu).queryByRole("menuitem", { name: "Photos Drive" })).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Spare Drive" }));
+    expect(await screen.findByRole("heading", { name: "Spare Drive" })).toBeInTheDocument();
+  });
+
+  it("moves dragged files to another drive's root from the drive menu", async () => {
+    const fetchMock = stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Drives: Photos Drive" }));
+    const item = await screen.findByRole("menuitem", { name: "Spare Drive" });
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      dropEffect: "",
+      getData: (type) =>
+        type === "application/x-luna-paths" ? JSON.stringify(["photo.jpg"])
+        : type === "application/x-luna-drive" ? "d1"
+        : "",
+    };
+    fireEvent.dragOver(item, { dataTransfer });
+    fireEvent.drop(item, { dataTransfer });
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).includes("/api/v1/jobs") && (init?.method || "GET").toUpperCase() === "POST"
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String(post[1].body))).toEqual({
+        kind: "move",
+        from_drive: "d1",
+        from_path: "photo.jpg",
+        to_drive: "d2",
+        to_path: "",
+      });
+    });
+    // The drop must not navigate — the browser stays on the current drive.
+    expect(screen.getByRole("heading", { name: "Photos Drive" })).toBeInTheDocument();
   });
 
   it("shows a separate Protect button for folders", async () => {
@@ -228,7 +267,9 @@ describe("FilesPage", () => {
       "/drives/d1?path=album%2Fvacation",
     );
     expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/drives/d1");
-    expect(screen.getByRole("link", { name: "Photos Drive" })).toHaveAttribute("href", "/drives/d1");
+    // Breadcrumb root link back to the drive's top level.
+    const rootCrumb = screen.getByRole("link", { name: "Photos Drive" });
+    expect(rootCrumb).toHaveAttribute("href", "/drives/d1");
     expect(screen.getByRole("link", { name: "album" })).toHaveAttribute("href", "/drives/d1?path=album");
 
     fireEvent.click(screen.getByRole("link", { name: "vacation" }));

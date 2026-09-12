@@ -3,7 +3,7 @@ import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useSearchParams } from "react-router-dom";
 import FileBrowser from "./FileBrowser.jsx";
 
 function stubListing(byPath) {
@@ -382,7 +382,7 @@ describe("FileBrowser", () => {
 
     fireEvent.drop(folderRow, { dataTransfer });
     await waitFor(() => {
-      expect(onInternalMove).toHaveBeenCalledWith(["report.pdf"], "docs");
+      expect(onInternalMove).toHaveBeenCalledWith(["report.pdf"], "docs", undefined, undefined);
     });
   });
 
@@ -406,7 +406,7 @@ describe("FileBrowser", () => {
 
     fireEvent.drop(rootBreadcrumb, { dataTransfer });
     await waitFor(() => {
-      expect(onInternalMove).toHaveBeenCalledWith(["sub/report.pdf"], "");
+      expect(onInternalMove).toHaveBeenCalledWith(["sub/report.pdf"], "", undefined, undefined);
     });
   });
 
@@ -430,7 +430,7 @@ describe("FileBrowser", () => {
 
     fireEvent.drop(upButton, { dataTransfer });
     await waitFor(() => {
-      expect(onInternalMove).toHaveBeenCalledWith(["sub/nested/report.pdf"], "sub");
+      expect(onInternalMove).toHaveBeenCalledWith(["sub/nested/report.pdf"], "sub", undefined, undefined);
     });
   });
 
@@ -526,8 +526,313 @@ describe("FileBrowser", () => {
     expect(albumCrumb.className).toMatch(/ring-accent/);
     fireEvent.drop(albumCrumb, { dataTransfer });
     await waitFor(() => {
-      expect(onInternalMove).toHaveBeenCalledWith(["album/vacation/beach.jpg"], "album");
+      expect(onInternalMove).toHaveBeenCalledWith(["album/vacation/beach.jpg"], "album", undefined, undefined);
     });
+  });
+
+  it("moves files onto the current-folder breadcrumb segment, skipping items already inside", async () => {
+    stubListing({
+      "album": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ path: "album", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("a.txt")).toBeInTheDocument();
+    // The last crumb is the folder being browsed — it must accept drops.
+    const albumCrumb = screen.getByRole("button", { name: "album" });
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths"
+          ? JSON.stringify(["album/a.txt", "other/b.txt"])
+          : ""
+      )),
+    };
+    fireEvent.dragOver(albumCrumb, { dataTransfer });
+    expect(albumCrumb.className).toMatch(/ring-accent/);
+    fireEvent.drop(albumCrumb, { dataTransfer });
+    await waitFor(() => {
+      // "album/a.txt" already lives in "album" — filtered as a no-op move.
+      expect(onInternalMove).toHaveBeenCalledWith(["other/b.txt"], "album", undefined, undefined);
+    });
+
+    // A drop carrying only items already inside the folder calls nothing.
+    const noOpTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths" ? JSON.stringify(["album/a.txt"]) : ""
+      )),
+    };
+    fireEvent.drop(albumCrumb, { dataTransfer: noOpTransfer });
+    await act(async () => {});
+    expect(onInternalMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves files to the current path when dropped on the browser background", async () => {
+    stubListing({
+      "album": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    // No enableUploadDrop — internal drags must still land on the background.
+    const { container } = renderBrowser({ path: "album", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("a.txt")).toBeInTheDocument();
+    const browser = container.querySelector('[data-slot="file-browser"]');
+    expect(browser).toBeTruthy();
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths"
+          ? JSON.stringify(["album/a.txt", "other/b.txt"])
+          : ""
+      )),
+    };
+    fireEvent.dragOver(browser, { dataTransfer });
+    fireEvent.drop(browser, { dataTransfer });
+    await waitFor(() => {
+      // "album/a.txt" already lives in "album" — filtered as a no-op move.
+      expect(onInternalMove).toHaveBeenCalledWith(["other/b.txt"], "album", undefined, undefined);
+    });
+  });
+
+  it("shows the 'Move into this folder' chip during drags from elsewhere and drops into the current folder", async () => {
+    stubListing({
+      "album": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    const { container } = renderBrowser({ path: "album", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("a.txt")).toBeInTheDocument();
+    const browser = container.querySelector('[data-slot="file-browser"]');
+
+    // No drag in flight — no chip.
+    expect(screen.queryByRole("button", { name: /move them into this folder/i })).not.toBeInTheDocument();
+
+    // A foreign drag (empty dragPathsRef — e.g. spring-loaded from another
+    // drive) makes the chip appear on the first container dragover.
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths" ? JSON.stringify(["other/b.txt"]) : ""
+      )),
+    };
+    fireEvent.dragOver(browser, { dataTransfer });
+    const chip = await screen.findByRole("button", { name: /move them into this folder/i });
+    fireEvent.dragOver(chip, { dataTransfer });
+    fireEvent.drop(chip, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["other/b.txt"], "album", undefined, undefined);
+    });
+  });
+
+  it("hides the chip when the dragged items already live in this folder", async () => {
+    stubListing({
+      "album": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ path: "album", onInternalMove, multiSelect: true });
+    const row = (await screen.findByText("a.txt")).closest("li");
+    const store = {};
+    const dataTransfer = {
+      types: [],
+      effectAllowed: "",
+      setData: (type, value) => {
+        store[type] = value;
+        dataTransfer.types.push(type);
+      },
+      getData: (type) => store[type] || "",
+    };
+    fireEvent.dragStart(row, { dataTransfer });
+    // a.txt's parent is "album" — the folder being browsed — no chip.
+    expect(screen.queryByRole("button", { name: /move them into this folder/i })).not.toBeInTheDocument();
+    fireEvent.dragEnd(row);
+  });
+
+  it("keeps the column header inert during drags — no highlight, no drop", async () => {
+    stubListing({
+      "album": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const onInternalMove = vi.fn();
+    const { container } = renderBrowser({ path: "album", onInternalMove, multiSelect: true });
+    expect(await screen.findByText("a.txt")).toBeInTheDocument();
+    const browser = container.querySelector('[data-slot="file-browser"]');
+    const nameHeader = container.querySelector('[data-slot="file-browser-column-header"]');
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths" ? JSON.stringify(["other/b.txt"]) : ""
+      )),
+    };
+    fireEvent.dragOver(browser, { dataTransfer });
+    expect(container.querySelector(".ring-accent")).not.toBeInTheDocument();
+    fireEvent.dragEnter(nameHeader, { dataTransfer });
+    fireEvent.dragOver(nameHeader, { dataTransfer });
+    expect(container.querySelector(".ring-accent")).not.toBeInTheDocument();
+    fireEvent.drop(nameHeader, { dataTransfer });
+    await act(async () => {});
+    expect(onInternalMove).not.toHaveBeenCalled();
+  });
+
+  it("spring-loads into a folder row when a drag is held over it", async () => {
+    stubListing({
+      "": [
+        { name: "docs", kind: "dir", size: 0, hidden: false },
+        { name: "report.pdf", kind: "file", size: 50, hidden: false },
+      ],
+      docs: [{ name: "inner.txt", kind: "file", size: 5, hidden: false }],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ onInternalMove, multiSelect: true });
+    expect(await screen.findByText("docs")).toBeInTheDocument();
+    const folderRow = document.querySelector('[data-file-path="docs"]');
+    expect(folderRow).toBeTruthy();
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn(() => ""),
+    };
+    fireEvent.dragOver(folderRow, { dataTransfer });
+    // Hold past the ~800 ms spring-load delay — the browser navigates into
+    // docs without performing a move (no drop happened). Real timers: the
+    // listing fetch + react-query notify chain does not settle on a fake
+    // clock.
+    expect(await screen.findByText("inner.txt", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(onInternalMove).not.toHaveBeenCalled();
+  });
+
+  it("does not spring-load when the drag leaves the folder before the delay", async () => {
+    stubListing({
+      "": [
+        { name: "docs", kind: "dir", size: 0, hidden: false },
+        { name: "report.pdf", kind: "file", size: 50, hidden: false },
+      ],
+      docs: [{ name: "inner.txt", kind: "file", size: 5, hidden: false }],
+    });
+    renderBrowser({ onInternalMove: vi.fn(), multiSelect: true });
+    expect(await screen.findByText("docs")).toBeInTheDocument();
+    const folderRow = document.querySelector('[data-file-path="docs"]');
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn(() => ""),
+    };
+    fireEvent.dragOver(folderRow, { dataTransfer });
+    fireEvent.dragLeave(folderRow, { dataTransfer, relatedTarget: document.body });
+    // Wait past the spring-load delay — leaving first must have cancelled it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    });
+    // Still at drive root — no navigation happened.
+    expect(screen.getByText("docs")).toBeInTheDocument();
+    expect(screen.queryByText("inner.txt")).not.toBeInTheDocument();
+  });
+
+  it("still drops into a folder on a quick drop without navigating", async () => {
+    stubListing({
+      "": [
+        { name: "docs", kind: "dir", size: 0, hidden: false },
+        { name: "report.pdf", kind: "file", size: 50, hidden: false },
+      ],
+      docs: [{ name: "inner.txt", kind: "file", size: 5, hidden: false }],
+    });
+    const onInternalMove = vi.fn();
+    renderBrowser({ onInternalMove, multiSelect: true });
+    expect(await screen.findByText("docs")).toBeInTheDocument();
+    const folderRow = document.querySelector('[data-file-path="docs"]');
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn((type) => (
+        type === "application/x-luna-paths" ? JSON.stringify(["report.pdf"]) : ""
+      )),
+    };
+    // Drag over and drop immediately — well under the spring-load delay.
+    fireEvent.dragOver(folderRow, { dataTransfer });
+    fireEvent.drop(folderRow, { dataTransfer });
+    await waitFor(() => {
+      expect(onInternalMove).toHaveBeenCalledWith(["report.pdf"], "docs", undefined, undefined);
+    });
+    // A quick drop moves into the folder but does not navigate into it.
+    expect(screen.getByText("docs")).toBeInTheDocument();
+    expect(screen.queryByText("inner.txt")).not.toBeInTheDocument();
+  });
+
+  it("spring-loads to an ancestor breadcrumb segment when a drag is held over it", async () => {
+    stubListing({
+      "album/vacation": [
+        { name: "beach.jpg", kind: "file", size: 50, hidden: false },
+      ],
+      album: [{ name: "photo.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({
+      initialPath: "album/vacation",
+      onInternalMove: vi.fn(),
+      multiSelect: true,
+    });
+    expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
+    const albumCrumb = screen.getByRole("button", { name: "album" });
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn(() => ""),
+    };
+    fireEvent.dragOver(albumCrumb, { dataTransfer });
+    expect(await screen.findByText("photo.jpg", {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it("spring-loads via router navigation when linkNavigation is on", async () => {
+    stubListing({
+      "": [{ name: "docs", kind: "dir", size: 0, hidden: false }],
+      docs: [{ name: "inner.txt", kind: "file", size: 5, hidden: false }],
+    });
+    const onInternalMove = vi.fn();
+    function Harness() {
+      const [searchParams] = useSearchParams();
+      return (
+        <>
+          <output data-testid="path-echo">{searchParams.get("path") || "root"}</output>
+          <FileBrowser
+            driveId="d1"
+            driveLabel="Photos"
+            path={searchParams.get("path") || ""}
+            linkNavigation
+            multiSelect
+            onInternalMove={onInternalMove}
+          />
+        </>
+      );
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("docs")).toBeInTheDocument();
+    const folderRow = document.querySelector('[data-file-path="docs"]');
+    expect(folderRow).toBeTruthy();
+
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn(() => ""),
+    };
+    fireEvent.dragOver(folderRow, { dataTransfer });
+    // The router URL carries the new folder, same as a normal link click.
+    await waitFor(
+      () => expect(screen.getByTestId("path-echo")).toHaveTextContent("docs"),
+      { timeout: 3000 },
+    );
+    expect(await screen.findByText("inner.txt")).toBeInTheDocument();
+    expect(onInternalMove).not.toHaveBeenCalled();
   });
 });
 

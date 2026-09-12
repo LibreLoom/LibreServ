@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Pencil, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, Pencil, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
 import FolderPickerModal from "./FolderPickerModal.jsx";
@@ -12,6 +10,7 @@ import NewItemMenu from "./NewItemMenu.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import useCanProtect from "../../hooks/useCanProtect.js";
+import useDriveMove from "../../hooks/useDriveMove.js";
 import ModalCard from "../cards/ModalCard.jsx";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
@@ -34,6 +33,7 @@ import {
 } from "../../lib/api.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
+import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { blankOfficeStub } from "../../lib/officeStubs.js";
@@ -52,14 +52,6 @@ const UPLOAD_PARALLEL = 2;
 
 function jobBusy(job) {
   return job.state === "running" || job.state === "queued";
-}
-
-function isPresentDrive(drive) {
-  return drive.state !== "missing" && drive.state !== "ejected" && drive.state !== "failed";
-}
-
-function isWritableDrive(drive) {
-  return isPresentDrive(drive) && drive.state !== "readonly";
 }
 
 /**
@@ -271,7 +263,6 @@ export default function DriveFileExplorer({
   const [createKind, setCreateKind] = useState(/** @type {import("../../lib/createKinds.js").CreateKind|null} */ (null));
   const [createName, setCreateName] = useState("");
   const selectedRef = useRef(/** @type {string[]} */ ([]));
-  const [dragOverDriveId, setDragOverDriveId] = useState(/** @type {string|null} */ (null));
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, initialData: propDrives });
   const availableDrives = useMemo(() => {
@@ -608,31 +599,7 @@ export default function DriveFileExplorer({
     },
   });
 
-  const internalMoveMutation = useMutation({
-    mutationFn: async (/** @type {{ paths: string[], destFolder: string, destDriveId?: string }} */ { paths, destFolder, destDriveId }) => {
-      const toDrive = destDriveId || driveId;
-      for (const fromPath of paths) {
-        await postJson("/api/v1/jobs", {
-          kind: "move",
-          from_drive: driveId,
-          from_path: fromPath,
-          to_drive: toDrive,
-          to_path: destFolder,
-        });
-      }
-    },
-    onSuccess: (_d, vars) => {
-      haptic("success");
-      invalidate([...vars.paths, joinPath(vars.destFolder, "x")]);
-      if (vars.destDriveId && vars.destDriveId !== driveId) {
-        queryClient.invalidateQueries({ queryKey: ["files", vars.destDriveId] });
-      }
-    },
-    onError: (err) => {
-      haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't move those files. Try again."));
-    },
-  });
+  const internalMoveMutation = useDriveMove({ driveId, onError: setActionError });
 
   const deleteSnapRef = useRef(/** @type {string[]|null} */ (null));
   if (deletePaths) deleteSnapRef.current = deletePaths;
@@ -656,71 +623,6 @@ export default function DriveFileExplorer({
         <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
       )}
 
-      {availableDrives.length > 1 && (
-        <div
-          className="mb-3 flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full text-xs"
-          role="navigation"
-          aria-label="Drives"
-        >
-          <span className="text-secondary shrink-0 font-mono text-xs uppercase tracking-wider pl-1 mr-1 flex items-center gap-1">
-            <HardDrive size={13} aria-hidden="true" /> Drives:
-          </span>
-          {availableDrives.map((d) => {
-            const isCurrent = d.id === driveId;
-            const canDrop = !isCurrent && isWritableDrive(d);
-            const isDragTarget = dragOverDriveId === d.id;
-            return (
-              <Link
-                key={d.id}
-                to={`/drives/${d.id}`}
-                aria-label={isCurrent ? `${d.label} (here)` : d.label}
-                draggable={false}
-                onDragOver={(e) => {
-                  if (!canDrop) return;
-                  const types = e.dataTransfer?.types;
-                  if (!types || !Array.from(types).includes("application/x-luna-paths")) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  e.dataTransfer.dropEffect = "move";
-                  setDragOverDriveId(d.id);
-                }}
-                onDragLeave={(e) => {
-                  if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-                  if (dragOverDriveId === d.id) setDragOverDriveId(null);
-                }}
-                onDrop={(e) => {
-                  if (!canDrop) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDragOverDriveId(null);
-                  const raw = e.dataTransfer?.getData("application/x-luna-paths");
-                  if (!raw) return;
-                  try {
-                    const paths = JSON.parse(raw);
-                    if (Array.isArray(paths) && paths.length > 0) {
-                      internalMoveMutation.mutate({ paths, destFolder: "", destDriveId: d.id });
-                    }
-                  } catch {
-                    // Ignore malformed drag payload.
-                  }
-                }}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill font-mono text-xs whitespace-nowrap motion-safe:transition-all shrink-0",
-                  isCurrent
-                    ? "bg-secondary text-primary font-bold ring-2 ring-accent"
-                    : "bg-secondary text-primary border border-primary/20 hover:border-accent",
-                  isDragTarget && "ring-2 ring-accent bg-accent/20 text-primary scale-105",
-                )}
-              >
-                <HardDrive size={13} className="shrink-0 text-accent" aria-hidden="true" />
-                <span>{d.label}</span>
-                {isCurrent ? <span className="text-xs font-mono"> (here)</span> : null}
-              </Link>
-            );
-          })}
-        </div>
-      )}
-
       <FileBrowser
         driveId={driveId}
         driveLabel={driveLabel}
@@ -737,8 +639,8 @@ export default function DriveFileExplorer({
         onSelectPathApplied={onSelectPathApplied}
         onSelectedPathsChange={(paths) => { selectedRef.current = paths; }}
         onUploadFiles={folderWritable ? uploadFiles : undefined}
-        onInternalMove={folderWritable ? (paths, destFolder, destDriveId) =>
-          internalMoveMutation.mutate({ paths, destFolder, destDriveId }) : undefined}
+        onInternalMove={folderWritable ? (paths, destFolder, destDriveId, sourceDriveId) =>
+          internalMoveMutation.mutate({ paths, destFolder, destDriveId, fromDriveId: sourceDriveId }) : undefined}
         onOpenFile={(ctx) => setViewerPath(ctx.fullPath)}
         onShare={(ctx) => setAccessTarget({
           path: ctx.fullPath,

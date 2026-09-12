@@ -15,6 +15,7 @@ import random
 import shutil
 import sqlite3
 import sys
+import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -58,6 +59,384 @@ def create_mock_mp4(path: Path, size_kb: int = 250) -> None:
     payload_len = max(0, (size_kb * 1024) - len(ftyp) - 8)
     mdat_header = (payload_len + 8).to_bytes(4, byteorder="big") + b"mdat"
     path.write_bytes(ftyp + mdat_header + (b"\x00" * payload_len))
+
+
+def _xml_escape(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+# Minimal valid .docx (OOXML zip) — mirrors web/src/lib/officeStubs.js blankDocx.
+def create_mock_docx(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    paragraphs = "".join(
+        "<w:p/>" if not line
+        else f'<w:p><w:r><w:t xml:space="preserve">{_xml_escape(line)}</w:t></w:r></w:p>'
+        for line in text.split("\n")
+    ) or "<w:p><w:r><w:t></w:t></w:r></w:p>"
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        '  <Default Extension="xml" ContentType="application/xml"/>\n'
+        '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n'
+        '</Types>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>\n'
+        '</Relationships>'
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        f'  <w:body>{paragraphs}</w:body>\n'
+        '</w:document>'
+    )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("word/document.xml", document)
+
+
+# Minimal valid .xlsx — mirrors officeStubs.js blankXlsx (text lands in A1 via sharedStrings).
+def create_mock_xlsx(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cell = _xml_escape(text)
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        '  <Default Extension="xml" ContentType="application/xml"/>\n'
+        '  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>\n'
+        '  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>\n'
+        '  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>\n'
+        '</Types>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>\n'
+        '</Relationships>'
+    )
+    workbook = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"\n'
+        '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
+        '  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>\n'
+        '</workbook>'
+    )
+    workbook_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>\n'
+        '  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>\n'
+        '</Relationships>'
+    )
+    shared = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">\n'
+        f'  <si><t xml:space="preserve">{cell}</t></si>\n'
+        '</sst>'
+    )
+    sheet = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n'
+        '  <sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData>\n'
+        '</worksheet>'
+    )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("xl/workbook.xml", workbook)
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        zf.writestr("xl/sharedStrings.xml", shared)
+        zf.writestr("xl/worksheets/sheet1.xml", sheet)
+
+
+# Minimal valid .pptx — mirrors officeStubs.js blankPptx (text is the slide 1
+# title). Includes slideMaster/slideLayout/theme: Document Server's renderers
+# (e.g. pptx→pdf) crash on presentations without a master.
+def create_mock_pptx(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    title = _xml_escape(text) or " "
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        '  <Default Extension="xml" ContentType="application/xml"/>\n'
+        '  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>\n'
+        '  <Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>\n'
+        '  <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>\n'
+        '  <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>\n'
+        '  <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>\n'
+        '</Types>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>\n'
+        '</Relationships>'
+    )
+    presentation = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"\n'
+        '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
+        '  <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId2"/></p:sldMasterIdLst>\n'
+        '  <p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>\n'
+        '  <p:sldSz cx="9144000" cy="6858000" type="screen4x3"/>\n'
+        '  <p:notesSz cx="6858000" cy="9144000"/>\n'
+        '</p:presentation>'
+    )
+    presentation_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>\n'
+        '  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>\n'
+        '</Relationships>'
+    )
+    slide_master = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"\n'
+        '  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"\n'
+        '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
+        '  <p:cSld><p:spTree>\n'
+        '    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>\n'
+        '    <p:grpSpPr/>\n'
+        '  </p:spTree></p:cSld>\n'
+        '  <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2"\n'
+        '    accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6"\n'
+        '    hlink="hlink" folHlink="folHlink"/>\n'
+        '  <p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>\n'
+        '  <p:txStyles>\n'
+        '    <p:titleStyle><a:lvl1pPr><a:defRPr sz="3200"/></a:lvl1pPr></p:titleStyle>\n'
+        '    <p:bodyStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:bodyStyle>\n'
+        '    <p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle>\n'
+        '  </p:txStyles>\n'
+        '</p:sldMaster>'
+    )
+    slide_master_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>\n'
+        '  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>\n'
+        '</Relationships>'
+    )
+    slide_layout = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"\n'
+        '  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"\n'
+        '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"\n'
+        '  type="blank" preserve="1">\n'
+        '  <p:cSld name="Blank"><p:spTree>\n'
+        '    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>\n'
+        '    <p:grpSpPr/>\n'
+        '  </p:spTree></p:cSld>\n'
+        '  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>\n'
+        '</p:sldLayout>'
+    )
+    slide_layout_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>\n'
+        '</Relationships>'
+    )
+    slide_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>\n'
+        '</Relationships>'
+    )
+    theme = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">\n'
+        '  <a:themeElements>\n'
+        '    <a:clrScheme name="Office">\n'
+        '      <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>\n'
+        '      <a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>\n'
+        '      <a:dk2><a:srgbClr val="1F497D"/></a:dk2>\n'
+        '      <a:lt2><a:srgbClr val="EEECE1"/></a:lt2>\n'
+        '      <a:accent1><a:srgbClr val="4F81BD"/></a:accent1>\n'
+        '      <a:accent2><a:srgbClr val="C0504D"/></a:accent2>\n'
+        '      <a:accent3><a:srgbClr val="9BBB59"/></a:accent3>\n'
+        '      <a:accent4><a:srgbClr val="8064A2"/></a:accent4>\n'
+        '      <a:accent5><a:srgbClr val="4BACC6"/></a:accent5>\n'
+        '      <a:accent6><a:srgbClr val="F79646"/></a:accent6>\n'
+        '      <a:hlink><a:srgbClr val="0000FF"/></a:hlink>\n'
+        '      <a:folHlink><a:srgbClr val="800080"/></a:folHlink>\n'
+        '    </a:clrScheme>\n'
+        '    <a:fontScheme name="Office">\n'
+        '      <a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>\n'
+        '      <a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>\n'
+        '    </a:fontScheme>\n'
+        '    <a:fmtScheme name="Office">\n'
+        '      <a:fillStyleLst>\n'
+        '        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>\n'
+        '        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>\n'
+        '        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>\n'
+        '      </a:fillStyleLst>\n'
+        '      <a:lnStyleLst>\n'
+        '        <a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>\n'
+        '        <a:ln w="25400"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>\n'
+        '        <a:ln w="38100"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>\n'
+        '      </a:lnStyleLst>\n'
+        '      <a:effectStyleLst>\n'
+        '        <a:effectStyle><a:effectLst/></a:effectStyle>\n'
+        '        <a:effectStyle><a:effectLst/></a:effectStyle>\n'
+        '        <a:effectStyle><a:effectLst/></a:effectStyle>\n'
+        '      </a:effectStyleLst>\n'
+        '      <a:bgFillStyleLst>\n'
+        '        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>\n'
+        '        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>\n'
+        '        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>\n'
+        '      </a:bgFillStyleLst>\n'
+        '    </a:fmtScheme>\n'
+        '  </a:themeElements>\n'
+        '</a:theme>'
+    )
+    slide = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"\n'
+        '  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">\n'
+        '  <p:cSld><p:spTree>\n'
+        '    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>\n'
+        '    <p:grpSpPr/>\n'
+        '    <p:sp>\n'
+        '      <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>\n'
+        '      <p:spPr/>\n'
+        '      <p:txBody>\n'
+        f'        <a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{title}</a:t></a:r></a:p>\n'
+        '      </p:txBody>\n'
+        '    </p:sp>\n'
+        '  </p:spTree></p:cSld>\n'
+        '</p:sld>'
+    )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels)
+        zf.writestr("ppt/presentation.xml", presentation)
+        zf.writestr("ppt/_rels/presentation.xml.rels", presentation_rels)
+        zf.writestr("ppt/slides/slide1.xml", slide)
+        zf.writestr("ppt/slides/_rels/slide1.xml.rels", slide_rels)
+        zf.writestr("ppt/slideMasters/slideMaster1.xml", slide_master)
+        zf.writestr("ppt/slideMasters/_rels/slideMaster1.xml.rels", slide_master_rels)
+        zf.writestr("ppt/slideLayouts/slideLayout1.xml", slide_layout)
+        zf.writestr("ppt/slideLayouts/_rels/slideLayout1.xml.rels", slide_layout_rels)
+        zf.writestr("ppt/theme/theme1.xml", theme)
+
+
+# Minimal valid ODF package: `mimetype` member FIRST and STORED, then manifest + content.
+def create_mock_odf(path: Path, mimetype: str, content_xml: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">\n'
+        f'  <manifest:file-entry manifest:full-path="/" manifest:media-type="{mimetype}"/>\n'
+        '  <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>\n'
+        '</manifest:manifest>'
+    )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("mimetype", mimetype)
+        zf.writestr("META-INF/manifest.xml", manifest)
+        zf.writestr("content.xml", content_xml)
+
+
+def create_mock_odt(path: Path, text: str) -> None:
+    paras = "".join(
+        f"<text:p>{_xml_escape(line)}</text:p>" for line in text.split("\n") if line
+    ) or "<text:p/>"
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"\n'
+        '  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">\n'
+        f'  <office:body><office:text>{paras}</office:text></office:body>\n'
+        '</office:document-content>'
+    )
+    create_mock_odf(path, "application/vnd.oasis.opendocument.text", content)
+
+
+def create_mock_ods(path: Path, rows: list[list[str]]) -> None:
+    row_xml = "".join(
+        "<table:table-row>"
+        + "".join(
+            f'<table:table-cell office:value-type="string"><text:p>{_xml_escape(c)}</text:p></table:table-cell>'
+            for c in row
+        )
+        + "</table:table-row>"
+        for row in rows
+    )
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"\n'
+        '  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"\n'
+        '  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">\n'
+        '  <office:body><office:spreadsheet>\n'
+        f'    <table:table table:name="Sheet1">{row_xml}</table:table>\n'
+        '  </office:spreadsheet></office:body>\n'
+        '</office:document-content>'
+    )
+    create_mock_odf(path, "application/vnd.oasis.opendocument.spreadsheet", content)
+
+
+def create_mock_odp(path: Path, title: str) -> None:
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"\n'
+        '  xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"\n'
+        '  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">\n'
+        '  <office:body><office:presentation>\n'
+        '    <draw:page draw:name="Slide1">\n'
+        '      <draw:frame draw:name="Title"><draw:text-box>\n'
+        f'        <text:p>{_xml_escape(title)}</text:p>\n'
+        '      </draw:text-box></draw:frame>\n'
+        '    </draw:page>\n'
+        '  </office:presentation></office:body>\n'
+        '</office:document-content>'
+    )
+    create_mock_odf(path, "application/vnd.oasis.opendocument.presentation", content)
+
+
+# Minimal valid .epub: `mimetype` member FIRST and STORED, then container + OPF + one xhtml doc.
+def create_mock_epub(path: Path, title: str, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    container = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n'
+        '  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>\n'
+        '</container>'
+    )
+    opf = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\n'
+        '  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        '    <dc:identifier id="uid">luna-mock-epub-001</dc:identifier>\n'
+        f'    <dc:title>{_xml_escape(title)}</dc:title>\n'
+        '    <dc:language>en</dc:language>\n'
+        '    <meta property="dcterms:modified">2025-01-01T00:00:00Z</meta>\n'
+        '  </metadata>\n'
+        '  <manifest><item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>\n'
+        '  <spine><itemref idref="ch1"/></spine>\n'
+        '</package>'
+    )
+    chapter = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE html>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml">\n'
+        f'<head><title>{_xml_escape(title)}</title></head>\n'
+        f'<body><h1>{_xml_escape(title)}</h1><p>{_xml_escape(text)}</p></body>\n'
+        '</html>'
+    )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("OEBPS/content.opf", opf)
+        zf.writestr("OEBPS/chapter1.xhtml", chapter)
+
 
 # Photo trees from the legacy mock-pssd fixtures (real JPEGs + EXIF/GPS).
 PHOTO_FIXTURE_ROOT = ROOT / "fixtures" / "mock-pssd"
@@ -238,6 +617,39 @@ def populate_documents(dest: Path) -> int:
         encoding="utf-8"
     )
     count += 1
+
+    # Real office docs — one valid file per EuroOffice/OnlyOffice editable format.
+    # Legacy .doc/.xls/.ppt (OLE2 compound binaries) are intentionally skipped:
+    # they can't be fabricated as minimal stubs like OOXML/ODF zips.
+    create_mock_docx(
+        dest / "Documents/Office/Report.docx",
+        "Q3 Engineering Status Report\n"
+        "All storage milestones are on track. Thumbnail pipeline shipped in Sprint 14.",
+    )
+    create_mock_xlsx(
+        dest / "Documents/Office/Budget.xlsx",
+        "2025 Hardware Budget: drives $4,200, enclosures $900, spare parts $350",
+    )
+    create_mock_pptx(dest / "Documents/Office/Slides.pptx", "Luna Storage Roadmap")
+    create_mock_odt(
+        dest / "Documents/Office/Notes.odt",
+        "Meeting notes\nBackup worker sync moved to Sprint 15.",
+    )
+    create_mock_ods(
+        dest / "Documents/Office/Table.ods",
+        [["Item", "Qty", "Cost"], ["NVMe SSD 2TB", "4", "180"], ["SATA HDD 8TB", "2", "220"]],
+    )
+    create_mock_odp(dest / "Documents/Office/Deck.odp", "Luna Investor Deck")
+    letter_rtf = dest / "Documents/Office/Letter.rtf"
+    letter_rtf.parent.mkdir(parents=True, exist_ok=True)
+    letter_rtf.write_text(
+        "{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times New Roman;}}\n"
+        "\\f0\\fs24 Dear Luna Team,\\par\n"
+        "Please find the enclosed storage report.\\par\n"
+        "Regards,\\par Plainskill Ops}\n",
+        encoding="utf-8",
+    )
+    count += 7
     return count
 
 
@@ -323,6 +735,185 @@ def populate_mixed(dest: Path) -> int:
     return c
 
 
+def _fixture_jpeg_bytes() -> bytes:
+    """Real JPEG bytes from the mock-pssd fixtures (TINY_JPEG fallback)."""
+    for pattern in ("*.jpg", "*.JPG", "*.jpeg", "*.JPEG"):
+        for f in sorted(PHOTO_FIXTURE_ROOT.rglob(pattern)):
+            if f.is_file():
+                try:
+                    return f.read_bytes()
+                except OSError:
+                    continue
+    return TINY_JPEG
+
+
+def populate_stress(dest: Path) -> int:
+    """One real, valid file per OpenableKind in web/src/lib/fileKinds.js."""
+    count = 0
+    base = dest / "StressTest"
+
+    # image — real JPEG with EXIF/GPS copied from the mock-pssd fixtures
+    (base / "image").mkdir(parents=True, exist_ok=True)
+    (base / "image/sample.jpg").write_bytes(_fixture_jpeg_bytes())
+    count += 1
+
+    # video
+    create_mock_mp4(base / "video/clip.mp4", size_kb=64)
+    count += 1
+
+    # text
+    (base / "text").mkdir(parents=True, exist_ok=True)
+    (base / "text/notes.txt").write_text(
+        "Stress-test plain text file.\nEvery OpenableKind has one file under StressTest/.\n",
+        encoding="utf-8",
+    )
+    count += 1
+
+    # pdf
+    create_mock_pdf(base / "pdf/document.pdf", "Stress Test PDF", "Generated by mock-drive.py")
+    count += 1
+
+    # audio
+    create_mock_mp3(base / "audio/tone.mp3", duration_kb=60)
+    count += 1
+
+    # archive — real .zip
+    (base / "archive").mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(base / "archive/bundle.zip", "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("readme.txt", "Stress-test archive bundle.\n")
+        zf.writestr("data/list.csv", "a,b\n1,2\n")
+    count += 1
+
+    # ebook — real .epub
+    create_mock_epub(
+        base / "ebook/book.epub",
+        "Luna Stress Test Ebook",
+        "This minimal EPUB exists to exercise the in-app ebook reader.",
+    )
+    count += 1
+
+    # comic — .cbz is just a zip of ordered page images
+    (base / "comic").mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(base / "comic/issue01.cbz", "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("page01.jpg", _fixture_jpeg_bytes())
+    count += 1
+
+    # font — real TTF shipped in the Luna web UI
+    font_src = ROOT / "web" / "public" / "fonts" / "FreeMono.ttf"
+    (base / "font").mkdir(parents=True, exist_ok=True)
+    if font_src.is_file():
+        shutil.copy2(font_src, base / "font/FreeMono.ttf")
+    else:
+        print(f"Warning: font fixture missing at {font_src}", file=sys.stderr)
+        (base / "font/FreeMono.ttf").write_bytes(TINY_JPEG)
+    count += 1
+
+    # notebook — minimal nbformat 4 .ipynb
+    (base / "notebook").mkdir(parents=True, exist_ok=True)
+    (base / "notebook/analysis.ipynb").write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "markdown",
+                        "metadata": {},
+                        "source": ["# Stress Test Notebook\n", "One markdown cell is enough."],
+                    }
+                ],
+                "metadata": {
+                    "kernelspec": {
+                        "display_name": "Python 3",
+                        "language": "python",
+                        "name": "python3",
+                    },
+                    "language_info": {"name": "python", "version": "3.12"},
+                },
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    count += 1
+
+    # geo — minimal GeoJSON FeatureCollection
+    (base / "geo").mkdir(parents=True, exist_ok=True)
+    (base / "geo/waypoint.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [-122.4194, 37.7749]},
+                        "properties": {"name": "Stress Test Waypoint"},
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    count += 1
+
+    # calendar — minimal iCalendar VEVENT (CRLF line endings per RFC 5545)
+    (base / "calendar").mkdir(parents=True, exist_ok=True)
+    (base / "calendar/event.ics").write_text(
+        "BEGIN:VCALENDAR\r\n"
+        "VERSION:2.0\r\n"
+        "PRODID:-//Luna Mock Drive//EN\r\n"
+        "BEGIN:VEVENT\r\n"
+        "UID:stress-test-001@luna\r\n"
+        "DTSTAMP:20250601T120000Z\r\n"
+        "DTSTART:20250615T140000Z\r\n"
+        "DTEND:20250615T150000Z\r\n"
+        "SUMMARY:Stress Test Event\r\n"
+        "END:VEVENT\r\n"
+        "END:VCALENDAR\r\n",
+        encoding="utf-8",
+    )
+    count += 1
+
+    # contact — minimal vCard
+    (base / "contact").mkdir(parents=True, exist_ok=True)
+    (base / "contact/person.vcf").write_text(
+        "BEGIN:VCARD\r\n"
+        "VERSION:3.0\r\n"
+        "FN:Jane Doe\r\n"
+        "N:Doe;Jane;;;\r\n"
+        "EMAIL:jane.doe@example.com\r\n"
+        "TEL;TYPE=CELL:+1-555-123-4567\r\n"
+        "END:VCARD\r\n",
+        encoding="utf-8",
+    )
+    count += 1
+
+    # office — reuse the OOXML generators (docx + xlsx)
+    create_mock_docx(base / "office/report.docx", "Stress test office document.")
+    create_mock_xlsx(base / "office/budget.xlsx", "Stress test spreadsheet, cell A1")
+    count += 2
+
+    # cad — ASCII STL, one triangular facet
+    (base / "cad").mkdir(parents=True, exist_ok=True)
+    (base / "cad/part.stl").write_text(
+        "solid stress_test_part\n"
+        "  facet normal 0 0 1\n"
+        "    outer loop\n"
+        "      vertex 0 0 0\n"
+        "      vertex 1 0 0\n"
+        "      vertex 0 1 0\n"
+        "    endloop\n"
+        "  endfacet\n"
+        "endsolid stress_test_part\n",
+        encoding="utf-8",
+    )
+    count += 1
+    return count
+
+
 PRESETS = {
     "photos": populate_photos,
     "documents": populate_documents,
@@ -333,6 +924,8 @@ PRESETS = {
     "deep": populate_deep,
     "mixed": populate_mixed,
     "all": populate_mixed,
+    "stress": populate_stress,
+    "handlers": populate_stress,
     "empty": lambda dest: 0,
 }
 

@@ -33,6 +33,17 @@ struct TokenQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct ForceSaveBody {
+    drive_id: String,
+    path: String,
+    /// Document key the editor session was opened with. It already binds the
+    /// drive, path, size, and mtime at open time, and it cannot be recomputed
+    /// here once a save changes the file — so the client echoes it back and we
+    /// still check write access on the claimed drive/path.
+    key: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct CallbackBody {
     status: i32,
     #[serde(default)]
@@ -44,6 +55,7 @@ struct CallbackBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/office/session", post(create_session))
+        .route("/api/v1/office/forcesave", post(force_save))
         .route("/api/v1/public/office/content", get(public_content))
         .route("/api/v1/public/office/callback", post(public_callback))
 }
@@ -123,10 +135,22 @@ async fn create_session(
     let document_url = format!("{origin}/api/v1/public/office/content?token={token}");
     let callback_url = format!("{origin}/api/v1/public/office/callback?token={token}");
     let key = document_key(&drive_id, &path, size, modified);
+    // Mirrors the fileType table the bundled DocsAPI validates against
+    // (web-apps/apps/api/documents/api.js, `_checkConfigParams`) and
+    // fileKinds.js OFFICE_EXT. DocsAPI accepts word/cell/slide/pdf/diagram;
+    // djvu/xps/oxps open in the pdf editor, vsdx & co. in the visio editor.
     let document_type = match file_type.as_str() {
-        "doc" | "docx" | "odt" | "rtf" | "txt" => "word",
-        "xls" | "xlsx" | "ods" | "csv" => "cell",
-        "ppt" | "pptx" | "odp" => "slide",
+        "doc" | "docx" | "odt" | "gdoc" | "txt" | "rtf" | "mht" | "htm" | "html" | "mhtml"
+        | "epub" | "docm" | "dot" | "dotm" | "dotx" | "fodt" | "ott" | "fb2" | "xml" | "oform"
+        | "docxf" | "sxw" | "stw" | "wps" | "wpt" | "pages" | "hwp" | "hwpx" | "md" | "hml" => {
+            "word"
+        }
+        "xls" | "xlsx" | "ods" | "csv" | "tsv" | "gsheet" | "xlsm" | "xlt" | "xltm" | "xltx"
+        | "fods" | "ots" | "xlsb" | "sxc" | "et" | "ett" | "numbers" => "cell",
+        "pps" | "ppsx" | "ppt" | "pptx" | "odp" | "gslides" | "pot" | "potm" | "potx" | "ppsm"
+        | "pptm" | "fodp" | "otp" | "sxi" | "dps" | "dpt" | "key" | "odg" => "slide",
+        "pdf" | "djvu" | "xps" | "oxps" => "pdf",
+        "vsdx" | "vssx" | "vstx" | "vsdm" | "vssm" | "vstm" => "diagram",
         _ => {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
@@ -148,6 +172,74 @@ async fn create_session(
             "name": user.username,
         },
     })))
+}
+
+/// Forward a `forcesave` to the Document Server command service. The DS then
+/// posts the saved file back through `public_callback` (status 6), so the write
+/// itself stays on the one existing callback path.
+async fn force_save(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Json(body): Json<ForceSaveBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = normalize_rel(&body.path);
+    let drive_id = body.drive_id.trim().to_string();
+    let key = body.key.trim().to_string();
+    if path.is_empty() || drive_id.is_empty() || key.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna needs the open document to save it. Close the file and open it again.",
+        ));
+    }
+    if !user_can(&state, &user, &drive_id, &path, true)? {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to save this file.",
+        ));
+    }
+
+    let command_url = format!("{}/command", document_server_origin());
+    let reply = tokio::task::spawn_blocking(move || -> Result<Value, (StatusCode, Json<Value>)> {
+        let mut response = ureq::post(&command_url)
+            .config()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(15)))
+            .build()
+            .send_json(json!({ "c": "forcesave", "key": key }))
+            .map_err(|e| {
+                tracing::warn!(error = %e, "eurooffice forcesave request failed");
+                json_error(
+                    StatusCode::BAD_GATEWAY,
+                    "Luna couldn't reach EuroOffice to save. Try again.",
+                )
+            })?;
+        response.body_mut().read_json::<Value>().map_err(|e| {
+            tracing::warn!(error = %e, "eurooffice forcesave reply unreadable");
+            json_error(
+                StatusCode::BAD_GATEWAY,
+                "EuroOffice answered in a way Luna could not read. Try saving again.",
+            )
+        })
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish saving this file.",
+        )
+    })??;
+
+    // Command service answers {"error": N}; 0 = saved, 4 = nothing new to save.
+    match reply.get("error").and_then(Value::as_i64) {
+        Some(0) | Some(4) => Ok(Json(json!({ "error": 0 }))),
+        other => {
+            tracing::warn!(code = ?other, "eurooffice forcesave rejected");
+            Err(json_error(
+                StatusCode::BAD_GATEWAY,
+                "EuroOffice couldn't save this file. Try closing it and opening it again.",
+            ))
+        }
+    }
 }
 
 async fn public_content(
@@ -322,10 +414,16 @@ fn office_fetch_origin() -> String {
     format!("http://host.containers.internal:{port}")
 }
 
+fn document_server_origin() -> String {
+    std::env::var("LUNA_DOCUMENT_SERVER_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8088".into())
+        .trim()
+        .trim_end_matches('/')
+        .to_string()
+}
+
 fn rewrite_document_server_url(raw: &str) -> String {
-    let configured = std::env::var("LUNA_DOCUMENT_SERVER_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8088".into());
-    let configured = configured.trim().trim_end_matches('/');
+    let configured = document_server_origin();
     for prefix in [
         "http://localhost/",
         "https://localhost/",
@@ -366,10 +464,7 @@ fn document_key(drive_id: &str, path: &str, size: u64, modified: u64) -> String 
 }
 
 fn normalize_rel(path: &str) -> String {
-    path.trim()
-        .replace('\\', "/")
-        .trim_matches('/')
-        .to_string()
+    path.trim().replace('\\', "/").trim_matches('/').to_string()
 }
 
 fn ensure_file(

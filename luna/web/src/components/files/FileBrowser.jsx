@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Check,
@@ -26,6 +26,15 @@ import TransferMenu from "./TransferMenu.jsx";
 import { haptic } from "../../utils/haptics.js";
 import { getJson } from "../../lib/api.js";
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
+import {
+  LUNA_DRIVE_MIME,
+  LUNA_PATHS_MIME,
+  SPRING_LOAD_MS,
+  hasLunaPaths,
+  hasOsFiles,
+  readLunaDrive,
+  readLunaPaths,
+} from "../../lib/dnd.js";
 import { openableKind } from "../../lib/fileKinds.js";
 import {
   downloadHref,
@@ -89,7 +98,7 @@ function cssEscape(value) {
  *   onDelete?: (paths: string[]) => void,
  *   onOpenFile?: (ctx: FileBrowserRowContext) => void,
  *   onUploadFiles?: (files: File[], destPath: string) => void | Promise<void>,
- *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string) => void | Promise<void>,
+ *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string, sourceDriveId?: string) => void | Promise<void>,
  *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
  *   enableDownload?: boolean,
  *   enableUploadDrop?: boolean,
@@ -156,16 +165,23 @@ export default function FileBrowser({
 }) {
   const [innerPath, setInnerPath] = useState(initialPath);
   const [innerSelected, setInnerSelected] = useState(/** @type {string[]} */ ([]));
-  const [dragOver, setDragOver] = useState(false);
+  // True while an internal (application/x-luna-paths) drag is in flight —
+  // drives the "Move into this folder" chip. Set on row dragstart and on any
+  // container dragover carrying the mime (covers drags spring-loaded in from
+  // another drive's browser); cleared on drop/dragend/real dragleave.
+  const [lunaDragActive, setLunaDragActive] = useState(false);
   const [dropTarget, setDropTarget] = useState(/** @type {string|null} */ (null));
   const [lastClicked, setLastClicked] = useState(/** @type {string|null} */ (null));
   const dragPathsRef = useRef(/** @type {string[]} */ ([]));
+  const springLoadTimerRef = useRef(/** @type {number|null} */ (null));
+  const springLoadTargetRef = useRef(/** @type {string|null} */ (null));
   const filePicker = useRef(/** @type {HTMLInputElement|null} */ (null));
   const listRef = useRef(/** @type {HTMLUListElement|null} */ (null));
   const appliedSelectRef = useRef(/** @type {string|null} */ (null));
   const folderChromeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const folderChromeProbeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const [measuredFolderChromeSplit, setMeasuredFolderChromeSplit] = useState(false);
+  const navigate = useNavigate();
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
@@ -337,6 +353,89 @@ export default function FileBrowser({
     setPath(folderPath);
   }
 
+  const clearSpringLoad = useCallback(() => {
+    if (springLoadTimerRef.current !== null) {
+      window.clearTimeout(springLoadTimerRef.current);
+      springLoadTimerRef.current = null;
+    }
+    springLoadTargetRef.current = null;
+  }, []);
+
+  // A pending spring-load must not fire after unmount mid-drag.
+  useEffect(() => clearSpringLoad, [clearSpringLoad]);
+
+  /**
+   * Spring-load: holding a drag over a folder drop target for
+   * SPRING_LOAD_MS navigates into it, so a drag can reach nested
+   * destinations. React navigation does not cancel the in-flight HTML5
+   * drag — the dataTransfer stays alive and the eventual drop lands
+   * wherever the pointer is in the new view.
+   */
+  function springLoadTo(folderPath) {
+    haptic("selection");
+    // Clear the source folder's highlight before the view swaps.
+    setDropTarget(null);
+    if (linkNavigation) {
+      // Same href the folder's normal Link click uses — pushes a history
+      // entry so forward/back behave identically to a click.
+      navigate(folderHref(driveId, folderPath));
+      return;
+    }
+    openFolder(folderPath, { feedback: false });
+  }
+
+  /**
+   * Arm the spring-load timer for a folder drop target. Repeated dragover
+   * events on the same target keep the original timer; after it fires the
+   * target stays latched so stale dragovers (placeholder rows linger while
+   * the new listing loads) cannot re-fire it.
+   */
+  function armSpringLoad(folderPath) {
+    if (folderPath === path) return;
+    if (springLoadTargetRef.current === folderPath) return;
+    clearSpringLoad();
+    springLoadTargetRef.current = folderPath;
+    springLoadTimerRef.current = window.setTimeout(() => {
+      springLoadTimerRef.current = null;
+      springLoadTo(folderPath);
+    }, SPRING_LOAD_MS);
+  }
+
+  /** Clear a pending spring-load only if it was armed for this target. */
+  function disarmSpringLoad(folderPath) {
+    if (springLoadTargetRef.current === folderPath) clearSpringLoad();
+  }
+
+  /**
+   * Shared drop props for folder destinations — the root crumb, breadcrumb
+   * segments, the Up button, and folder rows all behave the same: accept
+   * internal moves and OS files, highlight on hover, spring-load on hold,
+   * and drop into `destFolder`.
+   */
+  function folderDropProps(key, destFolder) {
+    if (isPicker || (!onInternalMove && !onUploadFiles)) return {};
+    return {
+      onDragOver: (e) => {
+        const isLuna = hasLunaPaths(e);
+        const isFiles = hasOsFiles(e);
+        if (!isFiles && !isLuna) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
+        setDropTarget(key);
+        armSpringLoad(destFolder);
+      },
+      onDragLeave: (e) => {
+        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+        if (dropTarget === key) setDropTarget(null);
+        disarmSpringLoad(destFolder);
+      },
+      onDrop: (e) => {
+        void onFolderDrop(destFolder, e);
+      },
+    };
+  }
+
   function rowContext(entry) {
     return {
       entry,
@@ -408,7 +507,7 @@ export default function FileBrowser({
 
   async function handleOsDrop(event, destPath) {
     event.preventDefault();
-    setDragOver(false);
+    clearSpringLoad();
     setDropTarget(null);
     const files = await filesFromDataTransfer(event.dataTransfer);
     if (files.length) {
@@ -431,15 +530,18 @@ export default function FileBrowser({
       ? selectedPaths
       : [ctx.fullPath];
     dragPathsRef.current = paths;
+    setLunaDragActive(true);
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-luna-paths", JSON.stringify(paths));
-    event.dataTransfer.setData("application/x-luna-drive", driveId);
+    event.dataTransfer.setData(LUNA_PATHS_MIME, JSON.stringify(paths));
+    event.dataTransfer.setData(LUNA_DRIVE_MIME, driveId);
     event.dataTransfer.setData("text/plain", paths.join("\n"));
   }
 
   async function onFolderDrop(destFolder, event) {
     event.preventDefault();
     event.stopPropagation();
+    clearSpringLoad();
+    setLunaDragActive(false);
     setDropTarget(null);
     haptic("heavy");
     const osFiles = await filesFromDataTransfer(event.dataTransfer);
@@ -448,17 +550,23 @@ export default function FileBrowser({
       return;
     }
     if (!onInternalMove) return;
-    let paths = dragPathsRef.current;
-    const raw = event.dataTransfer?.getData("application/x-luna-paths");
-    if (raw) {
-      try {
-        paths = JSON.parse(raw);
-      } catch {
-        // keep ref
-      }
-    }
-    const filtered = (paths || []).filter((p) => p && p !== destFolder && !destFolder.startsWith(`${p}/`));
-    if (filtered.length) await onInternalMove(filtered, destFolder);
+    const paths = readLunaPaths(event.dataTransfer, dragPathsRef.current);
+    // A spring-loaded drag can arrive from another drive's browser — its
+    // payload carries the source drive. The same-drive guard (never drop a
+    // folder into itself) only applies when source and target match.
+    const sourceDriveId = readLunaDrive(event.dataTransfer);
+    const sameDrive = !sourceDriveId || sourceDriveId === driveId;
+    const filtered = (paths || []).filter((p) => {
+      if (!p) return false;
+      if (!sameDrive) return true;
+      // Never drop a folder into itself or one of its own descendants.
+      if (p === destFolder || destFolder.startsWith(`${p}/`)) return false;
+      // Dropping onto the folder an item already lives in is a no-op —
+      // this is what makes current-folder targets safe to accept.
+      if (parentPath(p) === destFolder) return false;
+      return true;
+    });
+    if (filtered.length) await onInternalMove(filtered, destFolder, undefined, sourceDriveId);
     dragPathsRef.current = [];
   }
 
@@ -583,7 +691,49 @@ export default function FileBrowser({
   const padY = dense ? "py-2" : "py-2.5";
   const allSelected = entryPaths.length > 0 && entryPaths.every((p) => selectedPaths.includes(p));
   const selectedCount = selectedPaths.length;
-  const listDropHighlight = Boolean(enableUploadDrop && !isPicker && dragOver && !dropTarget);
+  // The browser background is itself a drop target ("::current") for the
+  // folder being browsed — no visible highlight, only the a11y status.
+  const currentFolderDrop = dropTarget === "::current";
+  // "Move into this folder" chip — only useful while an internal drag is in
+  // flight AND at least one dragged item lives outside the folder being
+  // browsed. Foreign drags (spring-loaded in from another drive's browser)
+  // leave dragPathsRef empty, so they're always treated as from elsewhere.
+  const lunaDragFromElsewhere = dragPathsRef.current.length === 0
+    || dragPathsRef.current.some((p) => parentPath(p) !== path);
+  const showHereDrop = lunaDragActive && !isPicker && Boolean(onInternalMove) && lunaDragFromElsewhere;
+
+  // The chip stays mounted through its slide-out — same exit-delay pattern as
+  // the fullscreen overlays. Reduced motion unmounts it immediately.
+  const [hereDropMounted, setHereDropMounted] = useState(false);
+  const hereDropExitRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
+  const hereDropClosing = hereDropMounted && !showHereDrop;
+
+  // Mount synchronously during render so a drag restarting mid-exit never
+  // drops a frame (same pattern as FileViewer's useOverlayPresence).
+  if (showHereDrop && !hereDropMounted) {
+    setHereDropMounted(true);
+  }
+
+  useEffect(() => {
+    if (showHereDrop) {
+      if (hereDropExitRef.current != null) {
+        clearTimeout(hereDropExitRef.current);
+        hereDropExitRef.current = null;
+      }
+      return;
+    }
+    if (!hereDropMounted || hereDropExitRef.current != null) return;
+    const reduceMotion = typeof window !== "undefined"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    hereDropExitRef.current = setTimeout(() => {
+      hereDropExitRef.current = null;
+      setHereDropMounted(false);
+    }, reduceMotion ? 0 : 220);
+  }, [showHereDrop, hereDropMounted]);
+  useEffect(() => () => {
+    if (hereDropExitRef.current != null) clearTimeout(hereDropExitRef.current);
+  }, []);
   const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
 
   const folderActionButtons = hasFolderActions ? (
@@ -622,20 +772,38 @@ export default function FileBrowser({
       className={className}
       data-slot="file-browser"
       onDragOver={(e) => {
-        if (!enableUploadDrop || isPicker) return;
-        if (![...e.dataTransfer.types].includes("Files")) return;
+        if (isPicker) return;
+        const isLuna = Boolean(onInternalMove) && hasLunaPaths(e);
+        const isOsFiles = Boolean(enableUploadDrop) && hasOsFiles(e);
+        if (!isOsFiles && !isLuna) return;
         e.preventDefault();
-        setDragOver(true);
-        setDropTarget(null);
+        e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
+        if (isLuna) setLunaDragActive(true);
+        setDropTarget("::current");
       }}
       onDragLeave={(e) => {
         // Ignore leave events that stay within this browser (child→child).
         if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-        setDragOver(false);
+        setLunaDragActive(false);
         setDropTarget(null);
+        clearSpringLoad();
+      }}
+      // dragend bubbles up from the source row — cancel any pending nav.
+      onDragEnd={() => {
+        clearSpringLoad();
+        setLunaDragActive(false);
       }}
       onDrop={(e) => {
-        if (!enableUploadDrop || isPicker) return;
+        if (isPicker) return;
+        setLunaDragActive(false);
+        const isLuna = hasLunaPaths(e);
+        // The browser background is a drop target for the folder being
+        // browsed: internal drags move into `path`, OS files upload into it.
+        if (isLuna) {
+          if (onInternalMove) void onFolderDrop(path, e);
+          return;
+        }
+        if (!enableUploadDrop) return;
         void handleOsDrop(e, path);
       }}
     >
@@ -705,40 +873,34 @@ export default function FileBrowser({
                 >
                   {(() => {
                     const isRootDrop = dropTarget === "::root";
-                    const rootCanDrop = path !== "" && !isPicker && Boolean(onInternalMove || onUploadFiles);
-                    const rootDropProps = rootCanDrop ? {
-                      onDragOver: (e) => {
-                        const types = e.dataTransfer?.types;
-                        const isFiles = types && Array.from(types).includes("Files");
-                        const isLuna = types && Array.from(types).includes("application/x-luna-paths");
-                        if (!isFiles && !isLuna) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
-                        setDropTarget("::root");
-                      },
-                      onDragLeave: (e) => {
-                        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-                        if (dropTarget === "::root") setDropTarget(null);
-                      },
-                      onDrop: (e) => {
-                        void onFolderDrop("", e);
-                      },
-                    } : {};
+                    // The root crumb stays a valid target at the drive root
+                    // (drags arriving from elsewhere can land there); items
+                    // already at root are filtered as no-ops in onFolderDrop.
+                    const rootDropProps = folderDropProps("::root", "");
 
+                    // Permanent pill footprint (`px-1` balanced by `-mx-1`)
+                    // so the accent ring hugs the rounded crumb without
+                    // shifting the rest of the trail when it appears.
                     return linkNavigation ? (
-                      <span {...rootDropProps} className={isRootDrop ? "bg-accent/20 ring-2 ring-accent rounded px-1" : undefined}>
-                        <TextLink to={folderHref(driveId, "")} surface="secondary" className="break-all text-primary" draggable={false}>
-                          {driveLabel}
-                        </TextLink>
-                      </span>
+                      <TextLink
+                        to={folderHref(driveId, "")}
+                        surface="secondary"
+                        className={cn(
+                          "break-all text-primary rounded-pill px-1 -mx-1",
+                          isRootDrop && "bg-accent/20 ring-2 ring-accent",
+                        )}
+                        draggable={false}
+                        {...rootDropProps}
+                      >
+                        {driveLabel}
+                      </TextLink>
                     ) : (
                       <button
                         type="button"
                         {...rootDropProps}
                         className={cn(
-                          "text-primary hover:text-accent motion-safe:transition-colors break-all text-left",
-                          isRootDrop && "bg-accent/20 ring-2 ring-accent rounded px-1",
+                          "text-primary hover:text-accent motion-safe:transition-colors break-all text-left rounded-pill px-1 -mx-1",
+                          isRootDrop && "bg-accent/20 ring-2 ring-accent",
                         )}
                         onClick={() => openFolder("")}
                       >
@@ -748,50 +910,36 @@ export default function FileBrowser({
                   })()}
                   {segments.map((segment, i) => {
                     const segPath = segments.slice(0, i + 1).join("/");
-                    const isCurrentSegment = segPath === path;
                     const isSegDrop = dropTarget === `::seg::${segPath}`;
-                    const segCanDrop = !isCurrentSegment && !isPicker && Boolean(onInternalMove || onUploadFiles);
-                    const segDropProps = segCanDrop ? {
-                      onDragOver: (e) => {
-                        const types = e.dataTransfer?.types;
-                        const isFiles = types && Array.from(types).includes("Files");
-                        const isLuna = types && Array.from(types).includes("application/x-luna-paths");
-                        if (!isFiles && !isLuna) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
-                        setDropTarget(`::seg::${segPath}`);
-                      },
-                      onDragLeave: (e) => {
-                        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-                        if (dropTarget === `::seg::${segPath}`) setDropTarget(null);
-                      },
-                      onDrop: (e) => {
-                        void onFolderDrop(segPath, e);
-                      },
-                    } : {};
+                    // The current (last) segment is a valid target too —
+                    // dropping moves items into the folder being browsed;
+                    // items already inside it are filtered as no-ops in
+                    // onFolderDrop. armSpringLoad already skips `segPath === path`.
+                    const segDropProps = folderDropProps(`::seg::${segPath}`, segPath);
 
                     return (
                       <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
                         <span className="text-primary" aria-hidden="true">/</span>
                         {linkNavigation ? (
-                          <span {...segDropProps} className={isSegDrop ? "bg-accent/20 ring-2 ring-accent rounded px-1" : undefined}>
-                            <TextLink
-                              to={folderHref(driveId, segPath)}
-                              surface="secondary"
-                              className="break-all text-primary"
-                              draggable={false}
-                            >
-                              {segment}
-                            </TextLink>
-                          </span>
+                          <TextLink
+                            to={folderHref(driveId, segPath)}
+                            surface="secondary"
+                            className={cn(
+                              "break-all text-primary rounded-pill px-1 -mx-1",
+                              isSegDrop && "bg-accent/20 ring-2 ring-accent",
+                            )}
+                            draggable={false}
+                            {...segDropProps}
+                          >
+                            {segment}
+                          </TextLink>
                         ) : (
                           <button
                             type="button"
                             {...segDropProps}
                             className={cn(
-                              "text-primary hover:text-accent motion-safe:transition-colors break-all text-left",
-                              isSegDrop && "bg-accent/20 ring-2 ring-accent rounded px-1",
+                              "text-primary hover:text-accent motion-safe:transition-colors break-all text-left rounded-pill px-1 -mx-1",
+                              isSegDrop && "bg-accent/20 ring-2 ring-accent",
                             )}
                             onClick={() => openFolder(segPath)}
                           >
@@ -813,29 +961,11 @@ export default function FileBrowser({
                 </div>
               ) : null}
             </div>
-            {(showUpButton && up !== null) || headerExtra ? (
+            {(showUpButton && up !== null) || headerExtra || hereDropMounted ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {showUpButton && up !== null && (() => {
                   const isUpDrop = dropTarget === "::up";
-                  const upDropProps = !isPicker && Boolean(onInternalMove || onUploadFiles) ? {
-                    onDragOver: (e) => {
-                      const types = e.dataTransfer?.types;
-                      const isFiles = types && Array.from(types).includes("Files");
-                      const isLuna = types && Array.from(types).includes("application/x-luna-paths");
-                      if (!isFiles && !isLuna) return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
-                      setDropTarget("::up");
-                    },
-                    onDragLeave: (e) => {
-                      if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-                      if (dropTarget === "::up") setDropTarget(null);
-                    },
-                    onDrop: (e) => {
-                      void onFolderDrop(up, e);
-                    },
-                  } : {};
+                  const upDropProps = folderDropProps("::up", up);
 
                   return linkNavigation ? (
                     <Button
@@ -843,7 +973,7 @@ export default function FileBrowser({
                       surface="secondary"
                       size="sm"
                       asChild
-                      className={cn(isUpDrop && "ring-2 ring-accent bg-accent/20")}
+                      className={cn(isUpDrop && "border-transparent ring-2 ring-accent bg-accent/20")}
                       {...upDropProps}
                     >
                       <Link to={folderHref(driveId, up)} draggable={false}>↑ Up one folder</Link>
@@ -853,7 +983,7 @@ export default function FileBrowser({
                       variant="outline"
                       surface="secondary"
                       size="sm"
-                      className={cn(isUpDrop && "ring-2 ring-accent bg-accent/20")}
+                      className={cn(isUpDrop && "border-transparent ring-2 ring-accent bg-accent/20")}
                       onClick={() => openFolder(up)}
                       {...upDropProps}
                     >
@@ -861,6 +991,52 @@ export default function FileBrowser({
                     </Button>
                   );
                 })()}
+                {hereDropMounted ? (() => {
+                  // Explicit "drop into the folder being browsed" target —
+                  // slides in from behind "Up one folder" while an internal
+                  // drag is in flight. Dotted at rest; on drag-hover the
+                  // dotted border goes transparent so the single accent ring
+                  // is the outline.
+                  const isHereDrop = dropTarget === "::here";
+                  return (
+                    <Button
+                      variant="outline"
+                      surface="secondary"
+                      size="sm"
+                      smoothResize={false}
+                      aria-label="Drop files here to move them into this folder"
+                      className={cn(
+                        "border-dotted border-accent",
+                        hereDropClosing
+                          ? "slide-out-to-left-pop animate-out"
+                          : "slide-in-from-left-pop animate-in duration-300",
+                        isHereDrop && "border-transparent ring-2 ring-accent bg-accent/20",
+                      )}
+                      // backwards (not both) while open: drop the transform
+                      // after the slide so no leftover compositing layer.
+                      // animate-out's `both` is fine for the exit — the chip
+                      // unmounts at the end anyway.
+                      style={hereDropClosing ? undefined : { animationFillMode: "backwards" }}
+                      onDragOver={(e) => {
+                        if (!hasLunaPaths(e)) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropTarget("::here");
+                      }}
+                      onDragLeave={(e) => {
+                        if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
+                        if (dropTarget === "::here") setDropTarget(null);
+                      }}
+                      onDrop={(e) => {
+                        void onFolderDrop(path, e);
+                      }}
+                    >
+                      <FolderInput size={14} aria-hidden="true" />
+                      Move into this folder
+                    </Button>
+                  );
+                })() : null}
                 {headerExtra}
               </div>
             ) : null}
@@ -924,19 +1100,35 @@ export default function FileBrowser({
 
       <Card
         padding={false}
-        className={[listClassName, listDropHighlight ? "bg-accent/20" : ""].filter(Boolean).join(" ")}
+        className={listClassName}
         aria-busy={listBusy || undefined}
       >
-        {listDropHighlight ? (
+        {currentFolderDrop ? (
           <span className="sr-only" role="status">
-            Drop to upload into this folder
+            Drop to put items in this folder
           </span>
         ) : null}
         {!isPicker && multiSelect && entries.length > 0 && (
           <div
+            data-slot="file-browser-column-header"
             className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
-              selectedCount > 0 || listDropHighlight ? "bg-accent/20" : ""
+              selectedCount > 0 ? "bg-accent/20" : ""
             }`}
+            // The column header is not a drop target: swallow dragovers before
+            // the container's catch-all can claim them, and clear any lit
+            // drop highlight so the header stays completely inert.
+            onDragEnterCapture={(e) => {
+              e.stopPropagation();
+              setDropTarget(null);
+            }}
+            onDragOverCapture={(e) => {
+              e.stopPropagation();
+              setDropTarget(null);
+            }}
+            onDropCapture={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             role={selectedCount > 0 ? "toolbar" : undefined}
             aria-label={selectedCount > 0 ? "Actions for selected files" : undefined}
           >
@@ -1046,14 +1238,15 @@ export default function FileBrowser({
                     "flex items-center gap-2 px-3",
                     padY,
                     "bg-secondary text-primary",
-                    isTrashDrop ? "bg-accent/20 ring-2 ring-accent ring-inset" : "",
-                    "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
+                    // One outline: the drop ring replaces the row separator
+                    // (border-b kept transparent so the row height doesn't shift).
+                    isTrashDrop
+                      ? "bg-accent/20 ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
+                      : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                   ].join(" ")}
                   onDragOver={(e) => {
-                    if (!onDelete) return;
-                    const types = e.dataTransfer?.types;
-                    if (!types || !Array.from(types).includes("application/x-luna-paths")) return;
+                    if (!onDelete || !hasLunaPaths(e)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     e.dataTransfer.dropEffect = "move";
@@ -1066,17 +1259,11 @@ export default function FileBrowser({
                   onDrop={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    clearSpringLoad();
+                    setLunaDragActive(false);
                     setDropTarget(null);
-                    let paths = dragPathsRef.current;
-                    const raw = e.dataTransfer?.getData("application/x-luna-paths");
-                    if (raw) {
-                      try {
-                        paths = JSON.parse(raw);
-                      } catch {
-                        // Ignore malformed drag payload.
-                      }
-                    }
-                    if (paths && paths.length && onDelete) {
+                    const paths = readLunaPaths(e.dataTransfer, dragPathsRef.current);
+                    if (paths.length && onDelete) {
                       onDelete(paths);
                     }
                     dragPathsRef.current = [];
@@ -1126,35 +1313,21 @@ export default function FileBrowser({
                     "flex items-center gap-2 px-3",
                     padY,
                     "bg-secondary text-primary",
-                    isSelected || listDropHighlight ? "bg-accent/20" : "",
-                    isDrop ? "bg-accent/20 ring-2 ring-accent ring-inset" : "",
-                    "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
+                    isSelected ? "bg-accent/20" : "",
+                    // One outline: the drop ring replaces the row separator
+                    // (border-b kept transparent so the row height doesn't
+                    // shift). The last row always rounds to hug the card's
+                    // bottom edge — same geometry whether or not it's the
+                    // drop target.
+                    isDrop
+                      ? "bg-accent/20 ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
+                      : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                     canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
                   ].filter(Boolean).join(" ")}
                   draggable={canDragRow}
                   onDragStart={(e) => onRowDragStart(ctx, e)}
-                  onDragOver={(e) => {
-                    if (entry.kind !== "dir") return;
-                    if (!onInternalMove && !onUploadFiles) return;
-                    const types = e.dataTransfer?.types;
-                    const isFiles = types && Array.from(types).includes("Files");
-                    const isLuna = types && Array.from(types).includes("application/x-luna-paths");
-                    if (!isFiles && !isLuna) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.dataTransfer.dropEffect = isLuna ? "move" : "copy";
-                    setDropTarget(ctx.fullPath);
-                    setDragOver(false);
-                  }}
-                  onDragLeave={(e) => {
-                    if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
-                    if (dropTarget === ctx.fullPath) setDropTarget(null);
-                  }}
-                  onDrop={(e) => {
-                    if (entry.kind !== "dir") return;
-                    void onFolderDrop(ctx.fullPath, e);
-                  }}
+                  {...(entry.kind === "dir" ? folderDropProps(ctx.fullPath, ctx.fullPath) : {})}
                 >
                   {!isPicker && multiSelect ? (
                     <div

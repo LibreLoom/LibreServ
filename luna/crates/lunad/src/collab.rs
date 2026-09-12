@@ -156,8 +156,8 @@ impl CollabHub {
         let peer_id = PEER_SEQ.fetch_add(1, Ordering::Relaxed);
         let peer = PeerInfo {
             peer_id,
+            username: session_username(room, &user_id, &username),
             user_id,
-            username,
             color: color_for_peer(peer_id),
             can_write,
         };
@@ -213,13 +213,16 @@ impl CollabHub {
             ClientMsg::Op { payload } => {
                 if !can_write {
                     return Some(ServerEvent::Error {
-                        message: "You can read this file, but you do not have permission to edit it.".into(),
+                        message:
+                            "You can read this file, but you do not have permission to edit it."
+                                .into(),
                     });
                 }
                 let payload_bytes = payload.to_string().len();
                 if payload_bytes > MAX_OP_BYTES {
                     return Some(ServerEvent::Error {
-                        message: "That edit is too large to share live. Save the file instead.".into(),
+                        message: "That edit is too large to share live. Save the file instead."
+                            .into(),
                     });
                 }
                 room.seq += 1;
@@ -235,7 +238,9 @@ impl CollabHub {
             ClientMsg::Saved { size } => {
                 if !can_write {
                     return Some(ServerEvent::Error {
-                        message: "You can read this file, but you do not have permission to edit it.".into(),
+                        message:
+                            "You can read this file, but you do not have permission to edit it."
+                                .into(),
                     });
                 }
                 let _ = room.tx.send(ServerEvent::Saved { peer_id, size });
@@ -288,6 +293,28 @@ fn push_backlog(backlog: &mut Vec<ServerEvent>, event: ServerEvent) {
     if backlog.len() > OP_BACKLOG {
         let overflow = backlog.len() - OP_BACKLOG;
         backlog.drain(0..overflow);
+    }
+}
+
+/// Display name for a joining peer. The first session of a user keeps the bare
+/// name; concurrent extra sessions of the same `user_id` get `"{base} ({n})"`
+/// with the lowest free `n >= 2`. Numbers are assigned at join time only —
+/// peers are never renumbered when another session leaves.
+fn session_username(room: &Room, user_id: &str, base: &str) -> String {
+    if !room.peers.values().any(|p| p.user_id == user_id) {
+        return base.to_string();
+    }
+    let mut n = 2u64;
+    loop {
+        let candidate = format!("{base} ({n})");
+        if !room
+            .peers
+            .values()
+            .any(|p| p.user_id == user_id && p.username == candidate)
+        {
+            return candidate;
+        }
+        n += 1;
     }
 }
 
@@ -399,8 +426,8 @@ mod tests {
         }
         while rx_a.try_recv().is_ok() {}
         while rx_b.try_recv().is_ok() {}
-        assert!(hub
-            .handle(
+        assert!(
+            hub.handle(
                 &key,
                 a,
                 true,
@@ -409,13 +436,14 @@ mod tests {
                 },
             )
             .await
-            .is_none());
+            .is_none()
+        );
         let from_a = rx_b.recv().await.unwrap();
         assert!(matches!(from_a, ServerEvent::Op { peer_id, .. } if peer_id == a));
         // Sender also sees its own fan-out; drain it so the next recv is B's op.
         let _ = rx_a.recv().await.unwrap();
-        assert!(hub
-            .handle(
+        assert!(
+            hub.handle(
                 &key,
                 b,
                 true,
@@ -424,7 +452,8 @@ mod tests {
                 },
             )
             .await
-            .is_none());
+            .is_none()
+        );
         let from_b = rx_a.recv().await.unwrap();
         assert!(matches!(from_b, ServerEvent::Op { peer_id, .. } if peer_id == b));
     }
@@ -448,5 +477,115 @@ mod tests {
             )
             .await;
         assert!(matches!(reply, Some(ServerEvent::Error { .. })));
+    }
+
+    fn self_name(welcome: &ServerEvent, peer_id: u64) -> String {
+        match welcome {
+            ServerEvent::Welcome { peers, .. } => peers
+                .iter()
+                .find(|p| p.peer_id == peer_id)
+                .map(|p| p.username.clone())
+                .expect("welcome must list the joining peer"),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    fn peer_names(welcome: &ServerEvent) -> Vec<String> {
+        match welcome {
+            ServerEvent::Welcome { peers, .. } => {
+                peers.iter().map(|p| p.username.clone()).collect()
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn numbers_concurrent_sessions_of_same_user() {
+        let hub = CollabHub::new();
+        let key = CollabHub::room_key("d", "f.docx");
+        let (p1, mut rx1, w1) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w1, p1), "Ada");
+
+        // Second session of the same user is numbered; the broadcast to the
+        // first session carries the suffixed name too.
+        let (p2, _rx2, w2) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w2, p2), "Ada (2)");
+        let mut names = peer_names(&w2);
+        names.sort();
+        assert_eq!(names, vec!["Ada", "Ada (2)"]);
+
+        let (p3, _rx3, w3) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w3, p3), "Ada (3)");
+
+        let mut joined = Vec::new();
+        while let Ok(ev) = rx1.try_recv() {
+            if let ServerEvent::PeerJoin { peer } = ev {
+                joined.push(peer.username);
+            }
+        }
+        assert_eq!(joined, vec!["Ada", "Ada (2)", "Ada (3)"]);
+
+        // A different user with the same display name is not numbered —
+        // numbering keys on user_id, not on the name string.
+        let (p4, _rx4, w4) = hub
+            .join(key.clone(), "u2".into(), "Ada".into(), false)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w4, p4), "Ada");
+    }
+
+    #[tokio::test]
+    async fn reuses_lowest_free_session_index() {
+        let hub = CollabHub::new();
+        let key = CollabHub::room_key("d", "f.docx");
+        let (p1, _r1, _) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        let (p2, _r2, _) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        let (_p3, _r3, _) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+
+        // "Ada (2)" leaving frees index 2 for the next session.
+        hub.leave(&key, p2).await;
+        let (p4, _r4, w4) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w4, p4), "Ada (2)");
+
+        // The unnumbered first session leaving frees no numbered slot, so the
+        // next join takes the lowest free index above the survivors.
+        hub.leave(&key, p1).await;
+        let (p5, _r5, w5) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w5, p5), "Ada (4)");
+
+        // Once every session of the user has left, the next one is plain again.
+        hub.leave(&key, p5).await;
+        hub.leave(&key, p4).await;
+        // p3's session "Ada (3)" still holds the room; drop it too.
+        hub.leave(&key, _p3).await;
+        let (p6, _r6, w6) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(self_name(&w6, p6), "Ada");
     }
 }

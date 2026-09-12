@@ -1,12 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import PageNotice from "../../common/PageNotice.jsx";
+import Spinner from "../../ui/Spinner.jsx";
 import { useAuth } from "../../../context/AuthContext.jsx";
 import { useTheme } from "../../../hooks/useTheme.jsx";
 import { pathBasename } from "../../../lib/paths.js";
 import {
   createEuroOfficeSession,
   euroOfficeDocumentType,
+  forceSaveEuroOffice,
   loadEuroOfficeDocsApi,
 } from "./euroOfficeApi.js";
 import { CollabSocket } from "./collabSocket.js";
@@ -18,12 +20,19 @@ const OPEN_TIMEOUT_MS = 45_000;
  * @param {"loading"|"ready"|"error"} status
  * @param {{ peer_id: number, username: string }[]} peers
  * @param {boolean} canWrite
+ * @param {string} [selfName]
+ * @param {number | null} [selfPeerId]
  */
-function presenceLabel(status, peers, canWrite, selfName = "") {
+function presenceLabel(status, peers, canWrite, selfName = "", selfPeerId = null) {
   const self = String(selfName || "").toLowerCase();
   const others = peers
+    .filter((p) =>
+      selfPeerId != null
+        ? p.peer_id !== selfPeerId
+        : p.username && p.username.toLowerCase() !== self,
+    )
     .map((p) => p.username)
-    .filter((name) => name && name.toLowerCase() !== self);
+    .filter(Boolean);
   let base =
     status === "loading"
       ? "Starting EuroOffice…"
@@ -54,6 +63,8 @@ function publicAssetUrl(path) {
  *   canWrite?: boolean,
  *   onSaved?: () => void,
  *   onPresenceChange?: (label: string) => void,
+ *   onSaveStateChange?: (hasUnsaved: boolean) => void,
+ *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
  * }} props
  */
 export default function EuroOfficeHost({
@@ -62,6 +73,8 @@ export default function EuroOfficeHost({
   canWrite = false,
   onSaved,
   onPresenceChange,
+  onSaveStateChange,
+  onRegisterSave,
 }) {
   const mountId = useId().replace(/:/g, "");
   const placeholderId = `luna-eurooffice-${mountId}`;
@@ -71,14 +84,19 @@ export default function EuroOfficeHost({
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [peers, setPeers] = useState(/** @type {{ peer_id: number, username: string }[]} */ ([]));
+  const [selfPeerId, setSelfPeerId] = useState(/** @type {number | null} */ (null));
   const name = pathBasename(path) || path;
   const uiTheme = resolvedTheme === "dark" ? "theme-dark" : "theme-light";
 
   useEffect(() => {
+    // No room without a real file — an empty path 404s the upgrade, which
+    // surfaces in the console as a failed connection.
+    if (!driveId || !path) return;
     const sock = new CollabSocket(driveId, path);
     sock.onMessage = (msg) => {
       if (msg?.type === "welcome") {
         setPeers(Array.isArray(msg.peers) ? msg.peers : []);
+        setSelfPeerId(typeof msg.peer_id === "number" ? msg.peer_id : null);
         return;
       }
       if (msg?.type === "peer_join" && msg.peer) {
@@ -101,8 +119,8 @@ export default function EuroOfficeHost({
   const selfName = user?.display_name || user?.username || "";
 
   useEffect(() => {
-    onPresenceChange?.(presenceLabel(status, peers, canWrite, selfName));
-  }, [status, peers, canWrite, onPresenceChange, selfName]);
+    onPresenceChange?.(presenceLabel(status, peers, canWrite, selfName, selfPeerId));
+  }, [status, peers, canWrite, onPresenceChange, selfName, selfPeerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +192,9 @@ export default function EuroOfficeHost({
             callbackUrl: session.callback_url,
             user: { id: userId, name: userName },
             customization: {
+              // help/feedback chrome is disabled and the logo is Luna's.
+              // AGPL attribution is kept in luna/THIRD_PARTY_EUROOFFICE.md
+              // rather than in the editor chrome.
               anonymous: { request: false },
               compactHeader: true,
               compactToolbar: false,
@@ -198,7 +219,12 @@ export default function EuroOfficeHost({
               if (!cancelled) setStatus("ready");
             },
             onDocumentStateChange: (event) => {
-              if (event?.data === false) onSaved?.();
+              if (event?.data === true) {
+                onSaveStateChange?.(true);
+              } else if (event?.data === false) {
+                onSaveStateChange?.(false);
+                onSaved?.();
+              }
             },
             onError: (event) => {
               const message =
@@ -213,6 +239,12 @@ export default function EuroOfficeHost({
           },
         });
         editorRef.current = editor;
+        // DocsAPI exposes no client-side save command; the thunk asks lunad to
+        // send a `forcesave` to the Document Server command service with this
+        // session's document key. Only offered when the session can write.
+        if (!cancelled && write) {
+          onRegisterSave?.(() => forceSaveEuroOffice(driveId, path, session.key));
+        }
       } catch (err) {
         if (!cancelled) {
           setStatus("error");
@@ -234,15 +266,27 @@ export default function EuroOfficeHost({
         // ignore destroy races
       }
       editorRef.current = null;
+      onRegisterSave?.(null);
       const node = document.getElementById(placeholderId);
       if (node) node.replaceChildren();
     };
-  }, [driveId, path, canWrite, name, placeholderId, user, onSaved, uiTheme]);
+  }, [
+    driveId,
+    path,
+    canWrite,
+    name,
+    placeholderId,
+    user,
+    onSaved,
+    onSaveStateChange,
+    onRegisterSave,
+    uiTheme,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-primary text-secondary">
       {error ? (
-        <div className="shrink-0 px-4 pt-3">
+        <div className="shrink-0 px-4 pt-3 pb-3">
           <PageNotice variant="error" surface="primary">
             {error}
           </PageNotice>
@@ -251,9 +295,10 @@ export default function EuroOfficeHost({
       <div className="relative min-h-0 flex-1">
         {status === "loading" ? (
           <div className="absolute inset-0 z-[1] flex items-center justify-center bg-primary">
-            <p className="font-mono text-sm text-secondary motion-safe:animate-pulse">
-              Opening in EuroOffice…
-            </p>
+            <div className="flex items-center gap-3 text-secondary">
+              <p className="font-mono text-sm">Opening in EuroOffice…</p>
+              <Spinner size="md" decorative />
+            </div>
           </div>
         ) : null}
         <div id={placeholderId} className="h-full w-full" />
@@ -268,4 +313,6 @@ EuroOfficeHost.propTypes = {
   canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
   onPresenceChange: PropTypes.func,
+  onSaveStateChange: PropTypes.func,
+  onRegisterSave: PropTypes.func,
 };
