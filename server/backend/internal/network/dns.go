@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,7 +14,24 @@ import (
 	"github.com/libdns/libdns"
 )
 
-var publicIPClient = &http.Client{Timeout: 10 * time.Second}
+// errPublicIPRedirect is returned when a public-IP lookup tries to follow a
+// redirect. Echo services must answer in one hop; redirects can point at
+// attacker-controlled or private responses.
+var errPublicIPRedirect = errors.New("public IP lookup refuses redirects")
+
+// publicIPLookupURLs are the echo services DetectPublicIP queries. Tests may
+// swap this slice to point at httptest servers.
+var publicIPLookupURLs = []string{
+	"https://api64.ipify.org",
+	"https://icanhazip.com",
+}
+
+var publicIPClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errPublicIPRedirect
+	},
+}
 
 type ProviderType string
 
@@ -90,12 +108,26 @@ type DNSResult struct {
 	Error       string   `json:"error,omitempty"`
 }
 
-func DetectPublicIP(ctx context.Context) (netip.Addr, error) {
-	services := []string{
-		"https://api64.ipify.org",
-		"https://icanhazip.com",
+// isUsablePublicIP reports whether addr is fit to publish as this host's
+// public address (DDNS / setup). Loopback, private, unspecified, link-local,
+// and multicast answers are rejected so a bad echo response cannot become
+// the recorded public IP.
+func isUsablePublicIP(addr netip.Addr) bool {
+	if !addr.IsValid() {
+		return false
 	}
-	for _, url := range services {
+	addr = addr.Unmap()
+	if addr.IsLoopback() || addr.IsPrivate() || addr.IsUnspecified() ||
+		addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() {
+		return false
+	}
+	// Reuse the package probe denylist for CGNAT / metadata ranges so Detect
+	// stays aligned with ValidateHost / IsBlockedIP.
+	return !IsBlockedIP(net.IP(addr.AsSlice()))
+}
+
+func DetectPublicIP(ctx context.Context) (netip.Addr, error) {
+	for _, url := range publicIPLookupURLs {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			continue
@@ -105,14 +137,14 @@ func DetectPublicIP(ctx context.Context) (netip.Addr, error) {
 		if err != nil {
 			continue
 		}
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
 		_ = resp.Body.Close()
 		if err != nil || resp.StatusCode != http.StatusOK {
 			continue
 		}
 		ipStr := strings.TrimSpace(string(body))
 		addr, err := netip.ParseAddr(ipStr)
-		if err != nil {
+		if err != nil || !isUsablePublicIP(addr) {
 			continue
 		}
 		return addr, nil
