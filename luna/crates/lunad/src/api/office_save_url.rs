@@ -75,6 +75,22 @@ pub(crate) fn allowed_office_save_url(raw: &str) -> Result<String, &'static str>
     Ok(rewritten)
 }
 
+/// Validate + fetch a Document Server save body (no redirects).
+pub(crate) fn download_office_save(raw_url: &str) -> Result<Vec<u8>, String> {
+    let download_url = allowed_office_save_url(raw_url).map_err(|e| e.to_string())?;
+    let mut response = ureq::get(&download_url)
+        .config()
+        .max_redirects(0)
+        .timeout_global(Some(std::time::Duration::from_secs(60)))
+        .build()
+        .call()
+        .map_err(|e| format!("download failed: {e}"))?;
+    response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|e| format!("read failed: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
