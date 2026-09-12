@@ -4,17 +4,16 @@
 //! cookies, and posts saves to `callbackUrl`. These routes mint a scoped JWT
 //! and expose public content + callback endpoints for that token.
 
-use axum::body::Body;
-use axum::extract::{Extension, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::Response;
+use axum::extract::{Extension, State};
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio_util::io::ReaderStream;
 
 use crate::AppState;
+use crate::api::office_public::{public_callback, public_content};
+use crate::api::office_save_url::document_server_origin;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
 use crate::files::{self, FilesError};
@@ -27,10 +26,6 @@ struct SessionBody {
     path: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenQuery {
-    token: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct ForceSaveBody {
@@ -43,14 +38,6 @@ struct ForceSaveBody {
     key: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct CallbackBody {
-    status: i32,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    key: Option<String>,
-}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -242,163 +229,6 @@ async fn force_save(
     }
 }
 
-async fn public_content(
-    State(state): State<AppState>,
-    Query(query): Query<TokenQuery>,
-) -> Result<Response, (StatusCode, Json<Value>)> {
-    let claims = state.auth.verify_office_token(&query.token).map_err(|_| {
-        json_error(
-            StatusCode::UNAUTHORIZED,
-            "This EuroOffice link expired. Close the file and open it again.",
-        )
-    })?;
-
-    let (path, meta) = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        files::file_path(&conn, &claims.drive_id, &claims.path).map_err(map_files_err)?
-    };
-
-    let file = tokio::fs::File::open(&path).await.map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read that file for EuroOffice.",
-        )
-    })?;
-    let stream = ReaderStream::new(file);
-    let mime = mime_guess::from_path(&path).first_or_octet_stream();
-    let name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("document");
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime.as_ref())
-        .header(header::CONTENT_LENGTH, meta.len().to_string())
-        .header(header::CACHE_CONTROL, "no-store")
-        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(
-            header::CONTENT_DISPOSITION,
-            format!(
-                "attachment; filename=\"{}\"",
-                files::content_disposition_filename(name)
-            ),
-        )
-        .body(Body::from_stream(stream))
-        .unwrap())
-}
-
-async fn public_callback(
-    State(state): State<AppState>,
-    Query(query): Query<TokenQuery>,
-    headers: HeaderMap,
-    Json(body): Json<CallbackBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let _ = headers;
-    let claims = state.auth.verify_office_token(&query.token).map_err(|_| {
-        json_error(
-            StatusCode::UNAUTHORIZED,
-            "This EuroOffice link expired. Close the file and open it again.",
-        )
-    })?;
-
-    // ONLYOFFICE / EuroOffice: 2 = ready to save, 6 = force-save.
-    if matches!(body.status, 2 | 6) {
-        if !claims.write {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "This EuroOffice session is view-only, so Luna can't save changes.",
-            ));
-        }
-        let Some(raw_url) = body.url.as_deref().filter(|u| !u.is_empty()) else {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "EuroOffice did not send a download link for the saved file.",
-            ));
-        };
-        let download_url = rewrite_document_server_url(raw_url);
-        let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-            let mut response = ureq::get(&download_url)
-                .call()
-                .map_err(|e| format!("download failed: {e}"))?;
-            response
-                .body_mut()
-                .read_to_vec()
-                .map_err(|e| format!("read failed: {e}"))
-        })
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't finish saving this file.",
-            )
-        })?
-        .map_err(|e| {
-            tracing::warn!(error = %e, key = ?body.key, "eurooffice callback download failed");
-            json_error(
-                StatusCode::BAD_GATEWAY,
-                "Luna couldn't download the saved file from EuroOffice. Try saving again.",
-            )
-        })?;
-
-        let drive_id = claims.drive_id.clone();
-        let rel = claims.path.clone();
-        tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, Json<Value>)> {
-            let (dest, _meta) = {
-                let conn = state.db.lock().map_err(|_| {
-                    json_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna's index is busy. Try again.",
-                    )
-                })?;
-                files::file_path(&conn, &drive_id, &rel).map_err(map_files_err)?
-            };
-            let parent = dest.parent().ok_or_else(|| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't find where to save this file.",
-                )
-            })?;
-            let temp = files::temp_path(parent);
-            std::fs::write(&temp, &bytes).map_err(|_| {
-                let _ = std::fs::remove_file(&temp);
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't write the saved file. Check that the drive still has space.",
-                )
-            })?;
-            if let Err(e) = files::install_temp(&temp, &dest, true) {
-                let _ = std::fs::remove_file(&temp);
-                tracing::warn!(error = %e, "eurooffice save install failed");
-                return Err(json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't replace the file with the EuroOffice save.",
-                ));
-            }
-            state.gallery.upsert(&drive_id, &rel);
-            state.touch_io_activity();
-            let parent_rel = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-            state.ram_cache.invalidate_listing(&drive_id, parent_rel);
-            state.ram_cache.invalidate_listing_tree(&drive_id, &rel);
-            state.ram_cache.invalidate_thumb(&drive_id, &rel);
-            Ok(())
-        })
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't finish saving this file.",
-            )
-        })??;
-    }
-
-    Ok(Json(json!({ "error": 0 })))
-}
-
 fn office_fetch_origin() -> String {
     if let Ok(raw) = std::env::var("LUNA_OFFICE_FETCH_ORIGIN") {
         let trimmed = raw.trim().trim_end_matches('/');
@@ -414,33 +244,7 @@ fn office_fetch_origin() -> String {
     format!("http://host.containers.internal:{port}")
 }
 
-fn document_server_origin() -> String {
-    std::env::var("LUNA_DOCUMENT_SERVER_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8088".into())
-        .trim()
-        .trim_end_matches('/')
-        .to_string()
-}
 
-fn rewrite_document_server_url(raw: &str) -> String {
-    let configured = document_server_origin();
-    for prefix in [
-        "http://localhost/",
-        "https://localhost/",
-        "http://127.0.0.1/",
-        "https://127.0.0.1/",
-        "http://localhost:80/",
-        "http://127.0.0.1:80/",
-    ] {
-        if let Some(rest) = raw.strip_prefix(prefix) {
-            return format!("{configured}/{rest}");
-        }
-    }
-    if let Some(rest) = raw.strip_prefix("http://localhost:8088/") {
-        return format!("{configured}/{rest}");
-    }
-    raw.to_string()
-}
 
 fn document_key(drive_id: &str, path: &str, size: u64, modified: u64) -> String {
     let raw = format!("{drive_id}\n{path}\n{size}\n{modified}");
@@ -521,12 +325,6 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rewrite_maps_localhost_to_host_ds() {
-        let got = rewrite_document_server_url("http://localhost/cache/files/abc/output.xlsx");
-        assert_eq!(got, "http://127.0.0.1:8088/cache/files/abc/output.xlsx");
-    }
 
     #[test]
     fn document_key_changes_with_mtime() {
