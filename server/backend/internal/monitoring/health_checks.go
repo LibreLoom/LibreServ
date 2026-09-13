@@ -3,7 +3,6 @@ package monitoring
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -82,51 +81,6 @@ func (h *HTTPCheck) Run(ctx context.Context) CheckResult {
 
 	result.Status = HealthStatusHealthy
 	result.Message = fmt.Sprintf("HTTP check passed (status: %d)", resp.StatusCode)
-	return result
-}
-
-// TCPCheck performs TCP connection health checks
-type TCPCheck struct {
-	Config  TCPCheckConfig
-	Timeout time.Duration
-}
-
-// NewTCPCheck creates a TCP health check with a timeout.
-func NewTCPCheck(cfg TCPCheckConfig, timeout time.Duration) *TCPCheck {
-	return &TCPCheck{
-		Config:  cfg,
-		Timeout: timeout,
-	}
-}
-
-// Type returns the check type.
-func (t *TCPCheck) Type() string {
-	return "tcp"
-}
-
-// Run executes the TCP check.
-func (t *TCPCheck) Run(ctx context.Context) CheckResult {
-	result := CheckResult{
-		CheckType: t.Type(),
-		Timestamp: time.Now(),
-	}
-
-	address := fmt.Sprintf("%s:%d", t.Config.Host, t.Config.Port)
-
-	dialer := &net.Dialer{
-		Timeout: t.Timeout,
-	}
-
-	conn, err := dialer.DialContext(ctx, "tcp", address)
-	if err != nil {
-		result.Status = HealthStatusUnhealthy
-		result.Message = fmt.Sprintf("TCP connection failed: %v", err)
-		return result
-	}
-	_ = conn.Close()
-
-	result.Status = HealthStatusHealthy
-	result.Message = fmt.Sprintf("TCP check passed (%s)", address)
 	return result
 }
 
