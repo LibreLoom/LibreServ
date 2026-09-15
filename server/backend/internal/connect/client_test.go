@@ -177,7 +177,7 @@ func TestRealClientRouteStatusErrors(t *testing.T) {
 	if err := client.UnregisterRoute(context.Background(), "host"); err == nil || !strings.Contains(err.Error(), "removal") {
 		t.Fatalf("UnregisterRoute error = %v", err)
 	}
-	if err := client.DeleteTunnel(context.Background()); err == nil || !strings.Contains(err.Error(), "deletion") {
+	if err := client.DeleteTunnel(context.Background(), "host"); err == nil || !strings.Contains(err.Error(), "deletion") {
 		t.Fatalf("DeleteTunnel error = %v", err)
 	}
 }
@@ -187,6 +187,20 @@ func TestNewRealClientDefaults(t *testing.T) {
 	if client.baseURL != "https://connect.serv.libreloom.org" ||
 		client.client == nil || client.client.Timeout != 30*time.Second {
 		t.Fatalf("unexpected client defaults: %+v", client)
+	}
+}
+
+func TestNewRealClientDefaultRefusesRedirects(t *testing.T) {
+	client := NewRealClient(Config{})
+	if client.client.CheckRedirect == nil {
+		t.Fatal("expected CheckRedirect on default HTTP client")
+	}
+	err := client.client.CheckRedirect(nil, nil)
+	if err == nil {
+		t.Fatal("expected CheckRedirect to refuse redirects")
+	}
+	if !strings.Contains(err.Error(), "redirects are not followed") {
+		t.Fatalf("CheckRedirect = %v, want redirects-are-not-followed error", err)
 	}
 }
 
