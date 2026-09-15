@@ -177,7 +177,7 @@ func TestRealClientRouteStatusErrors(t *testing.T) {
 	if err := client.UnregisterRoute(context.Background(), "host"); err == nil || !strings.Contains(err.Error(), "removal") {
 		t.Fatalf("UnregisterRoute error = %v", err)
 	}
-	if err := client.DeleteTunnel(context.Background(), "host"); err == nil || !strings.Contains(err.Error(), "deletion") {
+	if err := client.DeleteTunnel(context.Background()); err == nil || !strings.Contains(err.Error(), "deletion") {
 		t.Fatalf("DeleteTunnel error = %v", err)
 	}
 }
