@@ -13,11 +13,13 @@ Luna never runs a Document Server container as part of the Luna product.
 3. **If EuroOffice is missing:** the file opens in the **normal modal** with a
    clear “not installed” message and Download. No fullscreen for an error.
 4. **If EuroOffice is present:** Luna escalates to a **fullscreen** shell
-   (`HeaderCard` + shared `Button` chrome, close top-right), mints a
-   short-lived office session (`POST /api/v1/office/session`), loads DocsAPI,
-   and mounts EuroOffice for live editing. DocsAPI `customization.uiTheme`
-   follows Luna light/dark; `customization.logo` uses Luna’s favicons.
-   Peers also join the Luna collab socket for presence (shown in the header).
+   (edge-to-edge frame with shared `Button` chrome — a desktop rail holding
+   the filename plus Save/Close, or a mobile top bar with an options menu),
+   mints a short-lived office session (`POST /api/v1/office/session`), loads
+   DocsAPI, and mounts EuroOffice for live editing. DocsAPI
+   `customization.uiTheme` follows Luna light/dark; `customization.logo` uses
+   Luna’s favicons. Peers also join the Luna collab socket; Lunad tracks
+   presence in the room.
 5. Document Server fetches the file from
    `/api/v1/public/office/content?token=…` (no browser cookies) and posts saves
    to `/api/v1/public/office/callback?token=…`. Set `LUNA_OFFICE_FETCH_ORIGIN`
