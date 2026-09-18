@@ -1,1 +1,1 @@
-file:///tmp/restore_fixed.go
+PACKAGE_STORAGE_PLACEHOLDER_LOAD_FROM_FILE
