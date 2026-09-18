@@ -1,1 +1,1 @@
-@/tmp/restore_fixed.go
+LOAD:/tmp/restore_fixed.go
