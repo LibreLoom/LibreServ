@@ -900,7 +900,12 @@ mod tests {
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
         let marker = luna_core::marker::Marker::new("d1", "Test");
-        crate::drive_db::create(&root, &marker).unwrap();
+        crate::drive_db::create(
+            &root,
+            &marker,
+            &luna_core::marker::pick_prefix(&root).unwrap(),
+        )
+        .unwrap();
         crate::db::upsert_drive(
             &conn,
             "d1",
@@ -1090,6 +1095,12 @@ mod http_tests {
     fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::drive_db::create(
+            mount,
+            &luna_core::marker::Marker::new("photos", "Photos"),
+            &luna_core::marker::pick_prefix(mount).unwrap(),
+        )
+        .unwrap();
         crate::db::upsert_drive(
             &conn,
             "photos",

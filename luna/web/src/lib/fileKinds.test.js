@@ -2,14 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   isArchiveFile,
   isAudioFile,
-  isCadFile,
   isComicFile,
+  isCsvFile,
   isImageFile,
   isMarkdownFile,
   isOfficeFile,
   isPdfFile,
   isTextFile,
   isVideoFile,
+  OFFICE_FORMATS,
+  OFFICE_SAVE_EXT,
   openableKind,
 } from "./fileKinds.js";
 
@@ -33,59 +35,73 @@ describe("fileKinds", () => {
     expect(isTextFile("notes.txt")).toBe(true);
   });
 
-  it("opens audio, archives, office, and marks CAD download-only", () => {
+  it("opens audio, archives, office, csv, and preview kinds", () => {
     expect(isPdfFile("report.PDF")).toBe(true);
     expect(isAudioFile("song.mp3")).toBe(true);
     expect(isArchiveFile("pack.zip")).toBe(true);
     expect(isArchiveFile("src.tar.gz")).toBe(true);
     expect(isOfficeFile("Brief.docx")).toBe(true);
-    expect(isOfficeFile("Budget.csv")).toBe(true);
+    expect(isCsvFile("Budget.csv")).toBe(true);
     expect(isComicFile("issue.cbz")).toBe(true);
-    expect(isCadFile("part.stl")).toBe(true);
     expect(openableKind("song.flac")).toBe("audio");
     expect(openableKind("pack.zip")).toBe("archive");
     expect(openableKind("deck.pptx")).toBe("office");
-    expect(openableKind("budget.csv")).toBe("office");
+    expect(openableKind("budget.csv")).toBe("csv");
     expect(openableKind("notes.ipynb")).toBe("notebook");
     expect(openableKind("meet.ics")).toBe("calendar");
     expect(openableKind("ada.vcf")).toBe("contact");
     expect(openableKind("font.woff2")).toBe("font");
     expect(openableKind("map.geojson")).toBe("geo");
-    expect(openableKind("part.stl")).toBe("cad");
     expect(openableKind("mystery.bin")).toBe(null);
   });
 
-  it("routes every EuroOffice-supported format to the office editor", () => {
-    // Mirrors the fileType list in dev/eurooffice api.js. pdf/epub keep their
-    // own viewers only as fallback when the EuroOffice pack is missing.
-    const officeNames = [
-      // word
-      "a.doc", "a.docx", "a.docm", "a.dot", "a.dotx", "a.dotm",
-      "a.odt", "a.fodt", "a.ott", "a.sxw", "a.stw",
-      "a.rtf", "a.epub", "a.fb2", "a.mht", "a.mhtml",
-      "a.wps", "a.wpt", "a.hwp", "a.hwpx", "a.hml", "a.pages",
-      "a.oform", "a.docxf", "a.gdoc",
-      // spreadsheet
-      "a.xls", "a.xlsx", "a.xlsm", "a.xlsb", "a.xlt", "a.xltx", "a.xltm",
-      "a.ods", "a.fods", "a.ots", "a.sxc",
-      "a.csv", "a.tsv", "a.et", "a.ett", "a.numbers", "a.gsheet",
-      // presentation
-      "a.ppt", "a.pptx", "a.pptm", "a.pps", "a.ppsx", "a.ppsm",
-      "a.pot", "a.potx", "a.potm",
-      "a.odp", "a.fodp", "a.otp", "a.sxi", "a.odg",
-      "a.dps", "a.dpt", "a.key", "a.gslides",
-      // pdf + fixed-layout
-      "a.pdf", "a.djvu", "a.xps", "a.oxps",
-      // diagrams
-      "a.vsdx", "a.vssx", "a.vstx", "a.vsdm", "a.vssm", "a.vstm",
-    ];
-    for (const name of officeNames) {
-      expect(openableKind(name)).toBe("office");
-      expect(isOfficeFile(name)).toBe(true);
+  it("routes exactly the verified EuroOffice formats to the office editor", () => {
+    // The table is the spec — every ext in it must classify as office, and
+    // the real conversion check lives in office/x2tFormats.test.js.
+    for (const ext of Object.keys(OFFICE_FORMATS)) {
+      expect(openableKind(`a.${ext}`), `.${ext}`).toBe("office");
+      expect(isOfficeFile(`a.${ext}`)).toBe(true);
     }
-    expect(openableKind("report.pdf")).toBe("office");
-    expect(openableKind("book.epub")).toBe("office");
-    expect(openableKind("table.tsv")).toBe("office");
+  });
+
+  it("rejects formats Luna has no implemented support for", () => {
+    // 3D/CAD — no renderer, previously a dead "cad" kind.
+    for (const name of ["part.stl", "a.obj", "a.gltf", "a.step"]) {
+      expect(openableKind(name), name).toBe(null);
+    }
+    // Office formats the bundled x2t can't read: doc, the cloud pointers,
+    // iWork/WPS/HWP/StarOffice, diagrams, fixed-layout, mht/epub/fb2 as
+    // office docs (epub still opens via the ebook kind).
+    const notOffice = [
+      "a.doc", "a.gdoc", "a.gsheet", "a.gslides", "a.pages", "a.numbers",
+      "a.key", "a.wps", "a.et", "a.dps", "a.hwp", "a.sxw", "a.sxc", "a.sxi",
+      "a.hml", "a.mht", "a.mhtml", "a.fb2", "a.vsdx", "a.vssm", "a.djvu",
+      "a.xps", "a.oxps", "a.dot", "a.pot",
+    ];
+    for (const name of notOffice) {
+      expect(isOfficeFile(name), name).toBe(false);
+      expect(openableKind(name), name).toBe(null);
+    }
+    // pdf/epub are not office — they have their own viewers.
+    expect(openableKind("report.pdf")).toBe("pdf");
+    expect(openableKind("book.epub")).toBe("ebook");
+    // csv/tsv preview via the table viewer, not the office converter.
+    expect(openableKind("table.tsv")).toBe("csv");
+    // No browser plays these; he'd see a broken <video>/<img> instead.
+    expect(openableKind("movie.mkv")).toBe(null);
+    expect(openableKind("pic.heic")).toBe(null);
+  });
+
+  it("keeps save capability to formats that round-trip without silent loss", () => {
+    // Every saveable ext must itself be an office ext.
+    for (const ext of OFFICE_SAVE_EXT) {
+      expect(OFFICE_FORMATS[ext], `.${ext} in OFFICE_FORMATS`).toBeTruthy();
+    }
+    // View-only: macros would be stripped; flat ODF and legacy have no writer.
+    for (const ext of ["docm", "dotm", "xlsm", "xltm", "pptm", "potm",
+      "fodt", "fods", "fodp", "xls", "xlt", "ppt", "pps"]) {
+      expect(OFFICE_SAVE_EXT.has(ext), `.${ext}`).toBe(false);
+    }
   });
 
   it("keeps plaintext formats on the text and markdown editors", () => {

@@ -635,7 +635,7 @@ mod tests {
         assert!(!plain.contains("os error"));
 
         let raw = anyhow::anyhow!(
-            "remove_file /var/lib/luna/mounts/drives/aabbccdd/.luna: Permission denied (os error 13)"
+            "remove_file /var/lib/luna/mounts/drives/aabbccdd/.luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f.sqlite3: Permission denied (os error 13)"
         );
         let plain_raw = super::plain_remove_error(&raw);
         assert_eq!(plain_raw, "Luna couldn't remove this drive. Try again.");

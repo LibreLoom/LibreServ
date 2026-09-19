@@ -107,6 +107,26 @@ describe("PhotoTimeline cascading stagger", () => {
     expect(onSelectDay.mock.calls[0][0]).toHaveLength(2);
   });
 
+  it("keeps Select day available while the day is collapsed", () => {
+    const onSelectDay = vi.fn();
+    const photos = [
+      { name: "p1.jpg", path: "p1.jpg", drive_id: "d1", taken_at: 1_700_000_000 },
+      { name: "p2.jpg", path: "p2.jpg", drive_id: "d1", taken_at: 1_700_000_000 },
+    ];
+    render(
+      <PhotoTimeline
+        photos={photos}
+        selectMode
+        onSelectDay={onSelectDay}
+        selectedKeys={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Collapse/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Select day/i }));
+    expect(onSelectDay).toHaveBeenCalled();
+    expect(onSelectDay.mock.calls[0][0]).toHaveLength(2);
+  });
+
   it("can collapse a day with the chevron control", () => {
     const photos = [
       { name: "p1.jpg", path: "p1.jpg", drive_id: "d1", taken_at: 1_700_000_000 },

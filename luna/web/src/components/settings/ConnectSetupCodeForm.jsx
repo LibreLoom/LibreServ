@@ -92,7 +92,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
         </p>
       )}
       <div>
-        <label htmlFor="luna-connect-device-token" className="block text-sm text-primary mb-1.5">
+        <label htmlFor="luna-connect-device-token" className="block text-sm text-primary mb-1.5 translate-x-5">
           Device token
         </label>
         <ShakeTarget shake={error || tokenError}>

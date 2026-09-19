@@ -16,6 +16,16 @@ export function folderHref(driveId, folderPath) {
   return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
 }
 
+/** Router href for opening a file in its folder on a drive. */
+export function fileHref(driveId, filePath) {
+  const folder = parentPath(filePath) ?? "";
+  const name = pathBasename(filePath);
+  const base = folderHref(driveId, folder);
+  if (!name) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}file=${encodeURIComponent(name)}`;
+}
+
 /**
  * Router href for a search hit: folders open into themselves; files open the
  * parent folder and deep-link a `select=` path so the browser can highlight

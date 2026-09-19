@@ -2,14 +2,14 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import FileViewer from "./FileViewer.jsx";
 
-// OfficeEditor mounts EuroOfficeHost (auth/theme contexts, sockets, DocsAPI);
-// the fullscreen chrome tests only need to know the editor subtree exists.
-// The mock also captures props so tests can drive the save-state callbacks the
-// real EuroOfficeHost would fire.
+// EuroOfficeHost pulls in auth/theme contexts, sockets, and the DocsAPI
+// script load; the fullscreen chrome tests only need to know the editor
+// subtree exists. The mock also captures props so tests can drive the
+// save-state callbacks and the missing-pack report the real host fires.
 const officeMocks = vi.hoisted(() => ({
   editorProps: /** @type {Record<string, any>} */ ({}),
 }));
-vi.mock("./office/OfficeEditor.jsx", () => ({
+vi.mock("./office/EuroOfficeHost.jsx", () => ({
   default: (props) => {
     officeMocks.editorProps = props;
     return <div data-testid="office-editor" />;
@@ -18,6 +18,26 @@ vi.mock("./office/OfficeEditor.jsx", () => ({
 
 /** Fullscreen exit animation duration (file-viewer-out, 250ms) + slack. */
 const EXIT_WAIT_MS = 300;
+
+/** The mounted CodeMirror view — stashed on the editor host element. */
+function cmView() {
+  const host = document.querySelector("[data-slot$='-editor-surface']");
+  if (!host) throw new Error("no editor surface mounted");
+  return /** @type {any} */ (host).__cmView;
+}
+
+function cmText() {
+  return cmView().state.doc.toString();
+}
+
+/** Replace the whole document through the real CM dispatch path. */
+async function cmReplace(text) {
+  await act(async () => {
+    cmView().dispatch({
+      changes: { from: 0, to: cmView().state.doc.length, insert: text },
+    });
+  });
+}
 
 async function waitForExitAnimation() {
   await act(async () => {
@@ -232,17 +252,17 @@ describe("FileViewer image preview", () => {
   });
 });
 
-describe("FileViewer text save", () => {
+describe("FileViewer text editor (fullscreen)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("saves an existing text file with overwrite=1", async () => {
+  function mockTextFetch(body = "hello") {
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       const method = (init.method || "GET").toUpperCase();
       if (u.includes("/files/content") && method === "GET") {
-        return new Response("hello", { status: 200, headers: { "Content-Type": "text/plain" } });
+        return new Response(body, { status: 200, headers: { "Content-Type": "text/plain" } });
       }
       if (u.includes("/files/upload") && method === "POST") {
         return new Response(JSON.stringify({ name: "note.txt" }), {
@@ -253,45 +273,27 @@ describe("FileViewer text save", () => {
       return new Response("{}", { status: 500 });
     });
     vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
 
+  it("opens a writable text file in the fullscreen editor, not the modal", async () => {
+    mockTextFetch();
     render(
-      <FileViewer
-        open
-        driveId="d1"
-        path="notes/note.txt"
-        onClose={() => {}}
-      />,
+      <FileViewer open driveId="d1" path="notes/note.txt" onClose={() => {}} />,
     );
 
-    const editor = await screen.findByLabelText("Contents of note.txt");
-    expect(editor).toHaveValue("hello");
-    fireEvent.change(editor, { target: { value: "hello world" } });
-    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
-
-    await waitFor(() => {
-      const upload = fetchMock.mock.calls.find(([url, init]) =>
-        String(url).includes("/files/upload") && (init?.method || "GET").toUpperCase() === "POST"
-      );
-      expect(upload).toBeTruthy();
-      expect(String(upload[0])).toContain("overwrite=1");
-    });
-
-    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
-
-    fireEvent.change(editor, { target: { value: "hello world again" } });
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await screen.findByLabelText("Contents of note.txt");
+    expect(
+      document.querySelector('[data-slot="file-viewer-overlay"]'),
+    ).toBeInTheDocument();
+    // The rail carries the editor chrome — no modal footer.
+    expect(
+      document.querySelector('[data-slot="editor-rail"]'),
+    ).toBeInTheDocument();
   });
 
-  it("shows Saved when text matches saved content on load", async () => {
-    const fetchMock = vi.fn(async (url, init = {}) => {
-      const u = String(url);
-      const method = (init.method || "GET").toUpperCase();
-      if (u.includes("/files/content") && method === "GET") {
-        return new Response("hello", { status: 200, headers: { "Content-Type": "text/plain" } });
-      }
-      return new Response("{}", { status: 500 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
+  it("saves an existing text file with overwrite=1", async () => {
+    const fetchMock = mockTextFetch();
 
     render(
       <FileViewer
@@ -303,7 +305,137 @@ describe("FileViewer text save", () => {
     );
 
     await screen.findByLabelText("Contents of note.txt");
-    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+    await waitFor(() => expect(cmText()).toBe("hello"));
+
+    // Save sits in the rail — disabled until the editor registers its
+    // thunk and reports a dirty draft.
+    const saveBtn = screen.getByRole("button", { name: "Save" });
+    expect(saveBtn).toBeDisabled();
+
+    await cmReplace("hello world");
+    await waitFor(() => expect(saveBtn).toBeEnabled());
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      const upload = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).includes("/files/upload") && (init?.method || "GET").toUpperCase() === "POST"
+      );
+      expect(upload).toBeTruthy();
+      expect(String(upload[0])).toContain("overwrite=1");
+    });
+
+    await waitFor(() => expect(saveBtn).toBeDisabled());
+
+    await cmReplace("hello world again");
+    await waitFor(() => expect(saveBtn).toBeEnabled());
+  });
+
+  it("keeps Save disabled while the draft matches the file on Luna", async () => {
+    mockTextFetch();
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={() => {}}
+      />,
+    );
+
+    await screen.findByLabelText("Contents of note.txt");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("autosaves once typing pauses, like the office editor", async () => {
+    const fetchMock = mockTextFetch();
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={() => {}}
+      />,
+    );
+
+    await screen.findByLabelText("Contents of note.txt");
+    await waitFor(() => expect(cmText()).toBe("hello"));
+    const saveBtn = screen.getByRole("button", { name: "Save" });
+
+    await act(async () => {
+      cmView().dispatch({ changes: { from: 5, insert: " world" } });
+    });
+
+    // Under the idle threshold the tick notices the dirty doc but holds.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/files/upload")),
+    ).toBe(false);
+
+    // Past the ~2s idle pause the tick saves and the rail button goes clean.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+    });
+    const upload = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).includes("/files/upload") &&
+      (init?.method || "GET").toUpperCase() === "POST",
+    );
+    expect(upload).toBeTruthy();
+    await waitFor(() => expect(saveBtn).toBeDisabled());
+  }, 10_000);
+
+  it("guards a dirty close and saves before closing", async () => {
+    const fetchMock = mockTextFetch();
+    const onClose = vi.fn();
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={onClose}
+      />,
+    );
+
+    await screen.findByLabelText("Contents of note.txt");
+    await cmReplace("changed");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
+    expect(screen.getByText("Document Unsaved")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and close" }));
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url, init]) =>
+          String(url).includes("/files/upload") &&
+          (init?.method || "GET").toUpperCase() === "POST"),
+      ).toBe(true);
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps a read-only text file in the preview modal", async () => {
+    mockTextFetch();
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={() => {}}
+        canWrite={false}
+      />,
+    );
+
+    const editor = await screen.findByLabelText("Contents of note.txt");
+    expect(editor).toHaveAttribute("readonly");
+    expect(
+      document.querySelector('[data-slot="file-viewer-overlay"]'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 });
 
@@ -331,7 +463,7 @@ describe("FileViewer markdown editor", () => {
     return fetchMock;
   }
 
-  it("toggles between Edit and Preview for .md files", async () => {
+  it("opens .md straight into the fullscreen editor with Write/Source/Read", async () => {
     mockMarkdownFetch();
 
     render(
@@ -343,18 +475,23 @@ describe("FileViewer markdown editor", () => {
       />,
     );
 
-    const editor = await screen.findByLabelText("Contents of roadmap.md");
-    expect(editor).toHaveValue("# Title\n\nSome **bold** text");
+    await screen.findByLabelText("Contents of roadmap.md");
+    await waitFor(() =>
+      expect(cmText()).toBe("# Title\n\nSome **bold** text"),
+    );
+    expect(
+      document.querySelector('[data-slot="file-viewer-overlay"]'),
+    ).toBeInTheDocument();
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Read" }));
 
     expect(screen.queryByLabelText("Contents of roadmap.md")).not.toBeInTheDocument();
     const preview = screen.getByLabelText("Preview of roadmap.md");
     expect(preview.querySelector("h1")).toHaveTextContent("Title");
     expect(preview.querySelector("strong")).toHaveTextContent("bold");
 
-    fireEvent.click(screen.getByRole("radio", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Write" }));
     expect(screen.getByLabelText("Contents of roadmap.md")).toBeInTheDocument();
   });
 
@@ -370,9 +507,11 @@ describe("FileViewer markdown editor", () => {
       />,
     );
 
-    const editor = await screen.findByLabelText("Contents of roadmap.md");
-    fireEvent.change(editor, { target: { value: "# Updated" } });
-    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+    await screen.findByLabelText("Contents of roadmap.md");
+    const saveBtn = screen.getByRole("button", { name: "Save" });
+    await cmReplace("# Updated");
+    await waitFor(() => expect(saveBtn).toBeEnabled());
+    fireEvent.click(saveBtn);
 
     await waitFor(() => {
       const upload = fetchMock.mock.calls.find(([url, init]) =>
@@ -381,7 +520,33 @@ describe("FileViewer markdown editor", () => {
       expect(upload).toBeTruthy();
       expect(String(upload[0])).toContain("overwrite=1");
     });
-    expect(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+    await waitFor(() => expect(saveBtn).toBeDisabled());
+  });
+
+  it("keeps a read-only .md in the modal preview", async () => {
+    mockMarkdownFetch();
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="docs/roadmap.md"
+        onClose={() => {}}
+        canWrite={false}
+      />,
+    );
+
+    // Read-only opens on the rendered preview; Source shows the raw text.
+    const preview = await screen.findByLabelText("Preview of roadmap.md");
+    expect(preview.querySelector("h1")).toHaveTextContent("Title");
+    expect(
+      document.querySelector('[data-slot="file-viewer-overlay"]'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Source" }));
+    expect(screen.getByLabelText("Contents of roadmap.md")).toHaveTextContent(
+      "# Title",
+    );
   });
 
   it("inserts markdown syntax from the formatting toolbar", async () => {
@@ -396,10 +561,15 @@ describe("FileViewer markdown editor", () => {
       />,
     );
 
-    const editor = await screen.findByLabelText("Contents of roadmap.md");
-    /** @type {HTMLTextAreaElement} */ (editor).setSelectionRange(0, 0);
+    await screen.findByLabelText("Contents of roadmap.md");
+    await waitFor(() =>
+      expect(cmText()).toBe("# Title\n\nSome **bold** text"),
+    );
+    await act(async () => {
+      cmView().dispatch({ selection: { anchor: 0 } });
+    });
     fireEvent.click(screen.getByRole("button", { name: "List" }));
-    expect(editor).toHaveValue("- # Title\n\nSome **bold** text");
+    expect(cmText()).toBe("- # Title\n\nSome **bold** text");
   });
 
   it("keeps the plain textarea for non-markdown text files", async () => {
@@ -426,15 +596,9 @@ describe("FileViewer fullscreen office overlay", () => {
     vi.unstubAllGlobals();
   });
 
-  function mockEuroOfficePresent() {
-    vi.stubGlobal("fetch", vi.fn(async (url) =>
-      String(url).includes("/eurooffice/")
-        ? new Response("/* DocsAPI */", {
-            status: 200,
-            headers: { "Content-Type": "application/javascript" },
-          })
-        : new Response("{}", { status: 404 }),
-    ));
+  /** Simulate the DocsAPI script failing to load — the missing pack. */
+  function reportEuroOfficeMissing() {
+    act(() => officeMocks.editorProps.onUnavailable());
   }
 
   async function findFullscreenOverlay() {
@@ -444,10 +608,11 @@ describe("FileViewer fullscreen office overlay", () => {
     return document.querySelector('[data-slot="file-viewer-overlay"]');
   }
 
-  it("routes pdf and other EuroOffice formats to the office editor", async () => {
-    mockEuroOfficePresent();
+  it("routes the verified office formats to the fullscreen office editor", async () => {
+    // View-only formats (xlsm, ppt) still open fullscreen — EuroOffice is
+    // their only renderer; they just can't save.
     const { rerender } = render(
-      <FileViewer open driveId="d1" path="docs/report.pdf" onClose={() => {}} />,
+      <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
     expect(screen.getByTestId("office-editor")).toBeInTheDocument();
@@ -455,9 +620,9 @@ describe("FileViewer fullscreen office overlay", () => {
     for (const path of [
       "docs/sheet.xlsm",
       "docs/deck.ppsx",
-      "docs/diagram.vsdx",
-      "docs/book.epub",
-      "docs/scan.djvu",
+      "docs/form.docxf",
+      "docs/legacy.xls",
+      "docs/old.ppt",
     ]) {
       rerender(
         <FileViewer open driveId="d1" path={path} onClose={() => {}} />,
@@ -467,19 +632,16 @@ describe("FileViewer fullscreen office overlay", () => {
     }
   });
 
-  it("falls back to the browser pdf preview when EuroOffice is missing", async () => {
+  it("opens pdf in its own modal preview — never EuroOffice", async () => {
+    // The bundled x2t can't read pdf at all (verified in
+    // office/x2tFormats.test.js), so pdf routes to the built-in viewer in
+    // the preview modal, pack or no pack.
     const realCreateObjectURL = URL.createObjectURL;
     URL.createObjectURL = vi.fn(() => "blob:mock-pdf");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url) => {
         const u = String(url);
-        if (u.includes("/eurooffice/")) {
-          return new Response("<!doctype html>", {
-            status: 200,
-            headers: { "Content-Type": "text/html" },
-          });
-        }
         if (u.includes("/files/content")) {
           return new Response("%PDF-1.4 fake", { status: 200 });
         }
@@ -492,35 +654,69 @@ describe("FileViewer fullscreen office overlay", () => {
       );
       expect(await screen.findByTitle("PDF preview")).toBeInTheDocument();
       expect(screen.queryByTestId("office-editor")).not.toBeInTheDocument();
-      expect(screen.queryByText(/EuroOffice is not on this Luna/)).not.toBeInTheDocument();
+      expect(
+        document.querySelector('[data-slot="file-viewer-overlay"]'),
+      ).not.toBeInTheDocument();
     } finally {
       URL.createObjectURL = realCreateObjectURL;
     }
   });
 
-  it("keeps office formats without a fallback viewer on the OfficeEditor missing state", async () => {
-    // OfficeEditor is mocked — assert the phase prop it receives rather than
-    // its internal "EuroOffice is not on this Luna" card.
+  it("previews csv in the modal table viewer, not the office editor", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response("<!doctype html>", {
-          status: 200,
-          headers: { "Content-Type": "text/html" },
-        }),
-      ),
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/files/content")) {
+          return new Response("Name,Qty\nApples,4\nPears,2\n", { status: 200 });
+        }
+        return new Response("{}", { status: 404 });
+      }),
     );
     render(
-      <FileViewer open driveId="d1" path="docs/scan.djvu" onClose={() => {}} />,
+      <FileViewer open driveId="d1" path="docs/budget.csv" onClose={() => {}} />,
     );
-    await waitFor(() => {
-      expect(officeMocks.editorProps.phase).toBe("missing");
-    });
-    expect(screen.getByTestId("office-editor")).toBeInTheDocument();
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Apples")).toBeInTheDocument();
+    expect(screen.queryByTestId("office-editor")).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-slot="file-viewer-overlay"]'),
+    ).not.toBeInTheDocument();
   });
 
-  it("animates in once EuroOffice is ready and animates out before unmount", async () => {
-    mockEuroOfficePresent();
+  it("opens nothing for formats with no implemented support", async () => {
+    // No fullscreen overlay, no office editor, no fake preview pane — these
+    // never reach FileViewer from the browser (openableKind returns null),
+    // but a stale deep link must not mount the office editor either.
+    for (const path of ["mesh.stl", "old.doc", "deck.key", "clip.mkv"]) {
+      const { unmount } = render(
+        <FileViewer open driveId="d1" path={`f/${path}`} onClose={() => {}} />,
+      );
+      await act(async () => {});
+      expect(
+        document.querySelector('[data-slot="file-viewer-overlay"]'),
+        path,
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId("office-editor"), path).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("shows the OfficeEditor missing card when the pack is absent", async () => {
+    // EuroOfficeHost is mocked — the real OfficeEditor renders its own
+    // "can't open office files" card when the host reports missing.
+    render(
+      <FileViewer open driveId="d1" path="docs/scan.xlsx" onClose={() => {}} />,
+    );
+    await findFullscreenOverlay();
+    reportEuroOfficeMissing();
+    expect(
+      await screen.findByText(/can't open office files/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("office-editor")).not.toBeInTheDocument();
+  });
+
+  it("animates in on open and animates out before unmount", async () => {
     const onClose = vi.fn();
     const { rerender } = render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
@@ -546,7 +742,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("runs the exit animation when Escape closes the fullscreen editor", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     const { rerender } = render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
@@ -565,8 +760,29 @@ describe("FileViewer fullscreen office overlay", () => {
     expect(document.querySelector('[data-slot="file-viewer-overlay"]')).not.toBeInTheDocument();
   });
 
+  it("keeps the mounted editor and its real path through the exit animation", async () => {
+    // Regression: the parent clears viewerPath on close, so `path` arrives
+    // as "". The exiting overlay must keep the editor it was showing —
+    // re-running on an empty path flashed a bogus "cannot open this file
+    // type" card (or mounted a text editor on "") for the last 250ms.
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
+    );
+    await findFullscreenOverlay();
+    expect(officeMocks.editorProps.path).toBe("docs/report.docx");
+
+    rerender(<FileViewer open={false} driveId="d1" path="" onClose={onClose} />);
+
+    expect(document.querySelector('[data-slot="file-viewer-overlay"]')).toHaveClass("file-viewer-exit");
+    expect(screen.getByTestId("office-editor")).toBeInTheDocument();
+    expect(officeMocks.editorProps.path).toBe("docs/report.docx");
+
+    await waitForExitAnimation();
+    expect(document.querySelector('[data-slot="file-viewer-overlay"]')).not.toBeInTheDocument();
+  });
+
   it("offers a Save button in the rail that tracks editor save state", async () => {
-    mockEuroOfficePresent();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
@@ -601,7 +817,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("keeps Save enabled after a failed save attempt so the user can retry", async () => {
-    mockEuroOfficePresent();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
@@ -629,7 +844,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("hides the save control in view-only mode", async () => {
-    mockEuroOfficePresent();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} canWrite={false} />,
     );
@@ -638,7 +852,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("closes straight away without the modal when there are no unsaved changes", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
@@ -651,7 +864,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("intercepts a dirty close with the modal; Cancel keeps editing", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
@@ -673,7 +885,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("closes via Close anyway without saving", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     const runSave = vi.fn(async () => {});
     render(
@@ -691,7 +902,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("saves then closes via Save and close", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     const runSave = vi.fn(async () => {});
     render(
@@ -709,7 +919,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("keeps the modal open and shows the error when Save and close fails", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     const runSave = vi.fn(async () => {
       throw new Error("EuroOffice couldn't save this file.");
@@ -734,7 +943,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("intercepts a dirty Escape with the modal, and modal Escape cancels", async () => {
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
@@ -756,7 +964,6 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("asks the browser to guard tab close only while unsaved", async () => {
-    mockEuroOfficePresent();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
@@ -778,18 +985,17 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 
   it("lays out a book-spine rail on desktop with the filename, Save, and Close", async () => {
-    mockEuroOfficePresent();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
 
-    const rail = document.querySelector('[data-slot="office-rail"]');
+    const rail = document.querySelector('[data-slot="editor-rail"]');
     expect(rail).toBeInTheDocument();
     expect(within(/** @type {HTMLElement} */ (rail)).getByText("report.docx")).toBeInTheDocument();
     expect(within(/** @type {HTMLElement} */ (rail)).getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(within(/** @type {HTMLElement} */ (rail)).getByRole("button", { name: "Close editor" })).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="office-topbar"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="editor-topbar"]')).not.toBeInTheDocument();
   });
 
   it("uses a compact bar plus an options menu on mobile viewports", async () => {
@@ -804,15 +1010,14 @@ describe("FileViewer fullscreen office overlay", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     }));
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
     );
     await findFullscreenOverlay();
 
-    expect(document.querySelector('[data-slot="office-rail"]')).not.toBeInTheDocument();
-    const topbar = document.querySelector('[data-slot="office-topbar"]');
+    expect(document.querySelector('[data-slot="editor-rail"]')).not.toBeInTheDocument();
+    const topbar = document.querySelector('[data-slot="editor-topbar"]');
     expect(topbar).toBeInTheDocument();
     expect(within(/** @type {HTMLElement} */ (topbar)).getByText("report.docx")).toBeInTheDocument();
 
@@ -849,7 +1054,6 @@ describe("FileViewer fullscreen office overlay", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     }));
-    mockEuroOfficePresent();
     const onClose = vi.fn();
     render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
@@ -866,5 +1070,192 @@ describe("FileViewer fullscreen office overlay", () => {
     });
     expect(onClose).not.toHaveBeenCalled();
     expect(document.querySelector('[data-slot="file-viewer-overlay"]')).toBeInTheDocument();
+  });
+});
+
+describe("FileViewer conversion hints", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function stubDriveFetch() {
+    const calls = { uploads: /** @type {FormData[]} */ ([]) };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, options) => {
+        const u = String(url);
+        if (u.includes("/files/upload")) {
+          calls.uploads.push(/** @type {FormData} */ (options?.body));
+          return new Response("{}", { status: 200 });
+        }
+        if (u.includes("/files/content")) {
+          return new Response("Name,Qty\nApples,4\nPears,2\n", { status: 200 });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    return calls;
+  }
+
+  it("shows the convert hint and converts csv → xlsx on click", async () => {
+    const calls = stubDriveFetch();
+    const onOpenPath = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="docs/budget.csv"
+        onClose={() => {}}
+        onSaved={onSaved}
+        onOpenPath={onOpenPath}
+      />,
+    );
+
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(
+      screen.getByText(/converting it to a/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(".xlsx")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Convert & open/ }));
+    await waitFor(() => expect(onOpenPath).toHaveBeenCalledWith("docs/budget.xlsx"));
+    expect(onSaved).toHaveBeenCalled();
+    expect(calls.uploads).toHaveLength(1);
+    const uploaded = calls.uploads[0].get("file");
+    expect(uploaded).toBeInstanceOf(File);
+    expect(/** @type {File} */ (uploaded).name).toBe("budget.xlsx");
+  });
+
+  it("picks a free name when the converted copy already exists", async () => {
+    // A taken name makes the upload answer 409 — the retry uses the next one.
+    const onOpenPath = vi.fn();
+    let uploadAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/files/upload")) {
+          uploadAttempts += 1;
+          return uploadAttempts === 1
+            ? new Response(
+                JSON.stringify({ error: "A file with this name is already here." }),
+                { status: 409 },
+              )
+            : new Response("{}", { status: 200 });
+        }
+        if (u.includes("/files/content")) {
+          return new Response("a,b\n1,2\n", { status: 200 });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="docs/budget.csv"
+        onClose={() => {}}
+        onOpenPath={onOpenPath}
+      />,
+    );
+    const button = await screen.findByRole("button", { name: /Convert & open/ });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(onOpenPath).toHaveBeenCalledWith("docs/budget (2).xlsx"),
+    );
+    expect(uploadAttempts).toBe(2);
+  });
+
+  it("surfaces the server's upload error instead of a dead-end message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/files/upload")) {
+          return new Response(
+            JSON.stringify({ error: "This drive is full." }),
+            { status: 507 },
+          );
+        }
+        if (u.includes("/files/content")) {
+          return new Response("a,b\n1,2\n", { status: 200 });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    render(
+      <FileViewer open driveId="d1" path="docs/budget.csv" onClose={() => {}} />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Convert & open/ }),
+    );
+    expect(await screen.findByText("This drive is full.")).toBeInTheDocument();
+  });
+
+  it("hints pdf → docx without a convert button", async () => {
+    const realCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = vi.fn(() => "blob:mock-pdf");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/files/content")) {
+          return new Response("%PDF-1.4 fake", { status: 200 });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    try {
+      render(
+        <FileViewer open driveId="d1" path="docs/report.pdf" onClose={() => {}} />,
+      );
+      expect(await screen.findByTitle("PDF preview")).toBeInTheDocument();
+      expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+      expect(screen.getByText(".docx")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Convert & open/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Download/ })).toBeInTheDocument();
+      // The corner X and the footer button both read "Close" — either works.
+      expect(
+        screen.getAllByRole("button", { name: "Close" }).length,
+      ).toBeGreaterThan(0);
+    } finally {
+      URL.createObjectURL = realCreateObjectURL;
+    }
+  });
+
+  it("shows the cannot-open card with a convert hint for office-adjacent types", async () => {
+    render(
+      <FileViewer open driveId="d1" path="docs/old.doc" onClose={() => {}} />,
+    );
+    expect(
+      await screen.findByText(/cannot open this kind of file/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+    expect(screen.getByText(".docx")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Convert & open/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the convert button without write access", async () => {
+    stubDriveFetch();
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="docs/budget.csv"
+        onClose={() => {}}
+        canWrite={false}
+      />,
+    );
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Convert & open/ }),
+    ).not.toBeInTheDocument();
   });
 });

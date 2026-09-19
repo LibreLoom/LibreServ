@@ -1,5 +1,5 @@
 //! Reclaimable in-RAM caches for thumbs, directory listings, and in-flight
-//! small writes — the hot layer above USB-resident `.lunathumbs` / `.luna`.
+//! small writes — the hot layer above USB-resident `.luna-<uuid>-*` state.
 //!
 //! Clean caches (thumbs, listings, hot-read bodies) drop under memory pressure.
 //! Dirty write buffers never vanish silently: pressure flushes them to USB or
@@ -501,7 +501,7 @@ impl RamCache {
             std::fs::create_dir_all(parent).map_err(FilesError::Io)?;
         }
         let dir = dest.parent().unwrap_or(mount);
-        let temp = files::temp_path(dir);
+        let temp = files::temp_path_at(mount, dir)?;
         {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new()
@@ -637,6 +637,12 @@ mod tests {
     #[test]
     fn dirty_accept_read_flush() {
         let dir = tempfile::tempdir().unwrap();
+        crate::drive_db::create(
+            dir.path(),
+            &luna_core::marker::Marker::new("d1", "Test"),
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
         let cache = RamCache::new();
         cache
             .accept_dirty("d1", "note.txt", "note.txt", b"hello".to_vec())
@@ -689,6 +695,12 @@ mod tests {
     #[test]
     fn flush_drive_dirty_before_drop_keeps_bytes() {
         let dir = tempfile::tempdir().unwrap();
+        crate::drive_db::create(
+            dir.path(),
+            &luna_core::marker::Marker::new("d1", "Test"),
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
         let cache = RamCache::new();
         cache
             .accept_dirty("d1", "keep.txt", "keep.txt", b"persist".to_vec())

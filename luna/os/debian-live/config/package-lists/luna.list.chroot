@@ -17,6 +17,7 @@ e2fsprogs
 dosfstools
 tar
 gzip
+zstd
 util-linux
 coreutils
 fdisk

@@ -46,10 +46,6 @@ zip.workspace = true
 tempfile = "3"
 
 [[bin]]
-name = "inject-mock-pssd-exif"
-path = "src/bin/inject-mock-pssd-exif.rs"
-
-[[bin]]
 name = "luna-console"
 path = "src/bin/luna-console.rs"
 

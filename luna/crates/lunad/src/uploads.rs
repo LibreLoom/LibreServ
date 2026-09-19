@@ -153,7 +153,7 @@ pub fn create(
     })?;
     let dir = files::dest_dir(conn, drive_id, dest_path)?;
     let id = Uuid::new_v4().to_string();
-    let temp = temp_for(&dir, &id);
+    let temp = temp_for(conn, drive_id, &dir, &id)?;
 
     std::fs::OpenOptions::new()
         .write(true)
@@ -187,6 +187,7 @@ pub fn get_row(conn: &Connection, id: &str) -> Result<UploadRow, UploadError> {
 
 fn to_upload(conn: &Connection, row: &UploadRow) -> Result<Upload, UploadError> {
     let dir = files::dest_dir(conn, &row.drive_id, &row.path)?;
+    let temp = temp_for(conn, &row.drive_id, &dir, &row.id)?;
     Ok(Upload {
         id: row.id.clone(),
         drive_id: row.drive_id.clone(),
@@ -194,13 +195,22 @@ fn to_upload(conn: &Connection, row: &UploadRow) -> Result<Upload, UploadError> 
         name: row.name.clone(),
         size: row.size,
         received: row.received,
-        temp: temp_for(&dir, &row.id),
+        temp,
     })
 }
 
-/// Temp files are named after the upload id so restart recovery is trivial.
-fn temp_for(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!(".luna-upload.{id}.part"))
+/// Temp files are named after the upload id inside the drive's `.luna-<uuid>`
+/// namespace, so restart recovery is trivial and collisions impossible.
+fn temp_for(
+    conn: &Connection,
+    drive_id: &str,
+    dir: &Path,
+    id: &str,
+) -> Result<PathBuf, UploadError> {
+    let drive = files::drive_root(conn, drive_id).map_err(UploadError::Files)?;
+    let layout = crate::layout::Layout::detect(Path::new(&drive.mount_point))
+        .ok_or_else(|| UploadError::Db(anyhow::anyhow!("drive is not adopted")))?;
+    Ok(dir.join(layout.upload_part_name(id)))
 }
 
 /// Write one chunk at `start` (seek + write + flush). Never fsyncs per chunk —
@@ -433,7 +443,8 @@ mod tests {
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
         let marker = luna_core::marker::Marker::new("d1", "Test");
-        crate::drive_db::create(&root, &marker).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drive_db::create(&root, &marker, &prefix).unwrap();
         db::upsert_drive(
             &conn,
             "d1",

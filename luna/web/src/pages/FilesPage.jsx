@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   File as FileIcon,
   Folder,
@@ -20,6 +20,7 @@ import { showPageLevelError } from "../lib/modalScopedError";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
+import PropertiesSheet, { PropertiesButton } from "../components/files/PropertiesSheet";
 import useDriveMove from "../hooks/useDriveMove";
 import {
   apiErrorMessage,
@@ -28,7 +29,8 @@ import {
   getJson,
   postJson,
 } from "../lib/api";
-import { folderHref, fmtSize } from "../lib/paths";
+import { fmtSize, folderHref, joinPath, parentPath, pathBasename } from "../lib/paths";
+import { canViewerOpen } from "../lib/officeConvert.js";
 import { useAuth } from "../context/AuthContext";
 import { hasWriteOnDrive } from "../lib/shareTree.js";
 import { isPresentDrive } from "../lib/drives.js";
@@ -44,10 +46,53 @@ export default function FilesPage() {
   const path = searchParams.get("path") || "";
   const selectPath = searchParams.get("select") || "";
   const inTrash = searchParams.get("view") === "trash";
+  const location = useLocation();
+  const fileParam = searchParams.get("file") || searchParams.get("open") || "";
+  const rawHash = location.hash ? decodeURIComponent(location.hash.replace(/^#/, "")) : "";
+  const hashCandidate = rawHash && rawHash !== "main-content" ? rawHash : "";
+  const candidateFile = fileParam || hashCandidate;
+
+  const viewerPath = useMemo(() => {
+    if (inTrash || !candidateFile) return null;
+    const name = pathBasename(candidateFile);
+    if (!name || !canViewerOpen(name)) {
+      return null;
+    }
+    if (candidateFile.includes("/")) {
+      return candidateFile;
+    }
+    return joinPath(path, candidateFile);
+  }, [inTrash, candidateFile, path]);
+
+  const handleViewerPathChange = useCallback((next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next) {
+      const fileName = pathBasename(next);
+      params.set("file", fileName);
+      const dir = parentPath(next);
+      if (dir !== null && dir !== path) {
+        if (dir) params.set("path", dir);
+        else params.delete("path");
+      }
+      params.delete("select");
+      params.delete("view");
+      params.delete("open");
+      setSearchParams(params);
+    } else {
+      params.delete("file");
+      params.delete("open");
+      if (typeof window !== "undefined" && window.location?.hash && window.location.hash !== "#main-content") {
+        window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      }
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, setSearchParams, path]);
+
   const [actionError, setActionError] = useState(null);
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(null);
+  const [propertiesTarget, setPropertiesTarget] = useState(null);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -242,8 +287,12 @@ export default function FilesPage() {
             else params.delete("path");
             params.delete("view");
             params.delete("select");
+            params.delete("file");
+            params.delete("open");
             setSearchParams(params, { replace: true });
           }}
+          viewerPath={viewerPath}
+          onViewerPathChange={handleViewerPathChange}
           selectPath={selectPath || null}
           onSelectPathApplied={clearSelectParam}
           linkNavigation
@@ -293,6 +342,10 @@ export default function FilesPage() {
                   >
                     <Trash2 size={ICON_SIZE.sm} />
                   </Button>
+                  <PropertiesButton
+                    label={item.original_name || item.name}
+                    onClick={() => setPropertiesTarget(item)}
+                  />
                 </div>
               </div>
           ))}
@@ -388,6 +441,18 @@ export default function FilesPage() {
           </>
         )}
       </ModalCard>
+
+      <PropertiesSheet
+        open={propertiesTarget != null}
+        driveId={id}
+        driveLabel={drive?.label || "Drive"}
+        path={propertiesTarget?.path || ""}
+        entry={propertiesTarget
+          ? { name: propertiesTarget.original_name || propertiesTarget.name, kind: propertiesTarget.kind }
+          : null}
+        inTrash
+        onClose={() => setPropertiesTarget(null)}
+      />
     </Page>
   );
 }

@@ -5,7 +5,8 @@
 //! accidents, not to mirror them.
 //!
 //! Layout on the **target** drive root:
-//! `<drive-root>/.lunaprotected/<source-drive-id>/<source-path>/...`
+//! `<drive-root>/.luna-<uuid>-protected/<source-drive-id>/<source-path>/...`
+//! where `<uuid>` is the target drive's own marker prefix.
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -15,23 +16,24 @@ use uuid::Uuid;
 
 use crate::db::{self, ProtectionRow};
 use crate::files;
+use crate::layout::Layout;
 
-/// Directory name at the target drive root that holds protected copies.
-pub const PROTECTED_DIR: &str = ".lunaprotected";
-
-/// True when `rel` is the protected-copy store (or a path inside it).
+/// True when `rel` is the protected-copy store (or a path inside it) — any
+/// drive's `{prefix}-protected` root or a path under it.
 pub fn is_protected_store(rel: &str) -> bool {
-    rel == PROTECTED_DIR || rel.starts_with(&format!("{PROTECTED_DIR}/"))
+    let first = rel.split('/').next().unwrap_or("");
+    luna_core::marker::extract_prefix(first).is_some_and(|p| first == format!("{p}-protected"))
 }
 
 /// Relative path under the target drive for a protected copy of
-/// `(source_drive, source_path)`.
-pub fn target_rel_path(source_drive: &str, source_path: &str) -> String {
+/// `(source_drive, source_path)`, inside the target's `{prefix}-protected`.
+pub fn target_rel_path(target: &Layout, source_drive: &str, source_path: &str) -> String {
     let source_path = source_path.trim_matches('/');
+    let dir = target.protected_name();
     if source_path.is_empty() {
-        format!("{PROTECTED_DIR}/{source_drive}")
+        format!("{dir}/{source_drive}")
     } else {
-        format!("{PROTECTED_DIR}/{source_drive}/{source_path}")
+        format!("{dir}/{source_drive}/{source_path}")
     }
 }
 
@@ -58,7 +60,12 @@ pub fn create(
         anyhow::bail!("Protect a folder, not a single file.");
     }
     let _ = files::dest_dir(conn, target_drive, "")?;
-    let target_path = target_rel_path(source_drive, source_path);
+    let target = {
+        let drive = files::drive_root(conn, target_drive)?;
+        Layout::detect(Path::new(&drive.mount_point))
+            .ok_or_else(|| anyhow::anyhow!("target drive is not adopted"))?
+    };
+    let target_path = target_rel_path(&target, source_drive, source_path);
     let id = Uuid::new_v4().to_string();
     db::insert_protection(
         conn,
@@ -220,30 +227,40 @@ mod tests {
         for (id, name) in [("a", "A"), ("b", "B")] {
             let root = dir.path().join(name);
             std::fs::create_dir_all(&root).unwrap();
+            let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+            crate::drive_db::create(&root, &luna_core::marker::Marker::new(id, name), &prefix)
+                .unwrap();
             db::upsert_drive(&conn, id, name, "as_is", "ext4", id, root.to_str().unwrap()).unwrap();
         }
         (dir, conn)
     }
 
     #[test]
-    fn target_path_lives_under_lunaprotected_on_drive_root() {
+    fn target_path_lives_under_protected_dir_on_drive_root() {
+        let layout = Layout::from_prefix(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f");
         assert_eq!(
-            target_rel_path("drv-a", "family/photos"),
-            ".lunaprotected/drv-a/family/photos"
+            target_rel_path(&layout, "drv-a", "family/photos"),
+            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-protected/drv-a/family/photos"
         );
         assert_eq!(
-            target_rel_path("drv-a", "family"),
-            ".lunaprotected/drv-a/family"
+            target_rel_path(&layout, "drv-a", "/family/"),
+            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-protected/drv-a/family"
         );
         assert_eq!(
-            target_rel_path("drv-a", "/family/"),
-            ".lunaprotected/drv-a/family"
+            target_rel_path(&layout, "drv-a", ""),
+            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-protected/drv-a"
         );
-        assert_eq!(target_rel_path("drv-a", ""), ".lunaprotected/drv-a");
-        assert!(is_protected_store(".lunaprotected"));
-        assert!(is_protected_store(".lunaprotected/drv-a/family"));
+        assert!(is_protected_store(
+            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-protected"
+        ));
+        assert!(is_protected_store(
+            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-protected/drv-a/family"
+        ));
         assert!(!is_protected_store("family"));
         assert!(!is_protected_store(".luna-trash"));
+        assert!(!is_protected_store(
+            ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-trash"
+        ));
     }
 
     #[test]
@@ -251,6 +268,12 @@ mod tests {
         let (dir, conn) = setup();
         let c_root = dir.path().join("C");
         std::fs::create_dir_all(&c_root).unwrap();
+        crate::drive_db::create(
+            &c_root,
+            &luna_core::marker::Marker::new("c", "C"),
+            &luna_core::marker::pick_prefix(&c_root).unwrap(),
+        )
+        .unwrap();
         db::upsert_drive(
             &conn,
             "c",
@@ -293,17 +316,22 @@ mod tests {
         std::fs::write(format!("{src}/family/photo.txt"), b"original").unwrap();
 
         let row = create(&conn, "a", "family", "b").unwrap();
+        let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        let protected = format!(
+            "{}-protected",
+            crate::drive_db::prefix_for(Path::new(&dst)).unwrap()
+        );
         assert_eq!(
-            row.target_path, ".lunaprotected/a/family",
-            "protected copies must live under .lunaprotected on the target drive"
+            row.target_path,
+            format!("{protected}/a/family"),
+            "protected copies must live under the target drive's protected dir"
         );
         assert_eq!(sync(&conn, &row).unwrap(), 1);
 
-        let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
         let on_disk = Path::new(&dst).join(&row.target_path).join("photo.txt");
         assert!(
-            on_disk.starts_with(Path::new(&dst).join(PROTECTED_DIR)),
-            "synced file must be under <drive-root>/.lunaprotected/"
+            on_disk.starts_with(Path::new(&dst).join(&protected)),
+            "synced file must be under <drive-root>/{protected}/"
         );
         assert_eq!(std::fs::read(&on_disk).unwrap(), b"original");
 

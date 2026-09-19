@@ -60,17 +60,18 @@ export default defineConfig({
     proxy: {
       "/api": lunaProxy({ ws: true }),
       "/health": lunaProxy(),
-      // Static EuroOffice pack (and SPA fallback) from lunad.
-      "/eurooffice": { target: "http://localhost:8090", changeOrigin: false },
-      // When a local Document Server is running (:8088) for DocsAPI runtime
-      // paths that api.js requests from the site origin, forward them.
-      "/sdkjs": { target: "http://127.0.0.1:8088", changeOrigin: true },
-      // The DS serves its own editor fonts under /fonts, but Luna also ships
-      // brand fonts in public/fonts (referenced by index.css). Let Vite serve
-      // local files first; only paths missing from public/ go to the DS.
+      // Static EuroOffice pack + the docstorage socket from lunad. The editor
+      // runs client-side; every asset and the WS live under /eurooffice.
+      "/eurooffice": { target: "http://localhost:8090", changeOrigin: false, ws: true },
+      // The editor iframe resolves ../../sdkjs/ against the site root
+      // (Document Server's nginx layout) — lunad serves it from the pack.
+      "/sdkjs": { target: "http://localhost:8090", changeOrigin: false },
+      // sdkjs loads font metrics from site-root /fonts (same nginx layout).
+      // Luna's brand fonts live in public/fonts — serve local files first;
+      // only paths missing from public/ go to lunad's pack fonts dir.
       "/fonts": {
-        target: "http://127.0.0.1:8088",
-        changeOrigin: true,
+        target: "http://localhost:8090",
+        changeOrigin: false,
         bypass: (req) => {
           const local = path.resolve(__dirname, "public", `.${req.url}`);
           if (fs.existsSync(local) && fs.statSync(local).isFile()) {
@@ -78,10 +79,6 @@ export default defineConfig({
           }
         },
       },
-      "/dictionaries": { target: "http://127.0.0.1:8088", changeOrigin: true },
-      "/coauthoring": { target: "http://127.0.0.1:8088", changeOrigin: true, ws: true },
-      "/cache": { target: "http://127.0.0.1:8088", changeOrigin: true },
-      "/doc": { target: "http://127.0.0.1:8088", changeOrigin: true },
     },
   },
   test: {

@@ -218,6 +218,7 @@ export default function Button({
   }
 
   const spinnerSize = size === "sm" || size === "iconSm" ? "sm" : size === "lg" ? "lg" : "md";
+  const iconOnly = size === "icon" || size === "iconSm";
 
   const buttonEl = (
     <button
@@ -226,9 +227,39 @@ export default function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
     >
-      {loading && <Spinner decorative size={spinnerSize} className="pointer-events-none" />}
-      {loading && <span className="sr-only">Loading</span>}
-      {children}
+      {iconOnly ? (
+        /* Icon buttons swap glyph-for-spinner: the icon lifts up and out
+           while the spinner rises into place from below, both clipped by
+           the wrapper. Under reduced motion the state flips instantly. */
+        <span className="relative inline-flex overflow-hidden">
+          <span
+            className={cn(
+              "inline-flex will-change-transform motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
+              loading && "-translate-y-full opacity-0",
+            )}
+            style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+          >
+            {children}
+          </span>
+          <span
+            aria-hidden={!loading}
+            className={cn(
+              "absolute inset-0 inline-flex items-center justify-center will-change-transform motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
+              loading ? "translate-y-0 opacity-100" : "translate-y-full opacity-0",
+            )}
+            style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+          >
+            <Spinner decorative size={spinnerSize} className="pointer-events-none" />
+          </span>
+          {loading && <span className="sr-only">Loading</span>}
+        </span>
+      ) : (
+        <>
+          {loading && <Spinner decorative size={spinnerSize} className="pointer-events-none" />}
+          {loading && <span className="sr-only">Loading</span>}
+          {children}
+        </>
+      )}
     </button>
   );
 

@@ -151,7 +151,7 @@ mod tests {
         fs::create_dir(root.join("Zebra")).unwrap();
         fs::create_dir(root.join("Photos")).unwrap();
         fs::create_dir(root.join("Documents")).unwrap();
-        fs::create_dir(root.join(".luna")).unwrap();
+        fs::create_dir(root.join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f")).unwrap();
         fs::create_dir(root.join(".hidden")).unwrap();
         fs::create_dir(root.join("System Volume Information")).unwrap();
         fs::write(root.join("readme.txt"), b"hi").unwrap();

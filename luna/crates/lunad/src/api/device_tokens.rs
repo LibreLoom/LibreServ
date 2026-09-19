@@ -159,6 +159,8 @@ async fn usage(
                 json!({
                     "action": r.action,
                     "detail": r.detail,
+                    "client": r.client,
+                    "origin": r.origin,
                     "used_at": r.used_at,
                 })
             })

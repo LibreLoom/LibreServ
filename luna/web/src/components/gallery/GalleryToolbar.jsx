@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import {
   CalendarDays,
+  Check,
   Filter,
   Keyboard,
   LayoutGrid,
@@ -133,7 +134,7 @@ GallerySearchInput.propTypes = {
  *   columns?: number,
  *   onColumnsChange?: (n: number) => void,
  *   showSelect?: boolean,
- *   onRescan?: () => void,
+ *   onRescan?: () => (void | Promise<unknown>),
  *   rescanPending?: boolean,
  *   onOpenShortcuts?: () => void,
  *   isDesktop?: boolean,
@@ -165,6 +166,29 @@ export default function GalleryToolbar({
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const moreButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const portalRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const [rescanState, setRescanState] = useState("idle");
+  const rescanTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
+
+  const handleRescan = useCallback(async () => {
+    haptic("medium");
+    try {
+      await onRescan?.();
+      setRescanState("success");
+      haptic("success");
+    } catch {
+      setRescanState("error");
+      haptic("error");
+    }
+    if (rescanTimerRef.current) clearTimeout(rescanTimerRef.current);
+    rescanTimerRef.current = setTimeout(() => setRescanState("idle"), 2400);
+  }, [onRescan]);
+
+  useEffect(
+    () => () => {
+      if (rescanTimerRef.current) clearTimeout(rescanTimerRef.current);
+    },
+    []
+  );
 
   const closeMore = useCallback(() => {
     setIsClosing(true);
@@ -201,6 +225,10 @@ export default function GalleryToolbar({
     }
     function onKeyDown(e) {
       if (e.key === "Escape") {
+        // A dialog opened from this menu (Jump to date, shortcuts) owns
+        // Escape while it is open — closing the menu here would also yank
+        // focus back to the trigger underneath the modal.
+        if (document.querySelector('[role="dialog"]')) return;
         e.preventDefault();
         haptic("light");
         closeMore();
@@ -230,7 +258,7 @@ export default function GalleryToolbar({
     <div
       data-slot="gallery-select-wrapper"
       className={cn(
-        "grid shrink-0 min-w-0 overflow-hidden",
+        "grid shrink-0 min-w-0",
         "motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
         hasSelect
           ? "grid-cols-[1fr] opacity-100"
@@ -238,7 +266,9 @@ export default function GalleryToolbar({
       )}
       aria-hidden={!hasSelect}
     >
-      <div className="min-w-0 overflow-hidden pl-0.5">
+      {/* overflow-x-clip only: a y-clip would cut the focus ring; px-1 gives
+          the ring room so it isn't clipped on the sides either. */}
+      <div className="min-w-0 overflow-x-clip px-1">
         <Button
           type="button"
           size="sm"
@@ -261,9 +291,13 @@ export default function GalleryToolbar({
       {onOpenFilters && (
         <Button
           type="button"
-          size="iconSm"
-          variant={filterActiveCount > 0 ? "accent" : "ghost"}
-          className="relative shrink-0"
+          size={filterActiveCount > 0 ? "sm" : "iconSm"}
+          variant={filterActiveCount > 0 ? "primary" : "ghost"}
+          surface="secondary"
+          className={cn(
+            "group shrink-0",
+            filterActiveCount > 0 && "gap-1.5 pl-2.5 pr-1.5",
+          )}
           aria-label={
             filterActiveCount > 0
               ? `Filters, ${filterActiveCount} active`
@@ -277,7 +311,7 @@ export default function GalleryToolbar({
           <Filter size={16} />
           {filterActiveCount > 0 && (
             <span
-              className="absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-pill bg-primary text-secondary text-[10px] font-mono leading-[1.1rem] text-center"
+              className="inline-flex min-w-[1.125rem] h-[1.125rem] px-1 items-center justify-center rounded-pill bg-secondary text-primary group-hover:bg-primary group-hover:text-secondary text-[10px] font-mono leading-none transition-colors"
               aria-hidden="true"
             >
               {filterActiveCount > 9 ? "9+" : filterActiveCount}
@@ -336,41 +370,22 @@ export default function GalleryToolbar({
         >
           {onColumnsChange && (
             <div className="px-2 pt-1 pb-1.5">
-              <div className="flex items-center gap-1.5 px-2 pb-1.5 text-xs font-mono text-accent">
+              <div className="flex items-center gap-1.5 px-2 pb-1.5 text-xs font-mono text-primary">
                 <LayoutGrid size={13} className="shrink-0" aria-hidden="true" />
                 <span>Grid density</span>
               </div>
-              <div
-                className="grid bg-primary/10 rounded-pill p-[3px]"
-                style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}
-                role="group"
+              <SegmentedControl
+                options={[3, 4, 5, 6].map((n) => ({
+                  value: String(n),
+                  label: String(n),
+                  title: `${n} columns`,
+                }))}
+                value={String(columns)}
+                onChange={(value) => onColumnsChange(Number(value))}
+                surface="secondary"
                 aria-label="Grid density columns"
-              >
-                {[3, 4, 5, 6].map((n) => {
-                  const isSelected = columns === n;
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      aria-label={`${n} columns`}
-                      aria-pressed={isSelected}
-                      className={cn(
-                        "flex items-center justify-center py-1 rounded-pill text-xs font-mono transition-colors min-w-0 cursor-pointer",
-                        isSelected
-                          ? "bg-primary text-secondary font-medium shadow-sm"
-                          : "text-accent hover:text-primary"
-                      )}
-                      onClick={() => {
-                        haptic("selection");
-                        onColumnsChange(n);
-                        closeMore();
-                      }}
-                    >
-                      {n}
-                    </button>
-                  );
-                })}
-              </div>
+                className="w-full"
+              />
             </div>
           )}
 
@@ -386,7 +401,8 @@ export default function GalleryToolbar({
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors hover:bg-primary hover:text-secondary active:scale-[0.98]"
                 onClick={() => {
                   haptic("light");
-                  closeMore();
+                  setMoreOpen(false);
+                  setIsClosing(false);
                   onOpenDates();
                 }}
               >
@@ -400,19 +416,35 @@ export default function GalleryToolbar({
                 type="button"
                 role="menuitem"
                 disabled={rescanPending}
+                aria-live="polite"
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors hover:bg-primary hover:text-secondary active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => {
-                  haptic("medium");
-                  closeMore();
-                  onRescan();
-                }}
+                onClick={handleRescan}
               >
-                <RefreshCw
-                  size={15}
-                  className={cn("shrink-0 text-accent", rescanPending && "animate-spin")}
-                  aria-hidden="true"
-                />
-                <span>{rescanPending ? "Scanning…" : "Look again"}</span>
+                <span
+                  key={rescanPending ? "pending" : rescanState}
+                  className="flex items-center gap-2.5 animate-in fade-in duration-200"
+                >
+                  {rescanState === "success" && !rescanPending ? (
+                    <>
+                      <Check size={15} className="shrink-0 text-success" aria-hidden="true" />
+                      <span className="text-success">Started scan.</span>
+                    </>
+                  ) : rescanState === "error" && !rescanPending ? (
+                    <>
+                      <X size={15} className="shrink-0 text-error" aria-hidden="true" />
+                      <span className="text-error">Failed to start</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw
+                        size={15}
+                        className={cn("shrink-0 text-accent", rescanPending && "animate-spin")}
+                        aria-hidden="true"
+                      />
+                      <span>{rescanPending ? "Rescanning drives…" : "Rescan drives"}</span>
+                    </>
+                  )}
+                </span>
               </button>
             )}
 
@@ -423,7 +455,8 @@ export default function GalleryToolbar({
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors hover:bg-primary hover:text-secondary active:scale-[0.98]"
                 onClick={() => {
                   haptic("light");
-                  closeMore();
+                  setMoreOpen(false);
+                  setIsClosing(false);
                   onOpenShortcuts();
                 }}
               >
@@ -449,7 +482,7 @@ export default function GalleryToolbar({
             onClear={clearQuery}
           />
           {iconButtons}
-          <div className="pr-1.5 py-1 shrink-0">
+          <div className="pr-1.5 shrink-0">
             <SegmentedControl
               options={segments}
               value={segment}

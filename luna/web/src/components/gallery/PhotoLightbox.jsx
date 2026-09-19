@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by gallery pages and tests */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import {
@@ -17,11 +17,23 @@ import {
   X,
 } from "lucide-react";
 import Button from "../ui/Button.jsx";
-import { contentHref, downloadHref, folderHref, fmtSize } from "../../lib/paths.js";
+import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import PhotoInfoPanel from "./PhotoInfoPanel.jsx";
+import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
 import { Link } from "react-router-dom";
 import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "../../utils/haptics.js";
+import { cn } from "@/lib/utils";
+
+/** Match `fullscreen-overlay-out` / `file-viewer-out` duration in index.css. */
+const FULLSCREEN_EXIT_MS = 250;
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 /** Full-screen gallery lightbox layer. Modals opened from it must stack higher. */
 export const LIGHTBOX_Z_CLASS = "z-[80]";
@@ -72,6 +84,7 @@ export function resolveDownloadSrc(photo, opts = {}) {
  *   mode?: "owner"|"guest",
  *   contentSrc?: string,
  *   downloadSrc?: string,
+ *   open?: boolean,
  *   onClose: () => void,
  *   onIndexChange: (index: number) => void,
  *   onFavorite?: (photo: object) => void,
@@ -92,6 +105,7 @@ export default function PhotoLightbox({
   mode = "owner",
   contentSrc,
   downloadSrc,
+  open = true,
   onClose,
   onIndexChange,
   onFavorite,
@@ -114,14 +128,42 @@ export default function PhotoLightbox({
 
   const index = Math.max(0, Math.min(resolvedIndex, Math.max(photos.length - 1, 0)));
   const photo = photos[index];
-  const [visible, setVisible] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const touchStartX = useRef(/** @type {number|null} */ (null));
   const guest = mode === "guest";
+  const isClosingRef = useRef(false);
+  const exitTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  const requestClose = useCallback(() => {
+    if (isClosingRef.current) return;
+    haptic("light");
+    isClosingRef.current = true;
+    setIsClosing(true);
+    const delay = prefersReducedMotion() ? 0 : FULLSCREEN_EXIT_MS;
+    if (delay === 0) {
+      onCloseRef.current?.();
+      return;
+    }
+    exitTimerRef.current = setTimeout(() => {
+      exitTimerRef.current = null;
+      onCloseRef.current?.();
+    }, delay);
+  }, []);
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(id);
+    if (!open && !isClosingRef.current) {
+      requestClose();
+    }
+  }, [open, requestClose]);
+
+  useEffect(() => () => {
+    if (exitTimerRef.current != null) {
+      clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => lockBodyScroll(), []);
@@ -129,9 +171,14 @@ export default function PhotoLightbox({
   useEffect(() => {
     if (!photo) return undefined;
     function onKey(e) {
+      if (isClosingRef.current) return;
       if (e.key === "Escape") {
-        haptic("light");
-        onClose();
+        if (infoOpen) {
+          haptic("light");
+          setInfoOpen(false);
+        } else {
+          requestClose();
+        }
       }
       if (e.key === "ArrowLeft") {
         if (index > 0) {
@@ -165,15 +212,15 @@ export default function PhotoLightbox({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [photo, index, photos.length, onClose, onIndexChange, onFavorite, onTrash, guest]);
+  }, [photo, index, photos.length, requestClose, onIndexChange, onFavorite, onTrash, guest, infoOpen]);
 
   useEffect(() => {
-    if (!slideshow || photos.length < 2) return undefined;
+    if (!slideshow || isClosing || photos.length < 2) return undefined;
     const id = setInterval(() => {
       onIndexChange(index >= photos.length - 1 ? 0 : index + 1);
     }, 4000);
     return () => clearInterval(id);
-  }, [slideshow, index, photos.length, onIndexChange]);
+  }, [slideshow, isClosing, index, photos.length, onIndexChange]);
 
   if (!photo) return null;
 
@@ -182,9 +229,11 @@ export default function PhotoLightbox({
   const folder = (photo.path || "").split("/").slice(0, -1).join("/");
 
   function onTouchStart(e) {
+    if (isClosingRef.current) return;
     touchStartX.current = e.changedTouches?.[0]?.clientX ?? null;
   }
   function onTouchEnd(e) {
+    if (isClosingRef.current) return;
     const start = touchStartX.current;
     touchStartX.current = null;
     if (start == null) return;
@@ -217,81 +266,90 @@ export default function PhotoLightbox({
       aria-label={photo.name}
       data-slot="photo-lightbox"
       data-mode={mode}
-      className={`fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col overscroll-none bg-primary text-secondary motion-safe:transition-opacity motion-safe:duration-200 ${
-        visible ? "opacity-100" : "opacity-0"
-      }`}
+      className={cn(
+        `fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col overscroll-none bg-primary text-secondary`,
+        isClosing
+          ? "fullscreen-overlay-exit file-viewer-exit"
+          : "fullscreen-overlay-enter file-viewer-enter",
+      )}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="font-mono text-sm truncate">{photo.name}</p>
-          {photo.place_label && (
-            <p className="text-xs truncate">{photo.place_label}</p>
-          )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <ActionTooltipGroup className="flex items-center gap-1 shrink-0">
           {!guest && onSlideshowChange && (
+            <Tooltip
+              content={slideshow ? "Stop slideshow" : "Start slideshow"}
+              popupClassName="z-[100]"
+            >
+              <Button
+                variant="ghost"
+                surface="primary"
+                size="icon"
+                className="rounded-full"
+                aria-label={slideshow ? "Stop slideshow" : "Start slideshow"}
+                aria-pressed={slideshow}
+                onClick={() => {
+                  haptic("light");
+                  onSlideshowChange(!slideshow);
+                }}
+              >
+                <Play size={18} fill={slideshow ? "currentColor" : "none"} />
+              </Button>
+            </Tooltip>
+          )}
+          <Tooltip content="Photo details" popupClassName="z-[100]">
             <Button
               variant="ghost"
               surface="primary"
               size="icon"
               className="rounded-full"
-              aria-label={slideshow ? "Stop slideshow" : "Start slideshow"}
-              aria-pressed={slideshow}
+              aria-label="Photo details"
+              aria-pressed={infoOpen}
               onClick={() => {
                 haptic("light");
-                onSlideshowChange(!slideshow);
+                setInfoOpen((v) => !v);
               }}
             >
-              <Play size={18} fill={slideshow ? "currentColor" : "none"} />
+              <Info size={18} />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            surface="primary"
-            size="icon"
-            className="rounded-full"
-            aria-label="Photo details"
-            aria-pressed={infoOpen}
-            onClick={() => {
-              haptic("light");
-              setInfoOpen((v) => !v);
-            }}
-          >
-            <Info size={18} />
-          </Button>
-          <Button
-            variant="ghost"
-            surface="primary"
-            size="icon"
-            className="rounded-full"
-            onClick={() => {
-              haptic("light");
-              onClose();
-            }}
-            aria-label="Close"
-          >
-            <X size={20} />
-          </Button>
-        </div>
+          </Tooltip>
+          <Tooltip content="Close" popupClassName="z-[100]">
+            <Button
+              variant="ghost"
+              surface="primary"
+              size="icon"
+              className="rounded-full"
+              onClick={requestClose}
+              aria-label="Close"
+            >
+              <X size={20} />
+            </Button>
+          </Tooltip>
+        </ActionTooltipGroup>
       </div>
 
+      <div className="flex min-h-0 flex-1">
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-2">
         {index > 0 && (
-          <Button
-            variant="ghost"
-            surface="primary"
-            size="icon"
-            className="absolute left-2 z-10 rounded-full shrink-0"
-            aria-label="Previous"
-            onClick={() => {
-              haptic("selection");
-              onIndexChange(index - 1);
-            }}
-          >
-            <ChevronLeft size={28} />
-          </Button>
+          <Tooltip content="Previous photo" popupClassName="z-[100]" className="absolute left-2 z-10">
+            <Button
+              variant="ghost"
+              surface="primary"
+              size="icon"
+              className="rounded-full shrink-0"
+              aria-label="Previous"
+              onClick={() => {
+                haptic("selection");
+                onIndexChange(index - 1);
+              }}
+            >
+              <ChevronLeft size={28} />
+            </Button>
+          </Tooltip>
         )}
         {photo.kind === "video" ? (
           <video
@@ -318,71 +376,74 @@ export default function PhotoLightbox({
           />
         )}
         {index < photos.length - 1 && (
-          <Button
-            variant="ghost"
-            surface="primary"
-            size="icon"
-            className="absolute right-2 z-10 rounded-full shrink-0"
-            aria-label="Next"
-            onClick={() => {
-              haptic("selection");
-              onIndexChange(index + 1);
-            }}
-          >
-            <ChevronRight size={28} />
-          </Button>
+          <Tooltip content="Next photo" popupClassName="z-[100]" className="absolute right-2 z-10">
+            <Button
+              variant="ghost"
+              surface="primary"
+              size="icon"
+              className="rounded-full shrink-0"
+              aria-label="Next"
+              onClick={() => {
+                haptic("selection");
+                onIndexChange(index + 1);
+              }}
+            >
+              <ChevronRight size={28} />
+            </Button>
+          </Tooltip>
         )}
       </div>
 
-      {infoOpen && (
-        <div
-          data-slot="photo-info-drawer"
-          className="mx-4 mb-2 rounded-large-element bg-secondary text-primary p-4 space-y-1 text-sm animate-nav-slide-in"
-        >
-          <p className="font-mono">{photo.name}</p>
-          {photo.taken_at ? (
-            <p>{new Date(photo.taken_at * 1000).toLocaleString()}</p>
-          ) : (
-            <p>Date unknown</p>
-          )}
-          {photo.place_label && <p>{photo.place_label}</p>}
-          {photo.size != null && <p>{fmtSize(photo.size)}</p>}
-          {(photo.width > 0 || photo.height > 0) && (
-            <p>
-              {photo.width} × {photo.height}
-            </p>
-          )}
-        </div>
-      )}
+      <PhotoInfoPanel
+        photo={photo}
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        photos={photos}
+        onSelectPhoto={(p) => {
+          const next = photos.indexOf(p);
+          if (next >= 0 && next !== index) {
+            haptic("selection");
+            onIndexChange(next);
+          }
+        }}
+      />
+      </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-4">
-        <div className="flex flex-wrap items-center gap-2 rounded-pill bg-secondary text-primary px-2 py-2">
+        <ActionTooltipGroup className="flex flex-wrap items-center gap-2 rounded-pill bg-secondary text-primary px-2 py-2">
           {!guest && (
-            <Button
-              variant="ghost"
-              size="sm"
-              loading={favoriting}
-              onClick={() => {
-                haptic("selection");
-                onFavorite?.(photo);
-              }}
-              aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
+            <Tooltip
+              content={photo.favorited ? "Remove from favorites" : "Favorite"}
+              popupClassName="z-[100]"
             >
-              <Heart size={18} fill={photo.favorited ? "currentColor" : "none"} />
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={favoriting}
+                onClick={() => {
+                  haptic("selection");
+                  onFavorite?.(photo);
+                }}
+                aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
+              >
+                <Heart size={18} fill={photo.favorited ? "currentColor" : "none"} />
+              </Button>
+            </Tooltip>
           )}
           {!guest && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                haptic("light");
-                onAlbum?.(photo);
-              }}
-              aria-label="Add to album"
-            >
-              <Images size={18} />
-            </Button>
+            <Tooltip content="Add to album" popupClassName="z-[100]">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  haptic("light");
+                  onAlbum?.(photo);
+                }}
+                aria-label="Add to album"
+              >
+                <Images size={18} />
+              </Button>
+            </Tooltip>
           )}
           {!guest && onSetCover && (
             <Button
@@ -398,59 +459,69 @@ export default function PhotoLightbox({
             </Button>
           )}
           {!guest && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                haptic("light");
-                onShare?.(photo);
-              }}
-              aria-label="Share link"
-            >
-              <Link2 size={18} />
-            </Button>
+            <Tooltip content="Copy a share link" popupClassName="z-[100]">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  haptic("light");
+                  onShare?.(photo);
+                }}
+                aria-label="Share link"
+              >
+                <Link2 size={18} />
+              </Button>
+            </Tooltip>
           )}
           {!guest && onEdit && photo.kind !== "video" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                haptic("light");
-                onEdit(photo);
-              }}
-              aria-label="Crop or rotate"
-            >
-              <Crop size={18} />
-            </Button>
+            <Tooltip content="Crop or rotate" popupClassName="z-[100]">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  haptic("light");
+                  onEdit(photo);
+                }}
+                aria-label="Crop or rotate"
+              >
+                <Crop size={18} />
+              </Button>
+            </Tooltip>
           )}
-          <Button variant="ghost" size="sm" asChild>
-            <a href={dl} download onClick={() => haptic("light")}>
-              <Download size={18} />
-              <span className="sr-only">Download</span>
-            </a>
-          </Button>
-          {!guest && photo.drive_id && (
+          <Tooltip content="Download" popupClassName="z-[100]">
             <Button variant="ghost" size="sm" asChild>
-              <Link to={folderHref(photo.drive_id, folder)} onClick={() => haptic("selection")}>
-                <FolderOpen size={18} />
-                <span className="sr-only">Open folder</span>
-              </Link>
+              <a href={dl} download onClick={() => haptic("light")}>
+                <Download size={18} />
+                <span className="sr-only">Download</span>
+              </a>
             </Button>
+          </Tooltip>
+          {!guest && photo.drive_id && (
+            <Tooltip content="Open folder" popupClassName="z-[100]">
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={folderHref(photo.drive_id, folder)} onClick={() => haptic("selection")}>
+                  <FolderOpen size={18} />
+                  <span className="sr-only">Open folder</span>
+                </Link>
+              </Button>
+            </Tooltip>
           )}
           {!guest && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                haptic("warning");
-                onTrash?.(photo);
-              }}
-              aria-label="Move to trash"
-            >
-              <Trash2 size={18} />
-            </Button>
+            <Tooltip content="Move to trash" popupClassName="z-[100]">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  haptic("warning");
+                  onTrash?.(photo);
+                }}
+                aria-label="Move to trash"
+              >
+                <Trash2 size={18} />
+              </Button>
+            </Tooltip>
           )}
-        </div>
+        </ActionTooltipGroup>
       </div>
     </div>,
     document.body,
@@ -464,6 +535,7 @@ PhotoLightbox.propTypes = {
   mode: PropTypes.oneOf(["owner", "guest"]),
   contentSrc: PropTypes.string,
   downloadSrc: PropTypes.string,
+  open: PropTypes.bool,
   onClose: PropTypes.func.isRequired,
   onIndexChange: PropTypes.func.isRequired,
   onFavorite: PropTypes.func,
@@ -480,5 +552,6 @@ PhotoLightbox.propTypes = {
 PhotoLightbox.defaultProps = {
   favoriting: false,
   mode: "owner",
+  open: true,
   slideshow: false,
 };

@@ -25,7 +25,64 @@ pub struct FileEntry {
     pub saving: bool,
 }
 
-/// One row in `.luna-trash`, with the path it came from when metadata exists.
+/// How many items sit directly inside a folder — folders, files, anything else.
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+pub struct ChildCounts {
+    pub dirs: u64,
+    pub files: u64,
+    pub other: u64,
+}
+
+/// Recursive totals for a folder: content bytes of real files plus full
+/// descendant counts. Built by [`folder_totals`] (filesystem walk) or
+/// `index::folder_totals_indexed` (index fast path); both count only what
+/// the requester may read.
+#[derive(Debug, Default, Serialize, PartialEq, Eq, Clone, Copy)]
+pub struct FolderTotals {
+    pub bytes: u64,
+    pub dirs: u64,
+    pub files: u64,
+    pub other: u64,
+    /// False when the count stopped at a safety bound — every figure is
+    /// then a lower bound ("at least"), not a final total.
+    pub complete: bool,
+}
+
+/// Rich metadata for one path — powers the Properties panel, which has room
+/// for far more than a list row can show.
+#[derive(Debug, Serialize, PartialEq, Clone)]
+pub struct FileStat {
+    pub name: String,
+    pub kind: String, // "dir" | "file" | "symlink" | "other"
+    pub size: u64,
+    pub modified: i64,
+    /// Creation time — not every filesystem tracks it (FAT32 doesn't).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<i64>,
+    pub hidden: bool,
+    /// Stored target when `kind == "symlink"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_target: Option<String>,
+    /// Direct children — only filled for folders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<ChildCounts>,
+    /// True while Luna still holds this file in RAM and has not finished
+    /// writing it to the drive.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub saving: bool,
+    /// Can the requesting user change (rename/move/delete) this item.
+    pub writable: bool,
+    /// Original drive-relative path for items sitting in `.luna-trash`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trashed_from: Option<String>,
+    /// Recursive size + counts for folders — `None` when the tree was too
+    /// large to count quickly, or for non-folders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub totals: Option<FolderTotals>,
+}
+
+/// One row in the drive's trash dir, with the path it came from when metadata
+/// exists.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct TrashEntry {
     pub name: String,
@@ -36,8 +93,10 @@ pub struct TrashEntry {
     pub original_path: String,
 }
 
-const TRASH_DIR_NAME: &str = ".luna-trash";
-const TRASH_META_DIR_NAME: &str = ".meta";
+/// Stable API-facing alias for the drive's real `.luna-<uuid>-trash`
+/// directory — responses and requests use `.luna-trash` so the on-disk
+/// prefix never leaks into the web API contract.
+pub const TRASH_API_ALIAS: &str = ".luna-trash";
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
@@ -66,7 +125,7 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
         .ok_or(FilesError::UnknownDrive)
 }
 
-fn open_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
+pub(crate) fn open_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
     crate::drive_db::open(std::path::Path::new(&drive.mount_point)).map_err(FilesError::Db)
 }
 
@@ -93,7 +152,14 @@ pub fn list_dir_with_cache(
 ) -> Result<Vec<FileEntry>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let dir = resolve_child(&root, rel)?;
+    let rel = real_rel(&root, rel).into_owned();
+    if is_internal_temp(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let dir = resolve_child(&root, rel.as_ref())?;
     if !dir.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotADirectory,
@@ -103,9 +169,9 @@ pub fn list_dir_with_cache(
 
     // Hot path: trust a very recent RAM listing without touching USB mtime.
     if let Some(cache) = cache
-        && let Some(mut entries) = cache.get_listing(drive_id, rel, None)
+        && let Some(mut entries) = cache.get_listing(drive_id, &rel, None)
     {
-        cache.overlay_dirty_listing(drive_id, rel, &mut entries);
+        cache.overlay_dirty_listing(drive_id, &rel, &mut entries);
         return Ok(entries);
     }
 
@@ -118,25 +184,25 @@ pub fn list_dir_with_cache(
         .unwrap_or(0);
 
     if let Some(cache) = cache
-        && let Some(mut entries) = cache.get_listing(drive_id, rel, Some(mtime))
+        && let Some(mut entries) = cache.get_listing(drive_id, &rel, Some(mtime))
     {
-        cache.overlay_dirty_listing(drive_id, rel, &mut entries);
+        cache.overlay_dirty_listing(drive_id, &rel, &mut entries);
         return Ok(entries);
     }
 
     let drive_conn = open_drive_db(&drive)?;
     let mut entries =
-        if let Some(entries) = crate::index::fresh_entries(&drive_conn, drive_id, rel, mtime) {
+        if let Some(entries) = crate::index::fresh_entries(&drive_conn, drive_id, &rel, mtime) {
             entries
         } else {
             let entries = read_dir_entries(&dir)?;
-            let _ = crate::index::replace_dir(&drive_conn, drive_id, rel, mtime, &entries);
+            let _ = crate::index::replace_dir(&drive_conn, drive_id, &rel, mtime, &entries);
             entries
         };
 
     if let Some(cache) = cache {
-        cache.put_listing(drive_id, rel, mtime, entries.clone());
-        cache.overlay_dirty_listing(drive_id, rel, &mut entries);
+        cache.put_listing(drive_id, &rel, mtime, entries.clone());
+        cache.overlay_dirty_listing(drive_id, &rel, &mut entries);
     }
     Ok(entries)
 }
@@ -215,15 +281,236 @@ pub fn resolve_any(
 ) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    if is_internal_temp(rel) {
+    let rel = real_rel(&root, rel).into_owned();
+    if is_internal_temp(&rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
         )));
     }
-    let path = resolve_child(&root, rel)?;
+    let path = resolve_child(&root, rel.as_ref())?;
     let meta = std::fs::metadata(&path).map_err(FilesError::Io)?;
     Ok((path, meta))
+}
+
+/// Stat one path (file, folder, or symlink) inside a drive.
+///
+/// `children` counts a folder's direct contents unfiltered — API callers that
+/// owe per-user visibility should recount from their filtered listing.
+/// `writable` and `trashed_from` are request context the caller fills in.
+pub fn stat(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<FileStat, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let rel = real_rel(&root, rel).into_owned();
+    let (path, leaf) = resolve_leaf(&root, rel.as_ref())?;
+    let meta = std::fs::symlink_metadata(&path).map_err(FilesError::Io)?;
+    let file_type = meta.file_type();
+    let kind = if file_type.is_dir() {
+        "dir"
+    } else if file_type.is_symlink() {
+        "symlink"
+    } else if file_type.is_file() {
+        "file"
+    } else {
+        "other"
+    };
+    let name = leaf;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let created = meta
+        .created()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    let link_target = if file_type.is_symlink() {
+        std::fs::read_link(&path)
+            .ok()
+            .map(|t| t.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    let children = if file_type.is_dir() {
+        let entries = read_dir_entries(&path)?;
+        let mut counts = ChildCounts {
+            dirs: 0,
+            files: 0,
+            other: 0,
+        };
+        for entry in &entries {
+            match entry.kind.as_str() {
+                "dir" => counts.dirs += 1,
+                "file" => counts.files += 1,
+                _ => counts.other += 1,
+            }
+        }
+        Some(counts)
+    } else {
+        None
+    };
+    Ok(FileStat {
+        hidden: name.starts_with('.'),
+        name,
+        kind: kind.to_string(),
+        size: meta.len(),
+        modified,
+        created,
+        link_target,
+        children,
+        saving: false,
+        writable: false,
+        trashed_from: None,
+        totals: None,
+    })
+}
+
+/// Resolve `rel` to an absolute path without following the leaf itself:
+/// canonicalize the parent folder (still jailed to `root`), then join the
+/// leaf name on top. Returns the resolved path and the leaf name — a symlink
+/// leaf stays a symlink so callers can `symlink_metadata` the entry itself.
+fn resolve_leaf(root: &Path, rel: &str) -> Result<(PathBuf, String), FilesError> {
+    let trimmed = rel.trim_end_matches('/');
+    let requested = Path::new(trimmed);
+    if requested.is_absolute() {
+        return Err(FilesError::Path(luna_core::path::PathError::Absolute));
+    }
+    for component in requested.components() {
+        if matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+        ) {
+            return Err(FilesError::Path(luna_core::path::PathError::Escape));
+        }
+    }
+    let (parent_rel, leaf) = match requested.file_name().and_then(|n| n.to_str()) {
+        Some(name) => (
+            requested.parent().and_then(|p| p.to_str()).unwrap_or(""),
+            name,
+        ),
+        None => ("", ""),
+    };
+    let parent = resolve_child(root, parent_rel)?;
+    Ok((
+        if leaf.is_empty() {
+            parent
+        } else {
+            parent.join(leaf)
+        },
+        leaf.to_string(),
+    ))
+}
+
+/// Upper bound for one size walk — beyond this the answer costs more than a
+/// properties panel is worth, so callers show counts only.
+const TOTALS_MAX_ENTRIES: u64 = 60_000;
+/// Wall-clock bound for the same walk, checked periodically (not per entry).
+const TOTALS_TIME_BUDGET: std::time::Duration = std::time::Duration::from_millis(2_500);
+
+/// Recursive totals for the folder at `rel`: content bytes of real files
+/// plus full descendant counts.
+///
+/// `include(dir_rel)` gates which directories contribute their entries —
+/// callers pass a per-user read check so restricted content never leaks
+/// into a total. Unreadable directories are still descended: a deeper
+/// granted folder must not be hidden by its ancestor. Symlinks are never
+/// followed, so the walk cannot leave the drive. `Ok(None)` only when `rel`
+/// is not a real directory; a tree too large to finish yields a partial
+/// (`complete: false`) lower-bound answer rather than nothing.
+pub fn folder_totals(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    include: &mut impl FnMut(&str) -> bool,
+) -> Result<Option<FolderTotals>, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let rel = real_rel(&root, rel).into_owned();
+    let start = resolve_leaf(&root, rel.as_ref())?.0;
+    let meta = std::fs::symlink_metadata(&start).map_err(FilesError::Io)?;
+    if !meta.file_type().is_dir() {
+        return Ok(None);
+    }
+    Ok(Some(walk_totals(
+        start,
+        rel.trim_end_matches('/'),
+        include,
+        TOTALS_MAX_ENTRIES,
+        std::time::Instant::now() + TOTALS_TIME_BUDGET,
+    )))
+}
+
+/// The walk behind [`folder_totals`], split out so tests can shrink the
+/// bounds. `start` must already be verified a real directory.
+fn walk_totals(
+    start: PathBuf,
+    start_rel: &str,
+    include: &mut impl FnMut(&str) -> bool,
+    max_entries: u64,
+    deadline: std::time::Instant,
+) -> FolderTotals {
+    let mut totals = FolderTotals::default();
+    let mut seen = 0u64;
+    let mut stack = vec![(start_rel.to_string(), start)];
+    while let Some((dir_rel, dir)) = stack.pop() {
+        let readable = include(&dir_rel);
+        // Best-effort: a folder deleted or denied mid-walk skips rather than
+        // failing the whole count.
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if is_internal_temp(name) {
+                continue;
+            }
+            seen += 1;
+            if seen > max_entries
+                || (seen.is_multiple_of(512) && std::time::Instant::now() > deadline)
+            {
+                // Stopped early — what was counted stands as a lower bound.
+                return totals;
+            }
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            let file_type = meta.file_type();
+            if file_type.is_dir() {
+                if readable {
+                    totals.dirs += 1;
+                }
+                let child = if dir_rel.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{dir_rel}/{name}")
+                };
+                stack.push((child, entry.path()));
+            } else if readable {
+                if file_type.is_file() {
+                    totals.files += 1;
+                    totals.bytes += meta.len();
+                } else {
+                    totals.other += 1;
+                }
+            }
+        }
+    }
+    totals.complete = true;
+    totals
 }
 
 /// Resolve a file for download/streaming, returning its path and metadata.
@@ -366,7 +653,14 @@ pub fn dest_dir(
 ) -> Result<PathBuf, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let dir = resolve_child(&root, rel)?;
+    let rel = real_rel(&root, rel).into_owned();
+    if is_internal_temp(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let dir = resolve_child(&root, rel.as_ref())?;
     if !dir.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotADirectory,
@@ -390,18 +684,36 @@ pub fn inline_safe(mime: &str) -> bool {
         || t == "text/csv"
 }
 
-/// Temporary upload/protect files Luna writes while saving. Never list or
-/// download them — they are incomplete bytes, not user files.
+/// Names Luna owns on a drive plus in-flight temp files. Never list, index,
+/// or download them — they are bookkeeping or incomplete bytes, not user
+/// files. The check works on basenames and whole rel paths: any `.luna-<uuid>`
+/// namespaced segment (marker, trash, thumbs, protected copies, upload temps)
+/// marks the path as Luna's.
 pub fn is_internal_temp(name: &str) -> bool {
     let base = name.rsplit('/').next().unwrap_or(name);
-    base == crate::gallery::THUMBS_DIR_NAME
-        || base == crate::gallery::GALLERY_DIR_NAME
-        || base == crate::gallery::SHARED_ALBUMS_DIR_NAME
-        || base == TRASH_DIR_NAME
-        || base == TRASH_META_DIR_NAME
-        || base == ".luna"
-        || base.starts_with(".luna-upload.")
+    name.split('/').any(crate::layout::Layout::is_luna_name)
         || (base.starts_with('.') && base.ends_with(".part"))
+}
+
+/// Translate the `.luna-trash/...` API alias into this drive's real
+/// `{prefix}-trash/...` path. Non-alias paths pass through unchanged.
+fn real_rel<'a>(root: &Path, rel: &'a str) -> std::borrow::Cow<'a, str> {
+    match rel.strip_prefix(TRASH_API_ALIAS) {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+            match crate::layout::Layout::detect(root) {
+                Some(l) => std::borrow::Cow::Owned(format!("{}{}", l.trash_name(), rest)),
+                None => std::borrow::Cow::Borrowed(rel),
+            }
+        }
+        _ => std::borrow::Cow::Borrowed(rel),
+    }
+}
+
+/// Is `rel` the drive's `{prefix}-trash` dir or a path inside it? Operates on
+/// real (post-translation) paths.
+fn is_trash_rel(rel: &str) -> bool {
+    let first = rel.split('/').next().unwrap_or("");
+    luna_core::marker::extract_prefix(first).is_some_and(|p| first == format!("{p}-trash"))
 }
 
 /// Conservative Content-Disposition filename: no quotes, slashes, or control
@@ -433,6 +745,16 @@ pub fn safe_name(name: &str) -> Result<String, FilesError> {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "invalid file name",
+        )));
+    }
+    // Names inside the `.luna-<uuid>` namespace are Luna's bookkeeping —
+    // creating one would make an invisible file. `.luna-trash` is the API
+    // alias for the real trash dir; a literal folder by that name would be
+    // shadowed by the alias and unreachable.
+    if crate::layout::Layout::is_luna_name(trimmed) || trimmed == TRASH_API_ALIAS {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "that name is reserved for Luna",
         )));
     }
     Ok(trimmed.to_string())
@@ -595,8 +917,9 @@ fn install_by_exclusive_rename(temp: &Path, dest: &Path) -> Result<(), FilesErro
     }
 }
 
-/// Move a file or folder to `.luna-trash` on the same drive (atomic rename,
-/// same filesystem). Returns the trash-relative path.
+/// Move a file or folder to the drive's `{prefix}-trash` dir on the same
+/// drive (atomic rename, same filesystem). Returns the `.luna-trash/...`
+/// API-alias path.
 pub fn delete_to_trash(
     conn: &rusqlite::Connection,
     drive_id: &str,
@@ -604,7 +927,14 @@ pub fn delete_to_trash(
 ) -> Result<String, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let path = resolve_child(&root, rel)?;
+    let rel = real_rel(&root, rel).into_owned();
+    if is_internal_temp(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let path = resolve_child(&root, rel.as_ref())?;
     if path == root {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -618,7 +948,13 @@ pub fn delete_to_trash(
         )));
     };
 
-    let trash = root.join(TRASH_DIR_NAME);
+    let layout = crate::layout::Layout::detect(&root).ok_or_else(|| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "drive is not adopted",
+        ))
+    })?;
+    let trash = layout.trash_dir(&root);
     std::fs::create_dir_all(&trash).map_err(FilesError::Io)?;
     let trash_rel = rel.trim().trim_matches('/').to_string();
     let nonce = std::time::SystemTime::now()
@@ -653,11 +989,17 @@ pub fn delete_to_trash(
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     write_trash_meta(&root, &trash_entry_name, &trash_rel)?;
-    Ok(dest
+    // Return the API-alias path (`trash_meta` keeps the real entry name, which
+    // is shared by both forms since the alias only swaps the dir prefix).
+    let real = dest
         .strip_prefix(&root)
         .unwrap_or(&dest)
         .to_string_lossy()
-        .into_owned())
+        .into_owned();
+    match real.split_once('/') {
+        Some((_, entry)) => Ok(format!("{TRASH_API_ALIAS}/{entry}")),
+        None => Ok(real),
+    }
 }
 
 fn write_trash_meta(
@@ -693,15 +1035,16 @@ fn remove_trash_meta(drive_root: &Path, entry_name: &str) {
     }
 }
 
+/// The entry name inside the trash dir, from a real `{prefix}-trash/<entry>`
+/// rel path.
 fn trash_entry_name(trash_rel: &str) -> Option<&str> {
+    if !is_trash_rel(trash_rel) {
+        return None;
+    }
     trash_rel
-        .strip_prefix(TRASH_DIR_NAME)
-        .and_then(|rest| rest.strip_prefix('/'))
+        .split_once('/')
+        .map(|(_, name)| name)
         .filter(|name| !name.is_empty())
-}
-
-fn is_in_trash(rel: &str) -> bool {
-    rel == TRASH_DIR_NAME || rel.starts_with(&format!("{TRASH_DIR_NAME}/"))
 }
 
 /// Best-effort original name: trash files are `{unix}-{name}` or `{unix}-{n}-{name}`.
@@ -721,14 +1064,17 @@ pub fn original_name_from_trash(trash_name: &str) -> String {
     rest.to_string()
 }
 
-/// List items sitting in `.luna-trash` on this drive.
+/// List items sitting in the drive's `{prefix}-trash` dir.
 pub fn list_trash(
     conn: &rusqlite::Connection,
     drive_id: &str,
 ) -> Result<Vec<TrashEntry>, FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let trash = root.join(TRASH_DIR_NAME);
+    let Some(layout) = crate::layout::Layout::detect(&root) else {
+        return Ok(Vec::new());
+    };
+    let trash = layout.trash_dir(&root);
     if !trash.exists() {
         return Ok(Vec::new());
     }
@@ -746,23 +1092,27 @@ pub fn list_trash(
 }
 
 /// Drive-relative path the trashed item came from, if metadata exists.
+/// `trash_rel` may use the `.luna-trash` API alias or the real
+/// `{prefix}-trash` name.
 pub fn trash_original_path(
     conn: &rusqlite::Connection,
     drive_id: &str,
     trash_rel: &str,
 ) -> Result<Option<String>, FilesError> {
-    if !is_in_trash(trash_rel) || trash_rel == TRASH_DIR_NAME {
-        return Ok(None);
-    }
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let Some(entry_name) = trash_entry_name(trash_rel) else {
+    let trash_rel = real_rel(&root, trash_rel);
+    if !is_trash_rel(&trash_rel) {
+        return Ok(None);
+    }
+    let Some(entry_name) = trash_entry_name(&trash_rel) else {
         return Ok(None);
     };
     Ok(read_trash_meta(&root, entry_name))
 }
 
-/// Move an item out of `.luna-trash` onto the same drive (atomic rename).
+/// Move an item out of trash onto the same drive (atomic rename).
+/// `trash_rel` accepts the `.luna-trash` API alias or the real name;
 /// `dest_rel` is the destination path including the restored file name.
 pub fn restore_from_trash(
     conn: &rusqlite::Connection,
@@ -770,21 +1120,26 @@ pub fn restore_from_trash(
     trash_rel: &str,
     dest_rel: &str,
 ) -> Result<(), FilesError> {
-    if !is_in_trash(trash_rel) || trash_rel == ".luna-trash" {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let trash_rel = real_rel(&root, trash_rel);
+    if !is_trash_rel(&trash_rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a trash item",
         )));
     }
-    if is_in_trash(dest_rel) {
+    if is_trash_rel(dest_rel)
+        || is_internal_temp(dest_rel)
+        || dest_rel == TRASH_API_ALIAS
+        || dest_rel.starts_with(&format!("{TRASH_API_ALIAS}/"))
+    {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "cannot restore into trash",
         )));
     }
-    let drive = drive_root(conn, drive_id)?;
-    let root = PathBuf::from(&drive.mount_point);
-    let src = resolve_child(&root, trash_rel)?;
+    let src = resolve_child(&root, trash_rel.as_ref())?;
     // Destination does not exist yet, so jail the parent (which must) and join
     // a safe file name. resolve_child() requires an existing path.
     let dest_path = Path::new(dest_rel);
@@ -816,34 +1171,36 @@ pub fn restore_from_trash(
     {
         let _ = dir.sync_all();
     }
-    if let Some(entry_name) = trash_entry_name(trash_rel) {
+    if let Some(entry_name) = trash_entry_name(&trash_rel) {
         remove_trash_meta(&root, entry_name);
     }
     Ok(())
 }
 
-/// Permanently remove one item that is already in `.luna-trash`.
+/// Permanently remove one item that is already in the drive's trash dir.
+/// `trash_rel` accepts the `.luna-trash` API alias or the real name.
 pub fn purge_trash(
     conn: &rusqlite::Connection,
     drive_id: &str,
     trash_rel: &str,
 ) -> Result<(), FilesError> {
-    if !is_in_trash(trash_rel) || trash_rel == ".luna-trash" {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let trash_rel = real_rel(&root, trash_rel);
+    if !is_trash_rel(&trash_rel) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a trash item",
         )));
     }
-    let drive = drive_root(conn, drive_id)?;
-    let root = PathBuf::from(&drive.mount_point);
-    let path = resolve_child(&root, trash_rel)?;
+    let path = resolve_child(&root, trash_rel.as_ref())?;
     let meta = std::fs::symlink_metadata(&path).map_err(FilesError::Io)?;
     if meta.is_dir() {
         std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
     } else {
         std::fs::remove_file(&path).map_err(FilesError::Io)?;
     }
-    if let Some(entry_name) = trash_entry_name(trash_rel) {
+    if let Some(entry_name) = trash_entry_name(&trash_rel) {
         remove_trash_meta(&root, entry_name);
     }
     Ok(())
@@ -857,6 +1214,12 @@ pub fn mkdir(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<(
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "cannot create the drive root",
+        )));
+    }
+    if is_internal_temp(rel) || rel.split('/').next() == Some(TRASH_API_ALIAS) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "that name is reserved for Luna",
         )));
     }
     let path = luna_core::path::resolve_for_create_nofollow(&root, rel)?;
@@ -897,6 +1260,12 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
     }
     let leaf = rel.rsplit_once('/').map(|(_, name)| name).unwrap_or(rel);
     let _ = safe_name(leaf)?;
+    if is_internal_temp(rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "that name is reserved for Luna",
+        )));
+    }
     let path = luna_core::path::resolve_for_create_nofollow(&root, rel)?;
     // Reject creating more than one missing component (parent must exist).
     let parent = path.parent().ok_or_else(|| {
@@ -938,7 +1307,14 @@ pub fn rename(
     let new_name = safe_name(new_name)?;
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
-    let path = resolve_child(&root, rel)?;
+    let rel = real_rel(&root, rel).into_owned();
+    if is_internal_temp(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let path = resolve_child(&root, rel.as_ref())?;
     let parent = path.parent().ok_or_else(|| {
         FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -955,12 +1331,34 @@ pub fn rename(
     Ok(())
 }
 
-pub fn temp_path(dir: &Path) -> PathBuf {
+/// Temp upload path inside `dir` on the drive `drive_id` — named inside the
+/// drive's `.luna-<uuid>` namespace so it can never clash with a user file.
+pub fn temp_path(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    dir: &Path,
+) -> Result<PathBuf, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    temp_path_at(Path::new(&drive.mount_point), dir)
+}
+
+/// [`temp_path`] for callers that already hold the drive's mount point.
+pub fn temp_path_at(root: &Path, dir: &Path) -> Result<PathBuf, FilesError> {
+    let layout = crate::layout::Layout::detect(root).ok_or_else(|| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "drive is not adopted",
+        ))
+    })?;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    dir.join(format!(".luna-upload.{}.{nonce}", std::process::id()))
+    Ok(dir.join(format!(
+        "{}-upload.{}.{nonce}",
+        layout.prefix(),
+        std::process::id()
+    )))
 }
 
 #[cfg(test)]
@@ -974,7 +1372,8 @@ mod tests {
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
         let marker = luna_core::marker::Marker::new(id, "Test");
-        crate::drive_db::create(&root, &marker).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drive_db::create(&root, &marker, &prefix).unwrap();
         db::upsert_drive(
             &conn,
             id,
@@ -1013,11 +1412,12 @@ mod tests {
         let (_dir, conn, id) = drive_dir();
         let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
             .to_path_buf();
+        let temp = format!("{}-upload.1.2", crate::drive_db::prefix_for(&root).unwrap());
         std::fs::write(root.join("keep.txt"), b"k").unwrap();
-        std::fs::write(root.join(".luna-upload.1.2"), b"tmp").unwrap();
+        std::fs::write(root.join(&temp), b"tmp").unwrap();
         let entries = list_dir(&conn, &id, "").unwrap();
-        assert!(entries.iter().all(|e| e.name != ".luna-upload.1.2"));
-        assert!(file_path(&conn, &id, ".luna-upload.1.2").is_err());
+        assert!(entries.iter().all(|e| e.name != temp));
+        assert!(file_path(&conn, &id, &temp).is_err());
     }
 
     #[test]
@@ -1088,12 +1488,47 @@ mod tests {
 
     #[test]
     fn internal_temps_are_hidden() {
-        assert!(is_internal_temp(".luna-upload.12.99"));
-        assert!(is_internal_temp("folder/.luna-upload.1.2"));
-        assert!(is_internal_temp(".luna-upload.1.2.part"));
-        assert!(is_internal_temp(".lunathumbs"));
+        let p = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f";
+        assert!(is_internal_temp(&format!("{p}-upload.12.99.part")));
+        assert!(is_internal_temp(&format!("folder/{p}-upload.1.2.part")));
+        assert!(is_internal_temp(&format!("{p}.sqlite3")));
+        assert!(is_internal_temp(&format!("{p}-thumbs")));
+        assert!(is_internal_temp(&format!("{p}-trash/entry")));
+        assert!(is_internal_temp(&format!("docs/{p}-trash/entry")));
+        assert!(is_internal_temp("notes/.x.part"));
         assert!(!is_internal_temp("photo.jpg"));
         assert!(!is_internal_temp("notes.part"));
+        // Fixed legacy names are ordinary files now — users may see them.
+        assert!(!is_internal_temp(".luna-trash"));
+        assert!(!is_internal_temp(".lunathumbs"));
+    }
+
+    #[test]
+    fn luna_namespace_is_off_limits_to_user_writes() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        let prefix = crate::drive_db::prefix_for(&root).unwrap();
+        let ns = format!("{prefix}-thumbs");
+        std::fs::create_dir_all(root.join(&ns)).unwrap();
+        std::fs::write(root.join("note.txt"), b"n").unwrap();
+
+        // Nothing inside a `.luna-<uuid>` dir can be listed, created, made,
+        // renamed, deleted, or restored into through the file API.
+        assert!(list_dir(&conn, &id, &ns).is_err());
+        assert!(create(&conn, &id, &format!("{ns}/x.txt")).is_err());
+        assert!(mkdir(&conn, &id, &format!("{ns}/sub")).is_err());
+        assert!(mkdir(&conn, &id, &ns).is_err());
+        assert!(rename(&conn, &id, &ns, "renamed").is_err());
+        assert!(rename(&conn, &id, "note.txt", &ns).is_err());
+        assert!(delete_to_trash(&conn, &id, &ns).is_err());
+        assert!(dest_dir(&conn, &id, &ns).is_err());
+        assert!(
+            restore_from_trash(&conn, &id, &format!("{prefix}-trash/x"), &format!("{ns}/x"))
+                .is_err()
+        );
+        assert!(root.join(&ns).is_dir());
+        assert!(root.join("note.txt").exists());
     }
 
     #[test]
@@ -1118,9 +1553,13 @@ mod tests {
         assert!(!root.join("keep.txt").exists());
 
         let trash_rel = delete_to_trash(&conn, &id, "renamed.txt").unwrap();
-        assert!(trash_rel.starts_with(".luna-trash/"));
+        assert!(
+            trash_rel.starts_with(".luna-trash/"),
+            "API alias: {trash_rel}"
+        );
         assert!(!root.join("renamed.txt").exists());
-        assert!(root.join(&trash_rel).exists());
+        let disk_rel = real_rel(&root, &trash_rel).into_owned();
+        assert!(root.join(&disk_rel).exists());
 
         let listed = list_trash(&conn, &id).unwrap();
         assert_eq!(listed.len(), 1);
@@ -1128,7 +1567,7 @@ mod tests {
 
         restore_from_trash(&conn, &id, &trash_rel, "back.txt").unwrap();
         assert!(root.join("back.txt").exists());
-        assert!(!root.join(&trash_rel).exists());
+        assert!(!root.join(&disk_rel).exists());
         assert_eq!(std::fs::read(root.join("back.txt")).unwrap(), b"keep");
     }
 
@@ -1155,9 +1594,20 @@ mod tests {
         let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
             .to_path_buf();
         std::fs::write(root.join("note.txt"), b"n").unwrap();
-        delete_to_trash(&conn, &id, "note.txt").unwrap();
-        // Trash restore paths live in the `.luna` microdb, not a `.meta` folder.
-        assert!(!root.join(".luna-trash/.meta").exists());
+        let trash_rel = delete_to_trash(&conn, &id, "note.txt").unwrap();
+        // Trash restore paths live in the marker microdb, not a `.meta` folder.
+        let real_trash = format!(
+            "{}/.meta",
+            crate::drive_db::prefix_for(&root).unwrap() + "-trash"
+        );
+        assert!(!root.join(&real_trash).exists());
+        // The on-disk entry lives under the drive's real prefix dir.
+        let disk_rel = format!(
+            "{}/{}",
+            crate::drive_db::prefix_for(&root).unwrap() + "-trash",
+            trash_rel.trim_start_matches(".luna-trash/")
+        );
+        assert!(root.join(&disk_rel).exists());
         let listed = list_trash(&conn, &id).unwrap();
         assert_eq!(listed.len(), 1);
         assert!(!listed.iter().any(|e| e.name == ".meta"));
@@ -1172,7 +1622,7 @@ mod tests {
         std::fs::write(root.join("taken.txt"), b"taken").unwrap();
         let trash_rel = delete_to_trash(&conn, &id, "a.txt").unwrap();
         assert!(restore_from_trash(&conn, &id, &trash_rel, "taken.txt").is_err());
-        assert!(root.join(&trash_rel).exists());
+        assert!(root.join(real_rel(&root, &trash_rel).as_ref()).exists());
         assert_eq!(std::fs::read(root.join("taken.txt")).unwrap(), b"taken");
     }
 
@@ -1236,7 +1686,9 @@ mod tests {
     #[test]
     fn install_temp_is_atomic_and_persists_bytes() {
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".luna-upload.1");
+        let temp = dir
+            .path()
+            .join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-upload.1.part");
         std::fs::write(&temp, b"hello").unwrap();
         let dest = dir.path().join("file.txt");
         install_temp(&temp, &dest, false).unwrap();
@@ -1247,7 +1699,9 @@ mod tests {
     #[test]
     fn install_temp_never_overwrites_without_opt_in() {
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".luna-upload.1");
+        let temp = dir
+            .path()
+            .join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-upload.1.part");
         let dest = dir.path().join("file.txt");
         std::fs::write(&temp, b"new").unwrap();
         std::fs::write(&dest, b"original").unwrap();
@@ -1265,7 +1719,9 @@ mod tests {
     #[test]
     fn exclusive_rename_installs_when_hard_links_are_unavailable() {
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".luna-upload.1");
+        let temp = dir
+            .path()
+            .join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-upload.1.part");
         let dest = dir.path().join("clip.webm");
         std::fs::write(&temp, b"webm-bytes").unwrap();
         install_by_exclusive_rename(&temp, &dest).unwrap();
@@ -1276,7 +1732,9 @@ mod tests {
     #[test]
     fn exclusive_rename_refuses_to_clobber() {
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".luna-upload.1");
+        let temp = dir
+            .path()
+            .join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-upload.1.part");
         let dest = dir.path().join("clip.webm");
         std::fs::write(&temp, b"new").unwrap();
         std::fs::write(&dest, b"original").unwrap();
@@ -1288,7 +1746,9 @@ mod tests {
     #[test]
     fn install_temp_puts_a_webm_in_place() {
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".luna-upload.1");
+        let temp = dir
+            .path()
+            .join(".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-upload.1.part");
         std::fs::write(&temp, b"webm-bytes").unwrap();
         let dest = dir.path().join("clip.webm");
         install_temp(&temp, &dest, false).unwrap();
@@ -1304,8 +1764,12 @@ mod tests {
         std::fs::create_dir_all(root.join("album/day")).unwrap();
         std::fs::write(root.join("album/day/beach.jpg"), b"photo").unwrap();
         std::fs::write(root.join("album/note.txt"), b"hi").unwrap();
-        std::fs::create_dir_all(root.join("album/.luna-trash")).unwrap();
-        std::fs::write(root.join("album/.luna-trash/x"), b"no").unwrap();
+        let internal = format!(
+            "album/{}-trash",
+            crate::drive_db::prefix_for(&root).unwrap()
+        );
+        std::fs::create_dir_all(root.join(&internal)).unwrap();
+        std::fs::write(root.join(format!("{internal}/x")), b"no").unwrap();
 
         let mut buf = std::io::Cursor::new(Vec::new());
         let count = write_folder_zip(&conn, &id, "album", &mut buf, |_| true).unwrap();
@@ -1322,7 +1786,7 @@ mod tests {
         assert!(names.iter().any(|n| n == "album/day/" || n == "album/day"));
         assert!(names.iter().any(|n| n == "album/day/beach.jpg"));
         assert!(names.iter().any(|n| n == "album/note.txt"));
-        assert!(!names.iter().any(|n| n.contains(".luna-trash")));
+        assert!(!names.iter().any(|n| n.contains(".luna-")));
     }
 
     #[cfg(unix)]
@@ -1352,5 +1816,140 @@ mod tests {
                 .iter()
                 .any(|n| n.contains("secret") || n.contains("link"))
         );
+    }
+
+    #[test]
+    fn stat_reports_kind_times_and_children() {
+        let (_dir, conn, id) = drive_dir();
+        let root =
+            std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        std::fs::write(root.join("note.txt"), b"hello").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/a.txt"), b"a").unwrap();
+
+        let file = stat(&conn, &id, "note.txt").unwrap();
+        assert_eq!(file.name, "note.txt");
+        assert_eq!(file.kind, "file");
+        assert_eq!(file.size, 5);
+        assert!(file.modified > 0);
+        assert!(file.children.is_none());
+        assert!(!file.hidden);
+
+        let dir = stat(&conn, &id, "sub").unwrap();
+        assert_eq!(dir.kind, "dir");
+        let counts = dir.children.unwrap();
+        assert_eq!(counts.files, 1);
+        assert_eq!(counts.dirs, 0);
+
+        // Drive root resolves too — empty name, kind dir.
+        let root_stat = stat(&conn, &id, "").unwrap();
+        assert_eq!(root_stat.kind, "dir");
+        assert!(root_stat.children.unwrap().files >= 1);
+
+        assert!(matches!(
+            stat(&conn, &id, "../escape"),
+            Err(FilesError::Path(_))
+        ));
+        assert!(matches!(
+            stat(&conn, &id, "missing.txt"),
+            Err(FilesError::Io(_))
+        ));
+    }
+
+    #[test]
+    fn folder_totals_counts_nested_content_and_respects_the_lens() {
+        let (_dir, conn, id) = drive_dir();
+        let root =
+            std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::fs::write(root.join("a/one.txt"), b"12345").unwrap();
+        std::fs::write(root.join("a/b/two.txt"), b"xy").unwrap();
+        std::fs::write(root.join("a/.hidden"), b"h").unwrap();
+
+        let mut all = |_: &str| true;
+        let totals = folder_totals(&conn, &id, "a", &mut all).unwrap().unwrap();
+        assert_eq!(totals.bytes, 5 + 2 + 1);
+        assert_eq!(totals.files, 3);
+        assert_eq!(totals.dirs, 1);
+        assert_eq!(totals.other, 0);
+        assert!(totals.complete);
+
+        // Only "a/b" is readable: "a"'s own files stay out of the total, but
+        // the granted folder inside still counts — an unreadable parent must
+        // not hide a deeper grant.
+        let mut only_b = |p: &str| p == "a/b";
+        let scoped = folder_totals(&conn, &id, "a", &mut only_b)
+            .unwrap()
+            .unwrap();
+        assert_eq!(scoped.bytes, 2);
+        assert_eq!(scoped.files, 1);
+        assert_eq!(scoped.dirs, 0);
+
+        // A bound hit keeps what it counted as a lower bound, never zeroes
+        // the answer out.
+        let partial = walk_totals(
+            root.join("a"),
+            "a",
+            &mut all,
+            2,
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
+        );
+        assert!(!partial.complete);
+        assert!(partial.files + partial.dirs + partial.other <= 2);
+
+        // Files and missing paths have no totals.
+        assert!(
+            folder_totals(&conn, &id, "a/one.txt", &mut all)
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(
+            folder_totals(&conn, &id, "../escape", &mut all),
+            Err(FilesError::Path(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn folder_totals_counts_a_link_but_never_follows_it() {
+        let (_dir, conn, id) = drive_dir();
+        let root =
+            std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        let outside = _dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"not on the drive").unwrap();
+        std::fs::create_dir(root.join("a")).unwrap();
+        std::fs::write(root.join("a/real.txt"), b"r").unwrap();
+        // A link to a directory outside the drive: counted as "other", and
+        // the walk must not descend into it.
+        std::os::unix::fs::symlink(&outside, root.join("a/far")).unwrap();
+
+        let mut all = |_: &str| true;
+        let totals = folder_totals(&conn, &id, "a", &mut all).unwrap().unwrap();
+        assert_eq!(totals.bytes, 1);
+        assert_eq!(totals.files, 1);
+        assert_eq!(totals.dirs, 0);
+        assert_eq!(totals.other, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stat_reports_the_link_not_its_target() {
+        let (_dir, conn, id) = drive_dir();
+        let root =
+            std::path::PathBuf::from(db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        let outside = _dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("real.txt"), b"r").unwrap();
+        std::os::unix::fs::symlink("real.txt", root.join("link.txt")).unwrap();
+        // Even a link escaping the drive still reports as a symlink.
+        std::os::unix::fs::symlink(&outside, root.join("far.txt")).unwrap();
+
+        let s = stat(&conn, &id, "link.txt").unwrap();
+        assert_eq!(s.kind, "symlink");
+        assert_eq!(s.link_target.as_deref(), Some("real.txt"));
+
+        let far = stat(&conn, &id, "far.txt").unwrap();
+        assert_eq!(far.kind, "symlink");
     }
 }

@@ -7,8 +7,8 @@
 //! Moves prefer a real same-filesystem rename when the kernel allows it. Only
 //! when rename fails with EXDEV (cross-device / different mount) does Luna fall
 //! back to copy-then-trash: the source is removed only after every byte is
-//! verified at the destination, and even then it goes to `.luna-trash`, never
-//! straight to deletion.
+//! verified at the destination, and even then it goes to the drive's
+//! `.luna-<uuid>-trash`, never straight to deletion.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -244,9 +244,12 @@ fn walk_total(path: &Path, is_dir: bool) -> Result<u64, JobError> {
 /// below delete it — otherwise a concurrent writer that claimed the name
 /// between our conflict check and the copy could lose its tree to our
 /// rollback).
-struct CopyState {
+struct CopyState<'a> {
     done: u64,
     owned_dest: bool,
+    job_id: &'a str,
+    total: u64,
+    cancel: &'a AtomicBool,
 }
 
 fn run_job(
@@ -303,6 +306,9 @@ fn run_job(
     let mut st = CopyState {
         done: 0,
         owned_dest: false,
+        job_id: &prepared.row.id,
+        total: prepared.total,
+        cancel: &cancel,
     };
     let result = (|| -> Result<(), JobError> {
         if cancel.load(Ordering::Relaxed) {
@@ -313,11 +319,9 @@ fn run_job(
         }
         copy_node(
             &db,
+            &prepared.row.to_drive,
             &prepared.src,
             &prepared.dest,
-            &prepared.row.id,
-            prepared.total,
-            &cancel,
             &mut st,
         )?;
 
@@ -358,18 +362,16 @@ fn notify_job_gallery(gallery: &GalleryIndexer, prepared: &PreparedJob, moved: b
 
 fn copy_node(
     db: &Arc<Mutex<Connection>>,
+    to_drive: &str,
     src: &Path,
     dest: &Path,
-    job_id: &str,
-    total: u64,
-    cancel: &AtomicBool,
     st: &mut CopyState,
 ) -> Result<u64, JobError> {
     let meta = std::fs::symlink_metadata(src).map_err(JobError::Io)?;
     if meta.file_type().is_symlink() {
         return Err(JobError::Symlink);
     }
-    if cancel.load(Ordering::Relaxed) {
+    if st.cancel.load(Ordering::Relaxed) {
         return Err(JobError::Io(std::io::Error::new(
             std::io::ErrorKind::Interrupted,
             "cancelled",
@@ -400,18 +402,24 @@ fn copy_node(
         for entry in entries {
             let child_src = entry.path();
             let child_dest = dest.join(entry.file_name());
-            copy_node(db, &child_src, &child_dest, job_id, total, cancel, st)?;
+            copy_node(db, to_drive, &child_src, &child_dest, st)?;
         }
         return Ok(st.done);
     }
 
     let mut input = std::fs::File::open(src).map_err(JobError::Io)?;
-    let tmp = files::temp_path(dest.parent().ok_or_else(|| {
-        JobError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "no parent",
-        ))
-    })?);
+    let tmp = {
+        let parent = dest.parent().ok_or_else(|| {
+            JobError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "no parent",
+            ))
+        })?;
+        let conn = db
+            .lock()
+            .map_err(|_| JobError::Io(std::io::Error::other("db lock poisoned")))?;
+        files::temp_path(&conn, to_drive, parent).map_err(JobError::Files)?
+    };
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -419,7 +427,7 @@ fn copy_node(
         .map_err(JobError::Io)?;
     let mut buf = vec![0u8; COPY_BUF];
     loop {
-        if cancel.load(Ordering::Relaxed) {
+        if st.cancel.load(Ordering::Relaxed) {
             drop(input);
             drop(output);
             let _ = std::fs::remove_file(&tmp);
@@ -434,10 +442,10 @@ fn copy_node(
         }
         output.write_all(&buf[..n]).map_err(JobError::Io)?;
         st.done += n as u64;
-        if (st.done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || st.done == total)
+        if (st.done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || st.done == st.total)
             && let Ok(conn) = db.lock()
         {
-            let _ = db::update_job_progress(&conn, job_id, st.done, total);
+            let _ = db::update_job_progress(&conn, st.job_id, st.done, st.total);
         }
     }
     output.flush().map_err(JobError::Io)?;
@@ -473,11 +481,23 @@ fn plain_job_error(err: &JobError) -> String {
 mod tests {
     use super::*;
 
+    /// Write a `.luna-<uuid>` marker so the dir behaves like an adopted drive.
+    fn adopt(root: &Path, id: &str) {
+        let prefix = luna_core::marker::pick_prefix(root).unwrap();
+        crate::drive_db::create(root, &luna_core::marker::Marker::new(id, "t"), &prefix).unwrap();
+    }
+
+    /// The drive's real trash dir name (`.luna-<uuid>-trash`).
+    fn trash_dir_name(root: &Path) -> String {
+        format!("{}-trash", crate::drive_db::prefix_for(root).unwrap())
+    }
+
     fn setup() -> (tempfile::TempDir, Arc<Mutex<Connection>>, String) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let root = dir.path().join("a");
         std::fs::create_dir_all(&root).unwrap();
+        adopt(&root, "a");
         db::upsert_drive(
             &conn,
             "a",
@@ -490,6 +510,7 @@ mod tests {
         .unwrap();
         let root2 = dir.path().join("b");
         std::fs::create_dir_all(&root2).unwrap();
+        adopt(&root2, "b");
         db::upsert_drive(
             &conn,
             "b",
@@ -517,9 +538,11 @@ mod tests {
         let conn = db::open(&dir_a.path().join("luna.db")).ok()?;
         let root_a = dir_a.path().join("a");
         std::fs::create_dir_all(&root_a).ok()?;
+        adopt(&root_a, "a");
         db::upsert_drive(&conn, "a", "A", "as_is", "ext4", "sda", root_a.to_str()?).ok()?;
         let root_b = dir_b.path().join("b");
         std::fs::create_dir_all(&root_b).ok()?;
+        adopt(&root_b, "b");
         db::upsert_drive(&conn, "b", "B", "as_is", "ext4", "sdb", root_b.to_str()?).ok()?;
         Some((dir_a, dir_b, Arc::new(Mutex::new(conn))))
     }
@@ -548,7 +571,7 @@ mod tests {
             std::fs::read(root.join("inbox/note.txt")).unwrap(),
             b"stay put once"
         );
-        let trash = root.join(".luna-trash");
+        let trash = root.join(trash_dir_name(&root));
         assert!(
             !trash.exists() || std::fs::read_dir(&trash).unwrap().next().is_none(),
             "same-drive move must not leave a trash copy"
@@ -583,11 +606,11 @@ mod tests {
             b"cross device"
         );
         assert!(!PathBuf::from(&root_a).join("ship.txt").exists());
-        let trash_entries: Vec<_> = std::fs::read_dir(format!("{root_a}/.luna-trash"))
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name() != ".meta")
-            .collect();
+        let trash_entries: Vec<_> =
+            std::fs::read_dir(PathBuf::from(&root_a).join(trash_dir_name(Path::new(&root_a))))
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .collect();
         assert_eq!(trash_entries.len(), 1);
     }
 
@@ -613,7 +636,10 @@ mod tests {
             std::fs::read(dir.path().join("b/samefs.txt")).unwrap(),
             b"rename across drives"
         );
-        let trash = dir.path().join("a/.luna-trash");
+        let trash = dir
+            .path()
+            .join("a")
+            .join(trash_dir_name(&dir.path().join("a")));
         assert!(
             !trash.exists() || std::fs::read_dir(&trash).unwrap().next().is_none(),
             "same-filesystem move must not trash the source"

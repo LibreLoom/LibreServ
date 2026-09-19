@@ -279,7 +279,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
           </p>
 
           <div className="space-y-1">
-            <label className="block text-sm text-primary" htmlFor="us-base-url">
+            <label className="block text-sm text-primary translate-x-5" htmlFor="us-base-url">
               API address{" "}
               <InfoHint
                 label="What the API address is"
@@ -300,7 +300,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="block text-sm text-primary" htmlFor="us-owner">
+              <label className="block text-sm text-primary translate-x-5" htmlFor="us-owner">
                 Owner
               </label>
               <ShakeTarget shake={ownerRepoShake || generalSaveShake}>
@@ -315,7 +315,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               </ShakeTarget>
             </div>
             <div className="space-y-1">
-              <label className="block text-sm text-primary" htmlFor="us-repo">
+              <label className="block text-sm text-primary translate-x-5" htmlFor="us-repo">
                 Repo{" "}
                 <InfoHint
                   label="What the repo is"
@@ -337,7 +337,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
 
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <label className="block text-sm text-primary" htmlFor="us-keys">
+              <label className="block text-sm text-primary translate-x-5" htmlFor="us-keys">
                 Signing keys{" "}
                 <InfoHint
                   label="What signing keys do"

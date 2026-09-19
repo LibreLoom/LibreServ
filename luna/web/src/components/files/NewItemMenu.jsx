@@ -162,7 +162,7 @@ export default function NewItemMenu({ onPick, ids }) {
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
               "bg-secondary text-primary ring-inset ring-2 ring-accent",
-              "rounded-large-element z-50 overflow-hidden min-w-[12rem] max-h-72 overflow-y-auto",
+              "rounded-large-element z-50 overflow-hidden min-w-[12rem] max-h-72 overflow-y-auto no-scrollbar",
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open",
             )}
           >
@@ -189,8 +189,8 @@ export default function NewItemMenu({ onPick, ids }) {
                         "w-full flex items-center gap-2 px-4 py-2 text-sm text-left cursor-pointer",
                         "text-primary font-mono motion-safe:transition-all motion-safe:duration-150",
                         index === activeIndex
-                          ? "bg-primary/10"
-                          : "hover:bg-primary/10",
+                          ? "bg-primary/10 motion-safe:translate-x-0.5"
+                          : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5",
                         isClosing ? "" : "animate-dropdown-option",
                       )}
                       style={isClosing ? undefined : { animationDelay: `${index * 45}ms` }}

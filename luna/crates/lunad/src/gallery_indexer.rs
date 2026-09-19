@@ -541,18 +541,27 @@ mod tests {
         f.write_all(&jpeg).unwrap();
     }
 
+    /// Give a test drive root a `.luna-<uuid>` marker so drive_db opens.
+    fn adopt(root: &Path) {
+        let prefix = luna_core::marker::pick_prefix(root).unwrap();
+        crate::drive_db::create(root, &luna_core::marker::Marker::new("d1", "Test"), &prefix)
+            .unwrap();
+    }
+
     #[test]
     fn should_index_skips_trash_and_temps() {
+        let p = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f";
         assert!(should_index_rel("DCIM/IMG_001.JPG"));
-        assert!(!should_index_rel(".luna-trash/foo.jpg"));
-        assert!(!should_index_rel(".lunathumbs/abc.jpg"));
+        assert!(!should_index_rel(&format!("{p}-trash/foo.jpg")));
+        assert!(!should_index_rel(&format!("{p}-thumbs/abc.jpg")));
         assert!(!should_index_rel("docs/readme.txt"));
-        assert!(!should_index_rel(".luna-upload.xyz"));
+        assert!(!should_index_rel(&format!("{p}-upload.xyz.part")));
     }
 
     #[test]
     fn upsert_indexes_without_manual_scan() {
         let root = tempfile::tempdir().unwrap();
+        adopt(root.path());
         let photos = root.path().join("Photos");
         fs::create_dir_all(&photos).unwrap();
         tiny_jpeg(&photos.join("a.jpg"));
@@ -584,6 +593,7 @@ mod tests {
     #[test]
     fn remount_rearms_watch_and_enqueues_rescan() {
         let root = tempfile::tempdir().unwrap();
+        adopt(root.path());
         let photos = root.path().join("Photos");
         fs::create_dir_all(&photos).unwrap();
         tiny_jpeg(&photos.join("a.jpg"));

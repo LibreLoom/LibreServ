@@ -66,9 +66,9 @@ Open the address shown on Luna's screen, or try `luna.local`.
 
 Photos lives under each data drive — never on the OS eMMC:
 
-- `{drive}/.luna (gallery tables inside the drive microdb)` — index, favorites, albums, invites
-- `{drive}/.lunathumbs/` — JPEG previews
-- `{drive}/.luna-shared-albums/{id}/` — uploads into shared albums
+- `{drive}/.luna-<uuid>.sqlite3` — drive marker + microdb: index, favorites, albums, invites
+- `{drive}/.luna-<uuid>-thumbs/` — JPEG previews
+- `{drive}/.luna-<uuid>-shared-albums/{id}/` — uploads into shared albums
 
 Phone backups are often HEIC. The daemon stays a musl Rust binary and does **not**
 link `libheif`. The OS image installs Alpine `libheif` + `libheif-tools`

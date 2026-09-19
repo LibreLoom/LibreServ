@@ -17,3 +17,7 @@
 # local luna dev data dir
 /dev
 /desktop/packaging/flatpak/repo
+
+# EuroOffice pack + converted doc bundles — installed/generated, never commit
+eurooffice/
+office_bundles/

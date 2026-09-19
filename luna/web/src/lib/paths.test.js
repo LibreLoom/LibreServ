@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { folderHref, parentPath, searchResultHref } from "./paths.js";
+import { fileHref, folderHref, parentPath, searchResultHref } from "./paths.js";
 
 describe("searchResultHref", () => {
   it("opens a folder hit into that folder", () => {
@@ -67,5 +67,19 @@ describe("folderHref / parentPath", () => {
     expect(parentPath("")).toBe(null);
     expect(parentPath("album")).toBe("");
     expect(parentPath("album/beach.jpg")).toBe("album");
+  });
+});
+
+describe("fileHref", () => {
+  it("builds file href at drive root", () => {
+    expect(fileHref("d1", "notes.txt")).toBe("/drives/d1?file=notes.txt");
+  });
+
+  it("builds file href inside a subfolder", () => {
+    expect(fileHref("d1", "Documents/taxes.pdf")).toBe("/drives/d1?path=Documents&file=taxes.pdf");
+  });
+
+  it("builds file href inside nested subfolders", () => {
+    expect(fileHref("d1", "Documents/2024/work/taxes.pdf")).toBe("/drives/d1?path=Documents%2F2024%2Fwork&file=taxes.pdf");
   });
 });

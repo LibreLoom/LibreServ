@@ -135,7 +135,7 @@ export default function MapAreaDraw({
       const tiny =
         Math.abs(bbox[2] - bbox[0]) < 0.0001 && Math.abs(bbox[3] - bbox[1]) < 0.0001;
       if (!tiny) {
-        haptic("medium");
+        haptic("success");
         onChange?.(bbox);
       }
     };

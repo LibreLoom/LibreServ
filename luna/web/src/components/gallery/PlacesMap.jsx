@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Crop, ImageIcon, MapPin } from "lucide-react";
+import { Check, Crop, ImageIcon, MapPin, Pencil } from "lucide-react";
 import Supercluster from "supercluster";
 import {
   MapContainer,
@@ -17,6 +17,7 @@ import Card from "../cards/Card.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { haptic } from "../../utils/haptics.js";
+import { useSmoothResize } from "../../hooks/useSmoothResize";
 import MapAreaDraw from "./MapAreaDraw.jsx";
 
 function FitBounds({ points }) {
@@ -353,6 +354,12 @@ export default function PlacesMap({
     [onDrawModeChange],
   );
 
+  // The draw control is ONE pill pinned top-right: a 40px pencil circle at
+  // rest, resizing in place to fit the draw instructions/actions when active.
+  // X only — the pill's height is fixed, content scrolls instead of wrapping.
+  const drawCtlRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  useSmoothResize(drawCtlRef);
+
   const [drawnBbox, setDrawnBbox] = useState(/** @type {[number, number, number, number]|null} */ (null));
 
   const markers = useMemo(
@@ -411,85 +418,98 @@ export default function PlacesMap({
       padding={false}
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
     >
-      {/* Floating Draw Mode Toolbar */}
-      {isDrawMode && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-[calc(100%-1.5rem)] pointer-events-auto">
-          {!drawnBbox ? (
-            <div className="flex items-center gap-2 bg-secondary text-primary px-3.5 py-2 rounded-pill shadow-xl ring-2 ring-accent text-xs font-mono animate-nav-slide-in">
-              <Crop size={15} className="shrink-0 text-accent animate-pulse" aria-hidden="true" />
-              <span className="font-medium">Draw custom area</span>
-              <span className="text-accent hidden sm:inline">· Drag across the map</span>
+      {/* Draw control — one corner pill that resizes to fit its content. */}
+      <div
+        ref={drawCtlRef}
+        className="absolute top-3 right-3 z-[1000] flex max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-pill bg-secondary text-primary shadow-xl ring-2 ring-accent"
+      >
+        {!isDrawMode ? (
+          <button
+            key="idle"
+            type="button"
+            aria-label="Draw a custom area"
+            title="Draw a custom area"
+            onClick={handleStartDraw}
+            className="pop-in flex h-10 w-10 shrink-0 items-center justify-center rounded-pill motion-safe:transition-colors hover:bg-primary hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+          >
+            <Pencil size={16} aria-hidden="true" />
+          </button>
+        ) : !drawnBbox ? (
+          <div
+            key="draw"
+            className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
+          >
+            <Crop size={15} className="shrink-0 text-accent animate-pulse" aria-hidden="true" />
+            <span className="font-medium">Draw custom area</span>
+            <span className="text-accent hidden sm:inline">· Drag across the map</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="ml-1 h-6 px-2 text-xs rounded-pill"
+              onClick={() => {
+                haptic("light");
+                setDrawMode(false);
+                setDrawnBbox(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <div
+            key="drawn"
+            className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
+          >
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-pill bg-accent text-primary"
+              aria-hidden="true"
+            >
+              <Check size={12} strokeWidth={3} />
+            </span>
+            <span className="font-medium">
+              {matchedCount === 0
+                ? "No photos in area"
+                : `${matchedCount} ${matchedCount === 1 ? "photo" : "photos"} in area`}
+            </span>
+            <span className="text-accent hidden sm:inline">· Drag again to adjust</span>
+            {matchedCount > 0 && (
               <Button
                 type="button"
                 size="sm"
-                variant="ghost"
-                className="ml-1 h-6 px-2 text-xs rounded-pill"
+                variant="accent"
+                className="h-6 shrink-0 px-3 text-xs rounded-pill"
                 onClick={() => {
-                  haptic("light");
+                  haptic("medium");
+                  onSelect?.({
+                    key: `bbox:${drawnBbox.map((n) => n.toFixed(5)).join(",")}`,
+                    label: "Custom area",
+                    count: matchedCount,
+                    place_bbox: drawnBbox,
+                  });
                   setDrawMode(false);
                   setDrawnBbox(null);
                 }}
               >
-                Cancel
+                Open photos
               </Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center justify-center gap-2 bg-secondary text-primary px-3.5 py-2 rounded-pill shadow-xl ring-2 ring-accent text-xs font-mono animate-nav-slide-in">
-              <span className="font-medium">
-                {matchedCount === 0
-                  ? "No photos in area"
-                  : `${matchedCount} ${matchedCount === 1 ? "photo" : "photos"} in area`}
-              </span>
-              {matchedCount > 0 && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="accent"
-                  className="h-7 px-3 text-xs rounded-pill"
-                  onClick={() => {
-                    haptic("medium");
-                    onSelect?.({
-                      key: `bbox:${drawnBbox.map((n) => n.toFixed(5)).join(",")}`,
-                      label: "Custom area",
-                      count: matchedCount,
-                      place_bbox: drawnBbox,
-                    });
-                    setDrawMode(false);
-                    setDrawnBbox(null);
-                  }}
-                >
-                  Open photos
-                </Button>
-              )}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2.5 text-xs rounded-pill"
-                onClick={() => {
-                  haptic("selection");
-                  setDrawnBbox(null);
-                }}
-              >
-                Redraw
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs rounded-pill"
-                onClick={() => {
-                  haptic("light");
-                  setDrawMode(false);
-                  setDrawnBbox(null);
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 shrink-0 px-2 text-xs rounded-pill"
+              onClick={() => {
+                haptic("light");
+                setDrawMode(false);
+                setDrawnBbox(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+      </div>
 
       <MapContainer
         center={center}

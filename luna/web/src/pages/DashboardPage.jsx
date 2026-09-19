@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ChevronRight, HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { ChevronRight, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
@@ -10,7 +10,6 @@ import Button from "../components/ui/Button.jsx";
 import Pill from "../components/common/Pill.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
 import TextLink from "../components/ui/TextLink.jsx";
-import Spinner from "../components/ui/Spinner.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -18,8 +17,15 @@ import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, postJson } from "../lib/api.js";
-import { folderHref as driveFolderHref, pathBasename } from "../lib/paths.js";
+import { folderHref as driveFolderHref } from "../lib/paths.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
+import {
+  formatRecentAgo,
+  readRecentItems,
+  recentItemHref,
+  recentItemLocationLine,
+  recentItemName,
+} from "../lib/recentItems.js";
 import useConnectActive from "../hooks/useConnectActive.js";
 import InspectModal from "../components/files/InspectModal.jsx";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
@@ -525,108 +531,33 @@ function ConnectionCard({
   );
 }
 
-function jobBusy(job) {
-  const state = String(job?.state || "");
-  return state === "running" || state === "queued";
-}
-
-function jobKindLabel(job) {
-  const kind = String(job.kind || "").toLowerCase();
-  if (kind.includes("move")) return "Moving";
-  if (kind.includes("copy")) return "Copying";
-  return "Working";
-}
-
-function jobStatusMeta(job) {
-  const state = String(job?.state || "");
-  if (state === "done") return { label: "Finished", variant: "success" };
-  if (state === "failed" || state === "error") return { label: "Stopped", variant: "error" };
-  if (state === "cancelled") return { label: "Cancelled", variant: "warning" };
-  if (jobBusy(job)) return { label: "In progress", variant: "info" };
-  return { label: "Waiting", variant: "info" };
-}
-
-function jobProgressPct(job) {
-  const total = Number(job?.total) || 0;
-  const progress = Number(job?.progress) || 0;
-  if (total <= 0) return null;
-  return Math.min(100, Math.round((100 * progress) / total));
-}
-
-function jobItemName(job) {
-  return pathBasename(job.from_path) || "Files";
-}
-
-function driveName(drives, id) {
-  if (!id) return "Drive";
-  return drives.find((d) => d.id === id)?.label || "Drive";
-}
-
-function jobPathLabel(path) {
-  if (path) return pathBasename(path);
-  return (
-    <TermHint content={ROOT_TERM_HINT} surface="primary">
-      root
-    </TermHint>
-  );
-}
-
-function jobLocationLine(drives, job) {
-  const fromDrive = driveName(drives, job.from_drive);
-  const toDrive = driveName(drives, job.to_drive);
-  const fromPath = jobPathLabel(job.from_path);
-  const toPath = jobPathLabel(job.to_path);
-  if (job.from_drive === job.to_drive) {
-    return (
-      <>
-        {fromDrive}: {fromPath} → {toPath}
-      </>
-    );
-  }
-  return (
-    <>
-      {fromDrive} → {toDrive}: {toPath}
-    </>
-  );
-}
+const RECENT_KIND_LABELS = {
+  file: "File",
+  folder: "Folder",
+  drive: "Drive",
+};
 
 /**
- * Recent copy/move jobs — layered like drive cards: eyebrow, mono name,
- * path line, progress, status pill.
+ * Recent files/folders/drives — same layered rows as elsewhere: kind
+ * eyebrow, mono name, location line, Open button. Items come from the
+ * localStorage MRU that RecentItemsTracker feeds on every drive browse.
  *
  * @param {{
- *   jobs: Array<Record<string, any>>,
+ *   items: Array<import("../lib/recentItems.js").RecentItem>,
  *   drives: Array<{ id: string, label?: string }>,
  * }} props
  */
-function RecentJobsCard({ jobs, drives }) {
-  const activeCount = jobs.filter(jobBusy).length;
-
+function RecentItemsCard({ items, drives }) {
   return (
-    <Card
-      icon={Activity}
-      title="Recent activity"
-      headerActions={
-        activeCount > 0 ? (
-          <Pill variant="info">
-            {activeCount} active
-          </Pill>
-        ) : null
-      }
-    >
+    <Card icon={History} title="Recent files">
       <ul className="space-y-3">
-        {jobs.map((job) => {
-          const busy = jobBusy(job);
-          const status = jobStatusMeta(job);
-          const pct = jobProgressPct(job);
-          const name = jobItemName(job);
-          const destHref = job.to_drive
-            ? folderHref(job.to_drive, job.to_path || "")
-            : null;
-
+        {items.map((item) => {
+          const liveLabel = drives.find((d) => d.id === item.driveId)?.label;
+          const name = recentItemName(item, liveLabel);
+          const locationLine = recentItemLocationLine(item, liveLabel);
           return (
             <li
-              key={job.id}
+              key={`${item.kind}:${item.driveId}:${item.path}`}
               className="rounded-large-element bg-primary text-secondary p-4 space-y-3"
             >
               <div className="flex items-start justify-between gap-3">
@@ -637,60 +568,31 @@ function RecentJobsCard({ jobs, drives }) {
                       aria-hidden="true"
                     />
                     <span className="text-xs font-mono uppercase tracking-widest text-accent">
-                      {jobKindLabel(job)}
+                      {RECENT_KIND_LABELS[item.kind]}
                     </span>
-                    {busy ? (
-                      <Spinner size="sm" decorative className="text-secondary" />
-                    ) : null}
                   </div>
                   <div className="text-xl font-mono font-normal leading-tight text-secondary truncate">
                     {name}
                   </div>
-                  <p className="text-secondary text-sm mt-1 break-words">
-                    {jobLocationLine(drives, job)}
-                  </p>
+                  {locationLine ? (
+                    <p className="text-secondary text-sm mt-1 break-words">
+                      {locationLine}
+                    </p>
+                  ) : null}
                 </div>
-                <Pill variant={status.variant} className="shrink-0">
-                  {status.label}
-                </Pill>
+                <time
+                  className="text-xs font-mono text-accent shrink-0"
+                  dateTime={new Date(item.at).toISOString()}
+                >
+                  {formatRecentAgo(item.at)}
+                </time>
               </div>
 
-              {busy ? (
-                <div>
-                  <p className="text-secondary text-sm font-mono mb-2">
-                    {pct != null ? `${pct}% done` : "Starting…"}
-                  </p>
-                  <div
-                    className="h-2 rounded-pill bg-secondary overflow-hidden"
-                    role="progressbar"
-                    aria-valuenow={pct ?? 0}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={pct != null ? `${pct}% done` : "Starting"}
-                  >
-                    <div
-                      className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-500"
-                      style={{ width: `${pct != null ? pct : 8}%` }}
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {job.error ? (
-                <p className="text-error text-sm" role="alert">
-                  {String(job.error)}
-                </p>
-              ) : null}
-
-              {destHref && (job.state === "done" || busy) ? (
-                <div>
-                  <Button size="sm" variant="outline" surface="primary" asChild>
-                    <Link to={destHref}>
-                      {job.state === "done" ? "Open destination" : "Open folder"}
-                    </Link>
-                  </Button>
-                </div>
-              ) : null}
+              <div>
+                <Button size="sm" variant="outline" surface="primary" asChild>
+                  <Link to={recentItemHref(item)}>Open</Link>
+                </Button>
+              </div>
             </li>
           );
         })}
@@ -726,14 +628,6 @@ export default function DashboardPage() {
     queryKey: ["connect-status"],
     queryFn: () => getJsonSkipForbidden("/api/v1/connect/status"),
     enabled: isAdmin,
-  });
-  const jobs = useQuery({
-    queryKey: ["jobs-recent"],
-    queryFn: () => getJsonSkipForbidden("/api/v1/jobs?limit=5"),
-    refetchInterval: (q) => {
-      const list = Array.isArray(q.state.data) ? q.state.data : [];
-      return list.some(jobBusy) ? 2000 : false;
-    },
   });
   const access = useQuery({
     queryKey: ["my-access"],
@@ -822,7 +716,11 @@ export default function DashboardPage() {
   const pluggedIn = withDevMockDetected(detected.data);
   // Unplugged is normal — only real failures need the "Needs a look" card.
   const attentionDrives = adopted.filter((drive) => drive.state === "failed");
-  const recentJobs = Array.isArray(jobs.data) ? jobs.data : [];
+  // MRU list the shell tracker feeds — read once per dashboard mount.
+  const recentItems = useMemo(
+    () => readRecentItems(user?.username),
+    [user?.username],
+  );
   const grants = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
   const albumsShared = Array.isArray(sharedAlbums.data) ? sharedAlbums.data : [];
   const memberSharesLoading =
@@ -870,8 +768,8 @@ export default function DashboardPage() {
             connectActive={connectActive}
             deviceTokenError={deviceTokenError}
           />
-          {recentJobs.length > 0 && (
-            <RecentJobsCard jobs={recentJobs} drives={adopted} />
+          {recentItems.length > 0 && (
+            <RecentItemsCard items={recentItems} drives={adopted} />
           )}
         </div>
 

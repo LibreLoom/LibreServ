@@ -2,9 +2,11 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    let out = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("web")
-        .join("dist");
+    // Read at runtime, not env!(): the compile-time path is baked into the
+    // cached binary and goes stale when the workspace is built under a
+    // different root (e.g. distrobox mounts the tree at /repo).
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let out = Path::new(&manifest_dir).join("web").join("dist");
     if !out.exists() {
         fs::create_dir_all(&out).expect("create web dist dir");
         fs::write(

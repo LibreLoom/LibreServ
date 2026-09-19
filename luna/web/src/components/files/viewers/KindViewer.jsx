@@ -6,14 +6,14 @@ import EbookViewer, { FontViewer } from "./EbookFontViewers.jsx";
 import NotebookViewer, {
   CalendarViewer,
   ContactViewer,
-  CadDownloadMessage,
+  CsvViewer,
   GeoViewer,
 } from "./DocumentMetaViewers.jsx";
-import OfficeEditor from "../office/OfficeEditor.jsx";
 
 /**
  * Kind → viewer component. Image / video / text stay inline in FileViewer
- * (they own full-view / save chrome). Everything else mounts from here.
+ * (they own full-view / save chrome) and office opens in FileViewer's
+ * fullscreen EuroOffice overlay. Everything else mounts from here.
  */
 export const VIEWER_BY_KIND = {
   pdf: PdfViewer,
@@ -26,8 +26,7 @@ export const VIEWER_BY_KIND = {
   geo: GeoViewer,
   calendar: CalendarViewer,
   contact: ContactViewer,
-  cad: CadDownloadMessage,
-  office: OfficeEditor,
+  csv: CsvViewer,
 };
 
 /**

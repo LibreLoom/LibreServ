@@ -94,7 +94,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
       <div className="px-5 py-4 space-y-4 animate-in fade-in duration-150">
         <div className={cn("rounded-large-element border px-4 py-3 flex items-center gap-3", status.bg)}>
           <Icon className={cn("w-5 h-5 flex-shrink-0", status.tone)} />
-          <span className={cn("font-mono text-sm font-semibold leading-snug", status.tone)}>{status.label}</span>
+          <span className={cn("font-mono text-sm leading-snug", status.tone)}>{status.label}</span>
           {onRetry && report === null && !loading && (
             <Button type="button" variant="ghost" surface="secondary" size="sm" onClick={onRetry} className="ml-auto shrink-0">
               <RefreshCw size={ICON_SIZE.sm} /> Retry
@@ -190,7 +190,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
 
         {guide === "upnp" && (
           <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
-            <p className="font-mono text-sm font-semibold text-primary">Here's what to do</p>
+            <p className="font-mono text-sm text-primary">Here's what to do</p>
             <p className="text-sm text-primary leading-relaxed">
               Your {routerName ? `${routerName} ` : ""}router already has the setting that opens your apps to the internet automatically — it's just turned off. Turning it on is the easiest fix.
             </p>
@@ -210,7 +210,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
 
         {guide === "ports" && (
           <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
-            <p className="font-mono text-sm font-semibold text-primary">Here's what to do</p>
+            <p className="font-mono text-sm text-primary">Here's what to do</p>
             <p className="text-sm text-primary leading-relaxed">
               Your router{routerName ? ` (${routerName})` : ""} blocks outside traffic, so only people on your
               home network can use your apps right now. To let other people in, tell your router to send web
@@ -225,7 +225,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </ol>
             <div className="border-t border-primary/10 pt-2">
               <p className="text-xs text-primary">
-                <strong className="font-mono text-primary">Your device IP:</strong> {localIP || "Detecting..."}
+                <strong className="font-mono font-normal text-primary">Your device IP:</strong> {localIP || "Detecting..."}
               </p>
             </div>
             <div className="border-t border-primary/10 pt-3 space-y-2">
@@ -241,7 +241,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
 
         {guide === "generic" && (
           <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
-            <p className="font-mono text-sm font-semibold text-primary">Here's what to do</p>
+            <p className="font-mono text-sm text-primary">Here's what to do</p>
             <p className="text-sm text-primary leading-relaxed">
               We couldn't determine exactly how your network is set up. Either of these will let other people reach your apps:
             </p>
@@ -254,7 +254,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
 
         {report && (
           <div className="space-y-2">
-            <p className="font-mono text-xs font-semibold text-primary">About your network</p>
+            <p className="font-mono text-xs text-primary">About your network</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {report.stacks?.v4?.public_addr && (
                 <ValueDisplay label="Public Address" value={report.stacks.v4.public_addr} />
@@ -314,7 +314,7 @@ function AppPlanRow({ plan }) {
     <div className="px-5 py-4 space-y-2">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <p className="font-mono text-sm font-semibold text-primary truncate">{plan.app_name}</p>
+          <p className="font-mono text-sm text-primary truncate">{plan.app_name}</p>
           <p className="text-xs text-primary mt-0.5">{needLabel}</p>
         </div>
         <span className={cn("text-xs px-3 py-1 rounded-pill border font-mono shrink-0", cfg.bg, cfg.tone)}>
@@ -363,7 +363,7 @@ function AdvancedSection({ children }) {
           "hover:border-accent hover:text-accent motion-safe:transition-colors"
         )}
       >
-        <span className="font-mono text-sm font-semibold flex items-center gap-2">
+        <span className="font-mono text-sm flex items-center gap-2">
           <Layers size={ICON_SIZE.md} />
           Advanced
         </span>

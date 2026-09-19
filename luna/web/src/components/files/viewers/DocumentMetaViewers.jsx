@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import PropTypes from "prop-types";
 import { BytesLoader } from "./bytesLoader.jsx";
+import { fileExtension } from "../../../lib/fileKinds.js";
+import { parseDelimited } from "../../../lib/delimited.js";
+import { parseIcsEvents, parseVcf } from "../../../lib/officeConvert.js";
 
 /** Read-only Jupyter notebook renderer. */
 export default function NotebookViewer({ driveId, path }) {
@@ -124,30 +127,6 @@ CalendarList.propTypes = {
   text: PropTypes.string.isRequired,
 };
 
-/** @param {string} text */
-function parseIcsEvents(text) {
-  const events = [];
-  const blocks = text.split("BEGIN:VEVENT").slice(1);
-  for (const block of blocks) {
-    const body = block.split("END:VEVENT")[0] || "";
-    events.push({
-      summary: icsField(body, "SUMMARY"),
-      dtstart: icsField(body, "DTSTART"),
-      dtend: icsField(body, "DTEND"),
-      location: icsField(body, "LOCATION"),
-      uid: icsField(body, "UID"),
-    });
-  }
-  return events;
-}
-
-/** @param {string} body @param {string} key */
-function icsField(body, key) {
-  const re = new RegExp(`^${key}[^:]*:(.*)$`, "im");
-  const m = body.match(re);
-  return m ? m[1].trim() : "";
-}
-
 /** VCF contact card. */
 export function ContactViewer({ driveId, path }) {
   return (
@@ -178,30 +157,79 @@ ContactCard.propTypes = {
   text: PropTypes.string.isRequired,
 };
 
-/** @param {string} text */
-function parseVcf(text) {
-  /** @type {Record<string, string>} */
-  const out = {};
-  for (const line of text.split(/\r?\n/)) {
-    const idx = line.indexOf(":");
-    if (idx < 0) continue;
-    const key = line.slice(0, idx).split(";")[0].toUpperCase();
-    const value = line.slice(idx + 1).trim();
-    if (key === "FN") out.fn = value;
-    if (key === "N") out.n = value.replace(/;/g, " ").trim();
-    if (key === "EMAIL") out.email = value;
-    if (key === "TEL") out.tel = value;
-    if (key === "ORG") out.org = value;
-  }
-  return out;
-}
+const CSV_ROW_CAP = 500;
 
-/** CAD / 3D — download only (no Luna 3D). */
-export function CadDownloadMessage() {
+/** csv/tsv read-only table preview. */
+export function CsvViewer({ driveId, path }) {
   return (
-    <p className="text-primary text-sm">
-      Luna does not open 3D or CAD files in the browser. Download the file and open it with the app
-      you use for that format.
-    </p>
+    <BytesLoader driveId={driveId} path={path} loadingLabel="Opening table…">
+      {({ bytes }) => <CsvTable bytes={bytes} path={path} />}
+    </BytesLoader>
   );
 }
+
+CsvViewer.propTypes = {
+  driveId: PropTypes.string.isRequired,
+  path: PropTypes.string.isRequired,
+};
+
+function CsvTable({ bytes, path }) {
+  const rows = useMemo(() => {
+    const text = new TextDecoder("utf-8").decode(bytes);
+    const delimiter = fileExtension(path) === "tsv" ? "\t" : undefined;
+    return parseDelimited(text, delimiter);
+  }, [bytes, path]);
+
+  if (rows.length === 0 || (rows.length === 1 && rows[0].every((c) => c === ""))) {
+    return <p className="text-primary text-sm">This file is empty.</p>;
+  }
+
+  const shown = rows.slice(0, CSV_ROW_CAP);
+  const [head, ...body] = shown;
+  const colCount = Math.max(...shown.map((r) => r.length));
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-large-element bg-primary text-secondary border-2 border-secondary/20 max-h-[65vh] overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              {Array.from({ length: colCount }, (_, i) => (
+                <th
+                  key={i}
+                  className="sticky top-0 bg-primary px-3 py-2 text-left font-mono font-normal border-b-2 border-secondary/20 whitespace-nowrap"
+                >
+                  {head[i] ?? ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {body.map((row, ri) => (
+              <tr key={ri}>
+                {Array.from({ length: colCount }, (_, ci) => (
+                  <td
+                    key={ci}
+                    className="px-3 py-1.5 border-b border-secondary/10 whitespace-pre-wrap break-words align-top"
+                  >
+                    {row[ci] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > CSV_ROW_CAP ? (
+        <p className="text-primary text-sm">
+          Showing the first {CSV_ROW_CAP} of {rows.length} rows. Download the file to see the rest.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+CsvTable.propTypes = {
+  bytes: PropTypes.any.isRequired,
+  path: PropTypes.string.isRequired,
+};

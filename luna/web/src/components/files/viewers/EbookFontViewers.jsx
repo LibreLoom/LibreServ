@@ -3,11 +3,20 @@ import PropTypes from "prop-types";
 import { listZipEntries, readZipEntry } from "../../../lib/archiveReader.js";
 import { BytesLoader } from "./bytesLoader.jsx";
 
-/** Read-only EPUB pager (XHTML from the zip). */
-export default function EbookViewer({ driveId, path }) {
+/**
+ * Read-only EPUB pager (XHTML from the zip). `fill` lays the pager out to
+ * fill its flex parent with `bg-primary` text tokens — FileViewer's
+ * fullscreen fallback when EuroOffice is missing.
+ */
+export default function EbookViewer({ driveId, path, fill = false }) {
   return (
-    <BytesLoader driveId={driveId} path={path} loadingLabel="Opening book…">
-      {({ bytes }) => <EpubPager bytes={bytes} />}
+    <BytesLoader
+      driveId={driveId}
+      path={path}
+      loadingLabel="Opening book…"
+      surface={fill ? "primary" : "secondary"}
+    >
+      {({ bytes }) => <EpubPager bytes={bytes} fill={fill} />}
     </BytesLoader>
   );
 }
@@ -15,9 +24,10 @@ export default function EbookViewer({ driveId, path }) {
 EbookViewer.propTypes = {
   driveId: PropTypes.string.isRequired,
   path: PropTypes.string.isRequired,
+  fill: PropTypes.bool,
 };
 
-function EpubPager({ bytes }) {
+function EpubPager({ bytes, fill = false }) {
   const chapters = useMemo(() => {
     try {
       return listZipEntries(bytes)
@@ -52,17 +62,19 @@ function EpubPager({ bytes }) {
     };
   }, [bytes, chapters, index]);
 
+  const textTone = fill ? "text-secondary" : "text-primary";
+
   if (chapters.length === 0) {
     return (
-      <p className="text-primary text-sm">
+      <p className={`${textTone} text-sm`}>
         Luna could not find readable chapters in this book. Try downloading it.
       </p>
     );
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+    <div className={fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"}>
+      <div className="flex shrink-0 items-center justify-between gap-3">
         <button
           type="button"
           className="rounded-pill border-2 border-secondary/30 px-4 py-2 text-sm disabled:opacity-40"
@@ -71,7 +83,7 @@ function EpubPager({ bytes }) {
         >
           Previous
         </button>
-        <p className="text-sm text-primary">
+        <p className={`text-sm ${textTone}`}>
           Section {index + 1} of {chapters.length}
         </p>
         <button
@@ -84,11 +96,13 @@ function EpubPager({ bytes }) {
         </button>
       </div>
       {error ? (
-        <p className="text-primary text-sm">{error}</p>
+        <p className={`${textTone} text-sm`}>{error}</p>
       ) : (
         <iframe
           title="Book section"
-          className="w-full h-[55vh] rounded-large-element bg-primary border-2 border-secondary/20"
+          className={`w-full rounded-large-element bg-primary border-2 border-secondary/20 ${
+            fill ? "min-h-0 flex-1" : "h-[55vh]"
+          }`}
           sandbox=""
           srcDoc={html}
         />
@@ -99,6 +113,7 @@ function EpubPager({ bytes }) {
 
 EpubPager.propTypes = {
   bytes: PropTypes.any.isRequired,
+  fill: PropTypes.bool,
 };
 
 /** Font sample card via FontFace. */

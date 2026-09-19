@@ -269,6 +269,38 @@ if [ ! -f "$_data_mnt/os-image.sha256" ]; then
 		exit 1
 	fi
 fi
+
+# EuroOffice pack: browser-side office editor assets on LUNA_DATA (~1 GB
+# extracted). Missing/corrupt pack is a loud warning, not a failed install —
+# everything else works and the pack can be added later.
+_eopack=""
+for _cand in "$HERE/eurooffice-pack.tar.zst" "$HERE/../eurooffice-pack.tar.zst"; do
+	if [ -f "$_cand" ]; then
+		_eopack="$_cand"
+		break
+	fi
+done
+if [ -z "$_eopack" ]; then
+	echo
+	echo "NOTE: no office editor pack on this media — office editing will be"
+	echo "unavailable until the pack is installed into /var/lib/luna/eurooffice."
+elif ! command -v zstd >/dev/null 2>&1; then
+	echo
+	echo "WARNING: zstd is missing in the installer — office pack skipped." >&2
+elif [ ! -f "$_eopack.sha256" ] || \
+	! (cd "$(dirname "$_eopack")" && sha256sum -c "$(basename "$_eopack").sha256" >/dev/null 2>&1); then
+	echo
+	echo "WARNING: office pack checksum missing or failed — skipping it." >&2
+else
+	echo
+	echo "Installing the office editor pack (about a gigabyte, one-time)…"
+	if zstd -dc "$_eopack" | tar -x -C "$_data_mnt" && [ -f "$_data_mnt/eurooffice/web-apps/apps/api/documents/api.js" ]; then
+		echo "Office pack installed."
+	else
+		rm -rf "$_data_mnt/eurooffice"
+		echo "WARNING: office pack did not extract cleanly — removed the partial copy." >&2
+	fi
+fi
 umount "$_data_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."

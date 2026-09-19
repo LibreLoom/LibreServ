@@ -735,7 +735,7 @@ async fn status(
 }
 
 /// Enqueue a catch-up gallery scan for every drive the caller can access.
-/// Used by Photos → Look again and by `seed-mock-drives.sh` after refreshing fixtures.
+/// Used by Photos → Look again.
 async fn rescan(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -776,13 +776,18 @@ async fn thumb(
         return serve_thumb_bytes(cached.bytes, cached.mtime_secs, cached.etag, &headers);
     }
     let root = resolve_mount(&state, &query.drive_id)?;
-    let thumb_path = gallery::thumb_path(&root, &query.drive_id, &query.path);
+    let Some(thumb_path) = gallery::thumb_path(&root, &query.drive_id, &query.path) else {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna couldn't find that photo.",
+        ));
+    };
     if !thumb_path.exists() {
         let (drive_id, path) = (query.drive_id.clone(), query.path.clone());
         let root2 = root.clone();
         tokio::task::spawn_blocking(move || -> Result<(), ()> {
             let src = luna_core::path::resolve_child(&root2, &path).map_err(|_| ())?;
-            let dest = gallery::thumb_path(&root2, &drive_id, &path);
+            let dest = gallery::thumb_path(&root2, &drive_id, &path).ok_or(())?;
             let kind = if gallery::is_video(&src) {
                 "video"
             } else {
@@ -976,7 +981,8 @@ async fn resolve_browser_safe_file(
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "photo".into());
     if gallery::is_heic_image(&src) {
-        let thumb = gallery::thumb_path(mount, drive_id, rel);
+        let thumb = gallery::thumb_path(mount, drive_id, rel)
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
         let mount2 = mount.to_path_buf();
         let rel2 = rel.to_string();
         let thumb2 = thumb.clone();
@@ -1935,14 +1941,19 @@ async fn public_thumb(
         ));
     }
     let mount = resolve_mount(&state, &query.drive_id)?;
-    let thumb_path = gallery::thumb_path(&mount, &query.drive_id, &query.path);
+    let Some(thumb_path) = gallery::thumb_path(&mount, &query.drive_id, &query.path) else {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "That photo is not part of this shared album.",
+        ));
+    };
     if !thumb_path.exists() {
         let drive_id = query.drive_id.clone();
         let path = query.path.clone();
         let mount2 = mount.clone();
         let _ = tokio::task::spawn_blocking(move || {
             let src = luna_core::path::resolve_child(&mount2, &path).ok()?;
-            let dest = gallery::thumb_path(&mount2, &drive_id, &path);
+            let dest = gallery::thumb_path(&mount2, &drive_id, &path)?;
             let kind = if gallery::is_video(&src) {
                 "video"
             } else {
@@ -2307,6 +2318,12 @@ mod tests {
     fn album_item_allowed_matches_items_and_contrib() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        crate::drive_db::create(
+            root,
+            &luna_core::marker::Marker::new("home", "Home"),
+            &luna_core::marker::pick_prefix(root).unwrap(),
+        )
+        .unwrap();
         let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
         crate::gallery::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())]).unwrap();
         let mut album = crate::gallery::get_album(root, "home", &album.id)
@@ -2366,6 +2383,13 @@ mod tests {
         std::fs::create_dir_all(&mount).unwrap();
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]));
         png.save(mount.join("secret.png")).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("d-photos", "Family Photos"),
+            &prefix,
+        )
+        .unwrap();
         crate::gallery::scan_drive("d-photos", &mount).unwrap();
         let album = crate::gallery::create_album(&mount, "d-photos", "owner", "Private").unwrap();
         crate::gallery::add_album_items(

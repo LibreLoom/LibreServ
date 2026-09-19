@@ -36,6 +36,19 @@ if [ -f "$OUT/luna-os-$ARCH.img" ]; then
 	fi
 fi
 
+# Stage the EuroOffice pack (built by scripts/build-eurooffice-pack.sh via
+# build-iso.sh). rapidinstall extracts it onto LUNA_DATA; missing = office
+# editing unavailable on the installed device, so warn loudly.
+if [ -f "$OUT/eurooffice-pack.tar.zst" ]; then
+	cp "$OUT/eurooffice-pack.tar.zst" "$BINL/eurooffice-pack.tar.zst"
+	if [ -f "$OUT/eurooffice-pack.tar.zst.sha256" ]; then
+		cp "$OUT/eurooffice-pack.tar.zst.sha256" "$BINL/eurooffice-pack.tar.zst.sha256"
+	fi
+else
+	echo "WARNING: no eurooffice-pack.tar.zst in $OUT — installed devices will lack office editing." >&2
+	echo "         Run scripts/build-eurooffice-pack.sh (or make eurooffice-pack) first." >&2
+fi
+
 cp "$ROOT/os/iso/find-media.sh" "$CHROOT_LIB/find-media.sh"
 chmod +x "$CHROOT_LIB/find-media.sh" "$DL/config/includes.chroot/usr/lib/luna-installer/start.sh"
 

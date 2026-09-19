@@ -542,6 +542,7 @@ class MockConnectHandler(BaseHTTPRequestHandler):
                 "tunnel_token": self.state.tunnel_token,
                 "tunnel_id": self.state.tunnel_id,
                 "backup_sources": self.state.backup_sources,
+                "wan_ip": getattr(self.state, "wan_ip", None) or self.client_address[0],
             }
             self._send_json(200, resp)
             return

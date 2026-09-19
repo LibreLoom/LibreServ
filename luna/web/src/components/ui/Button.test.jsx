@@ -45,4 +45,27 @@ describe("Button loading", () => {
     expect(button).not.toHaveAttribute("aria-busy");
     expect(button.querySelector('[data-slot="spinner"]')).toBeNull();
   });
+
+  it("icon buttons stage the spinner below the clip and raise it while loading", () => {
+    const { rerender } = render(
+      <Button size="icon" variant="ghost" surface="secondary" aria-label="Save">
+        <svg data-testid="save-icon" />
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Save" });
+    // Idle: spinner is mounted but parked below the overflow-hidden clip.
+    const spinnerWrap = button.querySelector('[data-slot="spinner"]').parentElement;
+    expect(spinnerWrap.className).toMatch(/translate-y-full/);
+    expect(spinnerWrap).toHaveAttribute("aria-hidden", "true");
+    // Loading: icon slides up out, spinner rises in.
+    rerender(
+      <Button size="icon" variant="ghost" surface="secondary" loading aria-label="Save">
+        <svg data-testid="save-icon" />
+      </Button>,
+    );
+    const iconWrap = button.querySelector('[data-testid="save-icon"]').parentElement;
+    expect(iconWrap.className).toMatch(/-translate-y-full/);
+    expect(spinnerWrap.className).toMatch(/translate-y-0/);
+    expect(spinnerWrap).toHaveAttribute("aria-hidden", "false");
+  });
 });

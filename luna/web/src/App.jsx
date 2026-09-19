@@ -18,6 +18,7 @@ import NotFoundPage from "./pages/NotFoundPage";
 import SettingsPage from "./pages/SettingsPage";
 import PublicSharePage from "./pages/PublicSharePage";
 import RequireAdmin from "./components/auth/RequireAdmin";
+import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,12 +37,19 @@ function RequireAuth({ children }) {
   return children;
 }
 
+/** Feeds the dashboard "Recent files" card from wherever the user browses. */
+function RecentItemsTracker() {
+  useRecentItemsTracker();
+  return null;
+}
+
 /** Authenticated chrome: page content + fixed bottom navbar. */
 function AppShell() {
   const location = useLocation();
   return (
     <RequireAuth>
       <div data-slot="app-shell" className="relative flex min-h-screen flex-col bg-primary text-secondary">
+        <RecentItemsTracker />
         <LoadingBar />
         <a href="#main-content" className="skip-link">Skip to main content</a>
         {/* Keying by pathname gives every navigation a smooth entrance. */}

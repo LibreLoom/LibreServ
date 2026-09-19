@@ -36,7 +36,7 @@ export default function LoginPage() {
   // trying to reach, or home.
   const returnTo = location.state?.from?.pathname || "/";
 
-  // TODO: in luna web website, need wizard that asks users a set of questions, then gives them a pwreset-<device_token>.luna file (or pwreset.luna if no device token is configured on Luna) to put onto the root of a flashdrive. Lunas without a device token must be supported (e.g. allow skipping the device token field).
+  // TODO: in luna web website, need wizard that asks users a set of questions, then gives them a luna-recover-<device_token>.luna file (or luna-recover.luna if no device token is configured on Luna) to put onto the root of a dedicated, otherwise-empty flash drive. Luna only honours it at boot. Lunas without a device token must be supported (e.g. allow skipping the device token field).
 
   function calculateErrorHTML() {
     if (errorStatus === 401) {

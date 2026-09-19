@@ -23,6 +23,7 @@ pub mod files;
 pub mod gallery;
 pub mod jobs;
 pub mod office;
+pub mod office_ws;
 pub mod uploads;
 
 pub fn router() -> Router<AppState> {

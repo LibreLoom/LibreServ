@@ -141,16 +141,57 @@ describe("AboutCategory", () => {
     expect(await screen.findByRole("heading", { name: "System Checks" })).toBeTruthy();
   });
 
-  it("puts System Checks after Advanced on the About page", async () => {
+  it("orders the About page: updates, support, addresses, advanced, checks, then Luna", async () => {
     renderPage(stubFetch());
     await screen.findByRole("heading", { name: "System Checks" });
     const about = document.querySelector("[data-slot='about-category']");
     expect(about).toBeTruthy();
     const headings = Array.from(about.querySelectorAll("h2")).map((el) => el.textContent);
-    const advancedIdx = headings.findIndex((t) => /Advanced/i.test(t));
-    const checksIdx = headings.findIndex((t) => /System Checks/i.test(t));
-    expect(advancedIdx).toBeGreaterThanOrEqual(0);
-    expect(checksIdx).toBeGreaterThan(advancedIdx);
+    const idx = (re) => headings.findIndex((t) => re.test(t));
+    const order = [
+      /System Updates/i,
+      /Support Luna/i,
+      /Where to open Luna/i,
+      /Advanced/i,
+      /System Checks/i,
+      /^Luna$/i,
+    ];
+    for (const re of order) expect(idx(re)).toBeGreaterThanOrEqual(0);
+    for (let i = 1; i < order.length; i++) {
+      expect(idx(order[i])).toBeGreaterThan(idx(order[i - 1]));
+    }
+  });
+
+  it("lists open source licenses in a collapsible section and opens each in a modal", async () => {
+    const user = userEvent.setup();
+    const baseFetch = stubFetch();
+    const fetchImpl = vi.fn(async (path, options) => {
+      if (String(path).startsWith("/licenses/")) {
+        return new Response("GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3 test text", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
+      return baseFetch(path, options);
+    });
+    renderPage(fetchImpl);
+    await screen.findByRole("heading", { name: "System Checks" });
+
+    const toggle = screen.getByRole("button", { name: /Open source licenses/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("EuroOffice")).toBeTruthy();
+    expect(screen.getByText("x2t.wasm")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Open x2t\.wasm license/i }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(await screen.findByText(/Version 3 test text/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /onlyoffice-x2t-wasm/i })).toHaveAttribute(
+      "href",
+      "https://github.com/cryptpad/onlyoffice-x2t-wasm",
+    );
   });
 
   it("keeps Luna Connect closed and opens a device-token modal from Advanced", async () => {

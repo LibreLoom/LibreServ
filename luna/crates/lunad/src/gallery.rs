@@ -1,9 +1,10 @@
-//! Photo gallery: index tables live in the per-drive `.luna` microdb.
+//! Photo gallery: index tables live in the per-drive `.luna-<uuid>.sqlite3`
+//! microdb.
 //!
-//! Thumbnails live in `{drive}/.lunathumbs/`. Gallery SQLite never touches the
-//! OS eMMC / `luna.db`. JPEG/PNG/GIF use the `image` crate; HEIC uses embedded
-//! JPEG or Alpine `heif-dec`; video thumbs use optional `ffmpeg`. Originals
-//! are never rewritten.
+//! Thumbnails live in `{drive}/.luna-<uuid>-thumbs/`. Gallery SQLite never
+//! touches the OS eMMC / `luna.db`. JPEG/PNG/GIF use the `image` crate; HEIC
+//! uses embedded JPEG or Alpine `heif-dec`; video thumbs use optional
+//! `ffmpeg`. Originals are never rewritten.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -17,12 +18,6 @@ const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "m4v", "webm"];
 const BATCH_UPSERT: usize = 64;
 
-/// Per-drive thumbnail directory on the photo's own mount (not the OS eMMC).
-pub const THUMBS_DIR_NAME: &str = ".lunathumbs";
-/// Per-drive gallery DB + library metadata (not the OS eMMC).
-pub const GALLERY_DIR_NAME: &str = ".lunagallery";
-/// Shared-album contribution uploads land here on the album's home drive.
-pub const SHARED_ALBUMS_DIR_NAME: &str = ".luna-shared-albums";
 /// Top-level user-accessible folder for shared album uploads on the home drive.
 pub const USER_SHARED_ALBUMS_DIR: &str = "Shared Photos";
 
@@ -219,26 +214,31 @@ fn ext_in(path: &Path, exts: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-pub fn thumbs_dir(drive_root: &Path) -> PathBuf {
-    drive_root.join(THUMBS_DIR_NAME)
+/// Per-drive thumbnail directory `{prefix}-thumbs/` on the photo's own mount
+/// (not the OS eMMC). `None` when the drive carries no `.luna-<uuid>` marker.
+pub fn thumbs_dir(drive_root: &Path) -> Option<PathBuf> {
+    crate::layout::Layout::detect(drive_root).map(|l| l.thumbs_dir(drive_root))
 }
 
-pub fn gallery_dir(drive_root: &Path) -> PathBuf {
-    drive_root.join(GALLERY_DIR_NAME)
+/// Path of the drive's marker/microdb file, when adopted.
+pub fn gallery_db_path(drive_root: &Path) -> Option<PathBuf> {
+    crate::drive_db::find_db_file(drive_root)
 }
 
-pub fn gallery_db_path(drive_root: &Path) -> PathBuf {
-    crate::drive_db::path_for(drive_root)
+/// Shared-album image copies `{prefix}-shared-albums/` on the home drive.
+pub fn shared_albums_dir(drive_root: &Path) -> Option<PathBuf> {
+    crate::layout::Layout::detect(drive_root).map(|l| l.shared_albums_dir(drive_root))
 }
 
-pub fn shared_albums_dir(drive_root: &Path) -> PathBuf {
-    drive_root.join(SHARED_ALBUMS_DIR_NAME)
+/// Thumbnail file for `rel`, inside the drive's `{prefix}-thumbs/` directory.
+pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> Option<PathBuf> {
+    thumbs_dir(drive_root).map(|d| thumb_path_in(&d, drive_id, rel))
 }
 
-pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> PathBuf {
+fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
     let key = format!("{drive_id}:{rel}");
     let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
-    thumbs_dir(drive_root).join(format!("{hash}.jpg"))
+    thumb_dir.join(format!("{hash}.jpg"))
 }
 
 pub fn thumb_url(drive_id: &str, rel: &str) -> String {
@@ -248,16 +248,13 @@ pub fn thumb_url(drive_id: &str, rel: &str) -> String {
     )
 }
 
+/// Skip anything inside the drive's `.luna-<uuid>` namespace — marker, trash,
+/// thumbs, protected copies, upload temps.
 pub fn skip_gallery_dir(name: &str) -> bool {
-    name == THUMBS_DIR_NAME
-        || name == GALLERY_DIR_NAME
-        || name == SHARED_ALBUMS_DIR_NAME
-        || name == ".luna-trash"
-        || name == crate::protect::PROTECTED_DIR
-        || name == ".luna"
+    crate::layout::Layout::is_luna_name(name)
 }
 
-/// Open (or create) the on-drive `.luna` microdb (gallery tables included).
+/// Open the on-drive `.luna-<uuid>.sqlite3` microdb (gallery tables included).
 /// Never under OS data_dir.
 pub fn open_drive_db(drive_root: &Path) -> anyhow::Result<Connection> {
     crate::drive_db::open(drive_root)
@@ -308,7 +305,8 @@ fn normalize_format_ext(raw: &str) -> String {
 
 /// Walk one drive and refresh its on-drive photo index + thumbnails.
 pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
-    let thumb_dir = thumbs_dir(root);
+    let thumb_dir = thumbs_dir(root)
+        .ok_or_else(|| anyhow::anyhow!("drive is not adopted — no .luna-<uuid> marker"))?;
     std::fs::create_dir_all(&thumb_dir)?;
     let mut conn = open_drive_db(root)?;
     let mut report = ScanReport::default();
@@ -369,7 +367,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 "image"
             };
 
-            let dest = thumb_path(root, drive_id, &rel);
+            let dest = thumb_path_in(&thumb_dir, drive_id, &rel);
             if let Ok(Some((old_size, old_mtime, old_has_thumb))) = photo_cache_row(&conn, &rel)
                 && old_size == size
                 && old_mtime == mtime
@@ -598,11 +596,14 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
         "image"
     };
     let mut conn = open_drive_db(root)?;
-    if let Ok(Some((old_size, old_mtime, old_has_thumb))) = photo_cache_row(&conn, rel) {
-        let dest = thumb_path(root, drive_id, rel);
-        if old_size == size && old_mtime == mtime && old_has_thumb && dest.exists() {
-            return Ok(Some(()));
-        }
+    if let Ok(Some((old_size, old_mtime, old_has_thumb))) = photo_cache_row(&conn, rel)
+        && let Some(dest) = thumb_path(root, drive_id, rel)
+        && old_size == size
+        && old_mtime == mtime
+        && old_has_thumb
+        && dest.exists()
+    {
+        return Ok(Some(()));
     }
     let meta = crate::exif::capture_meta(&path_buf).unwrap_or_default();
     let taken_at = meta.taken_at.unwrap_or(0);
@@ -659,8 +660,12 @@ pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()
     } else {
         "image"
     };
-    let dest = thumb_path(root, drive_id, rel);
-    let _ = std::fs::create_dir_all(thumbs_dir(root));
+    let Some(dest) = thumb_path(root, drive_id, rel) else {
+        return Ok(());
+    };
+    if let Some(dir) = thumbs_dir(root) {
+        let _ = std::fs::create_dir_all(dir);
+    }
     let (width, height, has_thumb) = match ensure_thumb(&path_buf, &dest, kind) {
         Ok((w, h, _)) => (w, h, dest.exists()),
         Err(_) => (0, 0, false),
@@ -746,8 +751,7 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
 }
 
 pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Result<()> {
-    let path = gallery_db_path(root);
-    if !path.exists() {
+    if gallery_db_path(root).is_none() {
         return Ok(());
     }
     let conn = open_drive_db(root)?;
@@ -756,8 +760,9 @@ pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Re
     drop(conn);
     // Refresh album covers when this path was a cover on this drive's albums.
     let _ = remove_album_items_for_path(root, drive_id, rel);
-    let thumb = thumb_path(root, drive_id, rel);
-    let _ = std::fs::remove_file(thumb);
+    if let Some(thumb) = thumb_path(root, drive_id, rel) {
+        let _ = std::fs::remove_file(thumb);
+    }
     Ok(())
 }
 
@@ -776,8 +781,7 @@ pub fn rename_indexed_path(
     from: &str,
     to: &str,
 ) -> anyhow::Result<()> {
-    let path = gallery_db_path(root);
-    if !path.exists() {
+    if gallery_db_path(root).is_none() {
         return Ok(());
     }
     let conn = open_drive_db(root)?;
@@ -797,10 +801,14 @@ pub fn rename_indexed_path(
         "UPDATE album_items SET path = ?1 WHERE drive_id = ?2 AND path = ?3",
         params![to, drive_id, from],
     )?;
-    let old_thumb = thumb_path(root, drive_id, from);
-    let new_thumb = thumb_path(root, drive_id, to);
-    if old_thumb.exists() {
-        let _ = std::fs::create_dir_all(thumbs_dir(root));
+    if let (Some(old_thumb), Some(new_thumb)) = (
+        thumb_path(root, drive_id, from),
+        thumb_path(root, drive_id, to),
+    ) && old_thumb.exists()
+    {
+        if let Some(dir) = thumbs_dir(root) {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let _ = std::fs::rename(&old_thumb, &new_thumb);
     }
     if updated == 0 && should_reindex_after_rename(to) {
@@ -1009,7 +1017,7 @@ pub fn list_photos(
         {
             continue;
         }
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1046,7 +1054,7 @@ pub fn list_duplicates(
     use std::collections::HashMap;
     let mut map: HashMap<(u64, String), Vec<Photo>> = HashMap::new();
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1156,7 +1164,7 @@ fn load_album_paths(
             let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
                 return Ok(Some(HashSet::new()));
             };
-            if !gallery_db_path(root).exists() {
+            if gallery_db_path(root).is_none() {
                 return Ok(Some(HashSet::new()));
             }
             let conn = open_drive_db(root)?;
@@ -1476,7 +1484,7 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
     use std::collections::HashMap;
     let mut map: HashMap<String, PlaceCluster> = HashMap::new();
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1528,7 +1536,7 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
 pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceMarker>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1586,7 +1594,7 @@ pub fn list_cameras(
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1660,7 +1668,7 @@ pub fn list_filter_facets(
     let mut focal_max: Option<f64> = None;
 
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1913,7 +1921,7 @@ pub fn list_albums(
 ) -> anyhow::Result<Vec<Album>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -2547,7 +2555,7 @@ pub fn find_invite(
 ) -> anyhow::Result<Option<(String, PathBuf, AlbumInvite, Album)>> {
     let now = now_unix();
     for (drive_id, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -2615,7 +2623,7 @@ pub fn user_can_view_path_via_album(
     path: &str,
 ) -> bool {
     for (home, root) in mounts {
-        if !gallery_db_path(root).exists() {
+        if gallery_db_path(root).is_none() {
             continue;
         }
         let Ok(conn) = open_drive_db(root) else {
@@ -2701,6 +2709,22 @@ fn uuid_v4() -> String {
 mod tests {
     use super::*;
 
+    /// Give a test drive root a `.luna-<uuid>` marker so drive_db opens.
+    /// Idempotent — reuses the existing prefix when already adopted.
+    fn adopt(root: &Path, id: &str) {
+        if crate::drive_db::prefix_for(root).is_none() {
+            let prefix = luna_core::marker::pick_prefix(root).unwrap();
+            crate::drive_db::create(root, &luna_core::marker::Marker::new(id, "Test"), &prefix)
+                .unwrap();
+        }
+    }
+
+    /// Adopt-then-scan shorthand for tests.
+    fn scan(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
+        adopt(root, drive_id);
+        scan_drive(drive_id, root)
+    }
+
     #[test]
     fn thumbnails_png_and_reuses_cached() {
         let dir = tempfile::tempdir().unwrap();
@@ -2730,7 +2754,8 @@ mod tests {
 
     #[test]
     fn video_thumb_temp_path_uses_jpg_extension() {
-        let dest = PathBuf::from("/drive/.lunathumbs/abc.jpg");
+        let dest =
+            PathBuf::from("/drive/.luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f-thumbs/abc.jpg");
         let tmp = dest.with_extension("vidtmp.jpg");
         assert_eq!(
             tmp.extension().and_then(|e| e.to_str()),
@@ -2803,20 +2828,33 @@ mod tests {
         let png = image::RgbaImage::from_pixel(16, 16, image::Rgba([9, 9, 9, 255]));
         png.save(&src).unwrap();
 
-        let first = scan_drive("d1", &photos_dir).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&photos_dir).unwrap();
+        crate::drive_db::create(
+            &photos_dir,
+            &luna_core::marker::Marker::new("d1", "Photos"),
+            &prefix,
+        )
+        .unwrap();
+
+        let first = scan("d1", &photos_dir).unwrap();
         assert_eq!(first.found, 1);
         assert_eq!(first.thumbnailed, 1);
-        assert!(gallery_db_path(&photos_dir).exists());
+        assert!(gallery_db_path(&photos_dir).is_some());
         assert!(
-            thumbs_dir(&photos_dir).read_dir().unwrap().next().is_some(),
-            "thumbs must land under the photo drive's .lunathumbs"
+            thumbs_dir(&photos_dir)
+                .unwrap()
+                .read_dir()
+                .unwrap()
+                .next()
+                .is_some(),
+            "thumbs must land under the photo drive's .luna-<uuid>-thumbs"
         );
         assert!(
-            !os_data.join(GALLERY_DIR_NAME).exists(),
+            std::fs::read_dir(&os_data).unwrap().next().is_none(),
             "gallery DB must not land under OS data dir"
         );
 
-        let second = scan_drive("d1", &photos_dir).unwrap();
+        let second = scan("d1", &photos_dir).unwrap();
         assert_eq!(second.found, 1);
         assert_eq!(second.thumbnailed, 0);
 
@@ -2841,7 +2879,7 @@ mod tests {
         let png = image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]));
         png.save(&recent).unwrap();
 
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir)];
         let page = list_photos(&mounts, Some("d1"), &ListFilter::default(), 10, 0).unwrap();
         assert_eq!(page.items.len(), 2);
@@ -2863,9 +2901,9 @@ mod tests {
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([1, 1, 1, 255]));
         png.save(&a).unwrap();
         png.save(&b).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         std::fs::remove_file(&b).unwrap();
-        let report = scan_drive("d1", &photos_dir).unwrap();
+        let report = scan("d1", &photos_dir).unwrap();
         assert_eq!(report.pruned, 1);
         let mounts = vec![("d1".into(), photos_dir)];
         let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
@@ -2880,7 +2918,7 @@ mod tests {
         std::fs::create_dir(&photos_dir).unwrap();
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([2, 2, 2, 255]));
         png.save(photos_dir.join("x.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
 
         set_favorite(&photos_dir, "u1", "x.png", true).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
@@ -2938,7 +2976,7 @@ mod tests {
         png.save(photos_dir.join("other/copy.png")).unwrap();
         let other = image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]));
         other.save(photos_dir.join("unique.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir)];
         let groups = list_duplicates(&mounts, 50).unwrap();
         assert!(
@@ -2970,8 +3008,8 @@ mod tests {
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
         png.save(a.join("a.png")).unwrap();
         png.save(b.join("b.png")).unwrap();
-        scan_drive("da", &a).unwrap();
-        scan_drive("db", &b).unwrap();
+        scan("da", &a).unwrap();
+        scan("db", &b).unwrap();
         let mounts = vec![("da".into(), a), ("db".into(), b)];
         let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
         assert_eq!(page.items.len(), 2);
@@ -2998,7 +3036,7 @@ mod tests {
         .unwrap();
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([4, 4, 4, 255]));
         png.save(photos_dir.join("plain.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
         let cameras = list_cameras(&mounts, None).unwrap();
@@ -3067,7 +3105,7 @@ mod tests {
             ),
         )
         .unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
         let mut grants = std::collections::HashMap::new();
         grants.insert("d1".into(), vec!["shared".into()]);
@@ -3096,7 +3134,7 @@ mod tests {
             crate::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
         )
         .unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir)];
         // Member map present but this drive has no entry — must not equal Admin None.
         let grants = std::collections::HashMap::new();
@@ -3118,6 +3156,7 @@ mod tests {
     fn list_albums_include_all_returns_every_album() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        adopt(root, "home");
         let a = create_album(root, "home", "u1", "Mine").unwrap();
         let b = create_album(root, "home", "u2", "Theirs").unwrap();
         let mounts = vec![("home".into(), root.to_path_buf())];
@@ -3134,6 +3173,7 @@ mod tests {
     fn album_member_can_view_item_without_folder_grant() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        adopt(root, "home");
         let album = create_album(root, "home", "owner", "Shared").unwrap();
         add_album_items(root, &album.id, &[("home".into(), "secret/pic.jpg".into())]).unwrap();
         upsert_member(root, &album.id, "member", "viewer").unwrap();
@@ -3169,7 +3209,7 @@ mod tests {
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
         png.save(photos_dir.join("private.png")).unwrap();
         png.save(photos_dir.join("shared.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let album = create_album(&photos_dir, "d1", "owner", "Shared").unwrap();
         add_album_items(
             &photos_dir,
@@ -3239,7 +3279,7 @@ mod tests {
         let wide = image::RgbaImage::from_pixel(200, 100, image::Rgba([5, 5, 5, 255]));
         wide.save(photos_dir.join("wide.png")).unwrap();
 
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
 
         let facets = list_filter_facets(&mounts, None).unwrap();
@@ -3380,79 +3420,11 @@ mod tests {
         );
     }
 
-    fn copy_fixture_tree(src: &Path, dst: &Path, names: &[&str]) {
-        for name in names {
-            let from = src.join(name);
-            if from.is_dir() {
-                copy_dir_all(&from, &dst.join(name));
-            }
-        }
-    }
-
-    fn copy_dir_all(src: &Path, dst: &Path) {
-        std::fs::create_dir_all(dst).expect("mkdir");
-        for entry in std::fs::read_dir(src).expect("read_dir") {
-            let entry = entry.expect("entry");
-            let ty = entry.file_type().expect("file_type");
-            let to = dst.join(entry.file_name());
-            if ty.is_dir() {
-                copy_dir_all(&entry.path(), &to);
-            } else {
-                std::fs::copy(entry.path(), to).expect("copy");
-            }
-        }
-    }
-
-    #[test]
-    fn mock_pssd_fixtures_scan_for_gallery() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mock-pssd");
-        if !fixture.join("DCIM/100CANON").exists() {
-            eprintln!("mock PSSD photo fixtures missing — run: make mock-pssd-photos");
-            return;
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        let vol = dir.path().join("vol");
-        copy_fixture_tree(&fixture, &vol, &["DCIM", "Photos", "Pictures", ".Trashes"]);
-
-        let report = scan_drive("mock", &vol).expect("scan mock PSSD fixtures");
-        assert!(
-            report.found >= 60,
-            "expected many photos, found {}",
-            report.found
-        );
-        assert!(
-            report.thumbnailed >= 55,
-            "expected most thumbnails, got {}",
-            report.thumbnailed
-        );
-
-        let mounts = vec![("mock".into(), vol.clone())];
-        let page = list_photos(&mounts, Some("mock"), &ListFilter::default(), 200, 0).unwrap();
-        assert!(page.items.len() >= 60, "listed {}", page.items.len());
-
-        let with_gps = page.items.iter().filter(|p| p.lat.is_some()).count();
-        assert!(with_gps >= 20, "expected GPS photos, got {with_gps}");
-
-        let places = list_places(&mounts).unwrap();
-        assert!(
-            places.len() >= 3,
-            "expected place clusters, got {}",
-            places.len()
-        );
-
-        let markers = list_place_markers(&mounts).unwrap();
-        assert!(
-            markers.len() >= 20,
-            "expected individual GPS markers, got {}",
-            markers.len()
-        );
-    }
-
     #[test]
     fn allocate_contrib_dir_avoids_collisions_and_persists() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        adopt(root, "d1");
         let album1 = create_album(root, "d1", "user1", "Trip to Paris").unwrap();
         assert!(album1.contrib_path.is_empty(), "starts empty");
 
@@ -3487,6 +3459,7 @@ mod tests {
     fn list_invites_returns_created_invites() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        adopt(root, "d1");
         let album = create_album(root, "d1", "user1", "Beach").unwrap();
         let inv1 = create_invite(root, &album.id, "viewer", None, None).unwrap();
         let inv2 = create_invite(root, &album.id, "contributor", Some(9999999999), None).unwrap();
@@ -3527,7 +3500,7 @@ mod tests {
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([2, 2, 2, 255]));
         png.save(photos_dir.join("a.png")).unwrap();
         png.save(photos_dir.join("b.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         set_archived(&photos_dir, "u1", "a.png", true).unwrap();
         let mounts = vec![("d1".into(), photos_dir.clone())];
         let library = list_photos(
@@ -3564,6 +3537,7 @@ mod tests {
     fn update_album_unshare_deletes_invites() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        adopt(root, "d1");
         let album = create_album(root, "d1", "user1", "Secret").unwrap();
         let _ = create_invite(root, &album.id, "viewer", None, None).unwrap();
         assert_eq!(list_invites(root, &album.id).unwrap().len(), 1);
@@ -3585,7 +3559,7 @@ mod tests {
         std::fs::create_dir(&photos_dir).unwrap();
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([2, 2, 2, 255]));
         png.save(photos_dir.join("x.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let album = create_album(&photos_dir, "d1", "u1", "Trip").unwrap();
         add_album_items(&photos_dir, &album.id, &[("d1".into(), "x.png".into())]).unwrap();
         let got = get_album(&photos_dir, "d1", &album.id).unwrap().unwrap();
@@ -3605,7 +3579,7 @@ mod tests {
         std::fs::create_dir(&photos_dir).unwrap();
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
         png.save(photos_dir.join("cover.png")).unwrap();
-        scan_drive("d1", &photos_dir).unwrap();
+        scan("d1", &photos_dir).unwrap();
         let album = create_album(&photos_dir, "d1", "u1", "Trip").unwrap();
         add_album_items(&photos_dir, &album.id, &[("d1".into(), "cover.png".into())]).unwrap();
         update_album(
@@ -3627,6 +3601,7 @@ mod tests {
     fn viewer_member_cannot_contribute() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        adopt(root, "d1");
         let album = create_album(root, "d1", "owner", "Trip").unwrap();
         upsert_member(root, &album.id, "viewer1", "viewer").unwrap();
         assert!(user_can_access_album(root, &album, "viewer1").unwrap());

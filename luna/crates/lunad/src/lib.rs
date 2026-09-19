@@ -18,7 +18,6 @@ pub mod drives;
 pub mod exif;
 pub mod factory_mag;
 pub mod files;
-pub mod fixture_exif;
 pub mod fsprobe;
 pub mod fstrim;
 pub mod gallery;
@@ -29,8 +28,10 @@ pub mod hibp;
 pub mod hotspot;
 pub mod index;
 pub mod jobs;
+pub mod layout;
 pub mod mount;
 pub mod net;
+pub mod office_docs;
 pub mod password;
 pub mod protect;
 pub mod ram_cache;
@@ -79,6 +80,7 @@ pub struct AppState {
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub collab: std::sync::Arc<crate::collab::CollabHub>,
+    pub office_docs: std::sync::Arc<crate::office_docs::OfficeDocHub>,
 }
 
 impl AppState {
@@ -142,6 +144,7 @@ impl AppState {
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             collab: Arc::new(crate::collab::CollabHub::new()),
+            office_docs: Arc::new(crate::office_docs::OfficeDocHub::new()),
         }
     }
 

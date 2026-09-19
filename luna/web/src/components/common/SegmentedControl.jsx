@@ -4,16 +4,22 @@ import { haptic } from "../../utils/haptics";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
- * @param {object} props
- * @param {{ value: string, label?: string, icon?: import('react').ComponentType<any>, disabled?: boolean, title?: string }[]} props.options
- * @param {string} props.value
- * @param {(value: string) => void} props.onChange
- * @param {(value: string) => void} [props.onDisabledClick]
- * @param {string} [props.className]
- * @param {"default"|"secondary"} [props.surface]
- *   Backdrop the control sits on. `"secondary"` uses a primary selected pill
- *   (Apps / Gallery layered search-bar pattern) so a large accent indicator
- *   does not read as the toolbar background.
+ * @typedef {Record<string, any> & {
+ *   options: { value: string, label?: string, icon?: import('react').ComponentType<any>, disabled?: boolean, title?: string }[],
+ *   value: string,
+ *   onChange: (value: string) => void,
+ *   onDisabledClick?: (value: string) => void,
+ *   className?: string,
+ *   surface?: "default"|"primary"|"secondary",
+ *   "aria-label"?: string,
+ * }} SegmentedControlProps
+ *
+ * @param {SegmentedControlProps} props
+ * surface — backdrop the control sits on. `"secondary"` uses a primary
+ *   selected pill (Apps / Gallery layered search-bar pattern) so a large
+ *   accent indicator does not read as the toolbar background. `"primary"`
+ *   is for sections on the page background: the track tints with the
+ *   secondary color so the control stays visible on bg-primary.
  */
 export default function SegmentedControl({
   options,
@@ -22,23 +28,31 @@ export default function SegmentedControl({
   onDisabledClick = (_value) => {},
   className = "",
   surface = "default",
+  "aria-label": ariaLabel,
 }) {
   const selectedIndex = options.findIndex((o) => o.value === value);
   const onSecondary = surface === "secondary";
+  const onPrimary = surface === "primary";
   // On secondary shells (Gallery toolbar), selected pill matches the search
   // field (`bg-primary`) so a gray accent indicator does not dominate.
   const indicatorClass = onSecondary ? "bg-primary" : "bg-accent";
-  const idleTextClass = "text-accent hover:text-primary";
+  const trackClass = onPrimary ? "bg-secondary/10" : "bg-primary/10";
+  const idleTextClass = onPrimary
+    ? "text-accent hover:text-secondary"
+    : "text-accent hover:text-primary";
+  const selectedTextClass = onPrimary ? "text-primary" : "text-secondary";
 
   return (
     <div
       data-slot="segmented-control"
       className={cn(
-        "relative inline-grid bg-primary/10 rounded-pill p-[3px]",
+        "relative inline-grid rounded-pill p-[3px]",
+        trackClass,
         className
       )}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
       role="radiogroup"
+      aria-label={ariaLabel}
     >
       <div
         data-slot="segmented-control-indicator"
@@ -73,7 +87,7 @@ export default function SegmentedControl({
             disabled
               ? "text-accent opacity-50 cursor-not-allowed"
               : value === optValue
-                ? "text-secondary"
+                ? selectedTextClass
                 : idleTextClass
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
@@ -104,5 +118,6 @@ SegmentedControl.propTypes = {
   onChange: PropTypes.func.isRequired,
   onDisabledClick: PropTypes.func,
   className: PropTypes.string,
-  surface: PropTypes.oneOf(["default", "secondary"]),
+  surface: PropTypes.oneOf(["default", "primary", "secondary"]),
+  "aria-label": PropTypes.string,
 };

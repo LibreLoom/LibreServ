@@ -109,6 +109,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             token_id TEXT NOT NULL,
             action TEXT NOT NULL,
             detail TEXT NOT NULL DEFAULT '',
+            client TEXT NOT NULL DEFAULT '',
+            origin TEXT NOT NULL DEFAULT '',
             used_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS rate_limit_buckets (
@@ -136,6 +138,18 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "shares",
         "permission",
         "TEXT NOT NULL DEFAULT 'read'",
+    )?;
+    ensure_column(
+        &conn,
+        "device_token_usage",
+        "client",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        &conn,
+        "device_token_usage",
+        "origin",
+        "TEXT NOT NULL DEFAULT ''",
     )?;
     Ok(conn)
 }
@@ -1020,9 +1034,10 @@ pub fn touch_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Throttle last_used + usage-log writes so chatty API clients do not hammer eMMC.
+/// Throttle last_used writes so chatty API clients do not hammer eMMC.
 pub const DEVICE_TOKEN_TOUCH_MIN_SECS: i64 = 10 * 60;
-pub const DEVICE_TOKEN_USAGE_MIN_SECS: i64 = 60 * 60;
+/// Merge activity with the same action/client/origin within 15 minutes.
+pub const DEVICE_TOKEN_USAGE_MERGE_WINDOW_SECS: i64 = 15 * 60;
 pub const DEVICE_TOKEN_USAGE_KEEP: i64 = 50;
 
 pub fn note_device_token_activity(
@@ -1030,25 +1045,62 @@ pub fn note_device_token_activity(
     token_id: &str,
     last_used_at: i64,
 ) -> anyhow::Result<()> {
+    note_device_token_activity_rich(conn, token_id, last_used_at, "API access", "", "", "")
+}
+
+pub fn note_device_token_activity_rich(
+    conn: &Connection,
+    token_id: &str,
+    last_used_at: i64,
+    action: &str,
+    detail: &str,
+    client: &str,
+    origin: &str,
+) -> anyhow::Result<()> {
     let now = now_unix();
     if now.saturating_sub(last_used_at) >= DEVICE_TOKEN_TOUCH_MIN_SECS {
         touch_device_token(conn, token_id)?;
     }
-    let latest: Option<i64> = conn
+    let latest: Option<(i64, String, String, String, i64)> = conn
         .query_row(
-            "SELECT used_at FROM device_token_usage WHERE token_id = ?1
-             ORDER BY used_at DESC LIMIT 1",
+            "SELECT id, action, client, origin, used_at FROM device_token_usage
+             WHERE token_id = ?1
+             ORDER BY used_at DESC, id DESC LIMIT 1",
             params![token_id],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .ok();
-    if latest
-        .map(|t| now.saturating_sub(t) >= DEVICE_TOKEN_USAGE_MIN_SECS)
-        .unwrap_or(true)
+
+    if let Some((id, prev_action, prev_client, prev_origin, prev_used_at)) = latest
+        && prev_action == action
+        && prev_client == client
+        && prev_origin == origin
+        && now.saturating_sub(prev_used_at) < DEVICE_TOKEN_USAGE_MERGE_WINDOW_SECS
     {
-        insert_device_token_usage(conn, token_id, "auth", "api")?;
-        prune_device_token_usage(conn, token_id, DEVICE_TOKEN_USAGE_KEEP)?;
+        if !detail.is_empty() {
+            conn.execute(
+                "UPDATE device_token_usage SET used_at = ?2, detail = ?3 WHERE id = ?1",
+                params![id, now, detail],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE device_token_usage SET used_at = ?2 WHERE id = ?1",
+                params![id, now],
+            )?;
+        }
+        return Ok(());
     }
+
+    insert_device_token_usage(conn, token_id, action, detail, client, origin)?;
+    prune_device_token_usage(conn, token_id, DEVICE_TOKEN_USAGE_KEEP)?;
     Ok(())
 }
 
@@ -1064,6 +1116,8 @@ pub fn revoke_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
 pub struct DeviceTokenUsageRow {
     pub action: String,
     pub detail: String,
+    pub client: String,
+    pub origin: String,
     pub used_at: i64,
 }
 
@@ -1072,10 +1126,12 @@ pub fn insert_device_token_usage(
     token_id: &str,
     action: &str,
     detail: &str,
+    client: &str,
+    origin: &str,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO device_token_usage (token_id, action, detail, used_at) VALUES (?1, ?2, ?3, ?4)",
-        params![token_id, action, detail, now_unix()],
+        "INSERT INTO device_token_usage (token_id, action, detail, client, origin, used_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![token_id, action, detail, client, origin, now_unix()],
     )?;
     Ok(())
 }
@@ -1101,14 +1157,16 @@ pub fn list_device_token_usage(
     limit: i64,
 ) -> anyhow::Result<Vec<DeviceTokenUsageRow>> {
     let mut stmt = conn.prepare(
-        "SELECT action, detail, used_at FROM device_token_usage
-         WHERE token_id = ?1 ORDER BY used_at DESC LIMIT ?2",
+        "SELECT action, detail, client, origin, used_at FROM device_token_usage
+         WHERE token_id = ?1 ORDER BY used_at DESC, id DESC LIMIT ?2",
     )?;
     let rows = stmt.query_map(params![token_id, limit], |row| {
         Ok(DeviceTokenUsageRow {
             action: row.get(0)?,
             detail: row.get(1)?,
-            used_at: row.get(2)?,
+            client: row.get(2)?,
+            origin: row.get(3)?,
+            used_at: row.get(4)?,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -1295,5 +1353,65 @@ mod tests {
         assert_eq!(grants[0].permission, "read");
 
         assert!(!update_grant_permission(&conn, "missing", "write").unwrap());
+    }
+
+    #[test]
+    fn rich_device_token_activity_records_and_merges_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_user(&conn, "u1", "admin", "Admin", "hash", "admin").unwrap();
+        insert_device_token(&conn, "dt1", "u1", "MacBook", "hash1", None).unwrap();
+
+        // First event
+        note_device_token_activity_rich(
+            &conn,
+            "dt1",
+            0,
+            "WebDAV folder",
+            "Browsed folder",
+            "macOS Finder",
+            "Home network (192.168.1.50)",
+        )
+        .unwrap();
+
+        let usage = list_device_token_usage(&conn, "dt1", 10).unwrap();
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].action, "WebDAV folder");
+        assert_eq!(usage[0].detail, "Browsed folder");
+        assert_eq!(usage[0].client, "macOS Finder");
+        assert_eq!(usage[0].origin, "Home network (192.168.1.50)");
+
+        // Repeat same action/client/origin within 15 min window -> merged into 1 row
+        note_device_token_activity_rich(
+            &conn,
+            "dt1",
+            now_unix(),
+            "WebDAV folder",
+            "Modified files",
+            "macOS Finder",
+            "Home network (192.168.1.50)",
+        )
+        .unwrap();
+
+        let usage_after = list_device_token_usage(&conn, "dt1", 10).unwrap();
+        assert_eq!(usage_after.len(), 1);
+        assert_eq!(usage_after[0].detail, "Modified files");
+
+        // Different action -> new row
+        note_device_token_activity_rich(
+            &conn,
+            "dt1",
+            now_unix(),
+            "File upload",
+            "Uploaded 2 files",
+            "macOS Finder",
+            "Home network (192.168.1.50)",
+        )
+        .unwrap();
+
+        let usage_multi = list_device_token_usage(&conn, "dt1", 10).unwrap();
+        assert_eq!(usage_multi.len(), 2);
+        assert_eq!(usage_multi[0].action, "File upload");
+        assert_eq!(usage_multi[1].action, "WebDAV folder");
     }
 }

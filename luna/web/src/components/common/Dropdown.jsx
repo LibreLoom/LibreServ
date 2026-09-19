@@ -19,6 +19,9 @@ import { ICON_SIZE } from "@/lib/ui-tokens";
  * @property {boolean} [fullWidth]
  * @property {boolean} [disabled]
  * @property {boolean} [ghost]
+ * @property {import("lucide-react").LucideIcon} [icon] Render the trigger as an
+ *   icon-only button (toolbar menus) instead of a labeled pill. Pair with
+ *   `aria-label`.
  * @property {string} [className]
  * @property {string} [id]
  */
@@ -35,6 +38,7 @@ export default function Dropdown({
   fullWidth = false,
   disabled = false,
   ghost = false,
+  icon: Icon,
   className = "",
   "aria-label": ariaLabel,
 }) {
@@ -150,7 +154,8 @@ export default function Dropdown({
         disabled={disabled}
         onKeyDown={handleKeyDown}
         className={cn(
-          "items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer rounded-pill",
+          "items-center cursor-pointer rounded-pill",
+          Icon ? "justify-center p-1.5" : "gap-1.5 px-3 py-1.5 text-xs",
           "motion-safe:transition-all no-focus-outline",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
           `focus-visible:ring-offset-${pill}`,
@@ -158,23 +163,29 @@ export default function Dropdown({
           fullWidth ? "w-full inline-flex" : "inline-flex",
           bgClass,
           textClass,
-          ghost ? "font-mono" : "font-medium",
+          Icon ? "" : ghost ? "font-mono" : "font-medium",
           hoverClass
         )}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={ariaLabel || (label ? `${label}: ${selectedOption?.label || "select"}` : undefined)}
       >
-        {label && !ghost && <span className="opacity-70">{label}</span>}
-        <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
-          {selectedOption?.label || placeholder}
-          <ChevronDown
-            size={ICON_SIZE.sm}
-            className={cn("motion-safe:transition-transform motion-safe:duration-300", isOpen && !isClosing ? "rotate-180" : "rotate-0")}
-            style={{ transitionTimingFunction: "var(--motion-easing-emphasized)" }}
-            aria-hidden="true"
-          />
-        </span>
+        {Icon ? (
+          <Icon size={ICON_SIZE.md} aria-hidden="true" />
+        ) : (
+          <>
+            {label && !ghost && <span className="opacity-70">{label}</span>}
+            <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
+              {selectedOption?.label || placeholder}
+              <ChevronDown
+                size={ICON_SIZE.sm}
+                className={cn("motion-safe:transition-transform motion-safe:duration-300", isOpen && !isClosing ? "rotate-180" : "rotate-0")}
+                style={{ transitionTimingFunction: "var(--motion-easing-emphasized)" }}
+                aria-hidden="true"
+              />
+            </span>
+          </>
+        )}
       </button>
 
       {isOpen &&
@@ -186,7 +197,10 @@ export default function Dropdown({
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
               "bg-secondary text-primary font-mono ring-inset ring-2 ring-accent",
-              "rounded-large-element py-0 z-[100] max-h-64 overflow-y-auto overscroll-contain min-w-[8rem]",
+              // overflow-y-auto alone would compute overflow-x as auto too,
+              // so the 2px hover slide on options showed a horizontal
+              // scrollbar. Clip x; the slide stays, clipped at the menu edge.
+              "rounded-large-element py-0 z-[100] max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain min-w-[8rem] no-scrollbar",
               isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
             )}
             tabIndex={-1}

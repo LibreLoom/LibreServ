@@ -9,7 +9,7 @@ use rusqlite::{Connection, params};
 
 use crate::db;
 
-use crate::files::FileEntry;
+use crate::files::{FileEntry, FolderTotals};
 
 pub fn replace_dir(
     conn: &Connection,
@@ -101,8 +101,8 @@ pub struct SearchHit {
 /// Search files and folders by name, folder path, kind, or drive label.
 /// Hidden entries are skipped; callers still enforce access checks.
 ///
-/// Fans out across each mounted drive's `.luna` microdb (index no longer
-/// lives in central `luna.db`).
+/// Fans out across each mounted drive's `.luna-<uuid>.sqlite3` microdb (index
+/// no longer lives in central `luna.db`).
 pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit>> {
     let escaped = query
         .replace('\\', "\\\\")
@@ -116,7 +116,7 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
             continue;
         }
         let root = std::path::Path::new(&drive.mount_point);
-        if !crate::drive_db::path_for(root).is_file() {
+        if crate::drive_db::find_db_file(root).is_none() {
             continue;
         }
         let conn = match crate::drive_db::open_migrating(root, central, &drive.id) {
@@ -186,6 +186,96 @@ pub fn search(central: &Connection, query: &str) -> anyhow::Result<Vec<SearchHit
     Ok(all)
 }
 
+/// Recursive folder totals served entirely from fresh index rows — no
+/// directory scans. Every directory in the subtree must be indexed AND
+/// still mtime-fresh; the first stale or missing directory returns `None`
+/// and the caller falls back to a filesystem walk.
+///
+/// `include(dir_rel)` gates which directories contribute their entries, the
+/// same lens [`crate::files::folder_totals`] uses — unreadable parents are
+/// still descended so a deeper grant is not hidden by its ancestor.
+pub fn folder_totals_indexed(
+    conn: &Connection,
+    root: &std::path::Path,
+    drive_id: &str,
+    rel: &str,
+    include: &mut impl FnMut(&str) -> bool,
+) -> Option<FolderTotals> {
+    // Bounded like the filesystem walk: a huge dir count costs stats and
+    // queries, so cap it and let the caller decide to walk instead.
+    const MAX_DIRS: usize = 20_000;
+    let mut totals = FolderTotals::default();
+    let mut stack = vec![rel.trim_end_matches('/').to_string()];
+    let mut seen_dirs = 0usize;
+    while let Some(dir_rel) = stack.pop() {
+        seen_dirs += 1;
+        if seen_dirs > MAX_DIRS {
+            return None;
+        }
+        // Fresh means the indexed mtime still matches the filesystem: a dir
+        // whose mtime moved has entries the index cannot vouch for.
+        let indexed: i64 = conn
+            .query_row(
+                "SELECT dir_mtime FROM indexed_dirs WHERE drive_id = ?1 AND path = ?2",
+                params![drive_id, dir_rel],
+                |row| row.get(0),
+            )
+            .ok()?;
+        let current = std::fs::metadata(root.join(&dir_rel))
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if indexed != current {
+            return None;
+        }
+        let readable = include(&dir_rel);
+        let mut stmt = conn
+            .prepare(
+                "SELECT name, kind, size FROM index_entries WHERE drive_id = ?1 AND parent = ?2",
+            )
+            .ok()?;
+        let rows = stmt
+            .query_map(params![drive_id, dir_rel], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .ok()?
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        for (name, kind, size) in rows {
+            if crate::files::is_internal_temp(&name) {
+                continue;
+            }
+            match kind.as_str() {
+                "dir" => {
+                    if readable {
+                        totals.dirs += 1;
+                    }
+                    stack.push(if dir_rel.is_empty() {
+                        name
+                    } else {
+                        format!("{dir_rel}/{name}")
+                    });
+                }
+                "file" if readable => {
+                    totals.files += 1;
+                    totals.bytes += size.max(0) as u64;
+                }
+                _ if readable => totals.other += 1,
+                _ => {}
+            }
+        }
+    }
+    // Every subdir checked out fresh — the count is final.
+    totals.complete = true;
+    Some(totals)
+}
+
 /// Recursively index an adopted drive. Runs in the background; never blocks
 /// a request. Directories are read once each, then kept fresh by mtime.
 pub fn scan_drive(
@@ -201,12 +291,9 @@ pub fn scan_drive(
         let mtime = mtime(&meta);
         let entries = crate::files::read_dir_entries(&dir)?;
         for entry in &entries {
+            // read_dir_entries already filtered out Luna's `.luna-<uuid>`
+            // bookkeeping (trash, protected copies, thumbs, marker).
             if entry.kind == "dir" {
-                // Luna-managed stores — not user folders. Skip so search/browse
-                // index does not walk trash or protected copies.
-                if entry.name == ".luna-trash" || entry.name == crate::protect::PROTECTED_DIR {
-                    continue;
-                }
                 let child_rel = if rel.is_empty() {
                     entry.name.clone()
                 } else {
@@ -228,7 +315,7 @@ pub fn scan_drive_unlocked(
     drive_id: &str,
     root: &std::path::Path,
 ) -> anyhow::Result<u64> {
-    // Index lives on the drive `.luna` microdb — central lock is unused.
+    // Index lives on the drive `.luna-<uuid>.sqlite3` microdb — central lock is unused.
     let unused = Connection::open_in_memory()?;
     scan_drive(&unused, drive_id, root)
 }
@@ -249,7 +336,12 @@ mod tests {
     fn fresh_and_stale_index_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let marker = luna_core::marker::Marker::new("d1", "D");
-        let conn = crate::drive_db::create(dir.path(), &marker).unwrap();
+        let conn = crate::drive_db::create(
+            dir.path(),
+            &marker,
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
         let entries = vec![
             FileEntry {
                 name: "b".into(),
@@ -276,13 +368,76 @@ mod tests {
     }
 
     #[test]
+    fn folder_totals_indexed_sums_a_fresh_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("drive");
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::fs::write(root.join("a/one.txt"), b"12345").unwrap();
+        std::fs::write(root.join("a/b/two.txt"), b"xy").unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drive_db::create(
+            &root,
+            &marker,
+            &luna_core::marker::pick_prefix(&root).unwrap(),
+        )
+        .unwrap();
+        scan_drive(&conn, "d1", &root).unwrap();
+
+        let mut all = |_: &str| true;
+        let totals = folder_totals_indexed(&conn, &root, "d1", "a", &mut all).unwrap();
+        assert_eq!(totals.bytes, 7);
+        assert_eq!(totals.files, 2);
+        assert_eq!(totals.dirs, 1);
+        assert!(totals.complete);
+
+        // The lens gates each directory's own entries, same as the walk.
+        let mut only_b = |p: &str| p == "a/b";
+        let scoped = folder_totals_indexed(&conn, &root, "d1", "a", &mut only_b).unwrap();
+        assert_eq!(scoped.bytes, 2);
+        assert_eq!(scoped.files, 1);
+        assert_eq!(scoped.dirs, 0);
+    }
+
+    #[test]
+    fn folder_totals_indexed_refuses_a_stale_or_missing_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("drive");
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::write(root.join("a/one.txt"), b"1").unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drive_db::create(
+            &root,
+            &marker,
+            &luna_core::marker::pick_prefix(&root).unwrap(),
+        )
+        .unwrap();
+        scan_drive(&conn, "d1", &root).unwrap();
+
+        let mut all = |_: &str| true;
+        // Never-indexed path → None (caller walks instead).
+        assert!(folder_totals_indexed(&conn, &root, "d1", "missing", &mut all).is_none());
+        // A stale dir mtime anywhere in the subtree → None.
+        conn.execute(
+            "UPDATE indexed_dirs SET dir_mtime = -1 WHERE path = 'a'",
+            [],
+        )
+        .unwrap();
+        assert!(folder_totals_indexed(&conn, &root, "d1", "", &mut all).is_none());
+    }
+
+    #[test]
     fn search_matches_parent_path_and_drive_label() {
         let dir = tempfile::tempdir().unwrap();
         let central = db::open(&dir.path().join("luna.db")).unwrap();
         let drive_root = dir.path().join("drive");
         std::fs::create_dir_all(&drive_root).unwrap();
         let marker = luna_core::marker::Marker::new("d1", "Photos Drive");
-        let dconn = crate::drive_db::create(&drive_root, &marker).unwrap();
+        let dconn = crate::drive_db::create(
+            &drive_root,
+            &marker,
+            &luna_core::marker::pick_prefix(&drive_root).unwrap(),
+        )
+        .unwrap();
         db::upsert_drive(
             &central,
             "d1",

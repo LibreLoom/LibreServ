@@ -1,9 +1,14 @@
-//! Per-drive SQLite microdb: the `.luna` file at each drive root.
+//! Per-drive SQLite microdb: the `.luna-<uuid>.sqlite3` file at each drive root.
 //!
 //! Holds drive identity plus high-churn metadata that must not wear the OS
 //! eMMC: file index, scrub hashes, gallery, trash paths, and upload sessions.
-//! Uses DELETE journal mode so adopt never leaves `.luna-wal` / `.luna-shm`
-//! next to the root marker.
+//! Uses DELETE journal mode so adopt never leaves `.sqlite3-wal` /
+//! `.sqlite3-shm` sidecars next to the root marker.
+//!
+//! The marker file name carries the drive's unique `.luna-<uuid>` prefix —
+//! every other Luna-owned name on the drive (trash, thumbs, protected copies,
+//! upload temps) shares it. `open` locates the marker by name shape, so the
+//! prefix never needs to be threaded through callers.
 //!
 //! Central `luna.db` still owns users, grants, shares, protection *rules*,
 //! jobs, and the thin drives registry.
@@ -13,40 +18,54 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use luna_core::marker::{MARKER_FILE_NAME, Marker};
+use luna_core::marker::{self, Marker};
 use rusqlite::{Connection, OptionalExtension, params};
 
-/// Open or create `{root}/.luna` and apply the full drive schema.
+/// The drive's marker/microdb path: first `.luna-<uuid>.sqlite3` at `root`.
+pub fn find_db_file(root: &Path) -> Option<PathBuf> {
+    marker::find_markers(root)
+        .into_iter()
+        .next()
+        .map(|(_, p)| p)
+}
+
+/// The drive's `.luna-<uuid>` prefix, if it carries a marker.
+pub fn prefix_for(root: &Path) -> Option<String> {
+    marker::find_markers(root)
+        .into_iter()
+        .next()
+        .map(|(p, _)| p)
+}
+
+/// Open the drive's marker microdb and apply the full drive schema.
+///
+/// Fails when the drive has no marker — a foreign drive must never gain
+/// Luna files as a side effect of opening.
 pub fn open(root: &Path) -> anyhow::Result<Connection> {
-    let path = root.join(MARKER_FILE_NAME);
-    if path.is_file()
-        && let Ok(bytes) = std::fs::read(&path)
-        && bytes.first() == Some(&b'{')
-    {
-        let marker: Marker = serde_json::from_slice(&bytes)
-            .map_err(|e| anyhow::anyhow!("legacy .luna marker: {e}"))?;
-        luna_core::marker::write_marker(root, &marker)
-            .map_err(|e| anyhow::anyhow!("upgrade .luna marker: {e}"))?;
-    }
-    let conn = Connection::open(&path)?;
+    let path = find_db_file(root)
+        .ok_or_else(|| anyhow::anyhow!("drive has no .luna-<uuid>.sqlite3 marker"))?;
+    open_file(&path)
+}
+
+fn open_file(path: &Path) -> anyhow::Result<Connection> {
+    let conn = Connection::open(path)?;
     configure(&conn)?;
     migrate_schema(&conn)?;
-    migrate_legacy_gallery(root, &conn)?;
-    migrate_legacy_trash_meta(root, &conn)?;
     Ok(conn)
 }
 
-/// Create or claim a `.luna` microdb with identity, then apply the full schema.
+/// Create or claim the `{prefix}.sqlite3` microdb with identity, then apply
+/// the full schema.
 ///
-/// If `.luna` already exists as a SQLite microdb, identity is updated in place
-/// and other tables (index, gallery, hashes, uploads, trash) are preserved.
-/// When the drive id changes, `drive_id` columns are rewritten to match.
-pub fn create(root: &Path, marker: &Marker) -> anyhow::Result<Connection> {
-    let path = root.join(MARKER_FILE_NAME);
+/// If the marker file already exists as a SQLite microdb, identity is
+/// updated in place and other tables (index, gallery, hashes, uploads,
+/// trash) are preserved. When the drive id changes, `drive_id` columns are
+/// rewritten to match.
+pub fn create(root: &Path, marker: &Marker, prefix: &str) -> anyhow::Result<Connection> {
+    let path = root.join(marker::marker_file_name(prefix));
     if path.is_file() {
-        // Open first so JSON stickers upgrade and the full schema exists, then
-        // claim identity in place so index/gallery/hash/upload tables survive.
-        let conn = open(root)?;
+        // Claim identity in place so index/gallery/hash/upload tables survive.
+        let conn = open_file(&path)?;
         if let Some(old) = read_identity(&conn)?
             && old.id != marker.id
         {
@@ -55,17 +74,19 @@ pub fn create(root: &Path, marker: &Marker) -> anyhow::Result<Connection> {
         upsert_identity(&conn, marker)?;
         return Ok(conn);
     }
-    luna_core::marker::write_marker(root, marker)
+    marker::write_marker(root, marker, prefix)
         .map_err(|e| anyhow::anyhow!("could not create drive database: {e}"))?;
-    open(root)
+    open_file(&path)
 }
 
 fn upsert_identity(conn: &Connection, marker: &Marker) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM identity", [])?;
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM identity", [])?;
+    tx.execute(
         "INSERT INTO identity (id, label, format_version) VALUES (?1, ?2, ?3)",
         params![marker.id, marker.label, marker.v as i64],
     )?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -82,7 +103,8 @@ fn rewrite_drive_ids(conn: &Connection, old_id: &str, new_id: &str) -> anyhow::R
     Ok(())
 }
 
-/// Copy drive-scoped rows left in central `luna.db` (pre-microdb) into `.luna`.
+/// Copy drive-scoped rows left in central `luna.db` (pre-microdb) into the
+/// drive's marker file.
 ///
 /// Safe to call repeatedly: uses `INSERT OR IGNORE`, then deletes the migrated
 /// central rows for this drive. When every legacy table is empty, drops them.
@@ -302,7 +324,7 @@ pub fn open_migrating(
 
 fn configure(conn: &Connection) -> anyhow::Result<()> {
     conn.busy_timeout(Duration::from_secs(5))?;
-    // Root-file hygiene: never leave -wal/-shm siblings beside `.luna`.
+    // Root-file hygiene: never leave -wal/-shm siblings beside the marker.
     conn.pragma_update(None, "journal_mode", "DELETE")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -457,7 +479,7 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             PRIMARY KEY (upload_id, start)
          );",
     )?;
-    // Additive columns for existing `.luna` DBs (CREATE TABLE IF NOT EXISTS
+    // Additive columns for existing drive DBs (CREATE TABLE IF NOT EXISTS
     // does not alter already-created tables).
     ensure_column(conn, "albums", "cover_drive_id", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "albums", "locked", "INTEGER NOT NULL DEFAULT 0")?;
@@ -473,76 +495,6 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_column(conn, "photos", "iso", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(conn, "photos", "focal_mm", "REAL NOT NULL DEFAULT 0")?;
     ensure_column(conn, "photos", "flash", "INTEGER NOT NULL DEFAULT -1")?;
-    Ok(())
-}
-
-/// Copy rows from a legacy `{root}/.lunagallery/gallery.sqlite` into `.luna`.
-fn migrate_legacy_gallery(root: &Path, dest: &Connection) -> anyhow::Result<()> {
-    let legacy = root.join(".lunagallery").join("gallery.sqlite");
-    if !legacy.is_file() {
-        return Ok(());
-    }
-    let photos: i64 = dest
-        .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
-        .unwrap_or(0);
-    if photos > 0 {
-        return Ok(());
-    }
-    let path_str = legacy.to_string_lossy().replace('\'', "''");
-    dest.execute_batch(&format!("ATTACH DATABASE '{path_str}' AS legacy_gallery;"))?;
-    let copy = dest.execute_batch(
-        "INSERT OR IGNORE INTO photos SELECT * FROM legacy_gallery.photos;
-         INSERT OR IGNORE INTO favorites SELECT * FROM legacy_gallery.favorites;
-         INSERT OR IGNORE INTO albums SELECT * FROM legacy_gallery.albums;
-         INSERT OR IGNORE INTO album_items SELECT * FROM legacy_gallery.album_items;
-         INSERT OR IGNORE INTO album_members SELECT * FROM legacy_gallery.album_members;
-         INSERT OR IGNORE INTO album_invites SELECT * FROM legacy_gallery.album_invites;",
-    );
-    let _ = dest.execute_batch("DETACH DATABASE legacy_gallery;");
-    copy?;
-    // Best-effort cleanup of the old gallery DB directory.
-    let _ = std::fs::remove_file(&legacy);
-    let _ = std::fs::remove_file(root.join(".lunagallery/gallery.sqlite-wal"));
-    let _ = std::fs::remove_file(root.join(".lunagallery/gallery.sqlite-shm"));
-    let gallery_dir = root.join(".lunagallery");
-    let _ = std::fs::remove_dir(&gallery_dir);
-    Ok(())
-}
-
-/// Import `.luna-trash/.meta/*.json` sidecars into `trash_meta`, then delete them.
-fn migrate_legacy_trash_meta(root: &Path, conn: &Connection) -> anyhow::Result<()> {
-    let meta_dir = root.join(".luna-trash").join(".meta");
-    if !meta_dir.is_dir() {
-        return Ok(());
-    }
-    let rd = match std::fs::read_dir(&meta_dir) {
-        Ok(rd) => rd,
-        Err(_) => return Ok(()),
-    };
-    for entry in rd.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-            continue;
-        };
-        let Some(original) = v.get("original_path").and_then(|x| x.as_str()) else {
-            continue;
-        };
-        let _ = conn.execute(
-            "INSERT OR REPLACE INTO trash_meta (entry_name, original_path) VALUES (?1, ?2)",
-            params![stem, original],
-        );
-        let _ = std::fs::remove_file(&path);
-    }
-    let _ = std::fs::remove_dir(&meta_dir);
     Ok(())
 }
 
@@ -566,10 +518,6 @@ pub fn read_identity(conn: &Connection) -> anyhow::Result<Option<Marker>> {
 pub fn set_label(conn: &Connection, label: &str) -> anyhow::Result<()> {
     conn.execute("UPDATE identity SET label = ?1", params![label])?;
     Ok(())
-}
-
-pub fn path_for(root: &Path) -> PathBuf {
-    root.join(MARKER_FILE_NAME)
 }
 
 /// In-memory pool of open per-drive connections, keyed by drive id.
@@ -676,46 +624,34 @@ mod tests {
     fn create_open_round_trip_identity_and_no_wal_sidecars() {
         let dir = tempdir().unwrap();
         let marker = Marker::new("drive-1", "Photos");
-        create(dir.path(), &marker).unwrap();
+        let prefix = marker::pick_prefix(dir.path()).unwrap();
+        create(dir.path(), &marker, &prefix).unwrap();
         let conn = open(dir.path()).unwrap();
         let id = read_identity(&conn).unwrap().unwrap();
         assert_eq!(id.id, "drive-1");
         assert_eq!(id.label, "Photos");
         drop(conn);
-        assert!(dir.path().join(".luna").is_file());
-        assert!(!dir.path().join(".luna-wal").exists());
-        assert!(!dir.path().join(".luna-shm").exists());
+        let db_file = find_db_file(dir.path()).unwrap();
+        assert_eq!(db_file, dir.path().join(format!("{prefix}.sqlite3")));
+        assert!(!dir.path().join(format!("{prefix}.sqlite3-wal")).exists());
+        assert!(!dir.path().join(format!("{prefix}.sqlite3-shm")).exists());
+        assert_eq!(prefix_for(dir.path()).as_deref(), Some(prefix.as_str()));
     }
 
     #[test]
-    fn migrates_legacy_trash_meta_json() {
+    fn open_refuses_a_drive_with_no_marker() {
         let dir = tempdir().unwrap();
-        let marker = Marker::new("d1", "D");
-        create(dir.path(), &marker).unwrap();
-        let meta = dir.path().join(".luna-trash/.meta");
-        std::fs::create_dir_all(&meta).unwrap();
-        std::fs::write(
-            meta.join("123-photo.jpg.json"),
-            br#"{"original_path":"album/photo.jpg"}"#,
-        )
-        .unwrap();
-        let conn = open(dir.path()).unwrap();
-        let path: String = conn
-            .query_row(
-                "SELECT original_path FROM trash_meta WHERE entry_name = ?1",
-                params!["123-photo.jpg"],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(path, "album/photo.jpg");
-        assert!(!meta.join("123-photo.jpg.json").exists());
+        assert!(open(dir.path()).is_err());
+        // And it must not have created any Luna files.
+        assert!(marker::find_markers(dir.path()).is_empty());
     }
 
     #[test]
     fn create_preserves_existing_microdb_tables() {
         let dir = tempdir().unwrap();
         let first = Marker::new("old-id", "Old");
-        let conn = create(dir.path(), &first).unwrap();
+        let prefix = marker::pick_prefix(dir.path()).unwrap();
+        let conn = create(dir.path(), &first, &prefix).unwrap();
         conn.execute(
             "INSERT INTO photos (path, name, size, mtime, taken_at, kind)
              VALUES ('a.jpg', 'a.jpg', 10, 1, 1, 'image')",
@@ -731,7 +667,7 @@ mod tests {
         drop(conn);
 
         let second = Marker::new("new-id", "New Label");
-        let conn = create(dir.path(), &second).unwrap();
+        let conn = create(dir.path(), &second, &prefix).unwrap();
         let id = read_identity(&conn).unwrap().unwrap();
         assert_eq!(id.id, "new-id");
         assert_eq!(id.label, "New Label");
@@ -819,7 +755,8 @@ mod tests {
 
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
-        let dest = create(&root, &Marker::new("d1", "D")).unwrap();
+        let prefix = marker::pick_prefix(&root).unwrap();
+        let dest = create(&root, &Marker::new("d1", "D"), &prefix).unwrap();
         migrate_from_central(&central, "d1", &dest).unwrap();
 
         let n: i64 = dest

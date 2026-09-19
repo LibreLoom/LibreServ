@@ -122,6 +122,7 @@
 
 
 html {
+  scrollbar-gutter: stable;
   background-color: var(--color-primary);
   color: var(--color-secondary);
   color-scheme: light;
@@ -251,8 +252,8 @@ select:focus:not(:focus-visible) {
     }
 }
 
-/* File viewer fullscreen overlays — fade + gentle scale for z-[80] takeovers. */
-@keyframes file-viewer-in {
+/* Fullscreen overlays (document editor, photo viewer/lightbox) — fade + gentle scale for z-[80] takeovers. */
+@keyframes fullscreen-overlay-in {
     from {
         opacity: 0;
         transform: scale(0.96);
@@ -261,6 +262,29 @@ select:focus:not(:focus-visible) {
         opacity: 1;
         /* `none`, not scale(1): same as .pop-in — a held transform on the
            fixed overlay becomes a containing block/compositing layer. */
+        transform: none;
+    }
+}
+
+@keyframes fullscreen-overlay-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+/* Backwards-compatibility aliases for file-viewer keyframes */
+@keyframes file-viewer-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+    to {
+        opacity: 1;
         transform: none;
     }
 }
@@ -276,17 +300,21 @@ select:focus:not(:focus-visible) {
     }
 }
 
+.fullscreen-overlay-enter,
 .file-viewer-enter {
-    animation: file-viewer-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
+    animation: fullscreen-overlay-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
     will-change: transform, opacity;
 }
 
+.fullscreen-overlay-exit,
 .file-viewer-exit {
-    animation: file-viewer-out var(--motion-duration-medium1) var(--motion-easing-emphasized-accelerate) both;
+    animation: fullscreen-overlay-out var(--motion-duration-medium1) var(--motion-easing-emphasized-accelerate) both;
     will-change: transform, opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .fullscreen-overlay-enter,
+    .fullscreen-overlay-exit,
     .file-viewer-enter,
     .file-viewer-exit {
         animation: none;
@@ -893,8 +921,22 @@ select:focus:not(:focus-visible) {
     animation-name: slide-in-from-left-pop;
 }
 
+/* Mirror of slide-in-from-bottom-4 for exits — settles back down. */
+@keyframes slide-out-to-bottom-4 {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(32px);
+    }
+}
+
 .slide-out-to-left-pop {
     animation-name: slide-out-to-left-pop;
+}
+
+.slide-out-to-bottom-4 {
+    animation-name: fade-out, slide-out-to-bottom-4;
 }
 
 .duration-200 {
@@ -934,7 +976,8 @@ select:focus:not(:focus-visible) {
     .animate-in,
     .animate-out,
     .slide-in-from-left-pop,
-    .slide-out-to-left-pop {
+    .slide-out-to-left-pop,
+    .slide-out-to-bottom-4 {
         animation: none !important;
     }
     .animate-md-bar-1,
@@ -1118,6 +1161,16 @@ select:focus:not(:focus-visible) {
   }
 }
 
+/* Scrollbar utility — hide scrollbars while preserving scrollability */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+
 /* Luna Gallery Places map — strip Leaflet popup chrome; card lives in React */
 .places-map .leaflet-popup-content-wrapper,
 .places-map .leaflet-popup-content {
@@ -1159,7 +1212,6 @@ select:focus:not(:focus-visible) {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
   line-height: 1;
   color: var(--color-primary);
   pointer-events: none;
@@ -1167,5 +1219,49 @@ select:focus:not(:focus-visible) {
 
 .places-map .places-map-cluster-count.leaflet-tooltip::before {
   display: none;
+}
+
+/* 404 night sky — stars twinkle and the attempted URL flies by Luna once
+   per loop. The trajectory is drawn in once (dashoffset over the normalized
+   pathLength=1000), then the request dot repeats the flyby via SMIL. */
+@keyframes luna-star-twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.75); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes luna-trajectory-draw {
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+}
+
+.animate-luna-twinkle {
+  animation: luna-star-twinkle 2.8s ease-in-out infinite;
+}
+
+.animate-luna-trajectory {
+  stroke-dasharray: 1000;
+  animation: luna-trajectory-draw 2.4s var(--motion-easing-emphasized-decelerate) forwards;
+}
+
+/* Reduced motion: stars hold their base opacity, the trajectory is already
+   drawn, and a static marker replaces the flying dot at the exit point. */
+.luna-flyby-static {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-luna-twinkle {
+    animation: none !important;
+  }
+  .animate-luna-trajectory {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+  .luna-flyby-dot {
+    display: none;
+  }
+  .luna-flyby-static {
+    display: block;
+  }
 }
 

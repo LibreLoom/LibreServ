@@ -2,8 +2,13 @@ import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
 
-/** Sandboxed PDF preview via blob URL (never served inline at the Luna origin). */
-export default function PdfViewer({ driveId, path }) {
+/**
+ * Sandboxed PDF preview via blob URL (never served inline at the Luna
+ * origin). `fill` swaps the modal-sized frame for a flex-fill one and the
+ * text tokens for a `bg-primary` surface — used by FileViewer's fullscreen
+ * fallback when EuroOffice is missing.
+ */
+export default function PdfViewer({ driveId, path, fill = false }) {
   const [url, setUrl] = useState(/** @type {string|null} */ (null));
   const [error, setError] = useState(/** @type {string|null} */ (null));
 
@@ -24,14 +29,17 @@ export default function PdfViewer({ driveId, path }) {
     };
   }, [driveId, path]);
 
-  if (error) return <p className="text-primary text-sm">{error}</p>;
-  if (!url) return <p className="text-primary text-sm">Opening PDF…</p>;
+  const textTone = fill ? "text-secondary" : "text-primary";
+  if (error) return <p className={`${textTone} text-sm`}>{error}</p>;
+  if (!url) return <p className={`${textTone} text-sm`}>Opening PDF…</p>;
 
   return (
     <iframe
       title="PDF preview"
       src={url}
-      className="w-full h-[65vh] rounded-large-element bg-primary border-2 border-secondary/20"
+      className={`w-full rounded-large-element bg-primary border-2 border-secondary/20 ${
+        fill ? "min-h-0 flex-1" : "h-[65vh]"
+      }`}
       sandbox="allow-scripts allow-same-origin"
     />
   );
@@ -40,6 +48,7 @@ export default function PdfViewer({ driveId, path }) {
 PdfViewer.propTypes = {
   driveId: PropTypes.string.isRequired,
   path: PropTypes.string.isRequired,
+  fill: PropTypes.bool,
 };
 
 /** @param {{ driveId: string, path: string }} props */

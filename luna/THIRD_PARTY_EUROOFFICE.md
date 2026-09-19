@@ -39,6 +39,19 @@ You must:
 
 Upstream project: https://github.com/Euro-Office (verify the release you use).
 
+## x2t.wasm (browser-side document converter)
+
+The OOXML ↔ `Editor.bin` converter Luna serves at `/eurooffice/x2t/` is
+`x2t.wasm`, built by the CryptPad project from ONLYOFFICE core — AGPL-3.0.
+
+- Source: https://github.com/cryptpad/onlyoffice-x2t-wasm
+- Prebuilt artifact: GitHub release `x2t.zip` (sha512-verified by
+  `scripts/install-eurooffice-assets.sh`; pin via `X2T_VERSION`)
+
+If you redistribute the pack, the same AGPL-3.0 obligations above apply to
+x2t.wasm: keep notices, offer the corresponding source (the linked repo +
+pinned tag), and keep this file with your distribution.
+
 ## Luna’s own code
 
 Luna’s collab relay, file openers, and OOXML create stubs are part of LibreServ /

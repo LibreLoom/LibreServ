@@ -1,0 +1,645 @@
+/* Markdown table editor — scoped under .md-table so the same sheet styles
+   the inline widget and the portalled dialogs/expanded workspace. Colors
+   are theme tokens only: --primary is the page surface, --secondary the
+   inverse layer, --accent the neutral highlight, --color-error for danger. */
+
+/* The widget wrapper inside .cm-content: shrinkable, self-contained, and
+   never able to widen the document around it. */
+.md-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  contain: inline-size;
+}
+
+.md-table-root {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  margin: 0.4em 0 0.9em;
+  font-family: var(--font-sans);
+  color: var(--secondary);
+}
+
+.md-table-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0.3em 0;
+  padding: 0.4em 0.9em;
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--primary);
+  font-size: max(0.8em, 12px);
+}
+
+/* Recovered draft strip — same surface contract as the note, with room
+   for the quoted text to wrap instead of pushing the widget wide. */
+.md-table-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em 1em;
+  margin: 0.3em 0;
+  padding: 0.55em 0.9em;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--primary));
+  color: var(--secondary);
+  font-size: max(0.8em, 12px);
+  overflow-wrap: anywhere;
+}
+
+.md-table-recovery-actions {
+  display: flex;
+  gap: 0.4em;
+  margin-left: auto;
+}
+
+.md-table-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em 1em;
+  margin: 0.3em 0;
+  padding: 0.55em 0.9em;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 45%, transparent);
+  background: color-mix(in srgb, var(--color-error) 14%, var(--primary));
+  color: var(--secondary);
+  font-size: 0.8em;
+}
+
+.md-table-conflict-actions {
+  display: flex;
+  gap: 0.4em;
+  margin-left: auto;
+}
+
+/* The card that holds the scroller + dock. */
+.md-table-body {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 24px;
+  background: var(--primary);
+  color: var(--secondary);
+  overflow: hidden;
+}
+
+.md-table-body-expanded {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Horizontal overflow lives in a dedicated scroller so menus and the dock
+   are never clipped by it — and a wide grid never widens the document. */
+.md-table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md-table-scroll-expanded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: calc(100dvh - 14rem);
+}
+
+/* Fixed layout with real per-column widths: small tables stretch across
+   the card, wide tables hit the JS-computed min-width and scroll inside
+   the scroller instead of pushing the document wide. */
+.md-table-grid {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: max(0.9em, 14px);
+  line-height: 1.45;
+}
+
+.md-table-guttercol {
+  width: 40px;
+}
+
+.md-table-th,
+.md-table-td,
+.md-table-gutter {
+  border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  padding: 0;
+  text-align: left;
+  vertical-align: top;
+  font-weight: normal;
+}
+
+.md-table-grid thead tr:first-child > * {
+  border-top: none;
+}
+
+.md-table-grid tr > :first-child {
+  border-left: none;
+}
+
+/* Inverse header layer — contrast set on the same element. */
+.md-table-th {
+  background: var(--secondary);
+  color: var(--primary);
+}
+
+.md-table-thwrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.md-table-td {
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.md-table-cell {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.45em 0.7em;
+  min-height: 2.1em;
+  cursor: default;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  outline-offset: -2px;
+}
+
+.md-table-cell p {
+  margin: 0;
+}
+
+.md-table-cell-head {
+  font-family: var(--font-mono);
+  font-weight: normal;
+}
+
+/* Selection: one contrasting outline + tint, never dimmed text. */
+.md-sel {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    color-mix(in srgb, var(--accent) 16%, transparent)
+  );
+}
+
+.md-table-th.md-sel {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--primary) 18%, transparent),
+    color-mix(in srgb, var(--primary) 18%, transparent)
+  );
+}
+
+.md-head > .md-table-cell,
+.md-head .md-table-cell {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.md-table-editor {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: none;
+  overflow: hidden;
+}
+
+/* Row gutter + column select handles — persistent affordances, not
+   hover-only, so touch screens keep full function. */
+.md-table-gutter {
+  width: 40px;
+  text-align: center;
+  vertical-align: middle;
+  background: var(--primary);
+  color: var(--accent);
+}
+
+.md-table-corner {
+  background: var(--secondary);
+}
+
+.md-table-rowsel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9em;
+  min-height: 1.9em;
+  padding: 0.15em 0.35em;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.72em;
+  cursor: pointer;
+}
+
+.md-table-rowsel:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--secondary);
+}
+
+.md-table-corner .md-table-rowsel:hover {
+  color: var(--primary);
+}
+
+/* Column selector — a real grip affordance with an icon, labelled and
+   keyboard-sized, not an anonymous stripe. */
+.md-table-colsel {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.7em;
+  padding: 0.15em;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.md-table-colsel:hover,
+.md-table-colsel:focus-visible {
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+/* Column resize separator on each header cell's right edge. */
+.md-table-colsep {
+  flex: 0 0 9px;
+  align-self: stretch;
+  margin-right: -5px;
+  cursor: col-resize;
+  border-radius: 9999px;
+  z-index: 2;
+  touch-action: none;
+}
+
+.md-table-colsep:hover,
+.md-table-colsep:focus-visible {
+  background: var(--primary);
+}
+
+/* Bottom pill dock. */
+.md-table-dock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35em 0.8em;
+  min-width: 0;
+  padding: 0.4em 0.8em;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: var(--secondary);
+  color: var(--primary);
+  border-radius: 0 0 24px 24px;
+  font-size: max(0.85em, 12px);
+}
+
+.md-table-status {
+  font-family: var(--font-sans);
+  font-weight: normal;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.md-table-coords {
+  font-family: var(--font-mono);
+}
+
+.md-table-hint {
+  color: var(--primary);
+}
+
+.md-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.md-table-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.15em 0.2em;
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.md-table-menu {
+  font-size: inherit;
+}
+
+/* Narrow viewports: low-frequency actions collapse into the Format menu,
+   and the dock stacks status over actions instead of running wide. */
+.md-table-narrowonly {
+  display: none;
+}
+
+@media (max-width: 46rem) {
+  .md-table-wideonly {
+    display: none;
+  }
+  .md-table-narrowonly {
+    display: inline-flex;
+  }
+  .md-table-hint {
+    display: none;
+  }
+  .md-table-dock {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5em;
+  }
+  .md-table-actions {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .md-table-sep {
+    display: none;
+  }
+}
+
+/* Touch: affordances grow to fingertip size. */
+@media (pointer: coarse) {
+  .md-table-rowsel {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 0.8em;
+  }
+  .md-table-colsel {
+    min-width: 44px;
+  }
+  .md-table-colsep {
+    flex-basis: 20px;
+  }
+  .md-table-cell {
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .md-table-dock button,
+  .md-table-dock [data-slot="dropdown-trigger"] {
+    min-height: 44px;
+  }
+}
+
+/* Sticky headings while the expanded workspace scrolls. */
+.md-table-scroll-expanded thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+/* Compact "editing elsewhere" strip while the workspace is expanded. */
+.md-table-mini {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding: 0.4em 0.9em;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 9999px;
+  color: var(--secondary);
+  font-size: 0.8em;
+}
+
+/* Size-picker cells are miniature table cells — fixed 24px squares with a
+   4px radius, deliberately NOT the global pill rounding on buttons. */
+.md-table-size-cell {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Editor-owned recovery panel (MarkdownEditor) — survives view teardown. */
+.md-table-recoverylist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  margin-bottom: 0.5em;
+}
+
+.md-table-recovery .md-table-sourceta {
+  flex: 1 1 100%;
+  margin: 0.2em 0;
+}
+
+/* Dialog bodies (portal — outside the CM root but same sheet). */
+.md-table-dialog {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--primary);
+  font-size: 0.9em;
+}
+
+.md-table-dialoghint {
+  margin: 0 0 0.7em;
+  color: var(--primary);
+  font-size: 0.85em;
+}
+
+.md-table-sourceta {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6em 0.8em;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  resize: vertical;
+}
+
+.md-table-sourceta:focus {
+  border-color: var(--accent);
+}
+
+.md-table-dialogrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7em;
+  margin-top: 0.7em;
+}
+
+.md-table-dialogrow-split {
+  justify-content: space-between;
+}
+
+.md-table-fileinput {
+  color: var(--primary);
+  font-size: 0.85em;
+  max-width: 100%;
+}
+
+.md-table-preview {
+  margin-top: 0.8em;
+  padding: 0.6em 0.8em;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 16px;
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+.md-table-preview p {
+  margin: 0 0 0.5em;
+  font-size: 0.8em;
+}
+
+/* The preview grid scrolls inside its own box — a wide import never
+   widens the modal. */
+.md-table-previewscroll {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.md-table-previewgrid {
+  width: max-content;
+  max-width: none;
+}
+
+.md-table-previewgrid {
+  border-collapse: collapse;
+  font-size: 0.78em;
+}
+
+.md-table-previewgrid td {
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  padding: 0.2em 0.55em;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-table-dialogerror {
+  margin: 0.7em 0 0;
+  color: var(--color-error);
+  font-size: 0.85em;
+}
+
+.md-table-dialogbuttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6em;
+  margin-top: 1em;
+}
+
+.md-table-expandcard {
+  height: 100%;
+}
+
+/* Keyboard-shortcut popover — anchored bottom-right, above the editor. */
+.md-table-help {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 95;
+  max-width: min(30rem, calc(100vw - 2rem));
+  max-height: min(70dvh, 32rem);
+  overflow-y: auto;
+  padding: 1em 1.1em;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--secondary);
+  color: var(--primary);
+  box-shadow: 0 10px 34px color-mix(in srgb, var(--secondary) 35%, transparent);
+  font-size: 0.82em;
+}
+
+.md-table-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5em;
+}
+
+.md-table-help h3 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-weight: normal;
+  font-size: 1em;
+}
+
+.md-table-help-row {
+  display: flex;
+  gap: 1em;
+  padding: 0.28em 0;
+  border-top: 1px solid color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.md-table-help-row dt {
+  flex: 0 0 11em;
+  font-family: var(--font-mono);
+}
+
+.md-table-help-row dd {
+  margin: 0;
+}
+
+.md-table-helpnote {
+  margin: 0.7em 0 0;
+  font-size: 0.9em;
+  color: var(--primary);
+}
+
+/* Link / image affordances inside rendered cells. */
+.md-table-link {
+  color: inherit;
+  text-decoration: underline dotted;
+  cursor: text;
+}
+
+.md-table-imgchip {
+  display: inline-block;
+  padding: 0 0.55em;
+  border-radius: 9999px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  color: inherit;
+  font-size: 0.85em;
+}
+
+.md-align-left { text-align: left; }
+.md-align-center { text-align: center; }
+.md-align-right { text-align: right; }
+
+@media (prefers-reduced-motion: reduce) {
+  .md-table-root *,
+  .md-table-root *::before,
+  .md-table-root *::after,
+  .md-table-help,
+  .md-table-help * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

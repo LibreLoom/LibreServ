@@ -98,6 +98,7 @@ pub fn router() -> Router<AppState> {
     let multipart_max = crate::budget::limits().multipart_upload_bytes;
     Router::new()
         .route("/api/v1/drives/{id}/files", get(list).delete(delete_entry))
+        .route("/api/v1/drives/{id}/files/stat", get(stat_entry))
         .route("/api/v1/drives/{id}/files/mkdir", post(mkdir_entry))
         .route("/api/v1/drives/{id}/files/create", post(create_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
@@ -119,8 +120,19 @@ async fn list(
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
     check_browse(&state, &user, &id, &rel)?;
-    let mut entries = with_db(&state, |conn| {
-        files::list_dir_with_cache(conn, &id, &rel, Some(&state.ram_cache))
+    Ok(Json(visible_entries(&state, &user, &id, &rel)?))
+}
+
+/// One folder's entries filtered to what `user` may browse — the same rows
+/// the `list` endpoint returns.
+fn visible_entries(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    id: &str,
+    rel: &str,
+) -> Result<Vec<FileEntry>, (StatusCode, Json<Value>)> {
+    let mut entries = with_db(state, |conn| {
+        files::list_dir_with_cache(conn, id, rel, Some(&state.ram_cache))
     })
     .map_err(map_files_err)?;
     if user.role != "admin" {
@@ -131,19 +143,159 @@ async fn list(
             )
         })?;
         entries.retain(|entry| {
-            let child = if crate::grants::normalize_grant_path(&rel).is_empty() {
+            let child = if crate::grants::normalize_grant_path(rel).is_empty() {
                 entry.name.clone()
             } else {
                 format!(
                     "{}/{}",
-                    crate::grants::normalize_grant_path(&rel),
+                    crate::grants::normalize_grant_path(rel),
                     entry.name
                 )
             };
-            crate::auth::can_browse_path(&user, &conn, &id, &child)
+            crate::auth::can_browse_path(user, &conn, id, &child)
         });
     }
-    Ok(Json(entries))
+    Ok(entries)
+}
+
+/// Can `user` change (rename/move/delete) `path` on this drive?
+fn can_write(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    path: &str,
+) -> Result<bool, (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    Ok(crate::auth::can_access(user, &conn, drive_id, path, true))
+}
+
+async fn stat_entry(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<files::FileStat>, (StatusCode, Json<Value>)> {
+    let rel = query.path.unwrap_or_default();
+    let in_trash = rel.starts_with(".luna-trash/");
+
+    // Luna's own bookkeeping (index db, gallery, trash root, protected
+    // copies) is not a user file — never stat it.
+    if !in_trash && (files::is_internal_temp(&rel) || crate::protect::is_protected_store(&rel)) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that file or folder.",
+        ));
+    }
+
+    // An upload still in RAM may not exist on the drive yet — answer from the
+    // dirty overlay first, same as content serving does.
+    if let Some(dirty) = state.ram_cache.get_dirty(&id, &rel) {
+        check_access(&state, &user, &id, &rel, false)?;
+        let writable = can_write(&state, &user, &id, &rel)?;
+        return Ok(Json(files::FileStat {
+            hidden: dirty.name.starts_with('.'),
+            name: dirty.name,
+            kind: "file".into(),
+            size: dirty.bytes.len() as u64,
+            modified: dirty.modified,
+            created: None,
+            link_target: None,
+            children: None,
+            saving: true,
+            writable,
+            trashed_from: None,
+            totals: None,
+        }));
+    }
+
+    // Resolve first (returns nothing), then apply the check matching the
+    // kind: folders need browse, everything else needs read.
+    let mut stat = with_db(&state, |conn| files::stat(conn, &id, &rel)).map_err(map_files_err)?;
+    if in_trash {
+        check_trash_item(&state, &user, &id, &rel)?;
+    } else if stat.kind == "dir" {
+        check_browse(&state, &user, &id, &rel)?;
+    } else {
+        check_access(&state, &user, &id, &rel, false)?;
+    }
+
+    // A browsed folder counts only the children this user can see — the
+    // unfiltered filesystem count would leak restricted siblings.
+    if !in_trash && stat.kind == "dir" {
+        let entries = visible_entries(&state, &user, &id, &rel)?;
+        let mut counts = files::ChildCounts {
+            dirs: 0,
+            files: 0,
+            other: 0,
+        };
+        for entry in &entries {
+            match entry.kind.as_str() {
+                "dir" => counts.dirs += 1,
+                "file" => counts.files += 1,
+                _ => counts.other += 1,
+            }
+        }
+        stat.children = Some(counts);
+    }
+
+    // One lock for the request-context fields — trash origin, writable, and
+    // the per-directory read lens the totals walk uses.
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if in_trash {
+        let original = files::trash_original_path(&conn, &id, &rel).map_err(map_files_err)?;
+        stat.trashed_from = original.filter(|p| !p.is_empty());
+        // Restoring needs write access where the item originally lived.
+        stat.writable = match &stat.trashed_from {
+            Some(orig) => crate::auth::can_access(&user, &conn, &id, orig, true),
+            None => user.role == "admin",
+        };
+    } else {
+        stat.writable = crate::auth::can_access(&user, &conn, &id, &rel, true);
+    }
+
+    // Recursive totals for folders. The index answers instantly when every
+    // subdir is still mtime-fresh; a bounded filesystem walk covers the rest
+    // (trash is never indexed, so it always walks). Either way only the
+    // directories this user may read count toward the total.
+    if stat.kind == "dir" {
+        let mut include =
+            |p: &str| in_trash || crate::auth::can_access(&user, &conn, &id, p, false);
+        stat.totals = if in_trash {
+            files::folder_totals(&conn, &id, &rel, &mut include)
+                .ok()
+                .flatten()
+        } else {
+            files::drive_root(&conn, &id)
+                .ok()
+                .and_then(|drive| {
+                    files::open_drive_db(&drive).ok().and_then(|index_conn| {
+                        crate::index::folder_totals_indexed(
+                            &index_conn,
+                            std::path::Path::new(&drive.mount_point),
+                            &id,
+                            &rel,
+                            &mut include,
+                        )
+                    })
+                })
+                .or_else(|| {
+                    files::folder_totals(&conn, &id, &rel, &mut include)
+                        .ok()
+                        .flatten()
+                })
+        };
+    }
+    Ok(Json(stat))
 }
 
 async fn content(
@@ -712,7 +864,8 @@ async fn upload(
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
-                let temp = files::temp_path(&dir);
+                let temp = with_db(&state, |conn| files::temp_path(conn, &id, &dir))
+                    .map_err(map_files_err)?;
 
                 match buffer_field_up_to(&mut field, max_dirty, &temp).await {
                     Ok(Some(bytes)) => {
@@ -1118,6 +1271,13 @@ mod http_tests {
     fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let prefix = luna_core::marker::pick_prefix(mount).unwrap();
+        crate::drive_db::create(
+            mount,
+            &luna_core::marker::Marker::new("photos", "Photos"),
+            &prefix,
+        )
+        .unwrap();
         crate::db::upsert_drive(
             &conn,
             "photos",
@@ -1439,7 +1599,10 @@ mod http_tests {
     }
 
     fn list_trash_names(mount: &std::path::Path) -> Vec<String> {
-        std::fs::read_dir(mount.join(".luna-trash"))
+        let trash = crate::layout::Layout::detect(mount)
+            .unwrap()
+            .trash_dir(mount);
+        std::fs::read_dir(trash)
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().into_owned())

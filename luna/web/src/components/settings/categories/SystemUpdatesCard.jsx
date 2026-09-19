@@ -84,7 +84,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <div className="text-sm text-accent mb-1">Current version</div>
-              <div className="text-lg font-mono font-semibold text-primary">
+              <div className="text-lg font-mono text-primary">
                 {getVersionDisplay()}
               </div>
             </div>

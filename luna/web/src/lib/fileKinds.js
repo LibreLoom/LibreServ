@@ -1,11 +1,16 @@
 /** Classify drive files for in-app open/edit. Matches lunad `inline_safe` for view. */
 
+// heic/heif/hif are left out on purpose: lunad transcodes them for gallery
+// grids, but the file viewer loads raw bytes and no browser we target can
+// display them natively.
 const IMAGE_EXT = new Set([
-  "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "avif", "heic", "heif", "hif",
+  "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "avif",
 ]);
 
+// mkv, wmv etc. are not here: browsers can't play them in <video>, so a
+// "video" kind would only surface the player's own error notice.
 const VIDEO_EXT = new Set([
-  "mp4", "webm", "ogv", "mov", "m4v", "mkv",
+  "mp4", "webm", "ogv", "mov", "m4v",
 ]);
 
 /** Plaintext we let people edit in Luna (saved via upload). */
@@ -48,41 +53,53 @@ const CALENDAR_EXT = new Set(["ics"]);
 const CONTACT_EXT = new Set(["vcf"]);
 
 /**
- * Office docs open in the EuroOffice collab editor. Mirrors the supported
- * fileType list declared by the bundled DocsAPI
- * (luna/dev/eurooffice/web-apps/apps/api/documents/api.js). Plaintext formats
- * DocsAPI also accepts (txt, md, htm, html, xml) stay on Luna's text editor;
- * pdf/epub keep their own viewers as fallback when EuroOffice isn't installed.
+ * Formats the bundled EuroOffice pack can actually open, mapped to their
+ * DocsAPI documentType. The api.js "supported types" regex declares ~100
+ * exts, but most of those converters aren't in the shipped x2t.wasm — every
+ * ext here is verified by a real conversion in
+ * src/components/files/office/x2tFormats.test.js. Add nothing the test
+ * doesn't cover. Deliberately absent: doc (reader absent in this build),
+ * csv/tsv (see the "csv" kind below), pdf/djvu/xps/oxps, epub/fb2,
+ * mht/mhtml (the converter hangs on them), the vsdx family, iWork/WPS/HWP/
+ * StarOffice formats, and gdoc/gsheet/gslides (cloud pointer files, not
+ * documents). Mirrors document_type_for in lunad's api/office.rs.
  */
-const OFFICE_EXT = new Set([
-  // word processor
-  "doc", "docx", "docm", "dot", "dotx", "dotm",
-  "odt", "fodt", "ott", "sxw", "stw",
-  "rtf", "epub", "fb2", "mht", "mhtml",
-  "wps", "wpt", "hwp", "hwpx", "hml", "pages",
-  "oform", "docxf", "gdoc",
-  // spreadsheet
-  "xls", "xlsx", "xlsm", "xlsb", "xlt", "xltx", "xltm",
-  "ods", "fods", "ots", "sxc",
-  "csv", "tsv",
-  "et", "ett", "numbers", "gsheet",
-  // presentation
-  "ppt", "pptx", "pptm", "pps", "ppsx", "ppsm", "pot", "potx", "potm",
-  "odp", "fodp", "otp", "sxi", "odg",
-  "dps", "dpt", "key", "gslides",
-  // pdf + fixed-layout (EuroOffice pdf editor)
-  "pdf", "djvu", "xps", "oxps",
-  // diagrams (EuroOffice visio editor)
-  "vsdx", "vssx", "vstx", "vsdm", "vssm", "vstm",
-]);
+export const OFFICE_FORMATS = {
+  // word
+  docx: "word", docm: "word", dotx: "word", dotm: "word",
+  docxf: "word", oform: "word",
+  odt: "word", fodt: "word", ott: "word",
+  rtf: "word",
+  // cell
+  xlsx: "cell", xlsm: "cell", xltx: "cell", xltm: "cell", xlsb: "cell",
+  ods: "cell", fods: "cell", ots: "cell",
+  xls: "cell", xlt: "cell",
+  // slide
+  pptx: "slide", pptm: "slide", ppsx: "slide", ppsm: "slide",
+  potx: "slide", potm: "slide",
+  odp: "slide", fodp: "slide", otp: "slide",
+  ppt: "slide", pps: "slide",
+};
 
 /**
- * CAD / 3D — never open in Luna (no Luna 3D). Download / Open with OS only.
- * Kept here so the UI can show a clear message instead of a dead click.
+ * Formats x2t can write back without silent loss — the editor only enables
+ * saving for these. Macro-enabled OOXML is view-only: x2t writes the file
+ * but strips the embedded VBA project. Flat ODF (fodt/fods/fodp) and legacy
+ * xls/ppt have no writer at all in this build.
  */
-const CAD_EXT = new Set([
-  "stl", "obj", "gltf", "glb", "step", "stp", "iges", "igs",
+export const OFFICE_SAVE_EXT = new Set([
+  "docx", "dotx", "docxf", "oform", "rtf", "odt", "ott",
+  "xlsx", "xltx", "xlsb", "ods", "ots",
+  "pptx", "ppsx", "potx", "odp", "otp",
 ]);
+
+// csv/tsv get their own lightweight table preview — the pack can't convert
+// them at all (verified), so classifying them as office produced a raw
+// converter error screen.
+const CSV_EXT = new Set(["csv", "tsv"]);
+
+// There is deliberately no "cad" kind: nothing in Luna can render 3D
+// formats, so stl/obj/gltf/etc. are simply unopenable.
 
 /** @param {string} name */
 export function fileExtension(name) {
@@ -178,16 +195,15 @@ export function isContactFile(name) {
 
 /** @param {string} name */
 export function isOfficeFile(name) {
-  return OFFICE_EXT.has(fileExtension(name));
+  return fileExtension(name) in OFFICE_FORMATS;
 }
 
-/** @param {string} name */
-export function isCadFile(name) {
-  return CAD_EXT.has(fileExtension(name));
+export function isCsvFile(name) {
+  return CSV_EXT.has(fileExtension(name));
 }
 
 /**
- * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"cad"} OpenableKind
+ * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"} OpenableKind
  */
 
 /**
@@ -208,7 +224,7 @@ export function openableKind(name) {
   if (isCalendarFile(name)) return "calendar";
   if (isContactFile(name)) return "contact";
   if (isArchiveFile(name)) return "archive";
-  if (isCadFile(name)) return "cad";
+  if (isCsvFile(name)) return "csv";
   if (isMarkdownFile(name)) return "markdown";
   if (isTextFile(name)) return "text";
   return null;

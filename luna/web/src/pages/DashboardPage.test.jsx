@@ -138,6 +138,10 @@ function renderPage() {
 }
 
 describe("DashboardPage", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("greets the signed-in user and shows uptime and drives", async () => {
     stubFetch({ connectActive: true });
     renderPage();
@@ -443,46 +447,67 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
-  it("shows detailed recent copy jobs with progress and destination", async () => {
-    stubFetch({
-      jobs: [
+  it("lists recent files, folders, and drives with Open links", async () => {
+    const now = Date.now();
+    window.localStorage.setItem(
+      "luna.recentItems.max",
+      JSON.stringify([
         {
-          id: "j1",
-          kind: "move",
-          state: "running",
-          from_drive: "d1",
-          from_path: "Photos/vacation.jpg",
-          to_drive: "d1",
-          to_path: "Documents",
-          progress: 40,
-          total: 100,
-          error: "",
+          kind: "file",
+          driveId: "d1",
+          driveLabel: "Family photos",
+          path: "Documents/note.md",
+          at: now - 5 * 60_000,
         },
         {
-          id: "j2",
-          kind: "copy",
-          state: "done",
-          from_drive: "d1",
-          from_path: "Music/song.mp3",
-          to_drive: "d1",
-          to_path: "Downloads",
-          progress: 1,
-          total: 1,
-          error: "",
+          kind: "folder",
+          driveId: "d1",
+          path: "Office",
+          at: now - 3 * 3_600_000,
         },
-      ],
-    });
-    renderPage();
-    expect(await screen.findByText("Recent activity")).toBeInTheDocument();
-    expect(screen.getByText("1 active")).toBeInTheDocument();
-    expect(screen.getByText("Moving")).toBeInTheDocument();
-    expect(screen.getByText("vacation.jpg")).toBeInTheDocument();
-    expect(screen.getByText(/Family photos: vacation\.jpg → Documents/i)).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: /40% done/i })).toBeInTheDocument();
-    expect(screen.getByText("song.mp3")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open destination/i })).toHaveAttribute(
-      "href",
-      "/drives/d1?path=Downloads",
+        {
+          kind: "drive",
+          driveId: "d1",
+          path: "",
+          at: now - 2 * 86_400_000,
+        },
+      ]),
     );
+    stubFetch();
+    renderPage();
+    expect(await screen.findByText("Recent files")).toBeInTheDocument();
+    expect(screen.getByText("note.md")).toBeInTheDocument();
+    expect(screen.getByText("Family photos · Documents")).toBeInTheDocument();
+    expect(screen.getByText("Office")).toBeInTheDocument();
+    expect(screen.getByText("File")).toBeInTheDocument();
+    expect(screen.getByText("Folder")).toBeInTheDocument();
+    expect(screen.getByText("5 min ago")).toBeInTheDocument();
+    expect(screen.getByText("3 h ago")).toBeInTheDocument();
+    expect(screen.getByText("2 days ago")).toBeInTheDocument();
+    const opens = screen.getAllByRole("link", { name: /^Open$/i });
+    expect(opens[0]).toHaveAttribute("href", "/drives/d1?path=Documents&file=note.md");
+    expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=Office");
+    expect(opens[2]).toHaveAttribute("href", "/drives/d1");
+  });
+
+  it("hides the Recent files card when there is nothing to resume", async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByText(/On this network/i);
+    expect(screen.queryByText("Recent files")).not.toBeInTheDocument();
+  });
+
+  it("shows a member's own recents, not another user's", async () => {
+    window.localStorage.setItem(
+      "luna.recentItems.max",
+      JSON.stringify([
+        { kind: "file", driveId: "d1", path: "secret.md", at: Date.now() },
+      ]),
+    );
+    stubFetch({ username: "jamie", role: "user" });
+    renderPage();
+    await screen.findByText(/On this network/i);
+    expect(screen.queryByText("Recent files")).not.toBeInTheDocument();
+    expect(screen.queryByText("secret.md")).not.toBeInTheDocument();
   });
 });

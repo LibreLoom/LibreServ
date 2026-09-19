@@ -4,10 +4,12 @@
 //! - Inspection never writes to the drive except a brief writability probe
 //!   (create + delete one temp file) so the UI can refuse Add when both
 //!   reading and writing are not available.
-//! - Adoption probes writability, writes exactly one `.luna` marker, then a
-//!   DB row. The marker is written before the DB row so a failed marker write
-//!   never leaves a registered-but-unmarked drive. If the DB insert fails
-//!   after the marker is written, the marker is removed.
+//! - Adoption probes writability, picks a unique `.luna-<uuid>` prefix that
+//!   cannot collide with files already on the drive, writes exactly one
+//!   `.luna-<uuid>.sqlite3` marker, then a DB row. The marker is written
+//!   before the DB row so a failed marker write never leaves a
+//!   registered-but-unmarked drive. If the DB insert fails after the marker
+//!   is written, the marker is removed.
 //! - Luna only unmounts mount points it created, except USB/removable sticks
 //!   that the OS mounted read-only (iso9660 installer media, or an automount
 //!   left `ro`). Those are remounted read-write — or erased, if the user said so.
@@ -223,16 +225,36 @@ impl DriveManager {
             choice.fs_type.as_str()
         };
 
+        // Every file and folder Luna creates on this drive shares one
+        // `.luna-<uuid>` prefix, picked so it can never collide with files
+        // already there. A drive that already carries a marker (re-adopt, or
+        // shared between Lunas) reuses its existing prefix.
+        let prefix = match luna_core::marker::read_markers(&mount_point)
+            .ok()
+            .and_then(|all| all.into_iter().next().map(|(p, _)| p))
+        {
+            Some(existing) => existing,
+            None => match luna_core::marker::pick_prefix(&mount_point) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
+                    return Err(anyhow::anyhow!(
+                        "Luna could not mark this drive as its own. {e}"
+                    ));
+                }
+            },
+        };
+
         // Marker first, then DB. Never leave a DB row without a marker.
         let marker = Marker::new(id.clone(), label);
-        if let Err(e) = crate::drive_db::create(&mount_point, &marker) {
+        if let Err(e) = crate::drive_db::create(&mount_point, &marker, &prefix) {
             if is_erofs(&e) {
                 // Stick flipped read-only under us — same silent remount retry.
                 match self.remount_adopt_rw(device, &choice, &id, &mount_point, mounted_by_luna) {
                     Ok((new_mp, new_by_luna)) => {
                         mount_point = new_mp;
                         mounted_by_luna = new_by_luna;
-                        if let Err(e2) = crate::drive_db::create(&mount_point, &marker) {
+                        if let Err(e2) = crate::drive_db::create(&mount_point, &marker, &prefix) {
                             self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
                             if is_erofs(&e2) {
                                 return Err(anyhow::anyhow!("{NEEDS_FORMAT_MESSAGE}"));
@@ -264,7 +286,7 @@ impl DriveManager {
             &device.name,
             mount_point.to_str().unwrap_or(""),
         ) {
-            let _ = remove_marker(&mount_point);
+            let _ = remove_marker(&mount_point, &id);
             self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
             return Err(anyhow::anyhow!("Could not add this drive. {e}"));
         }
@@ -440,12 +462,12 @@ impl DriveManager {
         match self.clear_marker_for_remove(&drive) {
             Ok(()) => {}
             Err(_) if drive.state == "readonly" => {
-                // Write-locked / RO filesystem: leave `.luna`, still unregister.
+                // Write-locked / RO filesystem: leave the marker, still unregister.
             }
             Err(e) => {
                 let root = Path::new(&drive.mount_point);
                 if !drive.mount_point.is_empty() && root.is_dir() && probe_writable(root).is_err() {
-                    // Became unwritable after adopt — leave `.luna`.
+                    // Became unwritable after adopt — leave the marker.
                 } else {
                     return Err(e);
                 }
@@ -455,10 +477,10 @@ impl DriveManager {
         Ok(())
     }
 
-    /// Best-effort delete of `.luna` before unregistering a plugged-in drive.
+    /// Best-effort delete of the marker before unregistering a plugged-in drive.
     fn clear_marker_for_remove(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
         let (root, remounted) = self.mount_for_remove(drive)?;
-        match remove_marker(&root) {
+        match remove_marker(&root, &drive.id) {
             Ok(_) => {
                 if remounted || self.is_ours(&root) {
                     let _ = self.mounter.unmount(&root);
@@ -609,7 +631,7 @@ impl DriveManager {
     ) -> anyhow::Result<Vec<(String, PathBuf)>> {
         // Cache marker ids per detected device for this pass so a missing-row
         // loop does not RO-mount the same stick once per registry entry.
-        let mut marker_cache: HashMap<String, Option<String>> = HashMap::new();
+        let mut marker_cache: HashMap<String, Vec<String>> = HashMap::new();
         let mut remounted: Vec<(String, PathBuf)> = Vec::new();
         for row in db::list_drives(conn)? {
             let present_by_name = detected.iter().any(|d| d.name == row.device);
@@ -672,34 +694,39 @@ impl DriveManager {
         Ok(remounted)
     }
 
-    /// Find a detected device whose `.luna` marker id matches `row_id`.
-    /// Uses an existing mount when available; otherwise briefly mounts RO at a
-    /// foreign path (read-only — never writes), then unmounts.
+    /// Find a detected device carrying a `.luna-*` marker id that matches
+    /// `row_id`. Uses an existing mount when available; otherwise briefly
+    /// mounts RO at a foreign path (read-only — never writes), then unmounts.
     /// `marker_cache` is keyed by detected device name for one reconcile pass.
     fn find_detected_by_marker<'a>(
         &self,
         row_id: &str,
         detected: &'a [DetectedDrive],
-        marker_cache: &mut HashMap<String, Option<String>>,
+        marker_cache: &mut HashMap<String, Vec<String>>,
     ) -> Option<&'a DetectedDrive> {
         for d in detected {
-            let id = marker_cache
+            let ids = marker_cache
                 .entry(d.name.clone())
-                .or_insert_with(|| self.marker_id_on_detected(d));
-            if id.as_deref() == Some(row_id) {
+                .or_insert_with(|| self.marker_ids_on_detected(d));
+            if ids.iter().any(|id| id == row_id) {
                 return Some(d);
             }
         }
         None
     }
 
-    /// Read `.luna` id from a detected device. Mounts RO briefly when unmounted.
-    fn marker_id_on_detected(&self, device: &DetectedDrive) -> Option<String> {
+    /// Read every `.luna-*` marker id on a detected device (a drive shared by
+    /// two Lunas can carry more than one). Mounts RO briefly when unmounted.
+    fn marker_ids_on_detected(&self, device: &DetectedDrive) -> Vec<String> {
+        let ids_at = |mp: &Path| -> Vec<String> {
+            luna_core::marker::read_markers(mp)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(_, m)| m.id)
+                .collect()
+        };
         if let Some(mp) = device.mount_point.as_deref() {
-            return luna_core::marker::read_marker(Path::new(mp))
-                .ok()
-                .flatten()
-                .map(|m| m.id);
+            return ids_at(Path::new(mp));
         }
         // Unmounted stick: brief RO foreign mount, read marker, tear down.
         let choice = self.choice_for(device);
@@ -714,15 +741,12 @@ impl DriveManager {
             )
             .is_err()
         {
-            return None;
+            return Vec::new();
         }
-        let id = luna_core::marker::read_marker(&target)
-            .ok()
-            .flatten()
-            .map(|m| m.id);
+        let ids = ids_at(&target);
         let _ = self.mounter.unmount(&target);
         let _ = std::fs::remove_dir(&target);
-        id
+        ids
     }
 
     /// True when this row claims a Luna-owned mount that is not live.
@@ -759,6 +783,38 @@ impl DriveManager {
             let _ = std::fs::remove_dir(&target);
         }
         Ok(())
+    }
+
+    /// Briefly mount a detected but unmounted device read-only at a foreign
+    /// path, run `f` on its root, then unmount. Used by the boot-time
+    /// recovery scan for sticks that were plugged in before power-on.
+    /// Returns `None` when the device is already mounted or the mount fails.
+    pub fn with_temp_ro_mount<R>(
+        &self,
+        device: &DetectedDrive,
+        f: impl FnOnce(&Path) -> R,
+    ) -> Option<R> {
+        if device.mount_point.is_some() {
+            return None;
+        }
+        let choice = self.choice_for(device);
+        let target = self.foreign_mount_point(&device.name);
+        if self
+            .mounter
+            .mount_typed(
+                &device_path(&choice.name),
+                &target,
+                true,
+                fs_opt(&choice.fs_type),
+            )
+            .is_err()
+        {
+            return None;
+        }
+        let out = f(&target);
+        let _ = self.mounter.unmount(&target);
+        let _ = std::fs::remove_dir(&target);
+        Some(out)
     }
 
     fn foreign_mount_point(&self, device_name: &str) -> PathBuf {
@@ -1069,11 +1125,11 @@ mod tests {
                 false,
             )
             .unwrap();
-        assert!(existing.join(".luna").is_file());
+        assert!(crate::drive_db::find_db_file(&existing).is_some());
 
         mgr.remove(&conn, &row.id).unwrap();
         assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
-        assert!(!existing.join(".luna").exists());
+        assert!(crate::drive_db::find_db_file(&existing).is_none());
         assert_eq!(
             std::fs::read(existing.join("keep-me.txt")).unwrap(),
             b"hello"
@@ -1108,7 +1164,7 @@ mod tests {
         assert_eq!(
             mounter.mount_count(),
             mounts_before,
-            "ejected remove must not remount — leaving .luna is fine"
+            "ejected remove must not remount — leaving the marker is fine"
         );
         assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
     }
@@ -1129,7 +1185,7 @@ mod tests {
         mgr.remove(&conn, &row.id).unwrap();
         assert!(
             db::get_drive(&conn, &row.id).unwrap().is_none(),
-            "ejected remove must unregister even if remounting .luna would fail"
+            "ejected remove must unregister even if remounting the marker would fail"
         );
     }
 
@@ -1151,9 +1207,9 @@ mod tests {
             )
             .unwrap();
         db::set_drive_state(&conn, &row.id, "readonly").unwrap();
-        let marker = existing.join(".luna");
+        let marker = crate::drive_db::find_db_file(&existing).unwrap();
         assert!(marker.is_file());
-        // Directory not writable → deleting `.luna` fails.
+        // Directory not writable → deleting the marker fails.
         let mut perms = std::fs::metadata(&existing).unwrap().permissions();
         perms.set_readonly(true);
         std::fs::set_permissions(&existing, perms).unwrap();
@@ -1162,7 +1218,7 @@ mod tests {
         assert!(db::get_drive(&conn, &row.id).unwrap().is_none());
         assert!(
             marker.is_file(),
-            ".luna stays when the stick cannot be written"
+            "the marker stays when the stick cannot be written"
         );
 
         let mut perms = std::fs::metadata(&existing).unwrap().permissions();
@@ -1337,7 +1393,7 @@ mod tests {
         assert_eq!(row.state, "as_is");
         let marker_on_adopt = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
-            .expect("adopt writes .luna");
+            .expect("adopt writes .luna-<uuid>.sqlite3");
         assert_eq!(marker_on_adopt.id, row.id);
 
         // Unplug → missing.
@@ -1414,6 +1470,7 @@ mod tests {
         luna_core::marker::write_marker(
             &probe,
             &luna_core::marker::Marker::new(marker_id, "Backup Drive"),
+            &luna_core::marker::pick_prefix(&probe).unwrap(),
         )
         .unwrap();
         let renamed = DetectedDrive {
@@ -1453,7 +1510,7 @@ mod tests {
             .unwrap();
         let marker = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
-            .expect("adopt writes .luna");
+            .expect("adopt writes .luna-<uuid>.sqlite3");
 
         mgr.reconcile(&conn, &[]).unwrap();
         assert_eq!(
@@ -1468,6 +1525,7 @@ mod tests {
         luna_core::marker::write_marker(
             &foreign,
             &luna_core::marker::Marker::new(marker.id.clone(), "Travel Stick"),
+            &luna_core::marker::pick_prefix(&foreign).unwrap(),
         )
         .unwrap();
         mounter.mount("/dev/sdd", &foreign, true).unwrap();
@@ -1565,7 +1623,7 @@ mod tests {
         let row = mgr
             .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
             .unwrap();
-        let marker = PathBuf::from(&row.mount_point).join(".luna");
+        let marker = crate::drive_db::find_db_file(Path::new(&row.mount_point)).unwrap();
         assert!(marker.is_file());
         mgr.reconcile(&conn, &[]).unwrap();
         assert_eq!(

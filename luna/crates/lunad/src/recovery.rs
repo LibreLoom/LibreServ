@@ -1,19 +1,21 @@
 //! USB flash drive admin password recovery.
 //!
 //! If an admin forgets their Luna web password, they place a recovery file
-//! `pwreset-<device_token>.luna` (or `pwreset.luna`) on the root of a USB flash drive.
-//! When plugged in, lunad detects it, updates user passwords according to the
-//! selectors, and renames the file to `.luna.done`.
+//! `luna-recover-<device_token>.luna` (or `luna-recover.luna` when no device
+//! token is configured) on the root of a **dedicated** USB flash drive — the
+//! file must be the only thing on it. Luna checks the stick once at boot:
+//! it must carry no Luna marker and no other files, so a password reset
+//! requires physical possession of a clean stick, not just the token.
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
 //! assert that). Keep this block as the source of truth for the printed
 //! recovery card and future docs:
 //!
 //!   If you forget your password
-//!   1. Create a password recovery file (pwreset-<device_token>.luna, or pwreset.luna if no device token is configured).
-//!   2. Save the file to the root of a USB flash drive.
-//!   3. Plug the USB flash drive into Luna.
-//!   4. Wait about 10 seconds for Luna to detect the drive and apply the new password.
+//!   1. Create a password recovery file (luna-recover-<device_token>.luna, or luna-recover.luna if no device token is configured).
+//!   2. Save the file to the root of an empty USB flash drive used only for recovery.
+//!   3. Plug the USB flash drive into Luna and restart Luna.
+//!   4. Luna applies the new password while it starts up (the file is renamed to .done).
 //!   5. Unplug the USB flash drive.
 //!   6. On your phone or computer, open the Luna web page and sign in with the new password.
 //!
@@ -42,10 +44,10 @@ pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 /// Not rendered in the Luna web UI — keep in sync with the module comment above.
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
-    "Create a password recovery file (pwreset-<device_token>.luna, or pwreset.luna if no device token is configured) using the recovery wizard.",
-    "Save the file directly onto a USB flash drive (not inside a folder).",
-    "Plug the USB flash drive into Luna.",
-    "Wait about 10 seconds for Luna to detect the drive and apply the new password (the file is renamed to .done).",
+    "Create a password recovery file (luna-recover-<device_token>.luna, or luna-recover.luna if no device token is configured) using the recovery wizard.",
+    "Save the file directly onto an empty USB flash drive used only for recovery (not inside a folder, and with no other files on it).",
+    "Plug the USB flash drive into Luna, then restart Luna.",
+    "Luna applies the new password while it starts up (the file is renamed to .done).",
     "Unplug the USB flash drive.",
     "On your phone or computer, open the Luna web page and sign in with that username and the new password.",
 ];
@@ -459,7 +461,10 @@ mod tests {
     #[test]
     fn card_steps_cover_flash_drive_recovery() {
         assert_eq!(
-            CARD_STEPS.iter().filter(|s| s.contains("pwreset")).count(),
+            CARD_STEPS
+                .iter()
+                .filter(|s| s.contains("luna-recover"))
+                .count(),
             1
         );
         assert!(

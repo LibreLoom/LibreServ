@@ -87,3 +87,99 @@ describe("PhotoLightbox guest mode", () => {
     expect(link).toHaveAttribute("href", "/public/dl");
   });
 });
+
+describe("PhotoLightbox fullscreen animations", () => {
+  it("applies the unified fullscreen enter animation on open", () => {
+    renderLightbox();
+    const dialog = screen.getByRole("dialog", { name: "one.jpg" });
+    expect(dialog).toHaveClass("fullscreen-overlay-enter");
+    expect(dialog).toHaveClass("file-viewer-enter");
+  });
+
+  it("animates out with fullscreen exit class and invokes onClose after 250ms on Close click", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      renderLightbox({ onClose });
+
+      const dialog = screen.getByRole("dialog", { name: "one.jpg" });
+      expect(dialog).toHaveClass("fullscreen-overlay-enter");
+
+      fireEvent.click(screen.getByLabelText("Close"));
+
+      expect(dialog).toHaveClass("fullscreen-overlay-exit");
+      expect(dialog).toHaveClass("file-viewer-exit");
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Scroll lock must remain held while exit animation is playing
+      expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(true);
+
+      vi.advanceTimersByTime(250);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("animates out with fullscreen exit class and invokes onClose after 250ms on Escape", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      renderLightbox({ onClose });
+
+      const dialog = screen.getByRole("dialog", { name: "one.jpg" });
+      expect(dialog).toHaveClass("fullscreen-overlay-enter");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      expect(dialog).toHaveClass("fullscreen-overlay-exit");
+      expect(onClose).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(250);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("animates out when open prop switches to false", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      const { rerender } = render(
+        <MemoryRouter>
+          <PhotoLightbox
+            photos={photos}
+            index={0}
+            open={true}
+            onClose={onClose}
+            onIndexChange={vi.fn()}
+          />
+        </MemoryRouter>,
+      );
+
+      const dialog = screen.getByRole("dialog", { name: "one.jpg" });
+      expect(dialog).toHaveClass("fullscreen-overlay-enter");
+
+      rerender(
+        <MemoryRouter>
+          <PhotoLightbox
+            photos={photos}
+            index={0}
+            open={false}
+            onClose={onClose}
+            onIndexChange={vi.fn()}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(dialog).toHaveClass("fullscreen-overlay-exit");
+      expect(onClose).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(250);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use tower_http::services::ServeDir;
 
 use lunad::{AppState, api, config::Config, db, drives::DriveManager, mount::CommandMounter};
 
@@ -30,11 +29,17 @@ async fn main() -> anyhow::Result<()> {
         std::sync::Arc::new(CommandMounter),
         &cfg.data_dir,
     ));
-    {
+    let detected = {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
-        let detected = lunad::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts);
-        drive_manager.reconcile(&conn, &detected)?;
-    }
+        lunad::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts)
+    };
+    drive_manager.reconcile(&conn, &detected)?;
+
+    // Password recovery runs once, here, before the network is up: Connect has
+    // not been restored and the HTTP listener has not bound, so no peer can
+    // reach lunad while a recovery stick is being honoured.
+    lunad::recovery_drive::scan_at_boot(&cfg.data_dir, &conn, &detected, &drive_manager);
+
     let connect = std::sync::Arc::new(
         lunad::connect::ConnectService::new(&cfg.data_dir, std::env::var("LUNA_CONNECT_URL").ok())
             .with_local_port(cfg.port),
@@ -42,8 +47,9 @@ async fn main() -> anyhow::Result<()> {
     connect.restore_tunnel_from_disk();
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
 
-    // One-shot: pull pre-microdb index/hash/upload rows out of luna.db into each
-    // mounted drive's `.luna` before gallery catch-up or search fans out.
+    // One-shot: pull pre-microdb index/hash/upload rows out of luna.db into
+    // each mounted drive's marker database before gallery catch-up or search
+    // fans out.
     {
         let db = state.db.lock().expect("db");
         for drive in lunad::db::list_drives(&db).unwrap_or_default() {
@@ -51,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
             let root = std::path::Path::new(&drive.mount_point);
-            if !lunad::drive_db::path_for(root).is_file() {
+            if lunad::drive_db::find_db_file(root).is_none() {
                 continue;
             }
             if let Ok(dconn) = lunad::drive_db::open(root) {
@@ -214,22 +220,6 @@ async fn main() -> anyhow::Result<()> {
                     // already shown).
                     let _ = lunad::console::write_issue(&data_dir, &snap);
                     std::thread::sleep(std::time::Duration::from_secs(2));
-                }
-            })
-            .ok();
-    }
-
-    {
-        let data_dir = cfg.data_dir.clone();
-        let db = state.db.clone();
-        std::thread::Builder::new()
-            .name("luna-flash-recovery".into())
-            .spawn(move || {
-                loop {
-                    if let Ok(conn) = db.lock() {
-                        let _ = lunad::recovery_drive::scan_candidate_dirs(&data_dir, &conn);
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(3));
                 }
             })
             .ok();
@@ -416,6 +406,20 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Same for office docstorage sessions; plus a boot-time sweep for bundle
+    // dirs left behind by old document versions.
+    lunad::api::office::sweep_old_bundles(&cfg.data_dir);
+    {
+        let hub = state.office_docs.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                ticker.tick().await;
+                hub.evict_idle().await;
+            }
+        });
+    }
+
     let protected_api = api::router()
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -435,7 +439,29 @@ async fn main() -> anyhow::Result<()> {
         .merge(lunad::dav::router());
     if eurooffice_dir.is_dir() {
         tracing::info!(dir = %eurooffice_dir.display(), "serving EuroOffice assets");
-        app = app.nest_service("/eurooffice", ServeDir::new(eurooffice_dir));
+        // One wildcard route handles the whole /eurooffice tree: versioned
+        // pack URLs are deversioned and docstorage sockets upgraded inside
+        // the dispatcher. It stays outside protected_api — pack assets are
+        // public and the socket authenticates on the office JWT in the
+        // Socket.IO CONNECT payload, not the session cookie.
+        app = app
+            .route(
+                "/eurooffice/{*tail}",
+                axum::routing::any(lunad::api::office_ws::dispatch),
+            )
+            // The editor iframe resolves ../../sdkjs/ against the root —
+            // matches Document Server's nginx layout.
+            .route(
+                "/sdkjs/{*tail}",
+                axum::routing::any(lunad::api::office_ws::sdkjs_dispatch),
+            )
+            // sdkjs font metrics load from ../../../../fonts/ — site root in
+            // the DS nginx layout, so the pack's generated fonts dir is
+            // served here too.
+            .route(
+                "/fonts/{*tail}",
+                axum::routing::any(lunad::api::office_ws::fonts_dispatch),
+            );
     }
     let app =
         app.with_state(state)

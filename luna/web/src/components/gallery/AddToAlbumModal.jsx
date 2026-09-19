@@ -92,7 +92,7 @@ export default function AddToAlbumModal({
           ) : (
             <>
               <label className="block text-sm text-primary">
-                Find an album
+                <span className="block translate-x-5">Find an album</span>
                 <div className="relative mt-1">
                   <Search
                     size={16}

@@ -309,6 +309,9 @@ impl DavFileSystem for JailedFs {
     fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
+            if crate::files::is_internal_temp(&rel) {
+                return Err(FsError::Forbidden);
+            }
             let disk = resolve_for_create_nofollow(&self.root, &rel).map_err(Self::map_err)?;
             std::fs::create_dir(&disk).map_err(io_to_fs)
         })
@@ -317,6 +320,9 @@ impl DavFileSystem for JailedFs {
     fn remove_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
+            if crate::files::is_internal_temp(&rel) {
+                return Err(FsError::NotFound);
+            }
             let disk = resolve_child_nofollow(&self.root, &rel).map_err(Self::map_err)?;
             std::fs::remove_dir(&disk).map_err(io_to_fs)
         })
@@ -325,6 +331,9 @@ impl DavFileSystem for JailedFs {
     fn remove_file<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
+            if crate::files::is_internal_temp(&rel) {
+                return Err(FsError::NotFound);
+            }
             let disk = resolve_child_nofollow(&self.root, &rel).map_err(Self::map_err)?;
             std::fs::remove_file(&disk).map_err(io_to_fs)
         })
@@ -334,6 +343,10 @@ impl DavFileSystem for JailedFs {
         Box::pin(async move {
             let from_rel = Self::rel(from)?;
             let to_rel = Self::rel(to)?;
+            if crate::files::is_internal_temp(&from_rel) || crate::files::is_internal_temp(&to_rel)
+            {
+                return Err(FsError::Forbidden);
+            }
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
             std::fs::rename(&src, &dest).map_err(io_to_fs)
@@ -344,6 +357,10 @@ impl DavFileSystem for JailedFs {
         Box::pin(async move {
             let from_rel = Self::rel(from)?;
             let to_rel = Self::rel(to)?;
+            if crate::files::is_internal_temp(&from_rel) || crate::files::is_internal_temp(&to_rel)
+            {
+                return Err(FsError::Forbidden);
+            }
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
             std::fs::copy(&src, &dest).map_err(io_to_fs)?;

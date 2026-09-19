@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by GalleryFilterSheet and tests */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { Crop, Hand, RotateCcw } from "lucide-react";
 import {
@@ -10,6 +10,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "../ui/Button.jsx";
+import SegmentedControl from "../common/SegmentedControl.jsx";
 import { haptic } from "../../utils/haptics.js";
 import MapAreaDraw, { bboxToBounds, boundsToBbox } from "./MapAreaDraw.jsx";
 
@@ -73,48 +74,20 @@ export default function GeozoneMap({
     [places],
   );
 
-  const summary = useCallback(() => {
-    if (!value) return null;
-    const [west, south, east, north] = value;
-    return `${south.toFixed(2)}–${north.toFixed(2)} lat · ${west.toFixed(2)}–${east.toFixed(2)} lon`;
-  }, [value]);
-
   return (
     <div className={className} data-slot="geozone-map">
       {/* Mode toolbar */}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div
-          role="group"
+        <SegmentedControl
+          options={[
+            { value: "pan", label: "Pan map", icon: Hand, title: "Drag to move around the map" },
+            { value: "draw", label: "Draw area", icon: Crop, title: "Drag to select an area" },
+          ]}
+          value={mode}
+          onChange={(v) => setMode(/** @type {"pan"|"draw"} */ (v))}
+          surface="primary"
           aria-label="Map interaction mode"
-          className="flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 border-2 border-primary/20"
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === "pan" ? "accent" : "ghost"}
-            className="rounded-pill px-3 text-xs"
-            onClick={() => {
-              haptic("selection");
-              setMode("pan");
-            }}
-          >
-            <Hand size={14} className="mr-1.5" aria-hidden="true" />
-            Pan map
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === "draw" ? "accent" : "ghost"}
-            className="rounded-pill px-3 text-xs"
-            onClick={() => {
-              haptic("selection");
-              setMode("draw");
-            }}
-          >
-            <Crop size={14} className="mr-1.5" aria-hidden="true" />
-            Draw area
-          </Button>
-        </div>
+        />
         <p className="text-xs text-accent">
           {mode === "draw"
             ? "Click & drag or drag with finger to select an area"
@@ -163,41 +136,34 @@ export default function GeozoneMap({
         </MapContainer>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-mono">
-          {value ? summary() : "No area selected"}
-        </p>
-        <div className="flex items-center gap-2">
-          {value && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                haptic("selection");
-                setMode("draw");
-              }}
-            >
-              <RotateCcw size={13} className="mr-1.5" aria-hidden="true" />
-              Redraw
-            </Button>
-          )}
-          {value && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                haptic("light");
-                onChange?.(null);
-                setMode("draw");
-              }}
-            >
-              Clear zone
-            </Button>
-          )}
+      {value && (
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              haptic("selection");
+              setMode("draw");
+            }}
+          >
+            <RotateCcw size={13} className="mr-1.5" aria-hidden="true" />
+            Redraw
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              haptic("light");
+              onChange?.(null);
+              setMode("draw");
+            }}
+          >
+            Clear zone
+          </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

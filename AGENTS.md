@@ -231,6 +231,7 @@ Before ANY UI work:
 
 #### 5. Preserve monospace style
 - Simplex Mono is the brand identity. Typography: monospace for headings/code (FreeMono / monospace family like Courier New), Noto Sans for body. Keep the mono typography identity — do NOT replace with a generic sans-serif.
+- **No bold monospace — ever.** Monospace text is always regular weight. Never combine `font-mono` with `font-medium`/`font-semibold`/`font-bold`, and never wrap `font-mono` text in `<strong>`/`<b>` without `font-normal`. Emphasize mono text with size, case, tracking, or color instead. Tabular data (e.g. CSV previews) renders in sans; only the header row stays mono.
 
 #### Haptics & Tactile Feedback (non-negotiable)
 

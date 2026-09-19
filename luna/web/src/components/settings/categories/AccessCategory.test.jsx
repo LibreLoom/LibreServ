@@ -46,7 +46,7 @@ describe("AccessCategory", () => {
     expect(await screen.findByRole("heading", { name: "Browsers" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Revoke app access/i })).toBeNull();
-    expect(screen.getByText(/Luna cannot show a list of every browser/i)).toBeTruthy();
+    expect(screen.queryByText(/Luna cannot show a list of every browser/i)).toBeNull();
   });
 
   it("shows apps and access tokens section", async () => {
@@ -76,15 +76,15 @@ describe("AccessCategory", () => {
     expect(listHeading.compareDocumentPosition(tokenName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("token list items use contrasting text on primary surface", async () => {
+  it("token list uses contrasting text on primary surface", async () => {
     stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
     const { container } = renderAccess();
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
 
-    const item = container.querySelector("li.bg-primary.text-secondary");
-    expect(item).toBeTruthy();
+    const surface = container.querySelector("div.bg-primary.text-secondary");
+    expect(surface).toBeTruthy();
     // Children must inherit text-secondary — text-primary on bg-primary is invisible in dark mode.
-    expect(item.querySelector(".text-primary")).toBeNull();
+    expect(surface.querySelector(".text-primary")).toBeNull();
     expect(screen.getByText("Kitchen Mac").className).not.toMatch(/text-primary/);
   });
 
@@ -93,7 +93,7 @@ describe("AccessCategory", () => {
     const { container } = renderAccess();
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
 
-    const item = container.querySelector("li.bg-primary.text-secondary");
+    const item = container.querySelector("ul.divide-y > li");
     expect(item).toBeTruthy();
     expect(item.className).toMatch(/transition-\[height\]/);
     expect(item.className).toMatch(/overflow-hidden/);
@@ -130,13 +130,49 @@ describe("AccessCategory", () => {
 
     await user.click(screen.getByRole("button", { name: /Usage log/i }));
     expect(await screen.findByText(/list — Photos/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Hide log/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Hide usage log/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Revoke token/i })).toBeTruthy();
     expect(usageCalls).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: /Hide log/i }));
+    await user.click(screen.getByRole("button", { name: /Hide usage log/i }));
     expect(screen.queryByText(/list — Photos/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Usage log/i })).toBeTruthy();
+  });
+
+  it("displays client app and origin in usage log", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      const method = init?.method || "GET";
+      if (u.includes("/device-tokens/") && u.includes("/usage") && method === "GET") {
+        return new Response(JSON.stringify([{
+          action: "WebDAV folder",
+          detail: "Browsed folder",
+          client: "macOS Finder",
+          origin: "Home network (192.168.1.50)",
+          used_at: Math.floor(Date.now() / 1000),
+        }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/device-tokens") && method === "GET") {
+        return new Response(JSON.stringify([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    renderAccess();
+    expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Usage log/i }));
+    expect(await screen.findByText(/WebDAV folder — Browsed folder/i)).toBeTruthy();
+    expect(screen.getByText("macOS Finder")).toBeTruthy();
+    expect(screen.getByText("Home network (192.168.1.50)")).toBeTruthy();
   });
 
   it("offers a QR code after creating an access token", async () => {

@@ -67,6 +67,11 @@ const navButtons = [
 
 const FAB_SIZE = 60;
 const HAMBURGER_STORAGE_KEY = "lunaHamburgerPosition";
+// While a fullscreen editor is open the FAB may only live in the headerbar
+// strip at the top of the screen (editor-topbar h-10 / EuroOffice's
+// toolbar). Below this line — over the sidebar or document — it must not
+// render.
+const EDITOR_HEADERBAR_HEIGHT = 48;
 
 function getSnapPosition(x, y, windowWidth, windowHeight) {
   const snapMargin = 20;
@@ -107,6 +112,26 @@ export default function Navbar() {
   const [hasMoved, setHasMoved] = useState(false);
   const animationFrameRef = useRef(null);
   const pendingPositionRef = useRef(null);
+
+  // FileViewer marks documentElement[data-luna-editor] while a fullscreen
+  // editor overlay is mounted; the FAB floats above that overlay, so it must
+  // hide — except when parked inside the headerbar strip.
+  const [editorOpen, setEditorOpen] = useState(
+    () => Boolean(document.documentElement.dataset.lunaEditor),
+  );
+  const editorOpenRef = useRef(editorOpen);
+  editorOpenRef.current = editorOpen;
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setEditorOpen(Boolean(document.documentElement.dataset.lunaEditor));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-luna-editor"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const savedPosition = localStorage.getItem(HAMBURGER_STORAGE_KEY);
@@ -159,10 +184,14 @@ export default function Navbar() {
   }, [position]);
 
   const handleDragStart = (e) => {
-    if (window.innerWidth >= 1280) return;
+    if (window.innerWidth >= 1280 || e.button !== 0) return;
 
-    const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
-    const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
+    // Pointer capture keeps the drag alive over iframes — the EuroOffice
+    // editor swallows document-level mouse/touch events otherwise.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+
+    const clientX = e.clientX;
+    const clientY = e.clientY;
 
     let currentX = position.x;
     let currentY = position.y;
@@ -194,8 +223,8 @@ export default function Navbar() {
   const handleDrag = (e) => {
     if (!isDragging || window.innerWidth >= 1280) return;
 
-    const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
-    const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
+    const clientX = e.clientX;
+    const clientY = e.clientY;
 
     let newX = clientX - dragStartRef.current.x;
     let newY = clientY - dragStartRef.current.y;
@@ -216,6 +245,10 @@ export default function Navbar() {
 
     newX = Math.max(0, Math.min(newX, window.innerWidth - FAB_SIZE));
     newY = Math.max(0, Math.min(newY, window.innerHeight - FAB_SIZE));
+    // While the editor is open the FAB is confined to the headerbar strip.
+    if (editorOpenRef.current) {
+      newY = Math.min(newY, EDITOR_HEADERBAR_HEIGHT);
+    }
 
     pendingPositionRef.current = { x: newX, y: newY };
 
@@ -261,21 +294,17 @@ export default function Navbar() {
 
   useEffect(() => {
     if (isDragging) {
-      const handleMouseMove = (e) => handleDrag(e);
-      const handleMouseUp = () => handleDragEnd();
-      const handleTouchMove = (e) => handleDrag(e);
-      const handleTouchEnd = () => handleDragEnd();
+      const handlePointerMove = (e) => handleDrag(e);
+      const handlePointerEnd = () => handleDragEnd();
 
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.addEventListener("touchmove", handleTouchMove, { passive: false });
-      document.addEventListener("touchend", handleTouchEnd);
+      document.addEventListener("pointermove", handlePointerMove);
+      document.addEventListener("pointerup", handlePointerEnd);
+      document.addEventListener("pointercancel", handlePointerEnd);
 
       return () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.removeEventListener("touchmove", handleTouchMove);
-        document.removeEventListener("touchend", handleTouchEnd);
+        document.removeEventListener("pointermove", handlePointerMove);
+        document.removeEventListener("pointerup", handlePointerEnd);
+        document.removeEventListener("pointercancel", handlePointerEnd);
       };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -365,6 +394,11 @@ export default function Navbar() {
     setIsMobileMenuOpen(false);
     menuButtonRef.current?.focus();
   };
+
+  // In the fullscreen editor the FAB is suppressed unless it is parked in
+  // the headerbar strip — anything lower overlaps the sidebar/document.
+  const fabHidden =
+    editorOpen && !(position.y !== null && position.y <= EDITOR_HEADERBAR_HEIGHT);
 
   const visibleNav = useMemo(
     () => navButtons.filter((item) => !item.adminOnly || isAdmin),
@@ -458,6 +492,7 @@ export default function Navbar() {
         </nav>
       </div>
 
+      {!fabHidden && (
       <button
         ref={menuButtonRef}
         type="button"
@@ -469,8 +504,7 @@ export default function Navbar() {
             setIsMobileMenuOpen(!isMobileMenuOpen);
           }
         }}
-        onMouseDown={handleDragStart}
-        onTouchStart={handleDragStart}
+        onPointerDown={handleDragStart}
         aria-label="Toggle menu"
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
@@ -479,6 +513,7 @@ export default function Navbar() {
         <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
         <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
       </button>
+      )}
 
       <button
         type="button"

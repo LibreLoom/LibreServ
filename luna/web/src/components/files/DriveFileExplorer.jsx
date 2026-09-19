@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, Pencil, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Pencil, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
@@ -39,6 +39,7 @@ import { parseCreateName } from "../../lib/createName.js";
 import { blankOfficeStub } from "../../lib/officeStubs.js";
 import {
   downloadHref,
+  fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
   fmtSize,
   joinPath,
@@ -220,10 +221,13 @@ async function mapPool(items, limit, worker) {
  *   onSelectPathApplied?: () => void,
  *   linkNavigation?: boolean,
  *   folderHref?: (driveId: string, folderPath: string) => string,
+ *   fileHref?: (driveId: string, filePath: string) => string,
  *   isAdmin?: boolean,
  *   showTrashLink?: boolean,
  *   dense?: boolean,
  *   headerExtra?: import("react").ReactNode,
+ *   viewerPath?: string | null,
+ *   onViewerPathChange?: (next: string | null) => void,
  * }} props
  */
 export default function DriveFileExplorer({
@@ -236,10 +240,13 @@ export default function DriveFileExplorer({
   onSelectPathApplied,
   linkNavigation = false,
   folderHref = defaultFolderHref,
+  fileHref = defaultFileHref,
   isAdmin = false,
   showTrashLink = true,
   dense = false,
   headerExtra = null,
+  viewerPath: controlledViewerPath,
+  onViewerPathChange,
 }) {
   const queryClient = useQueryClient();
   const [innerPath, setInnerPath] = useState("");
@@ -256,8 +263,14 @@ export default function DriveFileExplorer({
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
-  const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[], targetDriveId?: string }} */ (null));
-  const [viewerPath, setViewerPath] = useState(/** @type {string|null} */ (null));
+  const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[] }} */ (null));
+  const [innerViewerPath, setInnerViewerPath] = useState(/** @type {string|null} */ (null));
+  const viewerPath = controlledViewerPath !== undefined ? controlledViewerPath : innerViewerPath;
+
+  function setViewerPath(next) {
+    if (controlledViewerPath === undefined) setInnerViewerPath(next);
+    onViewerPathChange?.(next);
+  }
   const [accessTarget, setAccessTarget] = useState(/** @type {null|{ path: string, kind: string }} */ (null));
   const [protectTarget, setProtectTarget] = useState(/** @type {null|{ path: string }} */ (null));
   const [createKind, setCreateKind] = useState(/** @type {import("../../lib/createKinds.js").CreateKind|null} */ (null));
@@ -626,11 +639,11 @@ export default function DriveFileExplorer({
       <FileBrowser
         driveId={driveId}
         driveLabel={driveLabel}
-        drives={writableDrives}
         path={path}
         onPathChange={setPath}
         linkNavigation={linkNavigation}
         folderHref={folderHref}
+        fileHref={fileHref}
         enableDownload
         enableUploadDrop={folderWritable}
         dense={dense}
@@ -646,8 +659,8 @@ export default function DriveFileExplorer({
           path: ctx.fullPath,
           kind: ctx.entry.kind === "dir" ? "folder" : "file",
         })}
-        onCopy={(paths, targetDriveId) => setTransfer({ kind: "copy", paths, targetDriveId })}
-        onMove={folderWritable ? (paths, targetDriveId) => setTransfer({ kind: "move", paths, targetDriveId }) : undefined}
+        onCopy={(paths) => setTransfer({ kind: "copy", paths })}
+        onMove={folderWritable ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
         onRename={folderWritable ? (ctx) => {
           setActionError(null);
           setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
@@ -656,6 +669,9 @@ export default function DriveFileExplorer({
         onDelete={folderWritable ? setDeletePaths : undefined}
         trashHref={showTrashLink && trashVisible ? `/drives/${driveId}?view=trash` : null}
         folderActions={folderWritable ? <NewItemMenu onPick={openCreate} /> : null}
+        emptyTitle="This drive is empty"
+        emptyDescription="Upload files or create folders to get started."
+        emptyIcon={HardDrive}
         emptyAction={folderWritable ? (
           <div className="flex justify-center">
             <NewItemMenu onPick={openCreate} />
@@ -769,6 +785,10 @@ export default function DriveFileExplorer({
         canWrite={isAdmin || canWriteOnPath(grants.data, driveId, viewerPath || "")}
         onClose={() => setViewerPath(null)}
         onSaved={() => viewerPath && invalidate([viewerPath])}
+        onOpenPath={(next) => {
+          invalidate([next]);
+          setViewerPath(next);
+        }}
       />
 
       <FolderPickerModal
@@ -779,8 +799,8 @@ export default function DriveFileExplorer({
             : `Copy ${transfer?.paths.length === 1 ? pathBasename(transfer.paths[0]) : `${transfer?.paths.length || 0} items`}`
         }
         drives={writableDrives.length > 0 ? writableDrives : [{ id: driveId, label: driveLabel }]}
-        initialDriveId={transfer?.targetDriveId || driveId}
-        initialPath={transfer?.targetDriveId && transfer.targetDriveId !== driveId ? "" : path}
+        initialDriveId={driveId}
+        initialPath={path}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
         busy={transferMutation.isPending}
         error={transfer != null ? actionError : null}
@@ -914,8 +934,11 @@ DriveFileExplorer.propTypes = {
   onSelectPathApplied: PropTypes.func,
   linkNavigation: PropTypes.bool,
   folderHref: PropTypes.func,
+  fileHref: PropTypes.func,
   isAdmin: PropTypes.bool,
   showTrashLink: PropTypes.bool,
   dense: PropTypes.bool,
   headerExtra: PropTypes.node,
+  viewerPath: PropTypes.string,
+  onViewerPathChange: PropTypes.func,
 };

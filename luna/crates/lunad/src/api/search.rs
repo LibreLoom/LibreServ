@@ -60,10 +60,7 @@ async fn search(
         } else {
             format!("{}/{}", hit.parent, hit.name)
         };
-        if full == ".luna-trash" || full.starts_with(".luna-trash/") {
-            continue;
-        }
-        if crate::protect::is_protected_store(&full) {
+        if crate::files::is_internal_temp(&full) || crate::protect::is_protected_store(&full) {
             continue;
         }
         if crate::auth::can_access(&user, &conn, &hit.drive_id, &full, false) {
@@ -217,13 +214,17 @@ async fn factory_reset(
             "Luna's index is busy. Try again.",
         )
     })?;
-    // Un-adopt every drive (remove the `.luna` marker and unmount Luna-owned
-    // mounts) so the data is left intact but no longer owned by Luna.
+    // Un-adopt every drive (remove this Luna's `.luna-*` marker and unmount
+    // Luna-owned mounts) so the data is left intact but no longer owned by
+    // Luna.
     let drives = crate::db::list_drives(&conn).unwrap_or_default();
     for drive in drives {
         crate::dav::drop_cached_handler(&state, &drive.id);
         if !drive.mount_point.is_empty() {
-            let _ = std::fs::remove_file(std::path::Path::new(&drive.mount_point).join(".luna"));
+            let _ = luna_core::marker::remove_marker(
+                std::path::Path::new(&drive.mount_point),
+                &drive.id,
+            );
             let _ = state.drive_manager.eject(&conn, &drive.id);
         }
     }

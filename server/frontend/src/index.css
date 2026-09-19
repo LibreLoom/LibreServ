@@ -94,6 +94,7 @@
 
 
 html {
+  scrollbar-gutter: stable;
   background-color: var(--color-primary);
   color: var(--color-secondary);
   color-scheme: light;
@@ -859,3 +860,13 @@ select:focus:not(:focus-visible) {
     color: var(--primary);
   }
 }
+
+/* Scrollbar utility — hide scrollbars while preserving scrollability */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+

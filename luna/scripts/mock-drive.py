@@ -438,12 +438,7 @@ def create_mock_epub(path: Path, title: str, text: str) -> None:
         zf.writestr("OEBPS/chapter1.xhtml", chapter)
 
 
-# Photo trees from the legacy mock-pssd fixtures (real JPEGs + EXIF/GPS).
-PHOTO_FIXTURE_ROOT = ROOT / "fixtures" / "mock-pssd"
-PHOTO_FIXTURE_DIRS = ("DCIM", "Photos", "Pictures", ".Trashes")
-PHOTO_SEED_MARKER = ".photo-seed-version"
-
-# Minimal valid 1x1 JPEG (last-resort fallback when fixtures and Pillow are absent)
+# Minimal valid 1x1 JPEG (fallback when Pillow is absent)
 TINY_JPEG = bytes([
     0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
     0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
@@ -462,7 +457,7 @@ TINY_JPEG = bytes([
 
 
 def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: str) -> None:
-    """Synthetic JPEG fallback (no EXIF). Prefer populate_photos fixture copy."""
+    """Synthetic JPEG (no EXIF). Falls back to a 1x1 pixel without Pillow."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -486,41 +481,8 @@ def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: s
         path.write_bytes(TINY_JPEG)
 
 
-def _count_files(path: Path) -> int:
-    return sum(1 for f in path.rglob("*") if f.is_file())
-
-
-def _populate_photos_from_fixtures(dest: Path) -> int | None:
-    """Copy rich mock-pssd photo trees (EXIF dates + GPS for Places)."""
-    if not (PHOTO_FIXTURE_ROOT / "DCIM").is_dir():
-        return None
-
-    count = 0
-    for name in PHOTO_FIXTURE_DIRS:
-        src = PHOTO_FIXTURE_ROOT / name
-        if not src.exists():
-            continue
-        target = dest / name
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(src, target)
-        count += _count_files(target)
-
-    seed_ver = PHOTO_FIXTURE_ROOT / ".seed-version"
-    if seed_ver.is_file():
-        shutil.copy2(seed_ver, dest / PHOTO_SEED_MARKER)
-    else:
-        (dest / PHOTO_SEED_MARKER).write_text("fixture\n", encoding="utf-8")
-    return count
-
-
-def _populate_photos_synthetic(dest: Path) -> int:
-    """Last-resort tiny/synthetic set when fixtures/mock-pssd is missing."""
-    print(
-        f"Warning: photo fixtures missing at {PHOTO_FIXTURE_ROOT}; "
-        "using synthetic JPEGs without EXIF/GPS. Run: make mock-pssd-photos",
-        file=sys.stderr,
-    )
+def populate_photos(dest: Path) -> int:
+    """Seed photo content: synthetic JPEGs across DCIM/Photos/Pictures."""
     count = 0
     now = datetime(2025, 6, 15, 14, 0, 0)
     cameras = [("100CANON", "Canon EOS R5"), ("101APPLE", "iPhone 16 Pro"), ("102FUJI", "Fujifilm X-T5")]
@@ -555,14 +517,6 @@ def _populate_photos_synthetic(dest: Path) -> int:
             )
             count += 1
     return count
-
-
-def populate_photos(dest: Path) -> int:
-    """Seed photo content: prefer fixtures/mock-pssd (real JPEGs + EXIF/GPS)."""
-    from_fixtures = _populate_photos_from_fixtures(dest)
-    if from_fixtures is not None:
-        return from_fixtures
-    return _populate_photos_synthetic(dest)
 
 
 def populate_documents(dest: Path) -> int:
@@ -735,26 +689,14 @@ def populate_mixed(dest: Path) -> int:
     return c
 
 
-def _fixture_jpeg_bytes() -> bytes:
-    """Real JPEG bytes from the mock-pssd fixtures (TINY_JPEG fallback)."""
-    for pattern in ("*.jpg", "*.JPG", "*.jpeg", "*.JPEG"):
-        for f in sorted(PHOTO_FIXTURE_ROOT.rglob(pattern)):
-            if f.is_file():
-                try:
-                    return f.read_bytes()
-                except OSError:
-                    continue
-    return TINY_JPEG
-
-
 def populate_stress(dest: Path) -> int:
     """One real, valid file per OpenableKind in web/src/lib/fileKinds.js."""
     count = 0
     base = dest / "StressTest"
 
-    # image — real JPEG with EXIF/GPS copied from the mock-pssd fixtures
+    # image
     (base / "image").mkdir(parents=True, exist_ok=True)
-    (base / "image/sample.jpg").write_bytes(_fixture_jpeg_bytes())
+    (base / "image/sample.jpg").write_bytes(TINY_JPEG)
     count += 1
 
     # video
@@ -795,7 +737,7 @@ def populate_stress(dest: Path) -> int:
     # comic — .cbz is just a zip of ordered page images
     (base / "comic").mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(base / "comic/issue01.cbz", "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("page01.jpg", _fixture_jpeg_bytes())
+        zf.writestr("page01.jpg", TINY_JPEG)
     count += 1
 
     # font — real TTF shipped in the Luna web UI

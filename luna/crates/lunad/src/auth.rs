@@ -60,6 +60,12 @@ impl CurrentUser {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceTokenContext {
+    pub token_id: String,
+    pub last_used_at: i64,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error("That username or password is wrong.")]
@@ -197,30 +203,35 @@ impl AuthService {
     /// Resolve a request's credentials (Bearer/Basic token or session cookie)
     /// to a current user. Returns `Ok(None)` when no usable credential is
     /// present or the credential is unknown.
-    pub fn resolve_from_headers(
+    pub fn resolve_auth_from_headers(
         &self,
         headers: &HeaderMap,
-    ) -> Result<Option<CurrentUser>, AuthError> {
+    ) -> Result<Option<(CurrentUser, Option<DeviceTokenContext>)>, AuthError> {
         let Some(raw) = token_from_headers(headers) else {
             return Ok(None);
         };
         if let Ok(user) = self.verify(&raw) {
-            return Ok(Some(user));
+            return Ok(Some((user, None)));
         }
-        if let Ok(Some((user, _))) = self.verify_device_token(&raw) {
-            return Ok(Some(user));
+        if let Ok(Some((user, dt_ctx))) = self.verify_device_token_ctx(&raw) {
+            return Ok(Some((user, Some(dt_ctx))));
         }
         Ok(None)
     }
 
-    /// Resolve a device token (from `Authorization: Bearer <token>`). Device
-    /// tokens share the same surface as session JWTs but are stored by their
-    /// blake3 hash in SQLite and can be revoked without touching the user's
-    /// password. Returns None when the token is unknown.
-    pub fn verify_device_token(
+    pub fn resolve_from_headers(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<Option<CurrentUser>, AuthError> {
+        self.resolve_auth_from_headers(headers)
+            .map(|opt| opt.map(|(u, _)| u))
+    }
+
+    /// Resolve a device token context without immediately recording generic activity.
+    pub fn verify_device_token_ctx(
         &self,
         token: &str,
-    ) -> Result<Option<(CurrentUser, String)>, AuthError> {
+    ) -> Result<Option<(CurrentUser, DeviceTokenContext)>, AuthError> {
         let token_hash = hash_device_token(token);
         let conn = self
             .db
@@ -241,15 +252,34 @@ impl AuthService {
         let Some(user) = db::get_user(&conn, &dt.user_id).map_err(AuthError::Db)? else {
             return Ok(None);
         };
-        let _ = db::note_device_token_activity(&conn, &dt.id, dt.last_used_at);
         Ok(Some((
             CurrentUser {
                 id: user.id.clone(),
                 username: user.username.clone(),
                 role: user.role.clone(),
             },
-            dt.id,
+            DeviceTokenContext {
+                token_id: dt.id,
+                last_used_at: dt.last_used_at,
+            },
         )))
+    }
+
+    /// Resolve a device token (from `Authorization: Bearer <token>`). Device
+    /// tokens share the same surface as session JWTs but are stored by their
+    /// blake3 hash in SQLite and can be revoked without touching the user's
+    /// password. Returns None when the token is unknown.
+    pub fn verify_device_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<(CurrentUser, String)>, AuthError> {
+        let res = self.verify_device_token_ctx(token)?;
+        if let Some((_, dt_ctx)) = &res
+            && let Ok(conn) = self.db.lock()
+        {
+            let _ = db::note_device_token_activity(&conn, &dt_ctx.token_id, dt_ctx.last_used_at);
+        }
+        Ok(res.map(|(user, dt_ctx)| (user, dt_ctx.token_id)))
     }
 
     pub fn issue(&self, user: &UserRow) -> Result<String, AuthError> {
@@ -681,7 +711,7 @@ pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
 /// and the web UI loses the sign-in state on every refresh of the auth
 /// context (after finishing setup, and after every login).
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    let path = req.uri().path();
+    let path = req.uri().path().to_string();
     let method = req.method().clone();
     let headers = req.headers().clone();
     let secure = request_is_https(&headers);
@@ -752,8 +782,30 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     // Prefer the session JWT; fall back to a device token so the mobile and
     // desktop clients can authenticate with a revocable, long-lived token.
     let mut req = req;
-    if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
+    if let Ok(Some((user, device_token_ctx))) = state.auth.resolve_auth_from_headers(req.headers())
+    {
         req.extensions_mut().insert(user);
+        if let Some(token_ctx) = device_token_ctx {
+            let client = client_app_name(req.headers());
+            let addr = req
+                .extensions()
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|c| c.0);
+            let origin = client_origin_label(addr.as_ref(), req.headers(), state.connect.wan_ip());
+            let (action, detail) = categorize_api_request(&method, &path);
+
+            if let Ok(conn) = state.db.lock() {
+                let _ = crate::db::note_device_token_activity_rich(
+                    &conn,
+                    &token_ctx.token_id,
+                    token_ctx.last_used_at,
+                    &action,
+                    &detail,
+                    &client,
+                    &origin,
+                );
+            }
+        }
     }
 
     if is_public {
@@ -768,6 +820,166 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
 /// Extract the authenticated user (handlers are behind the guard).
 pub fn current_user(req: &axum::extract::Request) -> Option<&CurrentUser> {
     req.extensions().get::<CurrentUser>()
+}
+
+pub fn client_app_name(headers: &HeaderMap) -> String {
+    let ua = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim();
+
+    if ua.is_empty() {
+        return "App or script".to_string();
+    }
+
+    let ua_lower = ua.to_ascii_lowercase();
+
+    if ua_lower.contains("webdavfs") || ua_lower.contains("darwin") {
+        return "macOS Finder".to_string();
+    }
+    if ua_lower.contains("microsoft-webdav")
+        || ua_lower.contains("microsoft-server-activesync")
+        || ua_lower.contains("miniredir")
+    {
+        return "Windows Explorer".to_string();
+    }
+    if ua_lower.contains("gvfs") || ua_lower.contains("gio") {
+        return "Linux Files (GNOME)".to_string();
+    }
+    if ua_lower.contains("lunadesktop")
+        || ua_lower.contains("luna-desktop")
+        || ua_lower.contains("luna desktop")
+        || ua_lower.contains("ureq")
+    {
+        return "Luna Desktop".to_string();
+    }
+    if ua_lower.contains("luna-android")
+        || (ua_lower.contains("luna") && ua_lower.contains("android"))
+    {
+        return "Luna for Android".to_string();
+    }
+    if ua_lower.contains("luna-ios")
+        || (ua_lower.contains("luna") && (ua_lower.contains("iphone") || ua_lower.contains("ipad")))
+    {
+        return "Luna for iOS".to_string();
+    }
+    if ua_lower.contains("cyberduck") {
+        return "Cyberduck".to_string();
+    }
+    if ua_lower.contains("rclone") {
+        return "rclone".to_string();
+    }
+    if ua_lower.contains("curl") {
+        return "curl".to_string();
+    }
+    if ua_lower.contains("python") {
+        return "Python script".to_string();
+    }
+
+    if ua.len() <= 32 && ua.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
+        return ua.to_string();
+    }
+
+    "App or script".to_string()
+}
+
+pub fn client_origin_label(
+    addr: Option<&std::net::SocketAddr>,
+    headers: &HeaderMap,
+    local_wan: Option<std::net::IpAddr>,
+) -> String {
+    let mut ip_opt = None;
+    if let Some(ip) = headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+    {
+        ip_opt = Some(ip);
+    } else if let Some(ip) = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|raw| raw.split(',').next())
+        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+    {
+        ip_opt = Some(ip);
+    } else if let Some(a) = addr {
+        ip_opt = Some(a.ip());
+    }
+
+    let is_tunnel = headers.get("cf-connecting-ip").is_some()
+        || headers
+            .get(axum::http::header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .map(|h| h.contains(".luna.servers.libreloom.org"))
+            .unwrap_or(false);
+
+    match ip_opt {
+        Some(ip) => {
+            let private = match ip {
+                std::net::IpAddr::V4(v4) => {
+                    v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                }
+                std::net::IpAddr::V6(v6) => {
+                    v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00
+                }
+            };
+            let matches_local_wan = local_wan.map(|w| w == ip).unwrap_or(false);
+
+            if is_tunnel {
+                if matches_local_wan {
+                    format!("Home network (via Connect tunnel · {ip})")
+                } else if private {
+                    format!("Home network ({ip})")
+                } else {
+                    format!("Remote via Connect ({ip})")
+                }
+            } else if private || matches_local_wan {
+                format!("Home network ({ip})")
+            } else {
+                format!("Remote ({ip})")
+            }
+        }
+        None => {
+            if is_tunnel {
+                "Remote via Connect".to_string()
+            } else {
+                "Home network".to_string()
+            }
+        }
+    }
+}
+
+pub fn categorize_api_request(method: &axum::http::Method, path: &str) -> (String, String) {
+    if path.starts_with("/api/v1/uploads") {
+        return ("File upload".to_string(), "Uploaded files".to_string());
+    }
+    if path.starts_with("/api/v1/gallery") {
+        if *method == axum::http::Method::POST || *method == axum::http::Method::PUT {
+            return ("Photos".to_string(), "Uploaded photos".to_string());
+        }
+        return ("Photos".to_string(), "Browsed photos".to_string());
+    }
+    if path.starts_with("/api/v1/files") {
+        if path.ends_with("/content") || path.ends_with("/download") {
+            return ("File download".to_string(), "Downloaded file".to_string());
+        }
+        if *method == axum::http::Method::POST || *method == axum::http::Method::PUT {
+            return ("File upload".to_string(), "Uploaded file".to_string());
+        }
+        if *method == axum::http::Method::DELETE {
+            return ("File changes".to_string(), "Deleted file".to_string());
+        }
+        return ("Files".to_string(), "Browsed files".to_string());
+    }
+    if path.starts_with("/api/v1/search") {
+        return ("Search".to_string(), "Searched files".to_string());
+    }
+    if path.starts_with("/api/v1/drives") {
+        return ("Drives check".to_string(), "Checked drives".to_string());
+    }
+    ("API access".to_string(), "".to_string())
 }
 
 /// Does `user` have `read` or `write` access to `drive_id`/`path`?
@@ -1283,7 +1495,7 @@ mod guard_tests {
     //! (Before the fix, `me` always returned null, and the web UI lost its
     //! sign-in state after finishing setup and after every login.)
 
-    use super::guard;
+    use super::*;
     use crate::api;
     use crate::drives::DriveManager;
     use crate::mount::shared_mock;
@@ -1815,5 +2027,103 @@ mod guard_tests {
         // Safe methods are never Origin-checked.
         let res = call(&app, req(Method::GET, "/api/v1/auth/me", None, None)).await;
         assert_eq!(res.status(), 200);
+    }
+
+    #[test]
+    fn parses_client_app_name() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(client_app_name(&headers), "App or script");
+
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            "WebDAVFS/3.0.0 (03008000) Darwin/23.4.0 (arm64)"
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(client_app_name(&headers), "macOS Finder");
+
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            "Microsoft-WebDAV-Miniredir/10.0.19041".parse().unwrap(),
+        );
+        assert_eq!(client_app_name(&headers), "Windows Explorer");
+
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            "Luna Desktop/1.0.0".parse().unwrap(),
+        );
+        assert_eq!(client_app_name(&headers), "Luna Desktop");
+
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            "Luna-Android/1.2".parse().unwrap(),
+        );
+        assert_eq!(client_app_name(&headers), "Luna for Android");
+
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            "Luna-iOS/1.4 iPhone15,2".parse().unwrap(),
+        );
+        assert_eq!(client_app_name(&headers), "Luna for iOS");
+
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            "rclone/v1.65.0".parse().unwrap(),
+        );
+        assert_eq!(client_app_name(&headers), "rclone");
+    }
+
+    #[test]
+    fn parses_client_origin_label() {
+        let mut headers = HeaderMap::new();
+        let local_addr: std::net::SocketAddr = "192.168.1.55:54321".parse().unwrap();
+        assert_eq!(
+            client_origin_label(Some(&local_addr), &headers, None),
+            "Home network (192.168.1.55)"
+        );
+
+        let public_addr: std::net::SocketAddr = "93.184.216.34:12345".parse().unwrap();
+        assert_eq!(
+            client_origin_label(Some(&public_addr), &headers, None),
+            "Remote (93.184.216.34)"
+        );
+
+        headers.insert("cf-connecting-ip", "203.0.113.195".parse().unwrap());
+        // Tunnel request from different IP -> Remote via Connect
+        assert_eq!(
+            client_origin_label(
+                Some(&local_addr),
+                &headers,
+                Some("198.51.100.1".parse().unwrap())
+            ),
+            "Remote via Connect (203.0.113.195)"
+        );
+        // Tunnel request from client on the SAME home network (matching Luna's WAN IP)
+        assert_eq!(
+            client_origin_label(
+                Some(&local_addr),
+                &headers,
+                Some("203.0.113.195".parse().unwrap())
+            ),
+            "Home network (via Connect tunnel · 203.0.113.195)"
+        );
+    }
+
+    #[test]
+    fn categorizes_api_requests() {
+        let (action, detail) = categorize_api_request(&Method::POST, "/api/v1/uploads/chunk");
+        assert_eq!(action, "File upload");
+        assert_eq!(detail, "Uploaded files");
+
+        let (action, detail) = categorize_api_request(&Method::GET, "/api/v1/files/d1/content");
+        assert_eq!(action, "File download");
+        assert_eq!(detail, "Downloaded file");
+
+        let (action, detail) = categorize_api_request(&Method::GET, "/api/v1/gallery/d1");
+        assert_eq!(action, "Photos");
+        assert_eq!(detail, "Browsed photos");
+
+        let (action, _) = categorize_api_request(&Method::GET, "/api/v1/search");
+        assert_eq!(action, "Search");
     }
 }

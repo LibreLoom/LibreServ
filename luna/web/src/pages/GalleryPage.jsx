@@ -31,14 +31,17 @@ import GalleryFilterSheet, {
 } from "../components/gallery/GalleryFilterSheet.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
-import PhotoTimeline from "../components/gallery/PhotoTimeline.jsx";
+import PhotoTimeline, { dayKey } from "../components/gallery/PhotoTimeline.jsx";
 import PhotoLightbox, {
   ABOVE_LIGHTBOX_OVERLAY_CLASS,
 } from "../components/gallery/PhotoLightbox.jsx";
 import AddToAlbumModal from "../components/gallery/AddToAlbumModal.jsx";
 import ShareAlbumModal from "../components/gallery/ShareAlbumModal.jsx";
 import SelectionActionBar from "../components/gallery/SelectionActionBar.jsx";
-import YearScrubber, { dayBoundsLocal } from "../components/gallery/YearScrubber.jsx";
+import DayJumpModal, {
+  dayBoundsLocal,
+  nearestDayKey,
+} from "../components/gallery/DayJumpModal.jsx";
 import PhotoEditModal from "../components/gallery/PhotoEditModal.jsx";
 import AlbumMembersPanel from "../components/gallery/AlbumMembersPanel.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
@@ -266,7 +269,11 @@ export default function GalleryPage() {
   const [shareAfterCreate, setShareAfterCreate] = useState(false);
   const [renameAlbum, setRenameAlbum] = useState(null);
   const [renameValue, setRenameValue] = useState("");
-  const [yearOpen, setYearOpen] = useState(false);
+  const [jumpOpen, setJumpOpen] = useState(false);
+  const [jumpTarget, setJumpTarget] = useState(
+    /** @type {{ ymd: string, label: string }|null} */ (null),
+  );
+  const jumpPagesRef = useRef(0);
   const [editPhoto, setEditPhoto] = useState(null);
   const [columns, setColumns] = useState(readGridCols);
   const [lockedGate, setLockedGate] = useState(null);
@@ -483,6 +490,25 @@ export default function GalleryPage() {
     [duplicatesView, duplicatePhotos, gallery.data],
   );
 
+  // Newest/oldest loaded day keys (YYYY-MM-DD). Pages load contiguously from
+  // the top (taken_at DESC, undated last), so once `oldest` reaches the jump
+  // target every closer day is already on the page.
+  const loadedDaySpan = useMemo(() => {
+    let newest = null;
+    let oldest = null;
+    let undated = false;
+    for (const p of photos) {
+      const key = dayKey(p.taken_at);
+      if (key === "undated") {
+        undated = true;
+        continue;
+      }
+      if (newest == null || key > newest) newest = key;
+      if (oldest == null || key < oldest) oldest = key;
+    }
+    return { newest, oldest, undated };
+  }, [photos]);
+
   // Keep multi-select items in sync with visible photos.
   const selection = useMultiSelect({ items: photos });
 
@@ -581,7 +607,7 @@ export default function GalleryPage() {
       queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },
-    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't look again. Try once more.")),
+    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't rescan your drives. Try again.")),
   });
 
   const driveList = drives.data || [];
@@ -976,6 +1002,38 @@ export default function GalleryPage() {
     }
   }, [gallery]);
 
+  // Date jump: keep fetching pages until the loaded span reaches the target
+  // day, then scroll the closest day header into view.
+  useEffect(() => {
+    if (!jumpTarget || gallery.isLoading) return;
+    const target = jumpTarget.ymd;
+    const { newest, oldest, undated } = loadedDaySpan;
+    const covered =
+      (oldest != null && oldest <= target)
+      || (newest != null && target >= newest)
+      || undated
+      || !gallery.hasNextPage;
+    if (!covered && jumpPagesRef.current < 50) {
+      if (!gallery.isFetchingNextPage) {
+        jumpPagesRef.current += 1;
+        gallery.fetchNextPage();
+      }
+      return;
+    }
+    const nearest = nearestDayKey(photos, target);
+    setJumpTarget(null);
+    jumpPagesRef.current = 0;
+    if (!nearest) return;
+    const reduced =
+      typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`day-${nearest}`)
+        ?.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    });
+  }, [jumpTarget, photos, loadedDaySpan, gallery]);
+
   useEffect(() => {
     const id = setTimeout(() => setSearch(q.trim()), 300);
     return () => clearTimeout(id);
@@ -1048,7 +1106,7 @@ export default function GalleryPage() {
     || sharePhoto != null
     || shareAlbum != null
     || renameAlbum != null
-    || yearOpen
+    || jumpOpen
     || editPhoto != null
     || lockedGate != null
     || lightbox != null
@@ -1080,7 +1138,7 @@ export default function GalleryPage() {
           title={isAdmin ? "No drives yet" : "No photos you can open yet"}
           description={
             isAdmin
-              ? "Plug in a drive and add it on the Drives page. Luna will then look through it for photos. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+              ? "Plug in a drive & add it. Luna will automatically check for photos on added drives."
               : "Ask an Admin to share a drive, folder, or album with photos. Luna will show them here once you have access."
           }
           action={
@@ -1106,7 +1164,10 @@ export default function GalleryPage() {
           : undefined
       }
     >
-      <div ref={dropZoneRef} className="shrink-0">
+      <div
+        ref={dropZoneRef}
+        className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}
+      >
       <GalleryToolbar
         segments={SEGMENTS}
         segment={activeSegment}
@@ -1117,7 +1178,7 @@ export default function GalleryPage() {
         onSearchOpenChange={setSearchOpen}
         selectMode={selection.selectMode}
         onSelectModeChange={(on) => (on ? selection.enter() : selection.exit())}
-        onOpenDates={() => setYearOpen(true)}
+        onOpenDates={() => setJumpOpen(true)}
         onOpenFilters={() => {
           setFilterFocus("");
           setFiltersOpen(true);
@@ -1126,7 +1187,7 @@ export default function GalleryPage() {
         columns={columns}
         onColumnsChange={setColumns}
         showSelect={showTimeline || duplicatesView}
-        onRescan={() => rescan.mutate()}
+        onRescan={() => rescan.mutateAsync()}
         rescanPending={rescan.isPending}
         onOpenShortcuts={() => setShortcutsOpen(true)}
       />
@@ -1252,14 +1313,14 @@ export default function GalleryPage() {
         <EmptyState
           icon={ImageIcon}
           title="No photos yet"
-          description="Add pictures to a drive and Luna will show them here. You can also drop photos onto this page. If you already added some, try looking again."
+          description="Add pictures to a drive and Luna will show them here. You can also drop photos onto this page. If you already added some, rescan your drives."
           action={
             <Button
               variant="primary"
               loading={rescan.isPending}
               onClick={() => rescan.mutate()}
             >
-              Look again
+              Rescan drives
             </Button>
           }
         />
@@ -1364,21 +1425,7 @@ export default function GalleryPage() {
       )}
 
       {placesMapOverview && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={placesDrawMode ? "accent" : "outline"}
-              surface="primary"
-              onClick={() => {
-                haptic("selection");
-                setPlacesDrawMode((prev) => !prev);
-              }}
-            >
-              {placesDrawMode ? "Exit draw mode" : "Draw a custom area…"}
-            </Button>
-          </div>
+        <div className="flex min-h-0 flex-1 flex-col">
           <PlacesMap
             places={places.data || []}
             loading={places.isLoading}
@@ -1558,7 +1605,6 @@ export default function GalleryPage() {
             selection.enter();
             selection.toggle(photo);
           }}
-          onFavoriteToggle={(photo) => favorite.mutate(photo)}
           onDayClick={(ymd, label) => {
             const b = dayBoundsLocal(ymd);
             if (!b) return;
@@ -1566,6 +1612,7 @@ export default function GalleryPage() {
             setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "", undated: false }));
           }}
           onSelectDay={(dayPhotos) => selection.selectItems(dayPhotos)}
+          onDeselectDay={(dayPhotos) => selection.deselectItems(dayPhotos)}
           columns={/** @type {3|4|5|6} */ (columns)}
         />
       )}
@@ -1625,16 +1672,10 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {selection.selectMode && selection.selectedCount > 0 && (
-        <div className="mb-20 flex justify-center">
-          <Button variant="outline" size="sm" surface="primary" onClick={selection.selectAllInView}>
-            Select all in view
-          </Button>
-        </div>
-      )}
-
       <SelectionActionBar
         count={selection.selectedCount}
+        visible={selection.selectMode}
+        onSelectAll={selection.selectAllInView}
         favoriting={bulkFavorite.isPending}
         archiving={archiveMut.isPending}
         busy={trashMany.isPending || removeFromAlbum.isPending || addToAlbum.isPending}
@@ -1788,7 +1829,7 @@ export default function GalleryPage() {
             >
               <ShakeTarget shake={error}>
                 <label className="block text-sm">
-                  Album name
+                  <span className="block translate-x-5">Album name</span>
                   <input
                     value={newAlbumName}
                     onChange={(e) => setNewAlbumName(e.target.value)}
@@ -1829,7 +1870,7 @@ export default function GalleryPage() {
               }}
             >
               <label className="block text-sm">
-                Album name
+                <span className="block translate-x-5">Album name</span>
                 <input
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
@@ -1876,31 +1917,30 @@ export default function GalleryPage() {
         onClose={() => setShareAlbum(null)}
       />
 
-      <YearScrubber
-        open={yearOpen}
-        onClose={() => setYearOpen(false)}
-        photos={photos}
-        onPick={(range) => {
-          if (range.kind === "day") {
-            const d = new Date(range.from * 1000);
-            const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-            setDayFilter({ ymd, from: range.from, to: range.to, label: range.label });
-            setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "" }));
-          } else {
-            setDayFilter(null);
-            const fromD = new Date(range.from * 1000);
-            const toD = new Date(range.to * 1000);
-            const fromYmd = `${fromD.getFullYear()}-${String(fromD.getMonth() + 1).padStart(2, "0")}-${String(fromD.getDate()).padStart(2, "0")}`;
-            const toYmd = `${toD.getFullYear()}-${String(toD.getMonth() + 1).padStart(2, "0")}-${String(toD.getDate()).padStart(2, "0")}`;
-            setFilters((prev) => ({
-              ...prev,
-              dateFrom: fromYmd,
-              dateTo: toYmd,
-            }));
-          }
-          if (activeSegment !== "library") handleSegmentChange("library");
+      <DayJumpModal
+        open={jumpOpen}
+        onClose={() => setJumpOpen(false)}
+        onJump={(ymd) => {
+          jumpPagesRef.current = 0;
+          const bounds = dayBoundsLocal(ymd);
+          // Jumping scrolls the timeline — leave single-day/duplicates views
+          // first so there is a timeline position to land on.
+          setDayFilter(null);
+          setDuplicatesView(false);
+          if (!showTimeline) handleSegmentChange("library");
+          setJumpTarget({ ymd, label: bounds?.label || ymd });
         }}
       />
+
+      {jumpTarget && gallery.isFetchingNextPage && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-pill bg-secondary px-4 py-2 font-mono text-xs text-primary shadow-xl ring-2 ring-accent"
+        >
+          <Spinner size="sm" decorative className="text-primary" />
+          <span>Jumping to {jumpTarget.label}…</span>
+        </div>
+      )}
 
       <GalleryFilterSheet
         open={filtersOpen}
@@ -1914,7 +1954,7 @@ export default function GalleryPage() {
         onOpenDates={() => {
           setFiltersOpen(false);
           setFilterFocus("");
-          setYearOpen(true);
+          setJumpOpen(true);
         }}
         onApply={(next) => {
           setDayFilter(null);

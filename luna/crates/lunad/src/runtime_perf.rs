@@ -3,7 +3,7 @@
 //! Run: `cargo test -p lunad --lib runtime_perf -- --nocapture`
 //! Prefer `--release` for wall-clock numbers closer to the appliance.
 //!
-//! Gallery indexes live in each data drive's `.luna` microdb, so holding the
+//! Gallery indexes live in each data drive's `.luna-<uuid>.sqlite3` microdb, so holding the
 //! global `luna.db` mutex must not stall `list_photos`. These tests also measure
 //! index/scrub contention against the OS DB.
 
@@ -113,6 +113,9 @@ fn runtime_perf_numbers() {
             ("d2", "Files", &files),
             ("d3", "Tree", &tree),
         ] {
+            let prefix = luna_core::marker::pick_prefix(mount).unwrap();
+            crate::drive_db::create(mount, &luna_core::marker::Marker::new(id, label), &prefix)
+                .unwrap();
             db::upsert_drive(
                 &conn,
                 id,
@@ -135,6 +138,7 @@ fn runtime_perf_numbers() {
     assert_eq!(first.found, 120);
     assert!(
         gallery::thumbs_dir(&photos)
+            .unwrap()
             .read_dir()
             .unwrap()
             .next()
@@ -142,8 +146,8 @@ fn runtime_perf_numbers() {
         "thumbs must be on the photo drive"
     );
     assert!(
-        crate::drive_db::path_for(&photos).exists(),
-        "gallery index must live in the drive .luna microdb"
+        crate::drive_db::find_db_file(&photos).is_some(),
+        "gallery index must live in the drive's .luna-<uuid> microdb"
     );
 
     let t1 = Instant::now();
@@ -324,12 +328,13 @@ fn runtime_perf_numbers() {
     // --- eMMC write budget: thumbs + gallery DB must not land under OS data_dir ---
     let os_data = dir.path().join("os-data");
     std::fs::create_dir_all(&os_data).unwrap();
-    let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos));
-    let gallery_bytes_on_drive = std::fs::metadata(crate::drive_db::path_for(&photos))
+    let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos).unwrap());
+    let gallery_bytes_on_drive = crate::drive_db::find_db_file(&photos)
+        .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .unwrap_or(0);
     let thumb_bytes_on_os = dir_byte_size(&os_data.join("thumbs"));
-    let gallery_bytes_on_os = dir_byte_size(&os_data.join(".luna"));
+    let gallery_bytes_on_os = dir_byte_size(&os_data);
     eprintln!("PERF emmc_thumb_bytes_on_photo_drive={thumb_bytes_on_drive}");
     eprintln!("PERF emmc_gallery_db_bytes_on_photo_drive={gallery_bytes_on_drive}");
     eprintln!("PERF emmc_thumb_bytes_under_os_data_dir={thumb_bytes_on_os}");
@@ -344,7 +349,7 @@ fn runtime_perf_numbers() {
     );
     assert!(
         thumb_bytes_on_drive > 0,
-        "gallery thumbs must land under .lunathumbs on the photo drive"
+        "gallery thumbs must land under .luna-<uuid>-thumbs on the photo drive"
     );
     assert!(
         gallery_bytes_on_drive > 0,
@@ -376,7 +381,7 @@ fn runtime_perf_numbers() {
     }
 
     // Upload coalesce: 8 × 256 KiB < 2 MiB flush threshold → 0 mid-flight DB
-    // chunk rows until complete flushes. Sessions live in the drive `.luna`.
+    // chunk rows until complete flushes. Sessions live in the drive `.luna-<uuid>` microdb.
     {
         let conn = db.lock().unwrap();
         let up = uploads::create(&conn, "d1", "", "coalesce.bin", 2 * 1024 * 1024).unwrap();

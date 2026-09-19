@@ -2,11 +2,10 @@ SHELL := /bin/bash
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
-DS_PORT ?= 8088
 DS_IMAGE ?= ghcr.io/euro-office/documentserver:latest
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-pssd mock-pssd-photos mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-ds eurooffice-ds-stop
+.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -22,16 +21,25 @@ test:
 run: build
 	./target/debug/lunad --port $(PORT)
 
-# DEV MODE: one command. daemon :PORT + Vite HMR :3000; Ctrl-C kills both.
+# DEV MODE: one command. daemon :PORT + Vite HMR :3001; Ctrl-C kills both.
+# Two teardown paths because `make` here is a distrobox wrapper: podman exec
+# forwards Ctrl-C only to make itself, so the recipe never sees a signal. The
+# stdin watchdog below catches that — when the host client dies the exec
+# session's stdin pipe closes, read gets EOF, and the group is killed.
+# (Backgrounded jobs get stdin=/dev/null, hence the explicit <&0 and the -p
+# guard so a headless `make dev </dev/null` doesn't self-kill instantly.)
 dev: build-daemon
-	@echo "==> luna dev — daemon http://localhost:$(PORT) + UI http://localhost:3000"
+	@echo "==> luna dev — daemon http://localhost:$(PORT) + UI http://localhost:3001"
 	@echo "    Tip: spawn test drives with: make mock-drive ARGS=\"spawn <name> <preset>\""
 	@[ -d "$(DATA_DIR)/eurooffice" ] || \
-	  echo "    Tip: office editing needs EuroOffice assets + DS sidecar: make eurooffice"
-	@trap 'kill 0' EXIT; \
+	  echo "    Tip: office editing needs the EuroOffice pack: make eurooffice"
+	@trap 'kill 0' INT TERM EXIT; \
+	  if [ -p /dev/stdin ]; then \
+	    ( while read -r _; do :; done; kill 0 2>/dev/null ) <&0 & \
+	  fi; \
 	  LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT) & \
 	  (cd web && npm install --no-audit --no-fund >/dev/null && npm run dev) & \
-	  wait
+	  wait -n
 
 # Embed needs crates/lunad/web/dist. Cargo build.rs writes a stub HTML page when
 # dist is missing; refuse to leave that stub in place for run/dev builds.
@@ -45,42 +53,27 @@ ensure-web-dist:
 build-daemon: ensure-web-dist
 	cargo build -p lunad
 
-mock-pssd:
-	bash scripts/setup-mock-pssd.sh
-
-mock-pssd-photos:
-	python3 scripts/generate-mock-pssd-photos.py
-
 mock-drive:
 	bash scripts/mock-drive.sh $(ARGS)
 
 mock-connect:
 	bash scripts/mock-connect.sh $(ARGS)
 
-# EuroOffice dev pack (AGPL, never committed): extract web-apps/sdkjs/fonts into
-# $(DATA_DIR)/eurooffice, then run a Document Server sidecar on :$(DS_PORT) for
-# DocsAPI/co-authoring. See docs/eurooffice.md.
-eurooffice: eurooffice-assets eurooffice-ds
+# EuroOffice dev pack (AGPL, never committed): extracts web-apps/sdkjs +
+# core-fonts into $(DATA_DIR)/eurooffice, generates the font metrics sdkjs
+# needs, and fetches the x2t.wasm converter. Editing runs entirely in the
+# browser — no Document Server. See docs/eurooffice.md.
+eurooffice: eurooffice-assets
 
 eurooffice-assets:
 	LUNA_DATA_DIR="$(DATA_DIR)" EUROOFFICE_IMAGE="$(DS_IMAGE)" \
 		bash scripts/install-eurooffice-assets.sh
 
-# JWT_ENABLED=false: this is a local dev helper only — production never runs
-# it, so request signing between lunad and the DS is unnecessary here.
-# ALLOW_PRIVATE_IP_ADDRESS=true: the DS fetches documents from lunad over
-# host.containers.internal, which resolves to a private/link-local address.
-eurooffice-ds:
-	podman image exists "$(DS_IMAGE)" || podman pull "$(DS_IMAGE)"
-	podman rm -f eurooffice-ds 2>/dev/null || true
-	podman run -d --name eurooffice-ds \
-		--add-host=host.containers.internal:host-gateway \
-		-p $(DS_PORT):80 -e JWT_ENABLED=false \
-		-e ALLOW_PRIVATE_IP_ADDRESS=true "$(DS_IMAGE)"
-	@echo "==> EuroOffice DS on http://127.0.0.1:$(DS_PORT) (boots in ~30-60s)"
-
-eurooffice-ds-stop:
-	podman rm -f eurooffice-ds
+# Release pack: os/dist/eurooffice-pack.tar.zst, baked into the install ISO
+# and extracted onto LUNA_DATA by rapidinstall. Reuses the dev pack when
+# present (EUROOFFICE_DIR to point elsewhere); fetches it otherwise.
+eurooffice-pack:
+	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-eurooffice-pack.sh
 
 dev-daemon: build-daemon
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)

@@ -1,8 +1,10 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe2, Smartphone } from "lucide-react";
+import { Globe2, History, Smartphone, Trash2 } from "lucide-react";
+import { ICON_SIZE } from "../../../lib/ui-tokens";
 import Button from "../../ui/Button";
+import { ActionTooltipGroup } from "../../ui/Tooltip.jsx";
 import CopyableValue from "../../ui/CopyableValue";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
@@ -15,59 +17,107 @@ import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 
 function formatWhen(unix) {
   if (!unix) return "Never";
-  return new Date(unix * 1000).toLocaleString();
+  return new Date(unix * 1000).toLocaleString(undefined, {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
 }
 
 /**
  * Token row with measured-height animation so Usage log expand/collapse
  * resizes smoothly (CSS cannot transition height: auto).
  */
-function AccessTokenItem({ token, usageFor, usageRows, revokePending, onToggleUsage, onRevoke }) {
+function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, revokePending, onToggleUsage, onRevoke }) {
   const { outerRef, innerRef } = useAnimatedHeight();
   const expanded = usageFor === token.id;
+  const expired = token.expires_at != null && token.expires_at <= nowUnix;
 
   return (
     <li
       ref={outerRef}
-      className="overflow-hidden rounded-large-element bg-primary text-secondary transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
-      <div ref={innerRef} className="p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-mono truncate">{token.name}</span>
-          <div className="flex gap-2 shrink-0">
+      <div ref={innerRef}>
+        <div className="flex items-center gap-2 px-4 py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-mono truncate">{token.name}</p>
+            <p className="text-xs text-accent">
+              {token.last_used_at ? `Last used ${formatWhen(token.last_used_at)}` : "Never used"}
+              {token.expires_at != null && (
+                expired ? (
+                  <>
+                    {" · "}
+                    <span className="text-warning">Expired {formatWhen(token.expires_at)}</span>
+                  </>
+                ) : (
+                  ` · Expires ${formatWhen(token.expires_at)}`
+                )
+              )}
+            </p>
+          </div>
+          <ActionTooltipGroup className="flex items-center gap-1 shrink-0">
             <Button
-              size="sm"
-              variant="outline"
+              variant="ghost"
+              size="icon"
               surface="primary"
+              className={expanded ? "bg-secondary/10" : ""}
+              tooltip={expanded ? "Hide usage log" : "Usage log"}
+              aria-label={`${expanded ? "Hide" : "Show"} usage log for ${token.name || "this token"}`}
+              aria-expanded={expanded}
               onClick={onToggleUsage}
             >
-              {expanded ? "Hide log" : "Usage log"}
+              <History size={ICON_SIZE.md} aria-hidden="true" />
             </Button>
             <Button
-              size="sm"
-              variant="outline"
+              variant="ghost"
+              size="icon"
               surface="primary"
               loading={revokePending}
+              tooltip="Revoke token"
+              aria-label={token.name ? `Revoke token ${token.name}` : "Revoke token"}
               onClick={onRevoke}
             >
-              Revoke token
+              <Trash2 size={ICON_SIZE.md} aria-hidden="true" />
             </Button>
-          </div>
+          </ActionTooltipGroup>
         </div>
-        <p className="text-xs">
-          Last used: {formatWhen(token.last_used_at)}
-          {token.expires_at ? ` · Expires ${formatWhen(token.expires_at)}` : ""}
-        </p>
         {expanded && (
-          <ul className="text-xs space-y-1 border-t border-secondary/30 pt-2">
-            {usageRows.length === 0 && <li>No recent activity yet.</li>}
-            {usageRows.map((row, i) => (
-              <li key={`${row.used_at}-${i}`}>
-                {row.action}{row.detail ? ` — ${row.detail}` : ""} · {formatWhen(row.used_at)}
-              </li>
-            ))}
-          </ul>
+          <div className="px-3 pb-3 pt-1">
+            <ul className="rounded-large-element bg-secondary/5 px-3 py-2.5 text-xs space-y-2">
+              {usagePending ? (
+                <li>Checking recent activity…</li>
+              ) : usageRows.length === 0 ? (
+                <li>No recent activity yet.</li>
+              ) : (
+                usageRows.map((row, i) => {
+                  const label = row.action === "auth" && row.detail === "api"
+                    ? "API access"
+                    : `${row.action}${row.detail ? ` — ${row.detail}` : ""}`;
+
+                  return (
+                    <li key={`${row.used_at}-${i}`} className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono truncate">{label}</span>
+                        <span className="text-accent text-[11px] shrink-0">{formatWhen(row.used_at)}</span>
+                      </div>
+                      {row.client || row.origin ? (
+                        <div className="text-accent text-[11px] flex items-center gap-1.5 truncate">
+                          {row.client && <span>{row.client}</span>}
+                          {row.client && row.origin && <span>·</span>}
+                          {row.origin && <span>{row.origin}</span>}
+                        </div>
+                      ) : (
+                        <div className="text-accent text-[11px] truncate">
+                          Older activity before detailed logging
+                        </div>
+                      )}
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+          </div>
         )}
       </div>
     </li>
@@ -81,8 +131,10 @@ AccessTokenItem.propTypes = {
     last_used_at: PropTypes.number,
     expires_at: PropTypes.number,
   }).isRequired,
+  nowUnix: PropTypes.number.isRequired,
   usageFor: PropTypes.string,
   usageRows: PropTypes.arrayOf(PropTypes.object).isRequired,
+  usagePending: PropTypes.bool,
   revokePending: PropTypes.bool,
   onToggleUsage: PropTypes.func.isRequired,
   onRevoke: PropTypes.func.isRequired,
@@ -97,6 +149,7 @@ export default function AccessCategory() {
   const [newToken, setNewToken] = useState(null);
   const [showQr, setShowQr] = useState(false);
   const [usageFor, setUsageFor] = useState(null);
+  const [nowUnix] = useState(() => Math.floor(Date.now() / 1000));
 
   const tokens = useQuery({
     queryKey: ["device-tokens"],
@@ -151,11 +204,6 @@ export default function AccessCategory() {
       {showPageLevelError(error, showQr) && <PageNotice variant="error">{error}</PageNotice>}
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
-        <p className="text-primary text-sm px-4 pb-2 pt-4">
-          Luna keeps you signed in on each browser you use. Luna cannot show a
-          list of every browser — use the button below to sign out everywhere at
-          once.
-        </p>
         <SettingsRow
           label="Sign out every browser"
           description="Every browser must type the password again. Apps and access tokens below keep working."
@@ -180,7 +228,7 @@ export default function AccessCategory() {
 
         <div className="mt-4 flex flex-col gap-2">
           <p className="text-primary text-sm font-mono">Add a new access token</p>
-          <label className="text-primary text-sm" htmlFor="token-name">
+          <label className="text-primary text-sm translate-x-5" htmlFor="token-name">
             Name this app so you can recognize it later
           </label>
           <ShakeTarget shake={tokenError}>
@@ -192,7 +240,7 @@ export default function AccessCategory() {
               onChange={(e) => setTokenName(e.target.value)}
             />
           </ShakeTarget>
-          <label className="text-primary text-sm" htmlFor="token-expiry">
+          <label className="text-primary text-sm translate-x-5" htmlFor="token-expiry">
             Optional: stop working after this many days (leave blank for no expiry)
           </label>
           <ShakeTarget shake={tokenError}>
@@ -249,19 +297,23 @@ export default function AccessCategory() {
           {tokenList.length === 0 ? (
             <p className="text-primary text-sm">No apps or access tokens are set up yet.</p>
           ) : (
-            <ul className="space-y-2">
-              {tokenList.map((t) => (
-                <AccessTokenItem
-                  key={t.id}
-                  token={t}
-                  usageFor={usageFor}
-                  usageRows={usageFor === t.id ? (usage.data || []) : []}
-                  revokePending={revokeOne.isPending}
-                  onToggleUsage={() => setUsageFor(usageFor === t.id ? null : t.id)}
-                  onRevoke={() => revokeOne.mutate(t.id)}
-                />
-              ))}
-            </ul>
+            <div className="overflow-hidden rounded-large-element bg-primary text-secondary">
+              <ul className="divide-y divide-secondary/10">
+                {tokenList.map((t) => (
+                  <AccessTokenItem
+                    key={t.id}
+                    token={t}
+                    nowUnix={nowUnix}
+                    usageFor={usageFor}
+                    usageRows={usageFor === t.id ? (usage.data || []) : []}
+                    usagePending={usageFor === t.id && usage.isPending}
+                    revokePending={revokeOne.isPending && revokeOne.variables === t.id}
+                    onToggleUsage={() => setUsageFor(usageFor === t.id ? null : t.id)}
+                    onRevoke={() => revokeOne.mutate(t.id)}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       </SettingsCard>

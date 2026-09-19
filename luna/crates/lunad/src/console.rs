@@ -129,7 +129,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     );
     lines.push("  Local shell: type root, press Enter at password.".into());
     lines.push(
-        "  Forgot Luna password? Plug in a USB flash drive with pwreset-<token>.luna.".into(),
+        "  Forgot Luna password? Boot Luna with a dedicated USB flash drive holding only luna-recover-<token>.luna.".into(),
     );
     lines.push("============================================================".into());
     lines.push(String::new());

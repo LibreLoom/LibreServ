@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useSearchParams } from "react-router-dom";
@@ -85,7 +85,7 @@ describe("FileBrowser", () => {
       album: [{ name: "beach.jpg", kind: "file", size: 2000, hidden: false }],
     });
     renderBrowser({ multiSelect: false });
-    fireEvent.click(await screen.findByRole("button", { name: /album/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "album" }));
     expect(await screen.findByText("beach.jpg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Photos" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "album" }).length).toBeGreaterThan(0);
@@ -95,12 +95,19 @@ describe("FileBrowser", () => {
 
   it("uses router links when linkNavigation is on", async () => {
     stubListing({
-      "": [{ name: "album", kind: "dir", size: 0, hidden: false }],
+      "": [
+        { name: "album", kind: "dir", size: 0, hidden: false },
+        { name: "report.pdf", kind: "file", size: 100, hidden: false },
+      ],
     });
     renderBrowser({ linkNavigation: true, multiSelect: false });
     expect(await screen.findByRole("link", { name: "album" })).toHaveAttribute(
       "href",
       "/drives/d1?path=album",
+    );
+    expect(screen.getByRole("link", { name: "report.pdf" })).toHaveAttribute(
+      "href",
+      "/drives/d1?file=report.pdf",
     );
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/drives/d1");
   });
@@ -144,7 +151,7 @@ describe("FileBrowser", () => {
     fireEvent.click(screen.getByLabelText("Select a.txt"));
     fireEvent.click(screen.getByLabelText("Select b.txt"));
     fireEvent.click(screen.getByRole("button", { name: /^Copy$/i }));
-    expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"], "d1");
+    expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"]);
   });
 
   it("calls parent action callbacks for a single row", async () => {
@@ -184,7 +191,7 @@ describe("FileBrowser", () => {
       "": [{ name: "note.txt", kind: "file", size: 10, hidden: false }],
     });
     renderBrowser({ onOpenFile, multiSelect: false, enableDownload: false });
-    fireEvent.click(await screen.findByRole("button", { name: /note\.txt/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "note.txt" }));
     expect(onOpenFile).toHaveBeenCalledWith(
       expect.objectContaining({ fullPath: "note.txt" }),
     );
@@ -458,33 +465,19 @@ describe("FileBrowser", () => {
     expect(onDelete).toHaveBeenCalledWith(["old.txt"]);
   });
 
-  it("shows transfer menu with other drives when multiple drives are available", async () => {
+  it("fires bulk move without a destination — the picker modal chooses it", async () => {
     stubListing({
       "": [
         { name: "photo.jpg", kind: "file", size: 10, hidden: false },
       ],
     });
     const onMove = vi.fn();
-    const drives = [
-      { id: "d1", label: "Drive 1", state: "as_is" },
-      { id: "d2", label: "Drive 2", state: "as_is" },
-      { id: "d3", label: "Drive 3", state: "as_is" },
-      { id: "d4", label: "Read Only", state: "readonly" },
-    ];
-    renderBrowser({ drives, onMove, multiSelect: true });
+    renderBrowser({ onMove, multiSelect: true });
     expect(await screen.findByLabelText("Select photo.jpg")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Select photo.jpg"));
 
-    const moveButton = screen.getByRole("button", { name: /^Move$/ });
-    expect(moveButton).toHaveAttribute("aria-haspopup", "menu");
-    fireEvent.click(moveButton);
-
-    expect(await screen.findByText("Move to Drive 2...")).toBeInTheDocument();
-    expect(screen.getByText("Move to Drive 3...")).toBeInTheDocument();
-    expect(screen.queryByText(/Read Only/)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Move to Drive 2..."));
-    expect(onMove).toHaveBeenCalledWith(["photo.jpg"], "d2");
+    fireEvent.click(screen.getByRole("button", { name: /^Move$/ }));
+    expect(onMove).toHaveBeenCalledWith(["photo.jpg"]);
   });
 
   it("does not start a row drag from checkboxes or action buttons", async () => {
@@ -961,5 +954,366 @@ describe("FileBrowser folder chrome auto-split", () => {
     expect(
       container.querySelector("[data-slot=file-browser-folder-chrome-combined]")?.className,
     ).toMatch(/overflow-x-hidden/);
+  });
+});
+
+describe("FileBrowser sorting and filtering", () => {
+  afterEach(() => {
+    window.localStorage.removeItem("luna.files.sort");
+  });
+
+  function rowPaths() {
+    return [...document.querySelectorAll("[data-file-path]")]
+      .map((row) => row.getAttribute("data-file-path"));
+  }
+
+  async function pickSort(label) {
+    fireEvent.click(screen.getByRole("button", { name: "Sort files" }));
+    fireEvent.click(await screen.findByRole("option", { name: label }));
+  }
+
+  it("shows view controls instead of column labels", async () => {
+    stubListing({
+      "": [{ name: "a.txt", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("a.txt");
+    expect(screen.queryByText("Size")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Find in this folder")).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Show" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sort files" })).toBeInTheDocument();
+  });
+
+  it("clips the sort menu horizontally so hover slides cannot scroll it", async () => {
+    stubListing({
+      "": [{ name: "a.txt", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Sort files" }));
+    const menu = await screen.findByRole("listbox");
+    expect(menu.className).toMatch(/overflow-x-hidden/);
+  });
+
+  it("sorts rows by name, size, and date with folders on top", async () => {
+    stubListing({
+      "": [
+        { name: "z.txt", kind: "file", size: 100, modified: 100, hidden: false },
+        { name: "a.txt", kind: "file", size: 10, modified: 300, hidden: false },
+        { name: "top", kind: "dir", size: 0, modified: 200, hidden: false },
+        { name: "m.txt", kind: "file", size: 500, modified: 200, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("a.txt");
+    // Default: Name A–Z, folders first.
+    expect(rowPaths()).toEqual(["top", "a.txt", "m.txt", "z.txt"]);
+
+    await pickSort("Name Z–A");
+    expect(rowPaths()).toEqual(["top", "z.txt", "m.txt", "a.txt"]);
+
+    await pickSort("Largest first");
+    expect(rowPaths()).toEqual(["top", "m.txt", "z.txt", "a.txt"]);
+
+    await pickSort("Newest first");
+    expect(rowPaths()).toEqual(["top", "a.txt", "m.txt", "z.txt"]);
+  });
+
+  it("sorts files by extension for the File type option", async () => {
+    stubListing({
+      "": [
+        { name: "b.png", kind: "file", size: 1, hidden: false },
+        { name: "a.jpg", kind: "file", size: 1, hidden: false },
+        { name: "c.png", kind: "file", size: 1, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("a.jpg");
+    await pickSort("File type");
+    expect(rowPaths()).toEqual(["a.jpg", "b.png", "c.png"]);
+  });
+
+  it("remembers the chosen sort across mounts", async () => {
+    stubListing({
+      "": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+        { name: "z.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    const first = renderBrowser({ multiSelect: true });
+    await screen.findByText("a.txt");
+    await pickSort("Name Z–A");
+    expect(rowPaths()).toEqual(["z.txt", "a.txt"]);
+    first.unmount();
+
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("a.txt");
+    expect(rowPaths()).toEqual(["z.txt", "a.txt"]);
+  });
+
+  it("filters rows by name, shows a count, and clears", async () => {
+    stubListing({
+      "": [
+        { name: "beach.jpg", kind: "file", size: 10, hidden: false },
+        { name: "notes.txt", kind: "file", size: 10, hidden: false },
+        { name: "album", kind: "dir", size: 0, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    const input = await screen.findByLabelText("Find in this folder");
+    fireEvent.change(input, { target: { value: "bea" } });
+
+    expect(screen.getByText("beach.jpg")).toBeInTheDocument();
+    expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+    expect(screen.queryByText("album")).not.toBeInTheDocument();
+    expect(screen.getByText("1 of 3")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear the folder filter" }));
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    expect(screen.queryByText("1 of 3")).not.toBeInTheDocument();
+  });
+
+  it("filters by kind with the All / Folders / Files control", async () => {
+    stubListing({
+      "": [
+        { name: "album", kind: "dir", size: 0, hidden: false },
+        { name: "beach.jpg", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("beach.jpg");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
+    expect(screen.queryByText("beach.jpg")).not.toBeInTheDocument();
+    expect(screen.getByText("album")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Files" }));
+    expect(screen.getByText("beach.jpg")).toBeInTheDocument();
+    expect(screen.queryByText("album")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "All" }));
+    expect(screen.getByText("album")).toBeInTheDocument();
+    expect(screen.getByText("beach.jpg")).toBeInTheDocument();
+  });
+
+  it("shows a filtered-empty state and Show everything restores the list", async () => {
+    stubListing({
+      "": [{ name: "beach.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({ multiSelect: true });
+    const input = await screen.findByLabelText("Find in this folder");
+    fireEvent.change(input, { target: { value: "zzz" } });
+
+    expect(await screen.findByText('Nothing matches "zzz" in this folder')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show everything" }));
+    expect(screen.getByText("beach.jpg")).toBeInTheDocument();
+  });
+
+  it("shows a kind-filter empty state", async () => {
+    stubListing({
+      "": [{ name: "beach.jpg", kind: "file", size: 10, hidden: false }],
+    });
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("beach.jpg");
+    fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
+    expect(await screen.findByText("No folders in this folder")).toBeInTheDocument();
+  });
+
+  it("clears the name filter when navigating into another folder", async () => {
+    stubListing({
+      "": [
+        { name: "sub", kind: "dir", size: 0, hidden: false },
+        { name: "aaa.txt", kind: "file", size: 10, hidden: false },
+      ],
+      sub: [{ name: "inner.txt", kind: "file", size: 5, hidden: false }],
+    });
+    renderBrowser({ multiSelect: true });
+    const input = await screen.findByLabelText("Find in this folder");
+    // "s" keeps the "sub" row visible while hiding aaa.txt.
+    fireEvent.change(input, { target: { value: "s" } });
+    expect(screen.queryByText("aaa.txt")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "sub" }));
+    expect(await screen.findByText("inner.txt")).toBeInTheDocument();
+    expect(screen.getByLabelText("Find in this folder")).toHaveValue("");
+    expect(screen.getByText("inner.txt")).toBeInTheDocument();
+  });
+
+  it("select-all covers only the filtered rows", async () => {
+    stubListing({
+      "": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+        { name: "b.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    const input = await screen.findByLabelText("Find in this folder");
+    fireEvent.change(input, { target: { value: "a" } });
+
+    fireEvent.click(screen.getByLabelText("Select all in this folder"));
+    expect(await screen.findByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Select a.txt")).toBeChecked();
+  });
+
+  it("opens a properties modal with details instead of inline columns", async () => {
+    const modified = 1700000000;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const parsed = new URL(String(url), "http://luna.test");
+        if (parsed.pathname.endsWith("/files/stat")) {
+          return new Response(
+            JSON.stringify({
+              name: "old.txt",
+              kind: "file",
+              size: 1234,
+              modified,
+              created: modified - 100,
+              hidden: false,
+              writable: true,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (parsed.pathname.includes("/files")) {
+          const path = parsed.searchParams.get("path") || "";
+          const listing = {
+            "": [{ name: "old.txt", kind: "file", size: 1234, modified, hidden: false }],
+          };
+          return new Response(JSON.stringify(listing[path] || []), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 500 });
+      }),
+    );
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("old.txt");
+    // Details moved out of the row into the dedicated modal.
+    expect(screen.queryByText("1.2 KB")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Properties for old.txt/i }));
+    const dialog = await screen.findByRole("dialog");
+    // Headline stat: human size up top, exact bytes underneath.
+    expect(await within(dialog).findByText("Size")).toBeInTheDocument();
+    expect(within(dialog).getByText("1.2 KB")).toBeInTheDocument();
+    expect(within(dialog).getByText("1,234 bytes")).toBeInTheDocument();
+    // Type appears in the hero pill and the Details row.
+    expect(within(dialog).getAllByText("Text file (.txt)").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("Details")).toBeInTheDocument();
+    expect(within(dialog).getByText("Activity")).toBeInTheDocument();
+    expect(within(dialog).getByText("Last changed")).toBeInTheDocument();
+    // Access is a status pill now, not a table row.
+    expect(within(dialog).getByText("View and change")).toBeInTheDocument();
+  });
+
+  it("shows a folder's recursive totals in the properties modal", async () => {
+    const modified = 1700000000;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const parsed = new URL(String(url), "http://luna.test");
+        if (parsed.pathname.endsWith("/files/stat")) {
+          return new Response(
+            JSON.stringify({
+              name: "album",
+              kind: "dir",
+              size: 4096,
+              modified,
+              hidden: false,
+              writable: false,
+              children: { dirs: 1, files: 2, other: 0 },
+              totals: { bytes: 12500, dirs: 3, files: 8, other: 1, complete: true },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (parsed.pathname.includes("/files")) {
+          const path = parsed.searchParams.get("path") || "";
+          const listing = {
+            "": [{ name: "album", kind: "dir", size: 0, modified, hidden: false }],
+          };
+          return new Response(JSON.stringify(listing[path] || []), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 500 });
+      }),
+    );
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("album");
+    fireEvent.click(screen.getByRole("button", { name: /Properties for album/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Total size")).toBeInTheDocument();
+    expect(within(dialog).getByText("12.5 KB")).toBeInTheDocument();
+    expect(within(dialog).getByText("12,500 bytes altogether")).toBeInTheDocument();
+    expect(within(dialog).getByText("3")).toBeInTheDocument();
+    expect(within(dialog).getByText("8")).toBeInTheDocument();
+    expect(within(dialog).getByText("files")).toBeInTheDocument();
+    expect(within(dialog).getByText("folders")).toBeInTheDocument();
+    expect(within(dialog).getByText("View only")).toBeInTheDocument();
+  });
+
+  it("marks an unfinished folder count as a lower bound, not a failure", async () => {
+    const modified = 1700000000;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const parsed = new URL(String(url), "http://luna.test");
+        if (parsed.pathname.endsWith("/files/stat")) {
+          return new Response(
+            JSON.stringify({
+              name: "big",
+              kind: "dir",
+              size: 4096,
+              modified,
+              hidden: false,
+              writable: true,
+              children: { dirs: 1, files: 2, other: 0 },
+              totals: { bytes: 12500, dirs: 3, files: 8, other: 0, complete: false },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (parsed.pathname.includes("/files")) {
+          const path = parsed.searchParams.get("path") || "";
+          const listing = {
+            "": [{ name: "big", kind: "dir", size: 0, modified, hidden: false }],
+          };
+          return new Response(JSON.stringify(listing[path] || []), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 500 });
+      }),
+    );
+    renderBrowser({ multiSelect: true });
+    await screen.findByText("big");
+    fireEvent.click(screen.getByRole("button", { name: /Properties for big/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("≥ 12.5 KB")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/at least 12,500 bytes/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("8+")).toBeInTheDocument();
+    // Never claims the folder was too big to count.
+    expect(within(dialog).queryByText(/too much inside to count the total size/)).not.toBeInTheDocument();
+  });
+
+  it("shows the view controls in picker mode without the select-all checkbox", async () => {
+    stubListing({
+      "": [
+        { name: "album", kind: "dir", size: 0, hidden: false },
+        { name: "note.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ pickerMode: "folder", multiSelect: false, onSelect: vi.fn() });
+    await screen.findByText("album");
+    expect(screen.getByLabelText("Find in this folder")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sort files" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
   });
 });

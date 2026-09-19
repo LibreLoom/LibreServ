@@ -610,7 +610,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           >
             <label
               htmlFor={currentAuthField.id}
-              className="block font-mono text-xl text-primary mb-5 leading-snug"
+              className="block font-mono text-xl text-primary mb-5 leading-snug translate-x-5"
             >
               {currentAuthField.question}
             </label>

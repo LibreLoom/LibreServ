@@ -67,6 +67,7 @@ describe("DriveMenu", () => {
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     fireEvent.click(trigger);
     const menu = await screen.findByRole("menu", { name: "Drives" });
+    expect(menu).toHaveClass("no-scrollbar");
     // The drive being browsed is on the trigger, not in the list.
     expect(within(menu).queryByRole("menuitem", { name: "Photos Drive" })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Spare Drive" }));

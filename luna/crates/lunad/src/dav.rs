@@ -65,7 +65,37 @@ fn require_dav_user(
     state: &AppState,
     req: &Request,
 ) -> Result<CurrentUser, (StatusCode, axum::Json<serde_json::Value>)> {
-    if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
+    if let Ok(Some((user, device_token_ctx))) = state.auth.resolve_auth_from_headers(req.headers())
+    {
+        if let Some(token_ctx) = device_token_ctx {
+            let client = crate::auth::client_app_name(req.headers());
+            let addr = req
+                .extensions()
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|ci| ci.0);
+            let origin = crate::auth::client_origin_label(
+                addr.as_ref(),
+                req.headers(),
+                state.connect.wan_ip(),
+            );
+            let detail = match *req.method() {
+                axum::http::Method::PUT | axum::http::Method::DELETE | axum::http::Method::POST => {
+                    "Modified files"
+                }
+                _ => "Browsed folder",
+            };
+            if let Ok(conn) = state.db.lock() {
+                let _ = crate::db::note_device_token_activity_rich(
+                    &conn,
+                    &token_ctx.token_id,
+                    token_ctx.last_used_at,
+                    "WebDAV folder",
+                    detail,
+                    &client,
+                    &origin,
+                );
+            }
+        }
         return Ok(user);
     }
     // Failed Basic (household password, unknown token, empty) is rate-limited

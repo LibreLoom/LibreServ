@@ -1,11 +1,16 @@
-//! Short-lived EuroOffice / Document Server bridges.
+//! EuroOffice client-side editing bridge.
 //!
-//! DocsAPI's Document Server fetches `document.url` server-side with no browser
-//! cookies, and posts saves to `callbackUrl`. These routes mint a scoped JWT
-//! and expose public content + callback endpoints for that token.
+//! The editor pack runs in the browser; x2t.wasm converts OOXML ↔ the editor's
+//! internal `Editor.bin` format on the client. Lunad only stores the converted
+//! bundle (Editor.bin + media) and relays co-authoring traffic over the
+//! docstorage socket — no Document Server, no server-side conversion.
+//!
+//! - `POST /api/v1/office/session` mints the doc key + office token.
+//! - `GET/HEAD/PUT /api/v1/office/bundle/{key}/{*name}` serves the bundle.
+//! - `GET /eurooffice/{ver}/doc/{key}/c` (in `office_ws`) is the socket.
 
-use axum::body::Body;
-use axum::extract::{Extension, Query, State};
+use axum::body::{Body, Bytes};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use axum::routing::{get, post};
@@ -19,7 +24,10 @@ use crate::api::response::json_error;
 use crate::auth::CurrentUser;
 use crate::files::{self, FilesError};
 
-const OFFICE_TOKEN_TTL_SECS: i64 = 60 * 60; // 1 hour — covers long edit sessions
+const OFFICE_TOKEN_TTL_SECS: i64 = 24 * 60 * 60; // all-day edit sessions
+/// Bundle dirs outlive sessions; sweep ones untouched for a week at boot.
+const BUNDLE_MAX_AGE_SECS: u64 = 7 * 24 * 60 * 60;
+const MAX_BUNDLE_FILE_BYTES: usize = 256 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct SessionBody {
@@ -27,42 +35,21 @@ struct SessionBody {
     path: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenQuery {
-    token: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ForceSaveBody {
-    drive_id: String,
-    path: String,
-    /// Document key the editor session was opened with. It already binds the
-    /// drive, path, size, and mtime at open time, and it cannot be recomputed
-    /// here once a save changes the file — so the client echoes it back and we
-    /// still check write access on the claimed drive/path.
-    key: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct CallbackBody {
-    status: i32,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    key: Option<String>,
-}
-
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/office/session", post(create_session))
-        .route("/api/v1/office/forcesave", post(force_save))
-        .route("/api/v1/public/office/content", get(public_content))
-        .route("/api/v1/public/office/callback", post(public_callback))
+        .route(
+            "/api/v1/office/bundle/{key}/{*name}",
+            get(bundle_get).head(bundle_head).put(bundle_put),
+        )
 }
 
+/// Open step 1: validate access, mint the doc key + office token the
+/// docstorage socket will verify, and register key → file binding.
 async fn create_session(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
+    headers: HeaderMap,
     Json(body): Json<SessionBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let path = normalize_rel(&body.path);
@@ -114,12 +101,15 @@ async fn create_session(
         .rsplit_once('.')
         .map(|(_, ext)| ext.to_lowercase())
         .unwrap_or_default();
-    if file_type.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "EuroOffice needs a file with an extension like .docx, .xlsx, or .pptx.",
-        ));
-    }
+    let document_type = match document_type_for(&file_type) {
+        Some(t) => t,
+        None => {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "EuroOffice cannot open this file type.",
+            ));
+        }
+    };
 
     let token = state
         .auth
@@ -131,42 +121,27 @@ async fn create_session(
             )
         })?;
 
-    let origin = office_fetch_origin();
-    let document_url = format!("{origin}/api/v1/public/office/content?token={token}");
-    let callback_url = format!("{origin}/api/v1/public/office/callback?token={token}");
     let key = document_key(&drive_id, &path, size, modified);
-    // Mirrors the fileType table the bundled DocsAPI validates against
-    // (web-apps/apps/api/documents/api.js, `_checkConfigParams`) and
-    // fileKinds.js OFFICE_EXT. DocsAPI accepts word/cell/slide/pdf/diagram;
-    // djvu/xps/oxps open in the pdf editor, vsdx & co. in the visio editor.
-    let document_type = match file_type.as_str() {
-        "doc" | "docx" | "odt" | "gdoc" | "txt" | "rtf" | "mht" | "htm" | "html" | "mhtml"
-        | "epub" | "docm" | "dot" | "dotm" | "dotx" | "fodt" | "ott" | "fb2" | "xml" | "oform"
-        | "docxf" | "sxw" | "stw" | "wps" | "wpt" | "pages" | "hwp" | "hwpx" | "md" | "hml" => {
-            "word"
-        }
-        "xls" | "xlsx" | "ods" | "csv" | "tsv" | "gsheet" | "xlsm" | "xlt" | "xltm" | "xltx"
-        | "fods" | "ots" | "xlsb" | "sxc" | "et" | "ett" | "numbers" => "cell",
-        "pps" | "ppsx" | "ppt" | "pptx" | "odp" | "gslides" | "pot" | "potm" | "potx" | "ppsm"
-        | "pptm" | "fodp" | "otp" | "sxi" | "dps" | "dpt" | "key" | "odg" => "slide",
-        "pdf" | "djvu" | "xps" | "oxps" => "pdf",
-        "vsdx" | "vssx" | "vstx" | "vsdm" | "vssm" | "vstm" => "diagram",
-        _ => {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "EuroOffice cannot open this file type.",
-            ));
-        }
-    };
+    state.office_docs.register_key(&key, &drive_id, &path).await;
+
+    // The docstorage shim never fetches document.url (the open reply names
+    // bundle files instead), but DocsAPI wants a real URL in the config —
+    // point it at the file's own content endpoint so it stays meaningful.
+    let document_url = format!(
+        "{}/api/v1/drives/{}/files/content?path={}",
+        request_origin(&headers),
+        urlencoding(&drive_id),
+        urlencoding(&path),
+    );
 
     Ok(Json(json!({
-        "document_url": document_url,
-        "callback_url": callback_url,
         "key": key,
         "title": title,
         "file_type": file_type,
         "document_type": document_type,
         "can_write": can_write,
+        "token": token,
+        "document_url": document_url,
         "user": {
             "id": user.id,
             "name": user.username,
@@ -174,272 +149,287 @@ async fn create_session(
     })))
 }
 
-/// Forward a `forcesave` to the Document Server command service. The DS then
-/// posts the saved file back through `public_callback` (status 6), so the write
-/// itself stays on the one existing callback path.
-async fn force_save(
-    State(state): State<AppState>,
-    Extension(user): Extension<CurrentUser>,
-    Json(body): Json<ForceSaveBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let path = normalize_rel(&body.path);
-    let drive_id = body.drive_id.trim().to_string();
-    let key = body.key.trim().to_string();
-    if path.is_empty() || drive_id.is_empty() || key.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Luna needs the open document to save it. Close the file and open it again.",
-        ));
-    }
-    if !user_can(&state, &user, &drive_id, &path, true)? {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have permission to save this file.",
-        ));
-    }
-
-    let command_url = format!("{}/command", document_server_origin());
-    let reply = tokio::task::spawn_blocking(move || -> Result<Value, (StatusCode, Json<Value>)> {
-        let mut response = ureq::post(&command_url)
-            .config()
-            .http_status_as_error(false)
-            .timeout_global(Some(std::time::Duration::from_secs(15)))
-            .build()
-            .send_json(json!({ "c": "forcesave", "key": key }))
-            .map_err(|e| {
-                tracing::warn!(error = %e, "eurooffice forcesave request failed");
-                json_error(
-                    StatusCode::BAD_GATEWAY,
-                    "Luna couldn't reach EuroOffice to save. Try again.",
-                )
-            })?;
-        response.body_mut().read_json::<Value>().map_err(|e| {
-            tracing::warn!(error = %e, "eurooffice forcesave reply unreadable");
-            json_error(
-                StatusCode::BAD_GATEWAY,
-                "EuroOffice answered in a way Luna could not read. Try saving again.",
-            )
-        })
-    })
-    .await
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish saving this file.",
-        )
-    })??;
-
-    // Command service answers {"error": N}; 0 = saved, 4 = nothing new to save.
-    match reply.get("error").and_then(Value::as_i64) {
-        Some(0) | Some(4) => Ok(Json(json!({ "error": 0 }))),
-        other => {
-            tracing::warn!(code = ?other, "eurooffice forcesave rejected");
-            Err(json_error(
-                StatusCode::BAD_GATEWAY,
-                "EuroOffice couldn't save this file. Try closing it and opening it again.",
-            ))
+fn document_type_for(ext: &str) -> Option<&'static str> {
+    // Mirrors OFFICE_FORMATS in web/src/lib/fileKinds.js — the formats the
+    // bundled x2t.wasm can actually read, verified by real conversions in
+    // x2tFormats.test.js. api.js declares far more, but most of those
+    // converters aren't in this build (doc, csv, pdf, epub, vsdx, iWork…).
+    Some(match ext {
+        "docx" | "docm" | "dotx" | "dotm" | "docxf" | "oform" | "odt" | "fodt" | "ott" | "rtf" => {
+            "word"
         }
-    }
+        "xls" | "xlsx" | "xlsm" | "xlsb" | "xlt" | "xltm" | "xltx" | "ods" | "fods" | "ots" => {
+            "cell"
+        }
+        "ppt" | "pptx" | "pptm" | "pps" | "ppsm" | "ppsx" | "potm" | "potx" | "odp" | "fodp"
+        | "otp" => "slide",
+        _ => return None,
+    })
 }
 
-async fn public_content(
-    State(state): State<AppState>,
-    Query(query): Query<TokenQuery>,
+/// Bundle GET — the editor iframe fetches `Editor.bin`, `media/*`, and the
+/// stored original from here. Cookie-authed (same-origin iframe), then
+/// read-checked against the key's bound file.
+async fn bundle_get(
+    state: State<AppState>,
+    user: Extension<CurrentUser>,
+    path: Path<(String, String)>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let claims = state.auth.verify_office_token(&query.token).map_err(|_| {
-        json_error(
-            StatusCode::UNAUTHORIZED,
-            "This EuroOffice link expired. Close the file and open it again.",
-        )
-    })?;
+    bundle_inner(state, user, path, false).await
+}
 
-    let (path, meta) = {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        files::file_path(&conn, &claims.drive_id, &claims.path).map_err(map_files_err)?
+async fn bundle_head(
+    state: State<AppState>,
+    user: Extension<CurrentUser>,
+    path: Path<(String, String)>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    bundle_inner(state, user, path, true).await
+}
+
+async fn bundle_inner(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path((key, name)): Path<(String, String)>,
+    head_only: bool,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let (drive_id, rel) = bound_file(&state, &user, &key, false).await?;
+    let _ = (drive_id, rel);
+    let file = bundle_file(&state, &key, &name)?;
+    let meta = match tokio::fs::metadata(&file).await {
+        Ok(m) if m.is_file() => m,
+        _ => {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "This document isn't prepared for editing yet.",
+            ));
+        }
     };
-
-    let file = tokio::fs::File::open(&path).await.map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read that file for EuroOffice.",
-        )
-    })?;
-    let stream = ReaderStream::new(file);
-    let mime = mime_guess::from_path(&path).first_or_octet_stream();
-    let name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("document");
-    Ok(Response::builder()
+    let builder = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime.as_ref())
         .header(header::CONTENT_LENGTH, meta.len().to_string())
         .header(header::CACHE_CONTROL, "no-store")
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(
-            header::CONTENT_DISPOSITION,
-            format!(
-                "attachment; filename=\"{}\"",
-                files::content_disposition_filename(name)
-            ),
+        .header(header::CONTENT_TYPE, bundle_mime(&name));
+    if head_only {
+        return Ok(builder.body(Body::empty()).unwrap());
+    }
+    let file = tokio::fs::File::open(&file).await.map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't read the prepared document. Try opening it again.",
         )
-        .body(Body::from_stream(stream))
+    })?;
+    Ok(builder
+        .body(Body::from_stream(ReaderStream::new(file)))
         .unwrap())
 }
 
-async fn public_callback(
+/// Bundle PUT — the first opener uploads the wasm-converted `Editor.bin` +
+/// media; the saver uploads a fresh `Editor.bin` + `origin.<ext>` after a
+/// save. Write access on the bound file is required.
+async fn bundle_put(
     State(state): State<AppState>,
-    Query(query): Query<TokenQuery>,
-    headers: HeaderMap,
-    Json(body): Json<CallbackBody>,
+    Extension(user): Extension<CurrentUser>,
+    Path((key, name)): Path<(String, String)>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let _ = headers;
-    let claims = state.auth.verify_office_token(&query.token).map_err(|_| {
-        json_error(
-            StatusCode::UNAUTHORIZED,
-            "This EuroOffice link expired. Close the file and open it again.",
-        )
-    })?;
-
-    // ONLYOFFICE / EuroOffice: 2 = ready to save, 6 = force-save.
-    if matches!(body.status, 2 | 6) {
-        if !claims.write {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "This EuroOffice session is view-only, so Luna can't save changes.",
-            ));
-        }
-        let Some(raw_url) = body.url.as_deref().filter(|u| !u.is_empty()) else {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "EuroOffice did not send a download link for the saved file.",
-            ));
-        };
-        let download_url = rewrite_document_server_url(raw_url);
-        let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-            let mut response = ureq::get(&download_url)
-                .call()
-                .map_err(|e| format!("download failed: {e}"))?;
-            response
-                .body_mut()
-                .read_to_vec()
-                .map_err(|e| format!("read failed: {e}"))
-        })
-        .await
-        .map_err(|_| {
+    bound_file(&state, &user, &key, true).await?;
+    // A bundle file is never legitimately empty. An empty body means the
+    // upload was emptied in flight (e.g. a detached typed-array buffer);
+    // writing it would overwrite a good bundle with poison — and for
+    // Editor.bin would also compact the replay log below.
+    if body.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna couldn't store the converted document — the upload was empty. Try saving again.",
+        ));
+    }
+    if body.len() > MAX_BUNDLE_FILE_BYTES {
+        return Err(json_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "That document is too large for Luna to prepare for editing.",
+        ));
+    }
+    let file = bundle_file(&state, &key, &name)?;
+    if let Some(parent) = file.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't finish saving this file.",
-            )
-        })?
-        .map_err(|e| {
-            tracing::warn!(error = %e, key = ?body.key, "eurooffice callback download failed");
-            json_error(
-                StatusCode::BAD_GATEWAY,
-                "Luna couldn't download the saved file from EuroOffice. Try saving again.",
+                "Luna couldn't prepare a place for the converted document.",
             )
         })?;
+    }
+    let temp = file.with_extension("part");
+    tokio::fs::write(&temp, &body).await.map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't store the converted document. Check that the drive still has space.",
+        )
+    })?;
+    if let Err(e) = tokio::fs::rename(&temp, &file).await {
+        let _ = tokio::fs::remove_file(&temp).await;
+        tracing::warn!(error = %e, "office bundle install failed");
+        return Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish preparing the document. Try again.",
+        ));
+    }
+    // A new Editor.bin bakes in every op the saver had been sent — drop them
+    // from the replay log so joiners don't apply them twice. `coverage` is
+    // the saver's own report of how far its serialized doc reached.
+    if name == "Editor.bin" {
+        let coverage = query.get("coverage").and_then(|v| v.parse::<i64>().ok());
+        state
+            .office_docs
+            .bundle_refreshed(&key, &user.id, coverage)
+            .await;
+    }
+    Ok(Json(json!({ "ok": true })))
+}
 
-        let drive_id = claims.drive_id.clone();
-        let rel = claims.path.clone();
-        tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, Json<Value>)> {
-            let (dest, _meta) = {
-                let conn = state.db.lock().map_err(|_| {
-                    json_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna's index is busy. Try again.",
+/// Resolve `key` → bound (drive_id, path) and check this user's access.
+/// Returns the binding for callers that need it.
+async fn bound_file(
+    state: &AppState,
+    user: &CurrentUser,
+    key: &str,
+    write: bool,
+) -> Result<(String, String), (StatusCode, Json<Value>)> {
+    if !valid_key(key) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "That editing session key is not valid.",
+        ));
+    }
+    let Some((drive_id, rel)) = state.office_docs.binding(key).await else {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "This editing session expired. Close the file and open it again.",
+        ));
+    };
+    if !user_can(state, user, &drive_id, &rel, write)? {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            if write {
+                "You don't have permission to change this file."
+            } else {
+                "You don't have permission to open this file."
+            },
+        ));
+    }
+    Ok((drive_id, rel))
+}
+
+fn bundle_file(
+    state: &AppState,
+    key: &str,
+    name: &str,
+) -> Result<std::path::PathBuf, (StatusCode, Json<Value>)> {
+    if !valid_key(key) || !valid_bundle_name(name) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "That bundle path is not valid.",
+        ));
+    }
+    Ok(state.data_dir.join("office_bundles").join(key).join(name))
+}
+
+/// Bundle member names are flat (`Editor.bin`, `origin.docx`) or `media/x` —
+/// reject anything that could escape the key directory.
+fn valid_bundle_name(name: &str) -> bool {
+    let name = name.trim_matches('/');
+    if name.is_empty() || name.len() > 200 || name.starts_with("..") || name.contains("..") {
+        return false;
+    }
+    name.split('/').all(|seg| {
+        !seg.is_empty()
+            && seg.chars().all(|c| {
+                c.is_ascii_alphanumeric()
+                    || matches!(
+                        c,
+                        '.' | '_' | '-' | ' ' | '(' | ')' | '+' | '=' | ',' | '\''
                     )
-                })?;
-                files::file_path(&conn, &drive_id, &rel).map_err(map_files_err)?
-            };
-            let parent = dest.parent().ok_or_else(|| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't find where to save this file.",
-                )
-            })?;
-            let temp = files::temp_path(parent);
-            std::fs::write(&temp, &bytes).map_err(|_| {
-                let _ = std::fs::remove_file(&temp);
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't write the saved file. Check that the drive still has space.",
-                )
-            })?;
-            if let Err(e) = files::install_temp(&temp, &dest, true) {
-                let _ = std::fs::remove_file(&temp);
-                tracing::warn!(error = %e, "eurooffice save install failed");
-                return Err(json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't replace the file with the EuroOffice save.",
-                ));
+            })
+    })
+}
+
+fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 200
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+fn bundle_mime(name: &str) -> &'static str {
+    match name
+        .rsplit('.')
+        .next()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("bin") => "application/octet-stream",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("tif") | Some("tiff") => "image/tiff",
+        Some("mp3") => "audio/mpeg",
+        Some("mp4") => "video/mp4",
+        Some("wav") => "audio/wav",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Delete bundle dirs untouched for a week — they only help while a document
+/// is (or was just) being edited.
+pub fn sweep_old_bundles(data_dir: &std::path::Path) {
+    let root = data_dir.join("office_bundles");
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return;
+    };
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(BUNDLE_MAX_AGE_SECS);
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|t| t < cutoff)
+            .unwrap_or(false);
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn request_origin(headers: &HeaderMap) -> String {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("127.0.0.1:8090");
+    let scheme = if crate::auth::request_is_https(headers) {
+        "https"
+    } else {
+        "http"
+    };
+    format!("{scheme}://{host}")
+}
+
+fn urlencoding(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '~') {
+                vec![c]
+            } else {
+                format!("%{:02X}", c as u32).chars().collect()
             }
-            state.gallery.upsert(&drive_id, &rel);
-            state.touch_io_activity();
-            let parent_rel = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-            state.ram_cache.invalidate_listing(&drive_id, parent_rel);
-            state.ram_cache.invalidate_listing_tree(&drive_id, &rel);
-            state.ram_cache.invalidate_thumb(&drive_id, &rel);
-            Ok(())
         })
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't finish saving this file.",
-            )
-        })??;
-    }
-
-    Ok(Json(json!({ "error": 0 })))
-}
-
-fn office_fetch_origin() -> String {
-    if let Ok(raw) = std::env::var("LUNA_OFFICE_FETCH_ORIGIN") {
-        let trimmed = raw.trim().trim_end_matches('/');
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    let port = std::env::var("LUNA_PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(8090);
-    // Document Server runs in a container and must reach lunad on the host.
-    format!("http://host.containers.internal:{port}")
-}
-
-fn document_server_origin() -> String {
-    std::env::var("LUNA_DOCUMENT_SERVER_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8088".into())
-        .trim()
-        .trim_end_matches('/')
-        .to_string()
-}
-
-fn rewrite_document_server_url(raw: &str) -> String {
-    let configured = document_server_origin();
-    for prefix in [
-        "http://localhost/",
-        "https://localhost/",
-        "http://127.0.0.1/",
-        "https://127.0.0.1/",
-        "http://localhost:80/",
-        "http://127.0.0.1:80/",
-    ] {
-        if let Some(rest) = raw.strip_prefix(prefix) {
-            return format!("{configured}/{rest}");
-        }
-    }
-    if let Some(rest) = raw.strip_prefix("http://localhost:8088/") {
-        return format!("{configured}/{rest}");
-    }
-    raw.to_string()
+        .collect()
 }
 
 fn document_key(drive_id: &str, path: &str, size: u64, modified: u64) -> String {
@@ -523,15 +513,240 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rewrite_maps_localhost_to_host_ds() {
-        let got = rewrite_document_server_url("http://localhost/cache/files/abc/output.xlsx");
-        assert_eq!(got, "http://127.0.0.1:8088/cache/files/abc/output.xlsx");
-    }
-
-    #[test]
     fn document_key_changes_with_mtime() {
         let a = document_key("d1", "a.xlsx", 10, 1);
         let b = document_key("d1", "a.xlsx", 10, 2);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn bundle_name_rules() {
+        assert!(valid_bundle_name("Editor.bin"));
+        assert!(valid_bundle_name("media/image1.png"));
+        assert!(valid_bundle_name("origin.docx"));
+        assert!(!valid_bundle_name("../x"));
+        assert!(!valid_bundle_name("media/../../etc/passwd"));
+        assert!(!valid_bundle_name(""));
+        assert!(!valid_bundle_name("a//b"));
+    }
+
+    /// The session gate must mirror OFFICE_FORMATS in web/src/lib/fileKinds.js:
+    /// only formats the bundled x2t.wasm verifiably reads (x2tFormats.test.js).
+    /// Formats api.js declares but this build can't convert must be rejected
+    /// here so a session never starts just to fail inside x2t.
+    #[test]
+    fn document_type_matches_verified_formats() {
+        for (ext, want) in [
+            ("docx", "word"),
+            ("docm", "word"),
+            ("dotx", "word"),
+            ("dotm", "word"),
+            ("docxf", "word"),
+            ("oform", "word"),
+            ("odt", "word"),
+            ("fodt", "word"),
+            ("ott", "word"),
+            ("rtf", "word"),
+            ("xls", "cell"),
+            ("xlsx", "cell"),
+            ("xlsm", "cell"),
+            ("xlsb", "cell"),
+            ("xlt", "cell"),
+            ("xltm", "cell"),
+            ("xltx", "cell"),
+            ("ods", "cell"),
+            ("fods", "cell"),
+            ("ots", "cell"),
+            ("ppt", "slide"),
+            ("pptx", "slide"),
+            ("pptm", "slide"),
+            ("pps", "slide"),
+            ("ppsm", "slide"),
+            ("ppsx", "slide"),
+            ("potm", "slide"),
+            ("potx", "slide"),
+            ("odp", "slide"),
+            ("fodp", "slide"),
+            ("otp", "slide"),
+        ] {
+            assert_eq!(document_type_for(ext), Some(want), "{ext}");
+        }
+        for ext in [
+            "doc", "csv", "tsv", "pdf", "djvu", "xps", "oxps", "epub", "fb2", "mht", "mhtml",
+            "vsdx", "pages", "numbers", "key", "hwp", "hwpx", "wps", "gdoc", "gsheet", "gslides",
+            "txt", "md", "html", "xml", "odg",
+        ] {
+            assert_eq!(document_type_for(ext), None, "{ext}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use crate::api;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq, StatusCode};
+    use tower::ServiceExt;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        54321,
+    );
+
+    fn test_app() -> (tempfile::TempDir, axum::Router) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
+        let app = api::router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        (dir, app)
+    }
+
+    fn req(method: Method, uri: &str, body: Body, cookie: &str, csrf: &str) -> HttpReq<Body> {
+        let mut http = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("cookie", cookie)
+            .header("x-csrf-token", csrf)
+            .header("content-type", "application/json")
+            .body(body)
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    async fn call(app: &axum::Router, req: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(req).await.unwrap()
+    }
+
+    fn json_req(method: Method, uri: &str, body: &str) -> HttpReq<Body> {
+        let mut http = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    async fn admin_login(app: &axum::Router) -> (String, String) {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+            ),
+        )
+        .await;
+        let mut session = String::new();
+        let mut csrf = String::new();
+        for value in res.headers().get_all(axum::http::header::SET_COOKIE) {
+            let s = value.to_str().unwrap();
+            let part = s.split(';').next().unwrap_or("");
+            if part.starts_with("luna_session=") {
+                session = part.to_string();
+            } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+                csrf = token.to_string();
+            }
+        }
+        (format!("{session}; luna_csrf={csrf}"), csrf)
+    }
+
+    /// A zero-byte `Editor.bin` PUT used to silently overwrite a healthy
+    /// bundle — `bundleHas` then skipped re-conversion and the editor opened
+    /// an empty document. The PUT must be rejected and the prior file kept.
+    #[tokio::test]
+    async fn bundle_put_rejects_empty_and_preserves_prior_file() {
+        let (dir, app) = test_app();
+        let (cookie, csrf) = admin_login(&app).await;
+
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join("Letter.rtf"), b"{\\rtf1 hello}").unwrap();
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::upsert_drive(
+                &conn,
+                "drive-a",
+                "A",
+                "mounted",
+                "ext4",
+                "sda",
+                mount.to_str().unwrap(),
+            )
+            .unwrap();
+        }
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/office/session",
+                Body::from(r#"{"drive_id":"drive-a","path":"Letter.rtf"}"#),
+                &cookie,
+                &csrf,
+            ),
+        )
+        .await;
+        let status = res.status();
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert_eq!(
+            status,
+            200,
+            "session body: {}",
+            String::from_utf8_lossy(&body)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let key = v["key"].as_str().unwrap().to_string();
+        let uri = format!("/api/v1/office/bundle/{key}/Editor.bin");
+
+        // A real upload lands.
+        let res = call(
+            &app,
+            req(
+                Method::PUT,
+                &uri,
+                Body::from(vec![1u8, 2, 3, 4]),
+                &cookie,
+                &csrf,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let bin = dir
+            .path()
+            .join("office_bundles")
+            .join(&key)
+            .join("Editor.bin");
+        assert_eq!(std::fs::metadata(&bin).unwrap().len(), 4);
+
+        // An emptied upload (detached buffer client-side) is refused and the
+        // good file survives — before this check it silently wrote 0 bytes
+        // and still compacted the replay log.
+        let res = call(&app, req(Method::PUT, &uri, Body::empty(), &cookie, &csrf)).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(std::fs::metadata(&bin).unwrap().len(), 4);
     }
 }

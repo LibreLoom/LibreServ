@@ -122,10 +122,10 @@ async fn session(
                                 continue;
                             }
                         };
-                        if let Some(reply) = state.collab.handle(&room_key, peer_id, can_write, msg).await {
-                            if send_json(&mut sink, &reply).await.is_err() {
-                                break;
-                            }
+                        if let Some(reply) = state.collab.handle(&room_key, peer_id, can_write, msg).await
+                            && send_json(&mut sink, &reply).await.is_err()
+                        {
+                            break;
                         }
                     }
                     Some(Ok(Message::Ping(payload))) => {

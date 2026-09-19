@@ -47,7 +47,7 @@ export default function CreateNameModal({
         >
           <ShakeTarget shake={error}>
             <label className="block text-primary text-sm">
-              {label}
+              <span className="block translate-x-5">{label}</span>
               <input
                 className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
                 value={value}

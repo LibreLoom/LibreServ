@@ -155,7 +155,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                     <>
                       {confirmFormat && (
                         <label className="block">
-                          <span className="text-primary text-xs">What should Luna call this drive?</span>
+                          <span className="block translate-x-5 text-primary text-xs">What should Luna call this drive?</span>
                           <input
                             className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                             value={label}
@@ -208,7 +208,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
               {canUse && (
                 <>
                   <label className="block mt-4">
-                    <span className="text-primary text-xs">What should Luna call this drive?</span>
+                    <span className="block translate-x-5 text-primary text-xs">What should Luna call this drive?</span>
                     <input
                       className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:outline-none focus:border-secondary"
                       value={label}

@@ -70,6 +70,11 @@ export function useSmoothResize(ref, options = {}) {
     el.style.width = savedW;
     el.style.height = savedH;
 
+    // Element is hidden (e.g. `hidden sm:inline-flex` mounted at the wrong
+    // breakpoint): there is no natural width to capture, and pinning 0px
+    // would collapse it permanently when it later becomes visible.
+    if (nextW === 0 && nextH === 0) return;
+
     if (!init.current) {
       init.current = true;
       // First measurement is on a fresh element (no inline width yet), so a

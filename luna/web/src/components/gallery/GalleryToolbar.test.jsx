@@ -99,15 +99,17 @@ describe("GalleryToolbar", () => {
     expect(onQueryChange).toHaveBeenCalledWith({ target: { value: "" } });
   });
 
-  it("puts grid density in the More menu, not the primary bar", async () => {
+  it("puts grid density in the More menu as a segmented control and keeps the menu open", async () => {
     const user = userEvent.setup();
     const onColumnsChange = vi.fn();
     renderToolbar({ onColumnsChange });
     expect(screen.queryByLabelText(/Grid density/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /More options/i }));
     expect(screen.getByText(/Grid density/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /4 columns/i }));
+    fireEvent.click(screen.getByRole("radio", { name: "4" }));
     expect(onColumnsChange).toHaveBeenCalledWith(4);
+    // Adjusting density keeps the menu open — only click-out dismisses it
+    expect(screen.getByRole("menu", { name: /More options/i })).toBeInTheDocument();
   });
 
   it("offers Keyboard shortcuts in the More menu", async () => {
@@ -161,12 +163,24 @@ describe("GalleryToolbar", () => {
     expect(screen.getByRole("menu", { name: /More options/i })).toHaveClass("animate-dropdown-close");
   });
 
-  it("offers Look again in the More menu and triggers rescan", async () => {
+  it("offers Rescan drives in the More menu and triggers rescan without closing the menu", async () => {
     const user = userEvent.setup();
     const onRescan = vi.fn();
     renderToolbar({ onRescan });
     await user.click(screen.getByRole("button", { name: /More options/i }));
-    await user.click(screen.getByRole("menuitem", { name: /Look again/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Rescan drives/i }));
     expect(onRescan).toHaveBeenCalled();
+    // The menu stays open so the "Rescanning drives…" state is visible
+    expect(screen.getByRole("menu", { name: /More options/i })).toBeInTheDocument();
+  });
+
+  it("closes the More menu on outside click", async () => {
+    const user = userEvent.setup();
+    renderToolbar({ onOpenDates: vi.fn() });
+    await user.click(screen.getByRole("button", { name: /More options/i }));
+    expect(screen.getByRole("menu", { name: /More options/i })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.getByRole("menu", { name: /More options/i })).toHaveClass("animate-dropdown-close");
   });
 });

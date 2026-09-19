@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Check, Heart, Play } from "lucide-react";
+import { Check, Play } from "lucide-react";
 import { haptic } from "../../utils/haptics.js";
 
 const LONG_PRESS_MS = 450;
@@ -13,7 +13,6 @@ const LONG_PRESS_MS = 450;
  *   onOpen?: (photo: object) => void,
  *   onToggle?: (photo: object, opts?: { range?: boolean }) => void,
  *   onLongPress?: (photo: object) => void,
- *   onFavoriteToggle?: (photo: object, event: import("react").MouseEvent) => void,
  *   onDragSelectStart?: (photo: object) => void,
  *   onDragSelectEnter?: (photo: object) => void,
  *   selected?: boolean,
@@ -28,7 +27,6 @@ export default function PhotoThumb({
   onOpen = undefined,
   onToggle = undefined,
   onLongPress = undefined,
-  onFavoriteToggle = undefined,
   onDragSelectStart = undefined,
   onDragSelectEnter = undefined,
   selected = false,
@@ -150,48 +148,6 @@ export default function PhotoThumb({
           <Check size={14} strokeWidth={3} />
         </span>
       )}
-      {onFavoriteToggle && !selectMode ? (
-        <span
-          role="button"
-          tabIndex={0}
-          className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-pill bg-primary/90 text-secondary [filter:drop-shadow(0_0_1.5px_var(--secondary))]"
-          aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
-          onClick={(e) => {
-            e.stopPropagation();
-            haptic("selection");
-            onFavoriteToggle(photo, e);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              e.stopPropagation();
-              haptic("selection");
-              onFavoriteToggle(photo, /** @type {any} */ (e));
-            }
-          }}
-        >
-          <Heart
-            size={14}
-            className={photo.favorited ? "fill-secondary stroke-secondary" : "stroke-secondary"}
-            strokeWidth={2.25}
-            aria-hidden="true"
-          />
-        </span>
-      ) : (
-        photo.favorited && (
-          <span
-            className="absolute top-2 right-2 [filter:drop-shadow(0_0_1.5px_var(--secondary))]"
-            aria-hidden="true"
-          >
-            <Heart
-              size={14}
-              className="fill-primary stroke-secondary"
-              strokeWidth={2.25}
-              aria-hidden="true"
-            />
-          </span>
-        )
-      )}
     </button>
   );
 }
@@ -201,12 +157,10 @@ PhotoThumb.propTypes = {
     name: PropTypes.string,
     thumb: PropTypes.string,
     kind: PropTypes.string,
-    favorited: PropTypes.bool,
   }).isRequired,
   onOpen: PropTypes.func,
   onToggle: PropTypes.func,
   onLongPress: PropTypes.func,
-  onFavoriteToggle: PropTypes.func,
   onDragSelectStart: PropTypes.func,
   onDragSelectEnter: PropTypes.func,
   selected: PropTypes.bool,
@@ -220,7 +174,6 @@ PhotoThumb.defaultProps = {
   onOpen: undefined,
   onToggle: undefined,
   onLongPress: undefined,
-  onFavoriteToggle: undefined,
   onDragSelectStart: undefined,
   onDragSelectEnter: undefined,
   selected: false,

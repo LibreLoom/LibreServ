@@ -44,4 +44,98 @@ describe("applyMarkdownAction", () => {
     expect(r.start).toBe(0);
     expect(r.end).toBe(1);
   });
+
+  it("wraps the selection in strikethrough markers", () => {
+    const r = applyMarkdownAction("old price", 0, 9, "strikethrough");
+    expect(r.text).toBe("~~old price~~");
+  });
+
+  it("prefixes selected lines as a checklist", () => {
+    const r = applyMarkdownAction("milk\neggs", 0, 9, "task");
+    expect(r.text).toBe("- [ ] milk\n- [ ] eggs");
+  });
+
+  it("prefixes selected lines as a quote", () => {
+    const r = applyMarkdownAction("hello", 0, 5, "quote");
+    expect(r.text).toBe("> hello");
+  });
+
+  it("fences the selection as a code block", () => {
+    const r = applyMarkdownAction("let x = 1", 0, 9, "codeblock");
+    expect(r.text).toBe("```\nlet x = 1\n```\n");
+    expect(r.text.slice(r.start, r.end)).toBe("let x = 1");
+  });
+
+  it("adds a leading break before a code block mid-line", () => {
+    const r = applyMarkdownAction("before code", 7, 11, "codeblock");
+    expect(r.text).toBe("before \n```\ncode\n```\n");
+  });
+
+  it("inserts a table skeleton and parks the cursor after it", () => {
+    const r = applyMarkdownAction("", 0, 0, "table");
+    expect(r.text).toContain("| Column | Column |");
+    // Cursor sits past the block so the live preview renders the grid.
+    expect(r.start).toBe(r.text.length);
+    expect(r.start).toBe(r.end);
+  });
+
+  it("inserts a horizontal rule", () => {
+    const r = applyMarkdownAction("para", 4, 4, "hr");
+    expect(r.text).toBe("para\n\n---\n");
+    expect(r.start).toBe(r.end);
+  });
+
+  it.each([1, 2, 3, 4, 5, 6])("sets heading level %i", (level) => {
+    const result = applyMarkdownAction("Title", 0, 5, `heading${level}`);
+    expect(result.text).toBe(`${"#".repeat(level)} Title`);
+    expect(result.text.slice(result.start, result.end)).toBe("Title");
+  });
+
+  it.each([1, 2, 3, 4, 5, 6])("starts an empty heading %i", (level) => {
+    const result = applyMarkdownAction("", 0, 0, `heading${level}`);
+    expect(result).toEqual({
+      text: `${"#".repeat(level)} `,
+      start: level + 1,
+      end: level + 1,
+    });
+  });
+
+  it("changes heading levels without stacking and is idempotent", () => {
+    const first = applyMarkdownAction("## Title", 5, 5, "heading6");
+    expect(first).toEqual({ text: "###### Title", start: 9, end: 9 });
+    expect(
+      applyMarkdownAction(first.text, first.start, first.end, "heading6"),
+    ).toEqual(first);
+  });
+
+  it("converts selected lines but keeps blank separators and the following line", () => {
+    const text = "# One\n\n### Two\nuntouched";
+    const end = text.indexOf("untouched");
+    expect(applyMarkdownAction(text, 0, end, "heading4").text).toBe(
+      "#### One\n\n#### Two\nuntouched",
+    );
+  });
+
+  it("starts a heading on a blank first line", () => {
+    expect(applyMarkdownAction("\nbody", 0, 0, "heading1")).toEqual({
+      text: "# \nbody",
+      start: 2,
+      end: 2,
+    });
+  });
+
+  it("preserves permitted heading indentation and literal hashes", () => {
+    expect(applyMarkdownAction("  ### Title", 6, 11, "heading1").text).toBe(
+      "  # Title",
+    );
+    expect(applyMarkdownAction("#tag", 0, 4, "heading2").text).toBe("## #tag");
+    expect(applyMarkdownAction("####### nope", 0, 12, "heading1").text).toBe(
+      "# ####### nope",
+    );
+  });
+
+  it.each([0, 7])("leaves unknown heading%i unchanged", (level) => {
+    const r = applyMarkdownAction("Title", 0, 5, `heading${level}`);
+    expect(r).toEqual({ text: "Title", start: 0, end: 5 });
+  });
 });

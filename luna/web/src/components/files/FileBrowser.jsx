@@ -10,8 +10,11 @@ import {
   FolderInput,
   FolderOpen,
   Pencil,
+  Search,
+  SearchX,
   Trash2,
   UploadCloud,
+  X,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
@@ -22,7 +25,8 @@ import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import EmptyState from "../common/EmptyState.jsx";
-import TransferMenu from "./TransferMenu.jsx";
+import Dropdown from "../common/Dropdown.jsx";
+import SegmentedControl from "../common/SegmentedControl.jsx";
 import { haptic } from "../../utils/haptics.js";
 import { getJson } from "../../lib/api.js";
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
@@ -35,11 +39,12 @@ import {
   readLunaDrive,
   readLunaPaths,
 } from "../../lib/dnd.js";
-import { openableKind } from "../../lib/fileKinds.js";
+import { canViewerOpen } from "../../lib/officeConvert.js";
+import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
 import {
   downloadHref,
+  fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
-  fmtSize,
   joinPath,
   parentPath,
 } from "../../lib/paths.js";
@@ -65,6 +70,59 @@ function cssEscape(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+const SORT_OPTIONS = [
+  { value: "name-asc", label: "Name A–Z" },
+  { value: "name-desc", label: "Name Z–A" },
+  { value: "date-desc", label: "Newest first" },
+  { value: "date-asc", label: "Oldest first" },
+  { value: "size-desc", label: "Largest first" },
+  { value: "size-asc", label: "Smallest first" },
+  { value: "kind", label: "File type" },
+];
+const SORT_VALUES = new Set(SORT_OPTIONS.map((option) => option.value));
+const SORT_STORAGE_KEY = "luna.files.sort";
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function readStoredSort() {
+  try {
+    const saved = window.localStorage.getItem(SORT_STORAGE_KEY);
+    return saved && SORT_VALUES.has(saved) ? saved : "name-asc";
+  } catch {
+    return "name-asc";
+  }
+}
+
+function extensionOf(name) {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/** Folders always lead; the chosen key orders within each group. */
+function compareEntries(a, b, sortKey) {
+  const aDir = a.kind === "dir" ? 0 : 1;
+  const bDir = b.kind === "dir" ? 0 : 1;
+  if (aDir !== bDir) return aDir - bDir;
+  const byName = NAME_COLLATOR.compare(a.name, b.name);
+  switch (sortKey) {
+    case "name-desc":
+      return NAME_COLLATOR.compare(b.name, a.name);
+    case "date-desc":
+      return (Number(b.modified) || 0) - (Number(a.modified) || 0) || byName;
+    case "date-asc":
+      return (Number(a.modified) || 0) - (Number(b.modified) || 0) || byName;
+    case "size-desc":
+      return (Number(b.size) || 0) - (Number(a.size) || 0) || byName;
+    case "size-asc":
+      return (Number(a.size) || 0) - (Number(b.size) || 0) || byName;
+    case "kind": {
+      const byExtension = NAME_COLLATOR.compare(extensionOf(a.name), extensionOf(b.name));
+      return byExtension || byName;
+    }
+    default:
+      return byName;
+  }
+}
+
 /**
  * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean }} FileEntry
  * @typedef {{ entry: FileEntry, path: string, fullPath: string }} FileBrowserRowContext
@@ -79,7 +137,6 @@ function cssEscape(value) {
  * @param {{
  *   driveId: string,
  *   driveLabel?: string,
- *   drives?: any[],
  *   initialPath?: string,
  *   path?: string,
  *   onPathChange?: (nextPath: string) => void,
@@ -92,8 +149,8 @@ function cssEscape(value) {
  *   selectPath?: string | null,
  *   onSelectPathApplied?: () => void,
  *   onShare?: (ctx: FileBrowserRowContext) => void,
- *   onCopy?: (paths: string[], targetDriveId?: string) => void,
- *   onMove?: (paths: string[], targetDriveId?: string) => void,
+ *   onCopy?: (paths: string[]) => void,
+ *   onMove?: (paths: string[]) => void,
  *   onRename?: (ctx: FileBrowserRowContext) => void,
  *   onDelete?: (paths: string[]) => void,
  *   onOpenFile?: (ctx: FileBrowserRowContext) => void,
@@ -104,6 +161,7 @@ function cssEscape(value) {
  *   enableUploadDrop?: boolean,
  *   linkNavigation?: boolean,
  *   folderHref?: (driveId: string, folderPath: string) => string,
+ *   fileHref?: (driveId: string, filePath: string) => string,
  *   showBreadcrumbs?: boolean,
  *   showUpButton?: boolean,
  *   breadcrumbExtra?: import("react").ReactNode,
@@ -114,6 +172,7 @@ function cssEscape(value) {
  *   hideHidden?: boolean,
  *   emptyTitle?: string,
  *   emptyIcon?: import("react").ElementType,
+ *   emptyDescription?: string,
  *   emptyAction?: import("react").ReactNode,
  *   className?: string,
  *   listClassName?: string,
@@ -123,7 +182,6 @@ function cssEscape(value) {
 export default function FileBrowser({
   driveId,
   driveLabel = "Drive",
-  drives = [],
   initialPath = "",
   path: controlledPath,
   onPathChange,
@@ -148,6 +206,7 @@ export default function FileBrowser({
   enableUploadDrop = false,
   linkNavigation = false,
   folderHref = defaultFolderHref,
+  fileHref = defaultFileHref,
   showBreadcrumbs = true,
   showUpButton = true,
   breadcrumbExtra = null,
@@ -159,6 +218,7 @@ export default function FileBrowser({
   emptyTitle = "Nothing here yet",
   emptyIcon: EmptyIcon = FolderOpen,
   emptyAction = null,
+  emptyDescription = "",
   className = "",
   listClassName = "",
   dense = false,
@@ -172,6 +232,7 @@ export default function FileBrowser({
   const [lunaDragActive, setLunaDragActive] = useState(false);
   const [dropTarget, setDropTarget] = useState(/** @type {string|null} */ (null));
   const [lastClicked, setLastClicked] = useState(/** @type {string|null} */ (null));
+  const [propertiesCtx, setPropertiesCtx] = useState(/** @type {FileBrowserRowContext|null} */ (null));
   const dragPathsRef = useRef(/** @type {string[]} */ ([]));
   const springLoadTimerRef = useRef(/** @type {number|null} */ (null));
   const springLoadTargetRef = useRef(/** @type {string|null} */ (null));
@@ -231,6 +292,37 @@ export default function FileBrowser({
     [entries, path],
   );
 
+  const [sortKey, setSortKey] = useState(readStoredSort);
+  const [kindFilter, setKindFilter] = useState("all");
+  const [filterText, setFilterText] = useState("");
+
+  function changeSort(next) {
+    setSortKey(next);
+    try {
+      window.localStorage.setItem(SORT_STORAGE_KEY, next);
+    } catch {
+      // Storage can be unavailable (private mode) — the sort still applies.
+    }
+  }
+
+  // Rows after the view controls: kind filter, name filter, then the sort.
+  // Folders stay grouped on top for every sort — see compareEntries.
+  const visibleEntries = useMemo(() => {
+    const query = filterText.trim().toLowerCase();
+    return entries
+      .filter((e) => (
+        (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
+        && (!query || e.name.toLowerCase().includes(query))
+      ))
+      .sort((a, b) => compareEntries(a, b, sortKey));
+  }, [entries, kindFilter, filterText, sortKey]);
+
+  const visiblePaths = useMemo(
+    () => visibleEntries.map((e) => joinPath(path, e.name)),
+    [visibleEntries, path],
+  );
+  const narrowed = visibleEntries.length !== entries.length;
+
   useEffect(() => {
     if (controlledSelected !== undefined) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
@@ -250,12 +342,22 @@ export default function FileBrowser({
   useEffect(() => {
     if (prevPathRef.current === path) return;
     prevPathRef.current = path;
+    // A typed name filter does not carry into the next folder.
+    setFilterText("");
     if (selectPath) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- path transition clears selection
     setSelectedPaths([]);
     setLastClicked(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- path transition seed only
   }, [path, selectPath]);
+
+  // A deep-linked select= row must be visible: clear the name filter so the
+  // row renders before the select effect tries to scroll to it.
+  useEffect(() => {
+    if (!selectPath) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link needs its row visible
+    setFilterText("");
+  }, [selectPath]);
 
   // Deep-link from search (`?select=`): select the file once the listing is
   // ready, scroll it into view, then let the parent clear the query param.
@@ -458,12 +560,12 @@ export default function FileBrowser({
       setLastClicked(fullPath);
       return;
     }
-    if (range && lastClicked && entryPaths.includes(lastClicked)) {
-      const a = entryPaths.indexOf(lastClicked);
-      const b = entryPaths.indexOf(fullPath);
+    if (range && lastClicked && visiblePaths.includes(lastClicked)) {
+      const a = visiblePaths.indexOf(lastClicked);
+      const b = visiblePaths.indexOf(fullPath);
       if (a >= 0 && b >= 0) {
         const [lo, hi] = a < b ? [a, b] : [b, a];
-        const slice = entryPaths.slice(lo, hi + 1);
+        const slice = visiblePaths.slice(lo, hi + 1);
         const merged = new Set(additive ? selectedPaths : []);
         slice.forEach((p) => merged.add(p));
         setSelectedPaths([...merged]);
@@ -485,7 +587,7 @@ export default function FileBrowser({
 
   function selectAllVisible() {
     haptic("selection");
-    setSelectedPaths(entryPaths);
+    setSelectedPaths(visiblePaths);
   }
 
   function clearSelection() {
@@ -500,7 +602,7 @@ export default function FileBrowser({
       openFolder(ctx.fullPath, { feedback: false });
       return;
     }
-    if (onOpenFile && openableKind(ctx.entry.name)) {
+    if (onOpenFile && canViewerOpen(ctx.entry.name)) {
       onOpenFile(ctx);
     }
   }
@@ -689,8 +791,9 @@ export default function FileBrowser({
   }
 
   const padY = dense ? "py-2" : "py-2.5";
-  const allSelected = entryPaths.length > 0 && entryPaths.every((p) => selectedPaths.includes(p));
+  const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedPaths.includes(p));
   const selectedCount = selectedPaths.length;
+  const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
   // The browser background is itself a drop target ("::current") for the
   // folder being browsed — no visible highlight, only the a11y status.
   const currentFolderDrop = dropTarget === "::current";
@@ -734,7 +837,16 @@ export default function FileBrowser({
   useEffect(() => () => {
     if (hereDropExitRef.current != null) clearTimeout(hereDropExitRef.current);
   }, []);
-  const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
+  const showTrashEntry = Boolean(trashHref && !isPicker && path === "" && entries.length > 0);
+
+  const emptyTrashAction = trashHref && !isPicker && path === "" ? (
+    <div className="flex flex-wrap justify-center gap-2">
+      {emptyAction}
+      <Button variant="outline" surface="secondary" size="sm" asChild>
+        <Link to={trashHref} draggable={false}>Open Trash</Link>
+      </Button>
+    </div>
+  ) : emptyAction;
 
   const folderActionButtons = hasFolderActions ? (
     <>
@@ -1108,11 +1220,11 @@ export default function FileBrowser({
             Drop to put items in this folder
           </span>
         ) : null}
-        {!isPicker && multiSelect && entries.length > 0 && (
+        {entries.length > 0 && (
           <div
             data-slot="file-browser-column-header"
-            className={`h-11 flex items-center gap-3 px-3 border-b border-primary/20 ${
-              selectedCount > 0 ? "bg-accent/20" : ""
+            className={`min-h-11 flex flex-wrap items-center gap-2 px-3 py-1 border-b border-primary/20 motion-safe:transition-colors ${
+              showSelectionToolbar ? "bg-accent/20" : ""
             }`}
             // The column header is not a drop target: swallow dragovers before
             // the container's catch-all can claim them, and clear any lit
@@ -1129,18 +1241,35 @@ export default function FileBrowser({
               e.preventDefault();
               e.stopPropagation();
             }}
-            role={selectedCount > 0 ? "toolbar" : undefined}
-            aria-label={selectedCount > 0 ? "Actions for selected files" : undefined}
+            role={showSelectionToolbar ? "toolbar" : "group"}
+            aria-label={showSelectionToolbar ? "Actions for selected files" : "Sort and filter this folder"}
           >
-            <AnimatedCheckbox
-              checked={allSelected}
-              onChange={(next) => (next ? selectAllVisible() : clearSelection())}
-              aria-label="Select all in this folder"
-              surface="secondary"
-            />
-            {selectedCount > 0 ? (
-              <div className="flex flex-nowrap items-center gap-2 flex-1 min-w-0 overflow-x-auto">
-                <span className="font-mono text-xs text-primary shrink-0 whitespace-nowrap">
+            {!isPicker && multiSelect ? (
+              <AnimatedCheckbox
+                checked={allSelected}
+                onChange={(next) => (next ? selectAllVisible() : clearSelection())}
+                aria-label="Select all in this folder"
+                surface="secondary"
+              />
+            ) : null}
+            {/* The two header states swap on a vertical spatial model: the
+                selection bar rises in from the bottom edge; clearing sends
+                the browse controls back down from the top. `key` remounts
+                each side so the entrance replays on every flip — no exit
+                layer, so stale controls never linger in the DOM. */}
+            {showSelectionToolbar ? (
+              <div
+                key="selecting"
+                className="flex flex-nowrap items-center gap-2 flex-1 min-w-0 overflow-x-auto animate-in slide-in-from-bottom-2"
+                style={{ animationFillMode: "backwards" }}
+              >
+                {/* Count ticks upward on each change — remounting the span
+                    replays the micro-slide like an odometer. */}
+                <span
+                  key={selectedCount}
+                  className="font-mono text-xs text-primary shrink-0 whitespace-nowrap animate-in slide-in-from-bottom-1 duration-200"
+                  style={{ animationFillMode: "backwards" }}
+                >
                   {selectedCount} selected
                 </span>
                 <Button variant="outline" surface="secondary" size="sm" className="shrink-0" onClick={clearSelection}>
@@ -1151,7 +1280,8 @@ export default function FileBrowser({
                     variant="outline"
                     surface="secondary"
                     size="sm"
-                    className="shrink-0"
+                    className="shrink-0 animate-in slide-in-from-left-2"
+                    style={{ animationFillMode: "backwards" }}
                     onClick={() => {
                       const fullPath = selectedPaths[0];
                       const name = fullPath.split("/").pop() || fullPath;
@@ -1168,31 +1298,36 @@ export default function FileBrowser({
                     variant="outline"
                     surface="secondary"
                     size="sm"
-                    className="shrink-0"
+                    className="shrink-0 animate-in slide-in-from-left-2"
+                    style={{ animationFillMode: "backwards" }}
                     asChild
                   >
                     <a href={downloadHref(driveId, selectedPaths[0])}>Download</a>
                   </Button>
                 ) : null}
                 {onCopy ? (
-                  <TransferMenu
-                    label="Copy"
-                    icon={Copy}
-                    drives={drives}
-                    currentDriveId={driveId}
-                    currentDriveLabel={driveLabel}
-                    onPick={(targetDriveId) => onCopy(selectedPaths, targetDriveId)}
-                  />
+                  <Button
+                    variant="outline"
+                    surface="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => onCopy(selectedPaths)}
+                  >
+                    <Copy size={14} aria-hidden="true" />
+                    Copy
+                  </Button>
                 ) : null}
                 {onMove ? (
-                  <TransferMenu
-                    label="Move"
-                    icon={FolderInput}
-                    drives={drives}
-                    currentDriveId={driveId}
-                    currentDriveLabel={driveLabel}
-                    onPick={(targetDriveId) => onMove(selectedPaths, targetDriveId)}
-                  />
+                  <Button
+                    variant="outline"
+                    surface="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => onMove(selectedPaths)}
+                  >
+                    <FolderInput size={14} aria-hidden="true" />
+                    Move
+                  </Button>
                 ) : null}
                 {onDelete ? (
                   <Button
@@ -1208,13 +1343,63 @@ export default function FileBrowser({
                 {toolbarExtra}
               </div>
             ) : (
-              <>
-                <span className="font-mono text-xs text-primary">Name</span>
-                <span className="ml-auto font-mono text-xs text-primary hidden sm:block w-20 text-right">
-                  Size
-                </span>
-                <span className="w-28 shrink-0" aria-hidden="true" />
-              </>
+              <div
+                key="browsing"
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-2 animate-in slide-in-from-top-2"
+                style={{ animationFillMode: "backwards" }}
+              >
+                <div className="flex min-w-36 flex-1 items-center gap-2 rounded-pill border-2 border-transparent bg-primary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
+                  <label className="flex min-w-0 flex-1 items-center gap-2">
+                    <Search size={14} className="shrink-0 text-accent" aria-hidden="true" />
+                    <input
+                      type="text"
+                      className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-secondary shadow-none outline-none no-focus-outline placeholder:text-accent"
+                      placeholder="Find in this folder"
+                      aria-label="Find in this folder"
+                      value={filterText}
+                      onChange={(e) => setFilterText(e.target.value)}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                    />
+                    {narrowed ? (
+                      <span className="shrink-0 font-mono text-xs text-accent">
+                        {visibleEntries.length} of {entries.length}
+                      </span>
+                    ) : null}
+                  </label>
+                  {filterText ? (
+                    <Button
+                      variant="ghost"
+                      surface="primary"
+                      size="iconSm"
+                      aria-label="Clear the folder filter"
+                      onClick={() => setFilterText("")}
+                    >
+                      <X size={14} />
+                    </Button>
+                  ) : null}
+                </div>
+                <SegmentedControl
+                  surface="secondary"
+                  value={kindFilter}
+                  onChange={setKindFilter}
+                  aria-label="Show"
+                  options={[
+                    { value: "all", label: "All" },
+                    { value: "dir", label: "Folders", icon: Folder },
+                    { value: "file", label: "Files", icon: FileIcon },
+                  ]}
+                />
+                <Dropdown
+                  bg="primary"
+                  options={SORT_OPTIONS}
+                  value={sortKey}
+                  onChange={changeSort}
+                  aria-label="Sort files"
+                />
+              </div>
             )}
           </div>
         )}
@@ -1293,16 +1478,15 @@ export default function FileBrowser({
                       </a>
                     )}
                   </div>
-                  <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary" aria-hidden="true" />
                   <div className="shrink-0 w-28" aria-hidden="true" />
                 </li>
               );
             })() : null}
-            {entries.map((entry) => {
+            {visibleEntries.map((entry) => {
               const ctx = rowContext(entry);
               const isSelected = selectedPaths.includes(ctx.fullPath);
               const isDrop = dropTarget === ctx.fullPath;
-              const openable = entry.kind === "file" && openableKind(entry.name);
+              const openable = entry.kind === "file" && canViewerOpen(entry.name);
               const canDragRow = !isPicker && Boolean(onInternalMove);
 
               return (
@@ -1382,15 +1566,30 @@ export default function FileBrowser({
                         </button>
                       )
                     ) : openable ? (
-                      <button
-                        type="button"
-                        draggable={false}
-                        className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
-                        onClick={() => openEntry(ctx)}
-                      >
-                        <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
-                        <span className="font-mono text-sm truncate">{entry.name}</span>
-                      </button>
+                      linkNavigation ? (
+                        <Link
+                          to={fileHref(driveId, ctx.fullPath)}
+                          draggable={false}
+                          className="flex items-center gap-2 min-w-0 text-primary hover:underline"
+                          onClick={() => {
+                            haptic("medium");
+                            onOpenFile?.(ctx);
+                          }}
+                        >
+                          <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          draggable={false}
+                          className="flex items-center gap-2 min-w-0 text-left text-primary hover:underline"
+                          onClick={() => openEntry(ctx)}
+                        >
+                          <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
+                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                        </button>
+                      )
                     ) : (
                       <div className="flex items-center gap-2 min-w-0 text-primary" draggable={false}>
                         <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
@@ -1404,17 +1603,19 @@ export default function FileBrowser({
                     ) : null}
                   </div>
 
-                  <span className="text-xs w-20 text-right hidden sm:block shrink-0 text-primary">
-                    {fmtSize(entry.size)}
-                  </span>
-
                   <div
                     data-no-row-drag
-                    className="shrink-0 max-w-[40%] sm:max-w-none"
+                    className="shrink-0 max-w-[40%] sm:max-w-none flex flex-wrap items-center justify-end gap-0.5"
                     draggable={false}
                     onMouseDown={(e) => e.stopPropagation()}
                   >
                     {rowActions(ctx)}
+                    {!isPicker && (
+                      <PropertiesButton
+                        label={entry.name}
+                        onClick={() => setPropertiesCtx(ctx)}
+                      />
+                    )}
                   </div>
                 </li>
               );
@@ -1424,8 +1625,44 @@ export default function FileBrowser({
       </Card>
 
       {!listBusy && !listing.isError && entries.length === 0 && !showTrashEntry && (
-        <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} action={emptyAction} />
+        <EmptyState className="mt-4" icon={EmptyIcon} title={emptyTitle} description={emptyDescription} action={emptyTrashAction} />
       )}
+
+      {!listBusy && !listing.isError && entries.length > 0 && visibleEntries.length === 0 && (
+        <EmptyState
+          className="mt-4"
+          icon={SearchX}
+          title={
+            filterText.trim()
+              ? `Nothing matches "${filterText.trim()}" in this folder`
+              : kindFilter === "dir"
+                ? "No folders in this folder"
+                : "No files in this folder"
+          }
+          action={(
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFilterText("");
+                setKindFilter("all");
+              }}
+            >
+              Show everything
+            </Button>
+          )}
+        />
+      )}
+
+      <PropertiesSheet
+        open={propertiesCtx != null}
+        driveId={driveId}
+        driveLabel={driveLabel}
+        path={propertiesCtx?.fullPath || ""}
+        parent={propertiesCtx?.path || ""}
+        entry={propertiesCtx?.entry || null}
+        onClose={() => setPropertiesCtx(null)}
+      />
     </div>
   );
 }
@@ -1439,7 +1676,6 @@ function pathBasenameSafe(path) {
 FileBrowser.propTypes = {
   driveId: PropTypes.string.isRequired,
   driveLabel: PropTypes.string,
-  drives: PropTypes.array,
   initialPath: PropTypes.string,
   path: PropTypes.string,
   onPathChange: PropTypes.func,
@@ -1464,6 +1700,7 @@ FileBrowser.propTypes = {
   enableUploadDrop: PropTypes.bool,
   linkNavigation: PropTypes.bool,
   folderHref: PropTypes.func,
+  fileHref: PropTypes.func,
   showBreadcrumbs: PropTypes.bool,
   showUpButton: PropTypes.bool,
   breadcrumbExtra: PropTypes.node,
@@ -1474,6 +1711,7 @@ FileBrowser.propTypes = {
   hideHidden: PropTypes.bool,
   emptyTitle: PropTypes.string,
   emptyIcon: PropTypes.elementType,
+  emptyDescription: PropTypes.string,
   emptyAction: PropTypes.node,
   className: PropTypes.string,
   listClassName: PropTypes.string,

@@ -52,17 +52,16 @@ describe("GeozoneMap component", () => {
   it("renders mode toggle with Pan map and Draw area options", () => {
     render(<GeozoneMap value={null} onChange={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: /Pan map/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Draw area/i })).toBeInTheDocument();
-    expect(screen.getByText("No area selected")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Pan map/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Draw area/i })).toBeInTheDocument();
   });
 
   it("switches interaction mode when buttons are clicked", async () => {
     const user = userEvent.setup();
     render(<GeozoneMap value={null} onChange={vi.fn()} />);
 
-    const panBtn = screen.getByRole("button", { name: /Pan map/i });
-    const drawBtn = screen.getByRole("button", { name: /Draw area/i });
+    const panBtn = screen.getByRole("radio", { name: /Pan map/i });
+    const drawBtn = screen.getByRole("radio", { name: /Draw area/i });
 
     // Initial mode when value is null is draw
     expect(screen.getByText(/Click & drag or drag with finger to select an area/i)).toBeInTheDocument();
@@ -74,7 +73,7 @@ describe("GeozoneMap component", () => {
     expect(screen.getByText(/Click & drag or drag with finger to select an area/i)).toBeInTheDocument();
   });
 
-  it("renders coordinate summary and Clear zone button when value is provided", async () => {
+  it("renders Redraw and Clear zone buttons when value is provided", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -84,7 +83,7 @@ describe("GeozoneMap component", () => {
       />
     );
 
-    expect(screen.getByText(/37.70–37.90 lat · -122.50–-122.30 lon/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Redraw/i })).toBeInTheDocument();
     const clearBtn = screen.getByRole("button", { name: /Clear zone/i });
     expect(clearBtn).toBeInTheDocument();
 

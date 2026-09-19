@@ -514,7 +514,7 @@ export default function GalleryFilterSheet({
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="block text-sm flex-1 min-w-[8rem]">
-              From
+              <span className="block translate-x-5">From</span>
               <input
                 type="date"
                 value={draft.dateFrom || ""}
@@ -525,7 +525,7 @@ export default function GalleryFilterSheet({
               />
             </label>
             <label className="block text-sm flex-1 min-w-[8rem]">
-              To
+              <span className="block translate-x-5">To</span>
               <input
                 type="date"
                 value={draft.dateTo || ""}
@@ -557,7 +557,7 @@ export default function GalleryFilterSheet({
                   onClose();
                 }}
               >
-                Jump on timeline…
+                Jump to a day…
               </Button>
             )}
           </div>
@@ -647,7 +647,7 @@ export default function GalleryFilterSheet({
             )}
             <div className="grid grid-cols-2 gap-2">
               <label className="block text-sm">
-                ISO min
+                <span className="block translate-x-5">ISO min</span>
                 <input
                   type="number"
                   min="0"
@@ -657,7 +657,7 @@ export default function GalleryFilterSheet({
                 />
               </label>
               <label className="block text-sm">
-                ISO max
+                <span className="block translate-x-5">ISO max</span>
                 <input
                   type="number"
                   min="0"
@@ -667,7 +667,7 @@ export default function GalleryFilterSheet({
                 />
               </label>
               <label className="block text-sm">
-                Focal min (mm)
+                <span className="block translate-x-5">Focal min (mm)</span>
                 <input
                   type="number"
                   min="0"
@@ -677,7 +677,7 @@ export default function GalleryFilterSheet({
                 />
               </label>
               <label className="block text-sm">
-                Focal max (mm)
+                <span className="block translate-x-5">Focal max (mm)</span>
                 <input
                   type="number"
                   min="0"
@@ -800,7 +800,10 @@ export default function GalleryFilterSheet({
           <div className="space-y-2">
             <p className="text-sm flex items-center gap-1">
               Has{" "}
-              <TermHint content="A location tag some phones and cameras store with a photo.">
+              <TermHint
+                surface="primary"
+                content="A location tag some phones and cameras store with a photo."
+              >
                 GPS
               </TermHint>{" "}
               location
@@ -825,7 +828,7 @@ export default function GalleryFilterSheet({
             </div>
           </div>
           <label className="block text-sm">
-            Min megapixels
+            <span className="block translate-x-5">Min megapixels</span>
             <input
               type="number"
               min="0"
@@ -837,7 +840,7 @@ export default function GalleryFilterSheet({
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="block text-sm">
-              Video length min (s)
+              <span className="block translate-x-5">Video length min (s)</span>
               <input
                 type="number"
                 min="0"
@@ -847,7 +850,7 @@ export default function GalleryFilterSheet({
               />
             </label>
             <label className="block text-sm">
-              Video length max (s)
+              <span className="block translate-x-5">Video length max (s)</span>
               <input
                 type="number"
                 min="0"
@@ -879,7 +882,7 @@ export default function GalleryFilterSheet({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <label className="block text-sm">
-              Hour from
+              <span className="block translate-x-5">Hour from</span>
               <input
                 type="number"
                 min="0"
@@ -890,7 +893,7 @@ export default function GalleryFilterSheet({
               />
             </label>
             <label className="block text-sm">
-              Hour to
+              <span className="block translate-x-5">Hour to</span>
               <input
                 type="number"
                 min="0"

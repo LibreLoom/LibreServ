@@ -51,7 +51,7 @@ pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna do
 pub const TUNNEL_NOT_RUNNING_MSG: &str =
     "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.";
 
-const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
+pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
 /// TODO: We need to add remote access options for non-connect users.
 
@@ -113,6 +113,7 @@ pub struct ConnectService {
     connect_unreachable: Mutex<Option<&'static str>>,
     /// Sticky user-facing tunnel helper / start failure while Connect expects a tunnel.
     tunnel_error: Mutex<Option<String>>,
+    cached_wan_ip: Mutex<Option<std::net::IpAddr>>,
     local_port: u16,
 }
 
@@ -121,8 +122,21 @@ impl ConnectService {
         let device_key = crate::secrets::ensure_device_key(data_dir).unwrap_or([0u8; 32]);
         // Legacy opt-out marker — Connect is off by default now; drop the file if present.
         let _ = std::fs::remove_file(data_dir.join("disable-connect"));
+        let state_path = data_dir.join("connect.json");
+        let cached_wan_ip = if state_path.exists() {
+            std::fs::read_to_string(&state_path)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                .and_then(|val| {
+                    val.get("wan_ip")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+                })
+        } else {
+            None
+        };
         Self {
-            state_path: data_dir.join("connect.json"),
+            state_path,
             token_path: data_dir.join(DEVICE_TOKEN_FILE),
             legacy_token_path: data_dir.join(LEGACY_DEVICE_TOKEN_FILE),
             base_url: base_url
@@ -135,6 +149,7 @@ impl ConnectService {
             rejected_token: Mutex::new(false),
             connect_unreachable: Mutex::new(None),
             tunnel_error: Mutex::new(None),
+            cached_wan_ip: Mutex::new(cached_wan_ip),
             local_port: 8090,
         }
     }
@@ -195,6 +210,16 @@ impl ConnectService {
     /// Alias for API clarity.
     pub fn is_connect_active(&self) -> bool {
         self.has_valid_device_code()
+    }
+
+    /// Luna's known external/WAN IP address if learned from Connect or fallback check.
+    pub fn wan_ip(&self) -> Option<std::net::IpAddr> {
+        *self.cached_wan_ip.lock().unwrap()
+    }
+
+    /// Set or override the cached external/WAN IP address (used by tests or direct discovery).
+    pub fn set_cached_wan_ip(&self, ip: std::net::IpAddr) {
+        *self.cached_wan_ip.lock().unwrap() = Some(ip);
     }
 
     /// During setup: peel from LUNAASSETS when the on-disk token is missing or invalid.
@@ -506,6 +531,17 @@ impl ConnectService {
                 if let Some(s) = remote.get("setup_secret") {
                     state["first_user_secret"] = s.clone();
                 }
+                if let Some(w) = remote.get("wan_ip").and_then(|v| v.as_str()) {
+                    if let Ok(parsed) = w.trim().parse::<std::net::IpAddr>() {
+                        state["wan_ip"] = json!(w.trim());
+                        *self.cached_wan_ip.lock().unwrap() = Some(parsed);
+                    }
+                } else if self.cached_wan_ip.lock().unwrap().is_none()
+                    && let Some(parsed) = detect_public_ip_fallback()
+                {
+                    state["wan_ip"] = json!(parsed.to_string());
+                    *self.cached_wan_ip.lock().unwrap() = Some(parsed);
+                }
                 state["backup_unlocked"] = json!(
                     remote
                         .get("backup_unlocked")
@@ -566,6 +602,7 @@ impl ConnectService {
     fn clear_claim_keep_code(&self) {
         self.stop_tunnel();
         self.clear_tunnel_error();
+        *self.cached_wan_ip.lock().unwrap() = None;
         let _ = std::fs::remove_file(&self.state_path);
     }
 
@@ -1392,6 +1429,25 @@ pub(crate) fn group_device_token(norm: &str) -> String {
 
 pub fn is_idle(last_io_unix: i64, now_unix: i64) -> bool {
     now_unix.saturating_sub(last_io_unix) >= 30
+}
+
+pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
+    const URLS: &[&str] = &["https://api64.ipify.org", "https://icanhazip.com"];
+    for url in URLS {
+        let resp = ureq::get(*url)
+            .config()
+            .timeout_global(Some(Duration::from_secs(3)))
+            .timeout_connect(Some(Duration::from_secs(2)))
+            .build()
+            .call();
+        if let Ok(mut r) = resp
+            && let Ok(text) = r.body_mut().read_to_string()
+            && let Ok(ip) = text.trim().parse::<std::net::IpAddr>()
+        {
+            return Some(ip);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

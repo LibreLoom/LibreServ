@@ -1,16 +1,15 @@
 import PropTypes from "prop-types";
-import { Download } from "lucide-react";
-import Button from "../../ui/Button.jsx";
 import PageNotice from "../../common/PageNotice.jsx";
 import { downloadHref, pathBasename } from "../../../lib/paths.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { haptic } from "../../../utils/haptics.js";
 import EuroOfficeHost from "./EuroOfficeHost.jsx";
+import OfficeIssueCard from "./OfficeIssueCard.jsx";
 
 /**
  * Office entry — EuroOffice or nothing.
- * FileViewer owns the EuroOffice probe and chooses modal vs fullscreen shell.
- * Pass `phase` from that probe so escalating to fullscreen does not re-check.
+ * There is no pre-flight probe: the host mounts straight into FileViewer's
+ * fullscreen shell and a missing pack is discovered when the DocsAPI script
+ * fails to load. The host reports that through `onUnavailable`, and
+ * FileViewer passes `missing` back down so this card replaces the host.
  *
  * @param {{
  *   driveId: string,
@@ -21,8 +20,8 @@ import EuroOfficeHost from "./EuroOfficeHost.jsx";
  *   onPresenceChange?: (label: string) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
  *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
- *   phase: "checking"|"ready"|"missing",
- *   layout?: "modal"|"fullscreen",
+ *   onUnavailable?: () => void,
+ *   missing?: boolean,
  * }} props
  */
 export default function OfficeEditor({
@@ -34,79 +33,32 @@ export default function OfficeEditor({
   onPresenceChange,
   onSaveStateChange,
   onRegisterSave,
-  phase,
-  layout = "modal",
+  onUnavailable,
+  missing = false,
 }) {
   const name = pathBasename(path) || path;
-  const inModal = layout === "modal";
 
-  if (phase === "checking") {
+  if (missing) {
     return (
-      <div
-        className={`flex items-center justify-center ${
-          inModal
-            ? "min-h-[30vh] text-primary"
-            : "h-full min-h-0 flex-1 bg-primary text-secondary"
-        }`}
+      <OfficeIssueCard
+        title="This Luna can't open office files"
+        downloadUrl={downloadHref(driveId, path)}
+        downloadName={name}
+        onClose={onClose}
       >
-        <p className="font-mono text-sm motion-safe:animate-pulse">Checking for EuroOffice…</p>
-      </div>
-    );
-  }
-
-  if (phase === "missing") {
-    return (
-      <div
-        className={`flex flex-col gap-3 ${
-          inModal
-            ? "text-primary"
-            : "h-full min-h-0 flex-1 items-center justify-center bg-primary p-6 text-secondary"
-        }`}
-      >
-        <div className={`space-y-3 ${inModal ? "" : "w-full max-w-lg"}`}>
-          <h3 className={`font-mono ${inModal ? "text-base text-primary" : "text-lg text-secondary"}`}>
-            EuroOffice is not on this Luna
-          </h3>
-          <p className={`text-sm ${inModal ? "text-primary" : "text-secondary"}`}>
-            Office files open only in EuroOffice. Luna does not include a built-in editor.
-            Install the EuroOffice pack on this Luna (see{" "}
-            <span className="font-mono">luna/docs/eurooffice.md</span>), or download the file
-            and open it on another device.
-          </p>
-          <PageNotice variant="info" surface={inModal ? "secondary" : "primary"}>
-            Needed file:{" "}
-            <span className="font-mono">
-              /eurooffice/web-apps/apps/api/documents/api.js
-            </span>
-          </PageNotice>
-          <div className="flex flex-wrap gap-3 pt-1">
-            <Button
-              variant={inModal ? "primary" : "secondary"}
-              surface={inModal ? "secondary" : "primary"}
-              asChild
-              onClick={() => haptic("light")}
-            >
-              <a href={downloadHref(driveId, path)}>
-                <Download size={ICON_SIZE.sm} aria-hidden="true" />
-                Download {name}
-              </a>
-            </Button>
-            {onClose ? (
-              <Button
-                type="button"
-                variant="outline"
-                surface={inModal ? "secondary" : "primary"}
-                onClick={() => {
-                  haptic("light");
-                  onClose();
-                }}
-              >
-                Close
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </div>
+        <p>
+          Your file is fine — this Luna just doesn't have its office editor.
+          Download it to keep working in another office app.
+        </p>
+        <PageNotice variant="info" surface="secondary" className="mt-3">
+          Technical details: Luna's <span className="font-mono">EuroOffice</span>{" "}
+          pack is missing or incomplete. It normally arrives with Luna setup and
+          lives in the{" "}
+          <span className="font-mono">eurooffice</span> folder inside Luna's data
+          directory (<span className="font-mono">/var/lib/luna/eurooffice</span>{" "}
+          on installed devices). Add the pack and restart Luna.
+        </PageNotice>
+      </OfficeIssueCard>
     );
   }
 
@@ -119,6 +71,8 @@ export default function OfficeEditor({
       onPresenceChange={onPresenceChange}
       onSaveStateChange={onSaveStateChange}
       onRegisterSave={onRegisterSave}
+      onUnavailable={onUnavailable}
+      onClose={onClose}
     />
   );
 }
@@ -132,6 +86,6 @@ OfficeEditor.propTypes = {
   onPresenceChange: PropTypes.func,
   onSaveStateChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
-  phase: PropTypes.oneOf(["checking", "ready", "missing"]).isRequired,
-  layout: PropTypes.oneOf(["modal", "fullscreen"]),
+  onUnavailable: PropTypes.func,
+  missing: PropTypes.bool,
 };

@@ -26,14 +26,17 @@ export async function fetchDriveBlobUrl(driveId, path, mime) {
 
 /**
  * Load drive file bytes once, then render children.
+ * `surface` names the background the loader sits on — "secondary" inside a
+ * modal card (default), "primary" inside FileViewer's fullscreen frame.
  * @param {{
  *   driveId: string,
  *   path: string,
  *   children: (ctx: { bytes: ArrayBuffer }) => import("react").ReactNode,
  *   loadingLabel?: string,
+ *   surface?: "secondary" | "primary",
  * }} props
  */
-export function BytesLoader({ driveId, path, children, loadingLabel = "Opening…" }) {
+export function BytesLoader({ driveId, path, children, loadingLabel = "Opening…", surface = "secondary" }) {
   const [bytes, setBytes] = useState(/** @type {ArrayBuffer|null} */ (null));
   const [error, setError] = useState(/** @type {string|null} */ (null));
 
@@ -56,8 +59,9 @@ export function BytesLoader({ driveId, path, children, loadingLabel = "Opening�
     };
   }, [driveId, path]);
 
-  if (error) return <p className="text-primary text-sm">{error}</p>;
-  if (!bytes) return <p className="text-primary text-sm">{loadingLabel}</p>;
+  const textTone = surface === "primary" ? "text-secondary" : "text-primary";
+  if (error) return <p className={`${textTone} text-sm`}>{error}</p>;
+  if (!bytes) return <p className={`${textTone} text-sm`}>{loadingLabel}</p>;
   return children({ bytes });
 }
 
@@ -66,4 +70,5 @@ BytesLoader.propTypes = {
   path: PropTypes.string.isRequired,
   children: PropTypes.func.isRequired,
   loadingLabel: PropTypes.string,
+  surface: PropTypes.oneOf(["secondary", "primary"]),
 };

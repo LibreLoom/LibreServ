@@ -4,10 +4,6 @@
 //! `{LUNA_DATA_DIR}/mock-drives/` (see `make mock-drive`). Each folder is a
 //! plain directory (not a loop device) so Cloud Agent VMs work without root
 //! block-device setup.
-//!
-//! The legacy single-volume `mock-pssd-vol` / `sdmock` / "64GB PSSD" path is no
-//! longer injected into detection. Optional `make mock-pssd` fixtures remain
-//! for photo/EXIF unit tests only.
 
 use std::path::{Path, PathBuf};
 
@@ -18,9 +14,6 @@ pub const DEFAULT_SIZE_BYTES: u64 = 64_000_000_000;
 
 /// Relative to `LUNA_DATA_DIR` (typically `luna/dev/mock-drives`).
 pub const MOCK_DRIVES_DIR_NAME: &str = "mock-drives";
-
-/// Legacy volume dir name — kept for optional fixtures / env override cleanup.
-pub const VOLUME_DIR_NAME: &str = "mock-pssd-vol";
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct MockDriveConfig {
@@ -35,7 +28,7 @@ pub struct MockDriveConfig {
 
 /// Whether mock drives should appear in drive detection.
 pub fn enabled() -> bool {
-    match std::env::var("LUNA_MOCK_PSSD").ok().as_deref() {
+    match std::env::var("LUNA_MOCK_DRIVES").ok().as_deref() {
         Some("0") | Some("false") | Some("no") | Some("off") => false,
         Some("1") | Some("true") | Some("yes") | Some("on") => true,
         _ => dev_data_dir(),
@@ -55,16 +48,6 @@ fn dev_data_dir() -> bool {
         .unwrap_or(false)
 }
 
-/// Path to the legacy optional PSSD fixture volume (not auto-injected).
-pub fn volume_path() -> PathBuf {
-    if let Ok(p) = std::env::var("LUNA_MOCK_PSSD_PATH") {
-        return PathBuf::from(p);
-    }
-    std::env::var("LUNA_DATA_DIR")
-        .map(|d| PathBuf::from(d).join(VOLUME_DIR_NAME))
-        .unwrap_or_else(|_| PathBuf::from(VOLUME_DIR_NAME))
-}
-
 /// Path to dynamic mock drives directory.
 pub fn mock_drives_path() -> PathBuf {
     if let Ok(p) = std::env::var("LUNA_MOCK_DRIVES_PATH") {
@@ -77,8 +60,7 @@ pub fn mock_drives_path() -> PathBuf {
 
 /// Build a [`DetectedDrive`] from a directory when mock mode is on.
 ///
-/// Used by unit tests and as the shared "directory-as-drive" helper. Detection
-/// no longer auto-injects the legacy `mock-pssd-vol` — only `scan_mock_drives`.
+/// Used by unit tests and as the shared "directory-as-drive" helper.
 pub fn detected_drive_at(root: &Path, on: bool, name: &str, model: &str) -> Option<DetectedDrive> {
     if !on {
         return None;
@@ -266,7 +248,7 @@ mod tests {
         let row = row.unwrap();
         assert_eq!(row.label, "Portable SSD");
         assert_eq!(row.device, "sdmock_photos");
-        assert!(Path::new(&row.mount_point).join(".luna").exists());
+        assert!(crate::drive_db::find_db_file(Path::new(&row.mount_point)).is_some());
     }
 
     #[test]

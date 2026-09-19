@@ -469,7 +469,7 @@ describe("FilesPage", () => {
       expect(create).toBeTruthy();
       expect(JSON.parse(create[1].body)).toEqual({ path: "note.txt" });
     });
-    expect(await screen.findByRole("heading", { name: "Edit note.txt" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "note.txt" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
   });
 
@@ -555,5 +555,61 @@ describe("FilesPage", () => {
     expect(within(dialog).getByRole("button", { name: "New folder" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "New" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "New text file" })).not.toBeInTheDocument();
+  });
+
+  it("opens a supported file directly from the file query parameter", async () => {
+    stubFilesApi({
+      "": [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1?file=notes.txt");
+    expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
+  });
+
+  it("opens a supported file inside a folder from path and file query parameters", async () => {
+    stubFilesApi({
+      docs: [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1?path=docs&file=notes.txt");
+    expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
+  });
+
+  it("opens a supported file from hashtag", async () => {
+    stubFilesApi({
+      "": [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1#notes.txt");
+    expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
+  });
+
+  it("ignores unsupported file in query parameter and does not open viewer", async () => {
+    stubFilesApi({
+      "": [{ name: "data.bin", kind: "file", size: 50, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1?file=data.bin");
+    expect(await screen.findByText("data.bin")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("ignores unsupported file in hashtag and does not open viewer", async () => {
+    stubFilesApi({
+      "": [{ name: "data.bin", kind: "file", size: 50, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1#data.bin");
+    expect(await screen.findByText("data.bin")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("clears file parameter when the viewer is closed", async () => {
+    stubFilesApi({
+      "": [{ name: "notes.txt", kind: "file", size: 10, modified: 0, hidden: false }],
+    });
+    renderFiles("/drives/d1?file=notes.txt");
+    const dialog = await screen.findByRole("dialog", { name: /notes.txt/i });
+    expect(dialog).toBeInTheDocument();
+    const closeBtn = within(dialog).getByRole("button", { name: "Close editor" });
+    fireEvent.click(closeBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

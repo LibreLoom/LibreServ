@@ -509,9 +509,10 @@ ActionTooltipGroup.propTypes = {
  *   surface?: "primary"|"secondary",
  *   delayMs?: number,
  *   className?: string,
+ *   popupClassName?: string,
  * }} props
  */
-export function Tooltip({ content, children, surface: _surface = "secondary", delayMs, className = "" }) {
+export function Tooltip({ content, children, surface: _surface = "secondary", delayMs, className = "", popupClassName = "" }) {
   const group = useContext(TooltipGroupContext);
   const localId = useId();
   const tooltipId = useId();
@@ -708,6 +709,7 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
               "z-50 bg-secondary text-primary ring-2 ring-inset ring-accent",
               "max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug pointer-events-auto",
               "motion-safe:transition-opacity motion-safe:duration-150",
+              popupClassName,
             )}
           >
             {content}
@@ -724,4 +726,5 @@ Tooltip.propTypes = {
   surface: PropTypes.oneOf(["primary", "secondary"]),
   delayMs: PropTypes.number,
   className: PropTypes.string,
+  popupClassName: PropTypes.string,
 };

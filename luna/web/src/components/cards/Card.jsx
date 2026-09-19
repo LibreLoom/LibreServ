@@ -35,7 +35,7 @@ function Card({
   onAnimationEnd,
   ...rest
 }) {
-  const { outerRef, innerRef } = useAnimatedHeight();
+  const { outerRef, innerRef } = useAnimatedHeight(!noHeightAnim);
 
   const animationClass = noPopIn ? "" : "pop-in";
 

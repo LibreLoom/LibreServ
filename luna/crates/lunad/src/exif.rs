@@ -442,22 +442,6 @@ mod tests {
     }
 
     #[test]
-    fn fixture_jpeg_gps_from_mock_pssd() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mock-pssd");
-        let sample = root.join("Photos/Vacation - Yosemite/2022-yosemite-01.jpg");
-        if !sample.is_file() {
-            eprintln!("mock PSSD fixtures missing — run: make mock-pssd-photos");
-            return;
-        }
-        let meta = capture_meta(&sample).expect("read fixture exif");
-        assert!(meta.taken_at.is_some(), "DateTimeOriginal missing");
-        assert!(
-            meta.lat.is_some() && meta.lon.is_some(),
-            "GPS missing: {meta:?}"
-        );
-    }
-
-    #[test]
     fn jpeg_exif_fixture_uses_capture_date() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phone.jpg");

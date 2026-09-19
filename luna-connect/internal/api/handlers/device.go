@@ -210,6 +210,9 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		"backup_unlocked": unlocked,
 		"paired":          true,
 	}
+	if wanIP := ClientIP(r); wanIP != "" {
+		out["wan_ip"] = wanIP
+	}
 	if sub.Valid && sub.String != "" {
 		out["subdomain"] = sub.String
 		out["hostname"] = domainname.Hostname(sub.String, config.C.Server.PublicZone)

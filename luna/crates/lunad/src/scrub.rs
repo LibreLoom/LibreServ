@@ -301,7 +301,7 @@ pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
 }
 
 /// Like [`hash_drive`], but does not hold the central `luna.db` mutex while
-/// walking/hashing — hashes live in the drive `.luna` microdb. Any one-shot
+/// walking/hashing — hashes live in the drive `.luna-<uuid>.sqlite3` microdb. Any one-shot
 /// central→drive migration runs under a brief lock, then the walk is unlocked.
 pub fn hash_drive_unlocked(
     db: &std::sync::Mutex<Connection>,
@@ -383,7 +383,12 @@ mod tests {
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
         let marker = luna_core::marker::Marker::new("d1", "D");
-        let conn = crate::drive_db::create(&root, &marker).unwrap();
+        let conn = crate::drive_db::create(
+            &root,
+            &marker,
+            &luna_core::marker::pick_prefix(&root).unwrap(),
+        )
+        .unwrap();
         let central = db::open(&dir.path().join("luna.db")).unwrap();
         let file = root.join("photo.jpg");
         std::fs::write(&file, b"original").unwrap();
@@ -417,7 +422,12 @@ mod tests {
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
         let marker = luna_core::marker::Marker::new("d1", "D");
-        let _ = crate::drive_db::create(&root, &marker).unwrap();
+        let _ = crate::drive_db::create(
+            &root,
+            &marker,
+            &luna_core::marker::pick_prefix(&root).unwrap(),
+        )
+        .unwrap();
         let file = root.join("doc.txt");
         std::fs::write(&file, b"hello").unwrap();
 

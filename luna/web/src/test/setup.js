@@ -26,3 +26,33 @@ if (!globalThis.ResizeObserver) {
     disconnect() {}
   };
 }
+
+// jsdom lacks matchMedia — codemirror-markdown-tables queries it when the
+// cell editors mount. The app's useIsMdUp hook treats a *missing* matchMedia
+// as desktop, so the stub must preserve that: min-width queries match,
+// everything else (dark scheme, reduced motion) doesn't.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  window.matchMedia = (query) => ({
+    matches: /min-width/.test(query),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
+
+// jsdom has no layout engine: Range lacks getClientRects/getBoundingClientRect,
+// which CodeMirror's selection layer calls when measuring. Stub both.
+if (typeof Range !== "undefined" && !Range.prototype.getClientRects) {
+  const emptyRectList = /** @type {DOMRectList} */ (
+    Object.assign([], { item: () => null })
+  );
+  Range.prototype.getClientRects = () => emptyRectList;
+  Range.prototype.getBoundingClientRect = () => /** @type {DOMRect} */ ({
+    x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0,
+    toJSON: () => ({}),
+  });
+}
