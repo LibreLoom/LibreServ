@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import LightboxMedia from "./LightboxMedia.jsx";
 import PhotoInfoPanel from "./PhotoInfoPanel.jsx";
 import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
 import { Link } from "react-router-dom";
@@ -351,30 +352,7 @@ export default function PhotoLightbox({
             </Button>
           </Tooltip>
         )}
-        {photo.kind === "video" ? (
-          <video
-            key={src}
-            controls
-            autoPlay={!slideshow}
-            className="max-h-full max-w-full rounded-large-element"
-            src={src}
-          >
-            Your browser cannot play this video. Download it instead.
-          </video>
-        ) : (
-          <img
-            key={src}
-            src={src}
-            alt={photo.name}
-            className="max-h-full max-w-full object-contain motion-safe:animate-page-enter"
-            onError={(e) => {
-              // HEIC preview may 404 until backend lands — fall back to thumb.
-              if (photo.thumb && e.currentTarget.src !== photo.thumb) {
-                e.currentTarget.src = photo.thumb;
-              }
-            }}
-          />
-        )}
+        <LightboxMedia key={src} photo={photo} src={src} autoPlay={!slideshow} />
         {index < photos.length - 1 && (
           <Tooltip content="Next photo" popupClassName="z-[100]" className="absolute right-2 z-10">
             <Button
