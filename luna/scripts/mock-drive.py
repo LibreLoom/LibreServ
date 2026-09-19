@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import random
@@ -16,6 +17,8 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import urllib.parse
+import urllib.request
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -482,41 +485,334 @@ def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: s
         path.write_bytes(TINY_JPEG)
 
 
-def populate_photos(dest: Path) -> int:
-    """Seed photo content: synthetic JPEGs across DCIM/Photos/Pictures."""
-    count = 0
-    now = datetime(2025, 6, 15, 14, 0, 0)
-    cameras = [("100CANON", "Canon EOS R5"), ("101APPLE", "iPhone 16 Pro"), ("102FUJI", "Fujifilm X-T5")]
-    for folder, cam in cameras:
-        for i in range(1, 7):
-            dt = now - timedelta(days=random.randint(1, 300), hours=random.randint(1, 10))
-            fn = f"IMG_{1000 + i:04d}.JPG"
-            create_mock_image(
-                dest / "DCIM" / folder / fn,
-                1920,
-                1080,
-                f"{cam} - {fn}",
-                dt.strftime("%Y-%m-%d %H:%M"),
-            )
-            count += 1
+# --- Real photos: Wikimedia Commons pixels + synthetic EXIF ------------------
+#
+# The gallery indexes taken_at, GPS (lat/lon + place label), camera make/model,
+# lens, ISO, focal length, flash, plus width/height for the orientation and
+# megapixel filters. Real Commons JPEGs are downloaded once into
+# {LUNA_DATA_DIR}/.commons-cache (dot-prefixed, so the drive scanner skips it)
+# and each is stamped with a deterministic spec that spreads every filterable
+# field. Deliberate edge cases: one photo with no EXIF at all (no-date /
+# has-gps filters) and one PNG (format filter + mtime fallback).
+#
+# Set LUNA_MOCK_NO_NETWORK=1 to skip downloads (Pillow-drawn fallbacks are
+# stamped with the same EXIF specs).
 
-    albums = [
-        ("Photos/2024/Summer Trip", 5),
-        ("Photos/2025/New Year", 4),
-        ("Photos/Family/Reunion", 5),
-        ("Pictures/Wallpapers", 3),
-    ]
-    for album, num in albums:
-        for i in range(1, num + 1):
-            dt = now - timedelta(days=random.randint(50, 400))
-            create_mock_image(
-                dest / album / f"photo_{i:02d}.jpg",
-                1600,
-                1200,
-                f"{album} #{i}",
-                dt.strftime("%Y-%m-%d %H:%M"),
-            )
+COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+COMMONS_CATEGORY = "Category:Featured pictures on Wikimedia Commons"
+COMMONS_UA = "LunaMockDrive/1.0 (LibreLoom dev fixture generator)"
+COMMONS_THUMB_WIDTH = 1600
+COMMONS_ORIG_MAX_BYTES = 30_000_000
+PHOTO_COUNT = 30
+
+MOCK_CAMERAS = [
+    ("Canon", "Canon EOS R5", "RF24-105mm F4 L IS USM", "100CANON"),
+    ("Apple", "iPhone 16 Pro", "iPhone 16 Pro back camera 6.765mm f/1.78", "101APPLE"),
+    ("FUJIFILM", "X-T5", "XF16-55mmF2.8 R LM WR", "102FUJI"),
+    ("NIKON CORPORATION", "NIKON Z 8", "NIKKOR Z 24-70mm f/2.8 S", "103NIKON"),
+    ("SONY", "ILCE-7M4", "FE 35mm F1.4 GM", "104SONY"),
+]
+
+MOCK_CITIES = [
+    ("Paris", 48.8566, 2.3522),
+    ("New York", 40.7128, -74.0060),
+    ("Tokyo", 35.6762, 139.6503),
+    ("Sydney", -33.8688, 151.2093),
+    ("San Francisco", 37.7749, -122.4194),
+    ("Reykjavik", 64.1466, -21.9426),
+    ("Cape Town", -33.9249, 18.4241),
+    ("Cusco", -13.5320, -71.9675),
+]
+
+MOCK_ISOS = [64, 100, 200, 400, 800, 1600, 3200, 6400]
+MOCK_FOCALS = [14, 24, 35, 50, 85, 105, 200, 400]
+MOCK_APERTURES = [1.4, 1.8, 2.8, 4.0, 5.6, 8.0, 11.0]
+MOCK_SHUTTERS = [(1, 8000), (1, 1000), (1, 250), (1, 60), (1, 30), (1, 8), (2, 1)]
+MOCK_ALBUMS = ["Summer Trip", "New Year", "Reunion", "Wallpapers"]
+
+
+def _photo_specs(count: int) -> list[dict]:
+    """Deterministic per-photo spec: spreads every filterable EXIF field."""
+    specs = []
+    base = datetime(2025, 6, 15, 14, 0, 0)
+    for i in range(count):
+        make, model, lens, dcim = MOCK_CAMERAS[i % len(MOCK_CAMERAS)]
+        dt = base - timedelta(days=13 * i + 5, hours=(7 * i) % 24, minutes=(11 * i) % 60)
+        gps = None
+        if i % 3 != 2:  # ~2/3 of photos carry GPS
+            city, lat, lon = MOCK_CITIES[(2 * i) % len(MOCK_CITIES)]
+            jitter = ((i * 37) % 100) / 5000.0  # ±0.02° spread inside the city
+            gps = (lat + jitter, lon - jitter, city)
+        shape = "landscape"
+        if i % 5 == 1:
+            shape = "portrait"
+        elif i % 5 == 4:
+            shape = "square"
+        if i % 2 == 0:
+            rel = f"DCIM/{dcim}/IMG_{1000 + i:04d}.JPG"
+        else:
+            album = MOCK_ALBUMS[(i // 2) % len(MOCK_ALBUMS)]
+            rel = f"Photos/{dt.year}/{album}/photo_{i:02d}.jpg"
+        specs.append({
+            "rel": rel,
+            "label": f"{model} #{i}",
+            "dt": dt.strftime("%Y:%m:%d %H:%M:%S"),
+            "make": make,
+            "model": model,
+            "lens": lens,
+            "iso": MOCK_ISOS[i % len(MOCK_ISOS)],
+            "focal": MOCK_FOCALS[(3 * i) % len(MOCK_FOCALS)],
+            "aperture": MOCK_APERTURES[i % len(MOCK_APERTURES)],
+            "shutter": MOCK_SHUTTERS[i % len(MOCK_SHUTTERS)],
+            "flash": 1 if i % 4 == 0 else 0,
+            "gps": gps,
+            "shape": shape,
+            # Edge cases: last photo has no EXIF (no-date filter), second to
+            # last is a PNG (format filter + mtime fallback).
+            "bare": i == count - 1,
+            "png": i == count - 2,
+            # Every 8th photo downloads the full original for megapixel range.
+            "original": i % 8 == 0,
+        })
+    return specs
+
+
+def _commons_cache() -> Path:
+    d = DATA_DIR / ".commons-cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _commons_get(params: dict) -> dict:
+    url = COMMONS_API + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": COMMONS_UA})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _commons_candidates(limit: int = 240) -> list[dict]:
+    data = _commons_get({
+        "action": "query",
+        "format": "json",
+        "generator": "categorymembers",
+        "gcmtitle": COMMONS_CATEGORY,
+        "gcmtype": "file",
+        "gcmlimit": str(limit),
+        "prop": "imageinfo",
+        "iiprop": "url|size|mime",
+        "iiurlwidth": str(COMMONS_THUMB_WIDTH),
+    })
+    pages = (data.get("query") or {}).get("pages") or {}
+    out = []
+    for page in pages.values():
+        info = (page.get("imageinfo") or [{}])[0]
+        if info.get("mime") != "image/jpeg" or not info.get("thumburl"):
+            continue
+        if (info.get("width") or 0) < 600 or (info.get("height") or 0) < 600:
+            continue
+        out.append({
+            "title": page.get("title") or "photo.jpg",
+            "thumburl": info["thumburl"],
+            "url": info.get("url") or "",
+            "size": info.get("size") or 0,
+        })
+    out.sort(key=lambda c: c["title"])
+    return out
+
+
+def _download(url: str, dest: Path) -> bool:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": COMMONS_UA})
+        with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as fh:
+            shutil.copyfileobj(resp, fh)
+        return dest.stat().st_size > 0
+    except Exception:
+        dest.unlink(missing_ok=True)
+        return False
+
+
+def fetch_commons_images(specs: list[dict]) -> list[tuple[Path, str] | None]:
+    """Download one cached JPEG per spec. Entry is (path, source_url) or None.
+
+    Cached under {LUNA_DATA_DIR}/.commons-cache so re-spawns stay offline.
+    """
+    if os.environ.get("LUNA_MOCK_NO_NETWORK"):
+        return [None] * len(specs)
+    try:
+        candidates = _commons_candidates()
+    except Exception as e:
+        print(f"Warning: Wikimedia Commons query failed ({e}); using drawn photos", file=sys.stderr)
+        return [None] * len(specs)
+    if not candidates:
+        return [None] * len(specs)
+    step = max(1, len(candidates) // len(specs))
+    picked = candidates[::step][: len(specs)]
+    cache = _commons_cache()
+    images: list[tuple[Path, str] | None] = []
+    for i, spec in enumerate(specs):
+        cand = picked[i % len(picked)]
+        url = cand["thumburl"]
+        # A few photos take the full-resolution original for megapixel spread.
+        if spec["original"] and cand["url"] and cand["size"] < COMMONS_ORIG_MAX_BYTES:
+            url = cand["url"]
+        key = hashlib.sha1(url.encode()).hexdigest()[:16] + ".jpg"
+        local = cache / key
+        if not local.exists() and not _download(url, local):
+            images.append(None)
+            continue
+        images.append((local, cand["url"]))
+    return images
+
+
+def _synth_image(width: int, height: int, label: str, dt_str: str):
+    """Pillow-drawn fallback photo (used offline or when a download fails)."""
+    from PIL import Image, ImageDraw, ImageFont
+    color = (
+        random.randint(40, 210),
+        random.randint(40, 210),
+        random.randint(40, 210),
+    )
+    img = Image.new("RGB", (width, height), color=color)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((20, 20, width - 20, height - 20), outline=(255, 255, 255), width=3)
+    draw.ellipse((width // 4, height // 4, width * 3 // 4, height * 3 // 4), outline=(240, 240, 240), width=2)
+    try:
+        font = ImageFont.load_default()
+        draw.text((30, 30), label, fill=(255, 255, 255), font=font)
+        draw.text((30, height - 50), dt_str, fill=(230, 230, 230), font=font)
+    except Exception:
+        pass
+    return img
+
+
+def _shape_image(img, shape: str):
+    """Center-crop to a portrait (3:4) or square (1:1) aspect when asked."""
+    w, h = img.size
+    if shape == "portrait" and w > h * 3 // 4:
+        nw = h * 3 // 4
+        x = (w - nw) // 2
+        return img.crop((x, 0, x + nw, h))
+    if shape == "square" and w != h:
+        side = min(w, h)
+        x, y = (w - side) // 2, (h - side) // 2
+        return img.crop((x, y, x + side, y + side))
+    return img
+
+
+def _dms(value: float):
+    """Decimal degrees → EXIF (deg, min, sec) IFDRationals."""
+    from PIL.TiffImagePlugin import IFDRational
+    v = abs(value)
+    d = int(v)
+    m_full = (v - d) * 60
+    m = int(m_full)
+    s = round((m_full - m) * 60 * 100)
+    return (IFDRational(d), IFDRational(m), IFDRational(s, 100))
+
+
+def _stamp_exif(img, spec: dict):
+    """Fill IFD0 + Exif IFD + GPS IFD from a spec dict (Pillow Exif)."""
+    from PIL.TiffImagePlugin import IFDRational
+    num, den = spec["shutter"]
+    w, h = img.size
+    exif = img.getexif()
+    exif[0x010E] = f"{spec['label']} — Luna test fixture"  # ImageDescription
+    exif[0x010F] = spec["make"]                           # Make
+    exif[0x0110] = spec["model"]                          # Model
+    exif[0x0112] = 1                                      # Orientation: normal
+    exif[0x0131] = "Luna mock-drive.py"                   # Software
+    exif[0x0132] = spec["dt"]                             # DateTime
+    exif[0x013B] = "Luna Test Fixture"                    # Artist
+    exif[0x8298] = "CC BY-SA, Wikimedia Commons"          # Copyright
+    exif[0x8769] = {                                      # Exif IFD
+        0x829A: IFDRational(num, den),                    # ExposureTime
+        0x829D: IFDRational(spec["aperture"]),            # FNumber
+        0x8822: 2 + (spec["iso"] % 3),                    # ExposureProgram
+        0x8827: spec["iso"],                              # PhotographicSensitivity (ISO)
+        0x9000: b"0232",                                  # ExifVersion
+        0x9003: spec["dt"],                               # DateTimeOriginal
+        0x9004: spec["dt"],                               # DateTimeDigitized
+        0x9207: 5,                                        # MeteringMode: pattern
+        0x9209: spec["flash"],                            # Flash
+        0x920A: IFDRational(spec["focal"]),               # FocalLength
+        0xA001: 1,                                        # ColorSpace: sRGB
+        0xA002: w,                                        # PixelXDimension
+        0xA003: h,                                        # PixelYDimension
+        0xA403: 0,                                        # WhiteBalance: auto
+        0xA405: min(200, int(spec["focal"] * 1.5)),       # FocalLengthIn35mmFilm
+        0xA434: spec["lens"],                             # LensModel
+    }
+    if spec["gps"]:
+        lat, lon, _city = spec["gps"]
+        hh, mm, ss = (int(x) for x in spec["dt"][11:].split(":"))
+        exif[0x8825] = {                                  # GPS IFD
+            1: "N" if lat >= 0 else "S",
+            2: _dms(lat),
+            3: "E" if lon >= 0 else "W",
+            4: _dms(lon),
+            5: 0,                                         # AltitudeRef: above sea
+            6: IFDRational(15 + (spec["iso"] % 400)),     # Altitude (m)
+            7: (IFDRational(hh), IFDRational(mm), IFDRational(ss)),  # GPSTimeStamp
+            29: spec["dt"][:10],                          # GPSDateStamp
+        }
+    return exif
+
+
+def _write_photo(target: Path, src: Path | None, spec: dict, have_pil: bool) -> bool:
+    """Write one photo: real Commons pixels (or drawn fallback) + EXIF spec."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not have_pil:
+        if src:
+            shutil.copy2(src, target)
+        else:
+            target.write_bytes(TINY_JPEG)
+        return True
+    from PIL import Image
+    img = None
+    if src:
+        try:
+            img = Image.open(src)
+            img.load()
+        except Exception:
+            img = None
+    if img is None:
+        img = _synth_image(1920, 1280, spec["label"], spec["dt"].replace(":", "-", 2))
+    img = _shape_image(img.convert("RGB"), spec["shape"])
+    out = target.with_suffix(".png") if spec["png"] else target
+    if spec["png"]:
+        img.save(out, format="PNG")
+        return True
+    if spec["bare"]:
+        img.save(out, format="JPEG", quality=88)
+        return True
+    img.save(out, format="JPEG", quality=88, exif=_stamp_exif(img, spec))
+    return True
+
+
+def populate_photos(dest: Path) -> int:
+    """Seed photo content: real Wikimedia Commons JPEGs + full synthetic EXIF."""
+    count = 0
+    specs = _photo_specs(PHOTO_COUNT)
+    try:
+        import PIL  # noqa: F401
+        have_pil = True
+    except ImportError:
+        have_pil = False
+    images = fetch_commons_images(specs) if have_pil else [None] * len(specs)
+    sources = []
+    for spec, src in zip(specs, images):
+        if _write_photo(dest / spec["rel"], src[0] if src else None, spec, have_pil):
             count += 1
+        if src:
+            sources.append(f"{spec['rel']}  <-  {src[1]}")
+    if sources:
+        (dest / "SOURCES.txt").write_text(
+            "Photos downloaded from Wikimedia Commons (see license terms there):\n\n"
+            + "\n".join(sources)
+            + "\n",
+            encoding="utf-8",
+        )
+        count += 1
     return count
 
 
@@ -892,7 +1188,12 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     dev_name = sanitize_device_name(name)
     target_dir = MOCK_DRIVES_DIR / name
 
-    preset = args.preset.lower()
+    # Preset defaults to the drive name when it matches one (so `spawn photos`
+    # gives photo fixtures), otherwise falls back to "mixed".
+    if args.preset is not None:
+        preset = args.preset.lower()
+    else:
+        preset = name.lower() if name.lower() in PRESETS else "mixed"
     if preset not in PRESETS:
         print(f"Error: Unknown preset '{preset}'. Available: {', '.join(sorted(PRESETS.keys()))}", file=sys.stderr)
         return 1
@@ -1039,7 +1340,7 @@ def main() -> int:
     # spawn
     p_spawn = sub.add_parser("spawn", aliases=["create", "add"], help="Spawn a new mock drive with test fixtures")
     p_spawn.add_argument("name", help="Identifier / name of the mock drive (e.g. photos, docs, backup)")
-    p_spawn.add_argument("preset", nargs="?", default="mixed", choices=list(PRESETS.keys()), help="Fixture content preset")
+    p_spawn.add_argument("preset", nargs="?", default=None, choices=list(PRESETS.keys()), help="Fixture content preset (default: the drive name if it matches a preset, else 'mixed')")
     p_spawn.add_argument("--model", help="Hardware model name reported to UI")
     p_spawn.add_argument("--size-gb", type=int, default=128, help="Reported drive capacity in GB (default: 128)")
     p_spawn.add_argument("--fs", default="exfat", help="Filesystem type (default: exfat)")
