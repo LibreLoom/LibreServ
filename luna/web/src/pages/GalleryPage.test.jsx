@@ -612,7 +612,17 @@ describe("GalleryPage", () => {
     // Smart album "Videos" applies the kind=video filter inside Albums.
     fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
     fireEvent.click(await screen.findByRole("option", { name: /^Videos$/i }));
-    expect(await screen.findByText(/No photos match these filters/i)).toBeInTheDocument();
+    const noMatch = await screen.findByText(/No photos match these filters/i);
+    // The Back chrome sits above the empty state, not under it.
+    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const emptyStateEl = noMatch.closest("[data-slot=empty-state]");
+    expect(chrome).toBeTruthy();
+    expect(emptyStateEl).toBeTruthy();
+    expect(
+      /** @type {HTMLElement} */ (chrome).compareDocumentPosition(
+        /** @type {Element} */ (emptyStateEl),
+      ),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
 

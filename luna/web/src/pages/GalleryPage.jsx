@@ -1277,6 +1277,141 @@ export default function GalleryPage() {
         </PageNotice>
       )}
 
+      {detailChrome && (
+        <div
+          key={
+            dayFilter?.ymd
+            || place?.key
+            || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
+            || (duplicatesView ? "duplicates" : null)
+            || smartView?.key
+            || filters.kind
+            || rangeFromFilters?.label
+            || "filter"
+          }
+          data-slot="gallery-detail-chrome"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 animate-nav-slide-in"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              onClick={() => {
+                setPlace(null);
+                setAlbumView(null);
+                setSmartView(null);
+                setDayFilter(null);
+                setDuplicatesView(false);
+                setFilters({ ...EMPTY_FILTERS });
+                setQ("");
+                setSearch("");
+              }}
+            >
+              <ArrowLeft size={14} /> Back
+            </Button>
+            <p className="font-mono text-sm truncate">
+              {duplicatesView
+                ? "Possible duplicates"
+                : dayFilter?.label
+                || place?.label
+                || albumView?.name
+                || smartView?.label
+                || rangeFromFilters?.label
+                || (filters.undated ? "Undated" : null)
+                || (filters.albumMembership === "none" ? "Not in an album" : null)
+                || (filters.albumMembership === "any" ? "In an album" : null)
+                || (filters.kind === "video" ? "Videos" : null)
+                || (filters.kind === "image" ? "Photos" : null)
+                || search}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {smartView && photos.length > 0 && (
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="sm"
+                onClick={() => {
+                  setNewAlbumSeed(photos);
+                  setNewAlbumName(smartView.label);
+                  setNewAlbumOpen(true);
+                }}
+              >
+                Save as album
+              </Button>
+            )}
+            {place && (
+              <>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setNewAlbumSeed(photos);
+                    setNewAlbumName(place.label || "Place");
+                    setNewAlbumOpen(true);
+                  }}
+                >
+                  Album from place
+                </Button>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setFilterFocus("where");
+                    setFiltersOpen(true);
+                  }}
+                >
+                  Draw a custom area…
+                </Button>
+              </>
+            )}
+            {dayFilter && (
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="sm"
+                onClick={() => {
+                  setNewAlbumSeed(photos);
+                  setNewAlbumName(dayFilter.label);
+                  setNewAlbumOpen(true);
+                }}
+              >
+                Album from day
+              </Button>
+            )}
+            {albumView && canManageAlbum(albumView, user) && (
+              <>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setRenameAlbum(albumView);
+                    setRenameValue(albumView.name || "");
+                  }}
+                >
+                  <Pencil size={14} /> Rename
+                </Button>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setError(null);
+                    setShareAlbum(albumView);
+                  }}
+                >
+                  <Share2 size={14} /> Share album
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {gallery.isLoading && photos.length === 0 && activeSegment === "library" && (
         <GalleryLoadingStatus label="Loading library…" />
       )}
@@ -1519,141 +1654,6 @@ export default function GalleryPage() {
               setPlacesDrawMode(false);
             }}
           />
-        </div>
-      )}
-
-      {detailChrome && (
-        <div
-          key={
-            dayFilter?.ymd
-            || place?.key
-            || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
-            || (duplicatesView ? "duplicates" : null)
-            || smartView?.key
-            || filters.kind
-            || rangeFromFilters?.label
-            || "filter"
-          }
-          data-slot="gallery-detail-chrome"
-          className="mb-4 flex flex-wrap items-center justify-between gap-3 animate-nav-slide-in"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <Button
-              variant="outline"
-              surface="primary"
-              size="sm"
-              onClick={() => {
-                setPlace(null);
-                setAlbumView(null);
-                setSmartView(null);
-                setDayFilter(null);
-                setDuplicatesView(false);
-                setFilters({ ...EMPTY_FILTERS });
-                setQ("");
-                setSearch("");
-              }}
-            >
-              <ArrowLeft size={14} /> Back
-            </Button>
-            <p className="font-mono text-sm truncate">
-              {duplicatesView
-                ? "Possible duplicates"
-                : dayFilter?.label
-                || place?.label
-                || albumView?.name
-                || smartView?.label
-                || rangeFromFilters?.label
-                || (filters.undated ? "Undated" : null)
-                || (filters.albumMembership === "none" ? "Not in an album" : null)
-                || (filters.albumMembership === "any" ? "In an album" : null)
-                || (filters.kind === "video" ? "Videos" : null)
-                || (filters.kind === "image" ? "Photos" : null)
-                || search}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {smartView && photos.length > 0 && (
-              <Button
-                variant="secondary"
-                surface="primary"
-                size="sm"
-                onClick={() => {
-                  setNewAlbumSeed(photos);
-                  setNewAlbumName(smartView.label);
-                  setNewAlbumOpen(true);
-                }}
-              >
-                Save as album
-              </Button>
-            )}
-            {place && (
-              <>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setNewAlbumSeed(photos);
-                    setNewAlbumName(place.label || "Place");
-                    setNewAlbumOpen(true);
-                  }}
-                >
-                  Album from place
-                </Button>
-                <Button
-                  variant="outline"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setFilterFocus("where");
-                    setFiltersOpen(true);
-                  }}
-                >
-                  Draw a custom area…
-                </Button>
-              </>
-            )}
-            {dayFilter && (
-              <Button
-                variant="secondary"
-                surface="primary"
-                size="sm"
-                onClick={() => {
-                  setNewAlbumSeed(photos);
-                  setNewAlbumName(dayFilter.label);
-                  setNewAlbumOpen(true);
-                }}
-              >
-                Album from day
-              </Button>
-            )}
-            {albumView && canManageAlbum(albumView, user) && (
-              <>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setRenameAlbum(albumView);
-                    setRenameValue(albumView.name || "");
-                  }}
-                >
-                  <Pencil size={14} /> Rename
-                </Button>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setError(null);
-                    setShareAlbum(albumView);
-                  }}
-                >
-                  <Share2 size={14} /> Share album
-                </Button>
-              </>
-            )}
-          </div>
         </div>
       )}
 
