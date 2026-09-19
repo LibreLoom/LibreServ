@@ -8,7 +8,7 @@ import { contentHref } from "../../lib/paths.js";
 import { apiErrorMessage, postForm, postJson } from "../../lib/api";
 
 /**
- * Minimal rotate + crop editor. Prefers POST /api/v1/gallery/edit; falls back
+ * Minimal rotate editor. Prefers POST /api/v1/gallery/edit; falls back
  * to canvas JPEG upload beside the original.
  *
  * @param {{
@@ -24,8 +24,6 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
   const [rotation, setRotation] = useState(0);
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const [saving, setSaving] = useState(false);
-  const [crop, setCrop] = useState({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
-  const drag = useRef(/** @type {null|{sx:number,sy:number,ox:number,oy:number}} */ (null));
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -49,38 +47,12 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
     ctx.rotate(rad);
     ctx.drawImage(img, (-iw * scale) / 2, (-ih * scale) / 2, iw * scale, ih * scale);
     ctx.restore();
-    // Crop overlay — read theme tokens (canvas cannot use Tailwind classes).
-    const styles = getComputedStyle(document.documentElement);
-    const primary = styles.getPropertyValue("--primary").trim() || "Canvas";
-    const secondary = styles.getPropertyValue("--secondary").trim() || "CanvasText";
-    ctx.fillStyle = primary;
-    ctx.globalAlpha = 0.45;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.globalAlpha = 1;
-    const rx = crop.x * canvas.width;
-    const ry = crop.y * canvas.height;
-    const rw = crop.w * canvas.width;
-    const rh = crop.h * canvas.height;
-    ctx.clearRect(rx, ry, rw, rh);
-    ctx.strokeStyle = secondary;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(rx, ry, rw, rh);
-    // Redraw cropped region on top
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(rx, ry, rw, rh);
-    ctx.clip();
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(rad);
-    ctx.drawImage(img, (-iw * scale) / 2, (-ih * scale) / 2, iw * scale, ih * scale);
-    ctx.restore();
-  }, [rotation, crop]);
+  }, [rotation]);
 
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset editor state when a photo is opened
     setRotation(0);
-    setCrop({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
     setError(null);
   }, [open, photo?.path]);
 
@@ -108,7 +80,6 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
           drive_id: photo.drive_id,
           path: photo.path,
           rotate: rotation % 360,
-          crop,
         });
         onSaved?.();
         onClose();
@@ -127,32 +98,13 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
       const cw = swapped ? ih : iw;
       const ch = swapped ? iw : ih;
       const out = document.createElement("canvas");
-      out.width = Math.max(1, Math.round(cw * crop.w));
-      out.height = Math.max(1, Math.round(ch * crop.h));
+      out.width = cw;
+      out.height = ch;
       const ctx = out.getContext("2d");
       if (!ctx) throw new Error("no canvas");
-      ctx.translate(out.width / 2 - crop.x * cw + (cw * crop.w) / 2, out.height / 2 - crop.y * ch + (ch * crop.h) / 2);
-      // Simpler: draw full rotated then sample crop
-      const full = document.createElement("canvas");
-      full.width = cw;
-      full.height = ch;
-      const fctx = full.getContext("2d");
-      if (!fctx) throw new Error("no canvas");
-      fctx.translate(cw / 2, ch / 2);
-      fctx.rotate(rad);
-      fctx.drawImage(img, -iw / 2, -ih / 2);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(
-        full,
-        crop.x * cw,
-        crop.y * ch,
-        crop.w * cw,
-        crop.h * ch,
-        0,
-        0,
-        out.width,
-        out.height,
-      );
+      ctx.translate(cw / 2, ch / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(img, -iw / 2, -ih / 2);
       const blob = await new Promise((resolve, reject) => {
         out.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/jpeg", 0.92);
       });
@@ -176,7 +128,7 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
   return (
     <ModalCard
       open={open}
-      title="Crop or rotate"
+      title="Rotate photo"
       onClose={onClose}
       overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
     >
@@ -186,46 +138,13 @@ export default function PhotoEditModal({ open, photo, onClose, onSaved }) {
           <div className="rounded-large-element bg-primary text-secondary overflow-hidden">
             <canvas
               ref={canvasRef}
-              className="mx-auto max-h-80 w-full object-contain touch-none"
-              onPointerDown={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                drag.current = {
-                  sx: (e.clientX - rect.left) / rect.width,
-                  sy: (e.clientY - rect.top) / rect.height,
-                  ox: crop.x,
-                  oy: crop.y,
-                };
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={(e) => {
-                if (!drag.current) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = (e.clientX - rect.left) / rect.width;
-                const y = (e.clientY - rect.top) / rect.height;
-                const dx = x - drag.current.sx;
-                const dy = y - drag.current.sy;
-                setCrop((c) => ({
-                  ...c,
-                  x: Math.min(Math.max(0, drag.current.ox + dx), 1 - c.w),
-                  y: Math.min(Math.max(0, drag.current.oy + dy), 1 - c.h),
-                }));
-              }}
-              onPointerUp={() => {
-                drag.current = null;
-              }}
+              className="mx-auto max-h-80 w-full object-contain"
             />
           </div>
-          <p className="text-sm">Drag to move the crop box. Luna saves a new copy next to the original.</p>
+          <p className="text-sm">Luna saves a rotated copy next to the original.</p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="secondary" onClick={() => setRotation((r) => (r + 90) % 360)}>
               Rotate 90°
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCrop({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 })}
-            >
-              Reset crop
             </Button>
           </div>
           <div className="flex gap-2 justify-end">

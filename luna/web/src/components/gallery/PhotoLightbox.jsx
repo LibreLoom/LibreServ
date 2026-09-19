@@ -5,7 +5,6 @@ import PropTypes from "prop-types";
 import {
   ChevronLeft,
   ChevronRight,
-  Crop,
   Download,
   FolderOpen,
   Heart,
@@ -13,6 +12,7 @@ import {
   Info,
   Link2,
   Play,
+  RotateCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -452,7 +452,7 @@ export default function PhotoLightbox({
             </Tooltip>
           )}
           {!guest && onEdit && photo.kind !== "video" && (
-            <Tooltip content="Crop or rotate" popupClassName="z-[100]">
+            <Tooltip content="Rotate" popupClassName="z-[100]">
               <Button
                 variant="ghost"
                 size="sm"
@@ -460,9 +460,9 @@ export default function PhotoLightbox({
                   haptic("light");
                   onEdit(photo);
                 }}
-                aria-label="Crop or rotate"
+                aria-label="Rotate"
               >
-                <Crop size={18} />
+                <RotateCw size={18} />
               </Button>
             </Tooltip>
           )}
