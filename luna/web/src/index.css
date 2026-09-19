@@ -176,10 +176,15 @@ body {
 
 /* Full-screen overlays (PhotoLightbox) lock page scroll via bodyScrollLock.
    Attribute lock survives ModalCard clearing body.style.overflow when its
-   overlay stack empties — modal dialog-scroller rules stay separate. */
+   overlay stack empties — modal dialog-scroller rules stay separate.
+   overflow stays off <body>: making it a scroll container steals the
+   position:sticky context from the viewport, so sticky headers un-stick
+   under the overlay and snap back when the lock releases. */
+html[data-scroll-lock] {
+  overflow: hidden;
+}
 html[data-scroll-lock],
 html[data-scroll-lock] body {
-  overflow: hidden;
   overscroll-behavior: none;
 }
 
