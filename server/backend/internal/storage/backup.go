@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -36,21 +37,21 @@ func NewBackupService(db *database.DB, runtime *podman.Client, basePath, appData
 
 	if engine, err := restic.NewEngine(); err == nil {
 		svc.resticEngine = engine
-		log.Printf("BackupService: restic engine initialized (binary found)")
+		slog.Info("BackupService: restic engine initialized (binary found)")
 	} else {
 		go func() {
 			if _, provErr := restic.AutoProvision(); provErr != nil {
-				log.Printf("BackupService: restic auto-provision failed: %v", provErr)
+				slog.Warn("BackupService: restic auto-provision failed", "error", provErr)
 				return
 			}
 			if engine, initErr := restic.NewEngine(); initErr == nil {
 				svc.resticMu.Lock()
 				svc.resticEngine = engine
 				svc.resticMu.Unlock()
-				log.Printf("BackupService: restic engine initialized (auto-provisioned)")
+				slog.Info("BackupService: restic engine initialized (auto-provisioned)")
 			}
 		}()
-		log.Printf("BackupService: restic not available, attempting auto-provision: %v", err)
+		slog.Info("BackupService: restic not available, attempting auto-provision", "error", err)
 	}
 
 	return svc
@@ -106,7 +107,7 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	startTime := time.Now()
 	result := &BackupResult{}
 
-	log.Printf("BackupApp: starting backup for app %s", appID)
+	slog.Info("BackupApp: starting backup", "app_id", appID)
 
 	if !s.UseRestic() {
 		result.Error = fmt.Errorf("backups require restic — install restic or enable auto-provision to create backups")
@@ -117,29 +118,29 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	err := s.db.QueryRow("SELECT path, status FROM apps WHERE id = ?", appID).Scan(&appPath, &appStatus)
 	if err != nil {
 		result.Error = fmt.Errorf("app not found (id=%s): %w", appID, err)
-		log.Printf("BackupApp: app not found (id=%s): %v", appID, err)
+		slog.Warn("BackupApp: app not found", "app_id", appID, "error", err)
 		return result, result.Error
 	}
-	log.Printf("BackupApp: found app at path %s with status %s", appPath, appStatus)
+	slog.Info("BackupApp: found app", "path", appPath, "status", appStatus)
 
 	if opts.StopBeforeBackup && appStatus == "running" {
-		log.Printf("Stopping app %s for backup", appID)
+		slog.Info("Stopping app for backup", "app_id", appID)
 		if err := s.runtime.ComposeStop(ctx, appPath); err != nil {
 			result.Error = fmt.Errorf("failed to stop app: %w", err)
 			return result, result.Error
 		}
 		defer func() {
-			log.Printf("Restarting app %s after backup", appID)
+			slog.Info("Restarting app after backup", "app_id", appID)
 			if err := s.runtime.ComposeUp(ctx, appPath); err != nil {
 				// The app was running before the backup and is now down; the
 				// backup result says nothing about that, so it must be logged.
-				log.Printf("ERROR: failed to restart app %s after backup, app is left stopped: %v", appID, err)
+				slog.Error("failed to restart app after backup, app is left stopped", "app_id", appID, "error", err)
 			}
 		}()
 	}
 
 	if err := s.runPreBackupHook(ctx, appID, appPath); err != nil {
-		log.Printf("BackupApp: pre-backup hook failed for %s: %v (continuing)", appID, err)
+		slog.Warn("BackupApp: pre-backup hook failed (continuing)", "app_id", appID, "error", err)
 	}
 
 	backupID := uuid.New().String()
@@ -152,7 +153,7 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 
 	result.Backup = backup
 	result.Duration = time.Since(startTime)
-	log.Printf("Restic backup created for %s: snapshot %s in %v", appID, backup.SnapshotID, result.Duration)
+	slog.Info("Restic backup created", "app_id", appID, "snapshot_id", backup.SnapshotID, "duration", result.Duration)
 
 	return result, nil
 }
@@ -214,7 +215,7 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn("failed to close rows", "error", cerr)
 		}
 	}()
 
@@ -224,7 +225,7 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 		var backupType, source, format, snapshotID, repoID string
 		var checksum, appID sql.NullString
 		if err := rows.Scan(&b.ID, &appID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &checksum, &source, &format, &snapshotID, &repoID, &b.DataAdded); err != nil {
-			log.Printf("failed to scan backup row: %v", err)
+			slog.Warn("failed to scan backup row", "error", err)
 			continue
 		}
 		if appID.Valid {
@@ -288,7 +289,7 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 		repo, _, repoErr := s.getRepoForApp(ctx, backup.AppID)
 		if repoErr == nil {
 			if forgetErr := s.forgetSnapshot(ctx, *repo, backup.SnapshotID); forgetErr != nil {
-				log.Printf("DeleteBackup: restic forget failed for snapshot %s: %v", backup.SnapshotID, forgetErr)
+				slog.Warn("DeleteBackup: restic forget failed", "snapshot_id", backup.SnapshotID, "error", forgetErr)
 			}
 		}
 	}
@@ -298,7 +299,7 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 		return fmt.Errorf("failed to delete backup record: %w", err)
 	}
 
-	log.Printf("Backup deleted: %s", backupID)
+	slog.Info("Backup deleted", "backup_id", backupID)
 	return nil
 }
 
@@ -318,7 +319,7 @@ func (s *BackupService) CleanupOldBackups(ctx context.Context, appID string, ret
 
 	for i := retention; i < len(backups); i++ {
 		if err := s.DeleteBackup(ctx, backups[i].ID); err != nil {
-			log.Printf("Failed to delete old backup %s: %v", backups[i].ID, err)
+			slog.Warn("Failed to delete old backup", "backup_id", backups[i].ID, "error", err)
 		}
 	}
 
@@ -361,7 +362,7 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 	if err != nil {
 		// An empty checksum makes later verified restores refuse this backup,
 		// so record why it is missing.
-		log.Printf("Warning: failed to checksum database backup %s, restore verification will be unavailable: %v", backupPath, err)
+		slog.Warn("failed to checksum database backup, restore verification will be unavailable", "path", backupPath, "error", err)
 		checksum = ""
 	}
 
@@ -383,11 +384,11 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 		return nil, fmt.Errorf("failed to save backup record: %w", err)
 	}
 
-	log.Printf("Database backup created: %s (%d bytes)", backupPath, backup.Size)
+	slog.Info("Database backup created", "path", backupPath, "bytes", backup.Size)
 
 	if s.UseRestic() {
 		if err := s.backupDatabaseWithRestic(ctx, backupPath); err != nil {
-			log.Printf("Warning: restic database backup failed: %v", err)
+			slog.Warn("restic database backup failed", "error", err)
 		}
 	}
 
