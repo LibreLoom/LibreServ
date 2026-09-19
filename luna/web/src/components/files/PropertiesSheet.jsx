@@ -409,7 +409,7 @@ export default function PropertiesSheet({
 
           {/* Where it is and what it is. */}
           <Section title="Details">
-            <DetailRow icon={Shapes} label="Type" value={typeLabel(name, kind)} />
+            <DetailRow icon={Shapes} label="Type" value={typeLabel(name, kind)} mono />
             <DetailRow icon={FolderTree} label="Location" value={location} mono />
             {inTrash && data?.trashed_from ? (
               <DetailRow
