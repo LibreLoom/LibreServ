@@ -47,7 +47,7 @@ frontend-build: frontend
 restic-fetch:
 	@echo ">> Downloading restic $(RESTIC_VERSION) for $(GOOS)/$(GOARCH)"
 	@mkdir -p $(RESTIC_DIR)
-	@curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" \
+	@curl -fSL --proto '=https' --tlsv1.2 "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" \
 		| bzip2 -d > $(RESTIC_DIR)/restic
 	@chmod +x $(RESTIC_DIR)/restic
 	@echo ">> restic placed in $(RESTIC_DIR)/restic"
@@ -59,9 +59,9 @@ restic-fetch-verified:
 	@echo ">> Downloading restic $(RESTIC_VERSION) for $(GOOS)/$(GOARCH) with checksum verification"
 	@mkdir -p $(RESTIC_DIR)
 	@cd $(RESTIC_DIR) && \
-	curl -fSL -o restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 \
+	curl -fSL --proto '=https' --tlsv1.2 -o restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 \
 		"https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" && \
-	curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/SHA256SUMS" \
+	curl -fSL --proto '=https' --tlsv1.2 "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/SHA256SUMS" \
 		| grep "restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" > SHA256SUMS.tmp && \
 	sha256sum -c SHA256SUMS.tmp || \
 		{ echo "checksum mismatch!"; rm -f restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 SHA256SUMS.tmp; exit 1; }
