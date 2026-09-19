@@ -100,7 +100,7 @@ ensure_sysroot() {
   echo "==> fetching MSYS2 mingw64 packages into $SYSROOT"
   mkdir -p "$SYSROOT" "$PKG_DIR"
   local INDEX
-  INDEX="$(curl -fsS https://repo.msys2.org/mingw/mingw64/)"
+  INDEX="$(curl -fsS --proto '=https' --tlsv1.2 https://repo.msys2.org/mingw/mingw64/)"
   cd "$PKG_DIR"
   local name file
   for name in "${MSYS2_PKGS[@]}"; do
@@ -114,7 +114,7 @@ ensure_sysroot() {
     fi
     if [ ! -f "$file" ]; then
       echo "  fetch $file"
-      curl -fL --retry 3 -o "$file" "https://repo.msys2.org/mingw/mingw64/$file"
+      curl -fL --proto '=https' --tlsv1.2 --retry 3 -o "$file" "https://repo.msys2.org/mingw/mingw64/$file"
     fi
   done
   for file in *.pkg.tar.zst *.pkg.tar.xz; do
