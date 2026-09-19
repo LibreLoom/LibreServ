@@ -13,12 +13,12 @@ mkdir -p "$TOOLS_DIR" "$OUT_DIR"
 cd "$TOOLS_DIR"
 
 if [ ! -x linuxdeploy-x86_64.AppImage ]; then
-  curl -fsSL -o linuxdeploy-x86_64.AppImage \
+  curl -fsSL --proto '=https' --tlsv1.2 -o linuxdeploy-x86_64.AppImage \
     https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
   chmod +x linuxdeploy-x86_64.AppImage
 fi
 if [ ! -x linuxdeploy-plugin-gtk.sh ]; then
-  curl -fsSL -o linuxdeploy-plugin-gtk.sh \
+  curl -fsSL --proto '=https' --tlsv1.2 -o linuxdeploy-plugin-gtk.sh \
     https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
   chmod +x linuxdeploy-plugin-gtk.sh
 fi
