@@ -144,6 +144,13 @@ export default function EuroOfficeHost({
   // coded "your document is stale" disconnects (it would otherwise park the
   // app in permanent view mode).
   const [reloadTick, setReloadTick] = useState(0);
+  // Whether the current mount reached "ready" — a failure after that is a
+  // crash while editing ("it opened fine, it broke"), not a failed open.
+  const sawReadyRef = useRef(false);
+  // Font-load failures (errorCode -26) are retried by remounting once — a
+  // single dropped font fetch is otherwise fatal to a healthy editing
+  // session. Bounded so a genuinely broken pack still surfaces the card.
+  const fontRetryAtRef = useRef(0);
   const { user } = useAuth();
   const { resolvedTheme } = useTheme();
   const [status, setStatus] = useState(
@@ -229,6 +236,7 @@ export default function EuroOfficeHost({
       setStatus("loading");
       setPhase("Starting EuroOffice…");
       setError("");
+      sawReadyRef.current = false;
       const docType = euroOfficeDocumentType(path);
       if (!docType) {
         setStatus("error");
@@ -419,9 +427,11 @@ export default function EuroOfficeHost({
         }
 
         // DocsAPI replaces the placeholder node with the editor iframe, so
-        // after a dev StrictMode double-mount (or any effect re-run) the id
-        // no longer exists — recreate the div or DocEditor has nothing to
-        // mount into.
+        // the placeholder is created imperatively — never as a JSX child of
+        // mountRef. Any React-owned child here breaks reconciliation when
+        // the iframe replaces it (insertBefore on a stale node crashes the
+        // whole page, not just the editor). Recreate it if a previous mount
+        // (or dev StrictMode double-mount) consumed it.
         if (!document.getElementById(placeholderId) && mountRef.current) {
           const div = document.createElement("div");
           div.id = placeholderId;
@@ -494,9 +504,11 @@ export default function EuroOfficeHost({
           },
           events: {
             onAppReady: () => {
+              sawReadyRef.current = true;
               if (!cancelled) setStatus("ready");
             },
             onDocumentReady: () => {
+              sawReadyRef.current = true;
               if (!cancelled) setStatus("ready");
               // The iframe has navigated by now — hide the pack's statusbar
               // caption ("All changes saved"), which means "changes synced to
@@ -556,15 +568,34 @@ export default function EuroOfficeHost({
               // The sdk's data is often an object/code, not a string — log the
               // raw event so a real failure is diagnosable from the console.
               console.warn("EuroOffice onError", event);
-              let message = "EuroOffice hit a problem opening this file.";
-              if (typeof event?.data === "string") {
+              const code = event?.data?.errorCode;
+              // -26 (LoadingFontError): the editor died because one font fetch
+              // failed three times. A single dropped request shouldn't kill a
+              // live session — remount once so a transient miss self-heals
+              // (the service worker makes the retry cheap). If it fails again
+              // within a minute the pack really is broken → show the card.
+              if (code === -26 && Date.now() - fontRetryAtRef.current > 60_000) {
+                fontRetryAtRef.current = Date.now();
+                requestReload();
+                return;
+              }
+              let message;
+              if (code === -26) {
+                message =
+                  "The editor couldn't load a font it needs, so it stopped working. " +
+                  "Reopen the file to try again — if it keeps failing, the " +
+                  "EuroOffice fonts on this Luna are missing or out of date.";
+              } else if (typeof event?.data === "string") {
                 message = event.data;
-              } else if (event?.data != null) {
-                try {
-                  message = `EuroOffice error: ${JSON.stringify(event.data)}`;
-                } catch {
-                  // keep the generic message
-                }
+              } else if (sawReadyRef.current) {
+                message =
+                  "The editor crashed while it was running. Reopen the file to keep going." +
+                  (dirtyRef.current
+                    ? " Your latest changes may not have saved — Luna autosaves every few seconds while you edit."
+                    : "");
+              } else {
+                message =
+                  "EuroOffice couldn't open this file. It may be damaged or in a format it can't read.";
               }
               if (!cancelled) {
                 setError(message);
@@ -714,18 +745,31 @@ export default function EuroOfficeHost({
       {status === "error" ? (
         /* A failed open gets a real card, not a raw converter message over
            a void — name the file, say what happened in plain language, and
-           offer the two things a person can actually do next. */
+           offer the things a person can actually do next. A crash after a
+           successful open reads differently from a file that never opened. */
         <OfficeIssueCard
-          title={`Couldn't open ${name}`}
+          title={
+            sawReadyRef.current ? `${name} stopped working` : `Couldn't open ${name}`
+          }
           downloadUrl={downloadHref(driveId, path)}
           downloadName={name}
           onClose={onClose}
+          onRetry={() => {
+            setError("");
+            setStatus("loading");
+            setReloadTick((n) => n + 1);
+          }}
         >
           {error ||
             "EuroOffice couldn't open this file. It may be damaged or in a format it can't read."}
         </OfficeIssueCard>
       ) : (
-        <div ref={mountRef} className="relative min-h-0 flex-1">
+        /* mountRef must own zero React children: DocsAPI replaceChild()s the
+           placeholder with the editor iframe, so anything React tracks inside
+           it reconciles against a mutated DOM and can crash the page (the
+           insertBefore-on-stale-node error). The placeholder div is created
+           imperatively in the effect instead. */
+        <div className="relative min-h-0 flex-1">
           {status === "loading" ? (
             <div className="absolute inset-0 z-[1] flex items-center justify-center bg-primary">
               <div className="flex items-center gap-3 text-secondary">
@@ -734,7 +778,7 @@ export default function EuroOfficeHost({
               </div>
             </div>
           ) : null}
-          <div id={placeholderId} className="h-full w-full" />
+          <div ref={mountRef} className="h-full w-full" />
         </div>
       )}
     </div>

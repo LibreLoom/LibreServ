@@ -83,6 +83,12 @@ cp "$DIR/server/FileConverter/bin/AllFonts.js" /out/AllFonts.bin.js
 cp "$DIR/server/FileConverter/bin/font_selection.bin" /out/font_selection.bin
 mkdir -p /out/fonts
 cp -r "$DIR"/fonts/. /out/fonts/
+# allfontsgen also writes the font-list sprite (fonts_thumbnail*.png +
+# .png.bin) into --images; the font dropdown fetches it and crashes hard on
+# a 404, so it must ship. Merge (not replace) — the stock sdkjs Images dir
+# holds cursors/icons the editor also needs.
+mkdir -p /out/sdkjs/common/Images
+cp -r "$DIR"/sdkjs/common/Images/. /out/sdkjs/common/Images/
 "$DIR/server/tools/allthemesgen" \
   --converter-dir="$DIR/server/FileConverter/bin" \
   --src="/out/sdkjs/slide/themes" \
@@ -96,6 +102,11 @@ if [[ ! -f "$DEST/sdkjs/common/AllFonts.js" ]]; then
 fi
 if [[ ! -d "$DEST/fonts" || -z "$(ls -A "$DEST/fonts" 2>/dev/null)" ]]; then
   echo "ERROR: font generation did not produce $DEST/fonts" >&2
+  exit 1
+fi
+if [[ ! -f "$DEST/sdkjs/common/Images/fonts_thumbnail.png.bin" ]]; then
+  echo "ERROR: font-list sprite (fonts_thumbnail.png.bin) missing — the font" >&2
+  echo "dropdown will crash the editor. Check the allfontsgen step above." >&2
   exit 1
 fi
 

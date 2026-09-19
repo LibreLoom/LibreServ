@@ -74,7 +74,9 @@ sdkjs/               document engine (from the image)
 dictionaries/        spellcheck (client-side, no server needed)
 core-fonts/          TTFs the wasm converter loads into its filesystem
 fonts/               generated font metrics (allfontsgen, one-shot container)
-sdkjs/common/AllFonts.js + Images/   generated font index + theme thumbs
+sdkjs/common/AllFonts.js + Images/   generated font index + font-list sprite
+                                      (fonts_thumbnail* — the font dropdown
+                                      crashes the editor hard on a 404)
 x2t/x2t.js + x2t.wasm                browser-side converter (CryptPad build)
 fonts-manifest.json                  TTF list the worker fetches
 ```
