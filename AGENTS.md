@@ -256,9 +256,12 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git
-- **Push to one forge only.** This repo mirrors across Forgejo (`gt.plainskill.net`), GitHub, and GitLab. Commits and branches on one forge are copied to the others.
+- **THE REMOTES ARE ONE REPOSITORY.** This repo is mirrored across forges: `origin` (GitHub) and `forgejo` (`gt.plainskill.net`) point at the SAME project, and a mirror keeps them identical. `origin/main` and `forgejo/main` are the same history — the git objects are one. Do NOT treat them as separate remotes:
+  - Fetch once, from the branch's upstream remote (usually `origin`). Do not `git fetch` every configured remote.
+  - Merge/rebase/diff against that ONE remote-tracking branch. Never merge both `origin/main` and `forgejo/main`, and never reason about them as possibly-divergent.
+  - Never remark that the remotes are on the same commit — that is the expected state, not a coincidence worth reporting.
+- **Push to one forge only.** Commits and branches pushed to one forge are copied to the others by the mirror. Push once to the branch's upstream remote (usually `origin`), then stop.
 - **Git tags do not sync across platforms.** A tag pushed to GitHub (e.g. `luna-connect-v0.2.28`, `luna-v0.0.26`) will **not** appear on Forgejo or GitLab via the mirror. Hosts that pull Forgejo (e.g. Luna Connect at `/opt/LibreServ`) will not see GitHub-only tags. Push release tags to the forge the consumer actually fetches, or deploy with `deploy.sh --head` / an explicit SHA until that forge has the tag.
-- Agents and local checkouts must use **only** the remote already configured as `origin` (whatever Cursor or the host provisioned). Push once there, then stop.
 - **Do not** dual-push the same commit or branch to a second forge “so it shows up faster.” That races the mirror and can break sync. Tags are the exception only when a consumer forge is missing a release tag it needs (see above).
 - If Forgejo (or another forge) looks behind on **branches** after a GitHub push, **wait for the mirror** — do not dual-push commits to catch it up.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
