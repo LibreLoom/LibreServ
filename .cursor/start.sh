@@ -63,11 +63,17 @@ if [ -f "${LUNA_WEB}/package-lock.json" ]; then
   fi
 fi
 
-# Scrub legacy forced 64GB PSSD and ensure mock-drive presets are present/plugged.
-if [ -x "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh" ] || [ -f "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh" ]; then
-  chmod +x "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh"
-  bash "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh" || echo ">> seed-mock-drives.sh failed (non-fatal)"
-fi
+# Ensure mock-drive presets are present/plugged (seeded by .cursor/install.sh;
+# re-plug any that a previous session left unplugged).
+for preset in photos documents media projects deep mixed empty; do
+  drive="${REPO_ROOT}/luna/dev/mock-drives/${preset}"
+  if [ -d "${drive}" ] && [ -f "${drive}/.unplugged" ]; then
+    (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="plug ${preset}") || true
+  elif [ ! -d "${drive}" ]; then
+    (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="spawn ${preset} ${preset}") \
+      || echo ">> mock-drive spawn ${preset} failed (non-fatal)"
+  fi
+done
 
 # Luna Connect mock: cloud backup unlocked + domain hostname + device-token so
 # External Services UI shows (connect_active). lunad terminals must set

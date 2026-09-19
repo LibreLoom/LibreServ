@@ -245,10 +245,16 @@ npm ci
 npm run build
 cd "${REPO_ROOT}/luna"
 make build-daemon
-# Optional legacy PSSD fixture (make mock-pssd) is for photo/EXIF unit tests only —
-# it is no longer auto-provisioned or injected into drive detection.
-# Seed the upgraded mock-drive system for Cloud Agents / local review.
-bash "${REPO_ROOT}/luna/scripts/seed-mock-drives.sh"
+# Seed the mock-drive system for Cloud Agents / local review.
+# Unique presets only (docs/code/all are aliases for other presets).
+echo ">> Seeding Luna mock drives"
+for preset in photos documents media projects deep mixed empty; do
+  if [ -d "${REPO_ROOT}/luna/dev/mock-drives/${preset}" ]; then
+    (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="plug ${preset}") || true
+  else
+    (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="spawn ${preset} ${preset}")
+  fi
+done
 
 # ── 8. Luna Desktop (GTK 4 + libadwaita) ──────────────────────────────────────
 echo ">> Preparing Luna Desktop GTK deps"
