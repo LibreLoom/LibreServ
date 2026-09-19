@@ -70,6 +70,12 @@ function stubGalleryFetch({
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (u.includes("/members") || u.includes("/invites")) {
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (u.includes("/gallery/albums")) {
         if (albumsHold) await albumsHold;
         return new Response(JSON.stringify(albums), {
@@ -873,11 +879,11 @@ describe("GalleryPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Add to album" })).toBeInTheDocument();
     expect(await screen.findByLabelText(/Search albums/i)).toBeInTheDocument();
-    expect(await screen.findByRole("option", { name: /test/i })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /Vacation/i })).toBeInTheDocument();
+    expect(await screen.findByRole("checkbox", { name: /test/i })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Vacation/i })).toBeInTheDocument();
 
-    const addBtn = screen.getByRole("button", { name: /^Add$/i });
-    expect(addBtn).toBeDisabled();
+    const applyBtn = screen.getByRole("button", { name: /^Apply$/i });
+    expect(applyBtn).toBeDisabled();
 
     const cancelBtn = screen.getByRole("button", { name: "Cancel" });
     expect(cancelBtn).toBeInTheDocument();
@@ -955,8 +961,8 @@ describe("GalleryPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Add to album/i }));
 
     expect(await screen.findByRole("heading", { name: "Add to album" })).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: /test/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Add$/i }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /test/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
 
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
@@ -1172,9 +1178,10 @@ describe("GalleryPage", () => {
     expect(await screen.findByText("Shared Moments")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Share album" }));
 
-    expect(await screen.findByRole("heading", { name: 'Share "Shared Moments"' })).toBeInTheDocument();
-    expect(screen.getByText("Create a link")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Generate link/i })).toBeInTheDocument();
-    expect(await screen.findByText("Can view & add")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Link" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New link/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Can view & add/)).toBeInTheDocument();
   });
 });

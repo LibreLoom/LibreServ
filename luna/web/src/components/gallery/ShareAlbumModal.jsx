@@ -1,15 +1,17 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Trash2 } from "lucide-react";
-import ModalCard from "../cards/ModalCard";
+import { Trash2 } from "lucide-react";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard";
+import AlbumMembersPanel from "./AlbumMembersPanel.jsx";
+import CreateAlbumLinkModal from "./CreateAlbumLinkModal.jsx";
 import Button from "../ui/Button";
 import CopyableValue from "../ui/CopyableValue";
-import Dropdown from "../common/Dropdown";
-import ModalErrorNotice from "../common/ModalErrorNotice";
-import Toggle from "../common/Toggle";
+import PageNotice from "../common/PageNotice";
 import Spinner from "../ui/Spinner";
-import { apiErrorMessage, deleteJson, getJson, postJson } from "../../lib/api";
+import { apiErrorMessage, deleteJson, getJson } from "../../lib/api";
+import { haptic } from "../../utils/haptics";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
  * Format unix timestamp expiration into a human-readable label.
@@ -27,8 +29,9 @@ function formatExpiration(ts) {
 }
 
 /**
- * Modal to create and manage share links for a photo album.
- * Defaults: viewer role, 30-day expiry (required). Contributor + uploads is opt-in.
+ * Album sharing sheet — same structure as AccessSheet for files: a "Users"
+ * section (people on this Luna) and a "Link" section (share links, with
+ * creation pushed into a nested "New link" dialog).
  *
  * @param {object} props
  * @param {boolean} props.open
@@ -43,10 +46,7 @@ export default function ShareAlbumModal({
   overlayClassName,
 }) {
   const queryClient = useQueryClient();
-  const [role, setRole] = useState("viewer");
-  const [days, setDays] = useState("30");
-  const [allowUploads, setAllowUploads] = useState(false);
-  const [newLinkUrl, setNewLinkUrl] = useState(null);
+  const [creatingLink, setCreatingLink] = useState(false);
   const [error, setError] = useState(null);
 
   const invitesQueryKey = ["album-invites", album?.home_drive_id, album?.id];
@@ -58,35 +58,6 @@ export default function ShareAlbumModal({
     enabled: open && !!album?.id && !!album?.home_drive_id,
   });
 
-  const createInvite = useMutation({
-    mutationFn: async () => {
-      setError(null);
-      if (!days) {
-        throw new Error("Pick how long this link should last.");
-      }
-      const body = {
-        role,
-        expires_in_days: Number(days),
-      };
-      if (role === "contributor") {
-        body.allow_uploads = allowUploads;
-      }
-      return postJson(
-        `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/invites`,
-        body,
-      );
-    },
-    onSuccess: (data) => {
-      const fullUrl = `${window.location.origin}${data.url}`;
-      setNewLinkUrl(fullUrl);
-      queryClient.invalidateQueries({ queryKey: invitesQueryKey });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-    },
-    onError: (err) => {
-      setError(apiErrorMessage(err, "Luna couldn't create that share link. Try again."));
-    },
-  });
-
   const deleteInvite = useMutation({
     /** @param {string} inviteId */
     mutationFn: (inviteId) =>
@@ -94,10 +65,12 @@ export default function ShareAlbumModal({
         `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/invites/${inviteId}`,
       ),
     onSuccess: () => {
+      haptic("success");
       queryClient.invalidateQueries({ queryKey: invitesQueryKey });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },
     onError: (err) => {
+      haptic("error");
       setError(apiErrorMessage(err, "Luna couldn't remove that share link. Try again."));
     },
   });
@@ -105,103 +78,31 @@ export default function ShareAlbumModal({
   const inviteList = invites.data || [];
 
   return (
-    <ModalCard
-      open={open}
-      title={`Share "${album?.name || "album"}"`}
-      onClose={() => {
-        setNewLinkUrl(null);
-        setError(null);
-        setRole("viewer");
-        setDays("30");
-        setAllowUploads(false);
-        onClose();
-      }}
-      overlayClassName={overlayClassName}
-    >
-      {({ close }) => (
+    <>
+      <ModalCard
+        open={open}
+        title="Sharing"
+        onClose={() => {
+          setError(null);
+          onClose();
+        }}
+        overlayClassName={overlayClassName}
+      >
         <div className="space-y-5" data-slot="share-album-modal">
-          <ModalErrorNotice error={error} />
+          {error && <PageNotice variant="error">{error}</PageNotice>}
 
-          <div className="rounded-large-element bg-primary text-secondary p-4 space-y-3">
-            <p className="font-mono text-xs uppercase tracking-wider text-accent">
-              Create a link
-            </p>
-            <div className="space-y-3">
-              <label className="block text-sm">
-                Permission
-                <Dropdown
-                  options={[
-                    { value: "viewer", label: "Can view only" },
-                    { value: "contributor", label: "Can view and add photos" },
-                  ]}
-                  value={role}
-                  onChange={(next) => {
-                    setRole(next);
-                    if (next !== "contributor") setAllowUploads(false);
-                  }}
-                  fullWidth
-                  surface="secondary"
-                  className="mt-1"
-                />
-              </label>
-
-              <label className="block text-sm">
-                Link expiration
-                <Dropdown
-                  options={[
-                    { value: "7", label: "Expires in 7 days" },
-                    { value: "30", label: "Expires in 30 days" },
-                    { value: "90", label: "Expires in 90 days" },
-                    { value: "365", label: "Expires in a year" },
-                  ]}
-                  value={days}
-                  onChange={setDays}
-                  fullWidth
-                  surface="secondary"
-                  className="mt-1"
-                />
-              </label>
-
-              {role === "contributor" && (
-                <Toggle
-                  checked={allowUploads}
-                  onChange={setAllowUploads}
-                  label="Allow uploads"
-                  description="People with this link can add photos to a shared folder on this album."
-                  surface="primary"
-                />
-              )}
-
-              <Button
-                variant="accent"
-                loading={createInvite.isPending}
-                onClick={() => createInvite.mutate()}
-                className="w-full"
-              >
-                <Link2 size={16} aria-hidden="true" />
-                Generate link
-              </Button>
-            </div>
-          </div>
-
-          {newLinkUrl && (
-            <div className="rounded-large-element bg-primary text-secondary p-4 space-y-2 border-2 border-accent">
-              <p className="font-mono text-xs uppercase tracking-wider text-success">
-                Link ready to share
-              </p>
-              <CopyableValue
-                value={newLinkUrl}
-                copyLabel="Copy link"
-                surface="primary"
-                ariaLabel="New album share link"
-              />
-            </div>
+          {open && album?.home_drive_id && album?.id && (
+            <AlbumMembersPanel
+              album={{
+                home_drive_id: album.home_drive_id,
+                id: album.id,
+                name: album.name,
+              }}
+            />
           )}
 
-          <div className="space-y-2">
-            <p className="font-mono text-xs uppercase tracking-wider text-accent">
-              Active links ({inviteList.length})
-            </p>
+          <section className="space-y-2">
+            <h3 className="text-primary text-sm font-semibold">Link</h3>
 
             {invites.isLoading ? (
               <div
@@ -212,69 +113,68 @@ export default function ShareAlbumModal({
                 <p className="text-sm">Loading links…</p>
                 <Spinner size="sm" decorative className="text-primary" />
               </div>
-            ) : inviteList.length === 0 ? (
-              <p className="text-sm text-accent py-2">
-                No active share links yet. Generate one above to share this album.
-              </p>
             ) : (
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {inviteList.map((inv) => {
-                  const fullUrl = `${window.location.origin}${inv.url}`;
-                  const isContributor = inv.role === "contributor";
-                  return (
-                    <div
-                      key={inv.id}
-                      className="rounded-large-element bg-primary text-secondary p-3 flex flex-col gap-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className={`rounded-pill px-2.5 py-0.5 text-xs font-mono shrink-0 ${
-                              isContributor
-                                ? "bg-accent/20 text-secondary border border-accent/30"
-                                : "bg-primary text-secondary border border-secondary/20"
-                            }`}
-                          >
-                            {isContributor ? "Can view & add" : "View only"}
-                          </span>
-                          <span className="text-xs text-accent truncate">
-                            {formatExpiration(inv.expires_at)}
-                          </span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="iconSm"
-                          surface="primary"
-                          className="shrink-0 text-error hover:text-error"
-                          aria-label="Revoke link"
-                          title="Revoke link"
-                          loading={deleteInvite.isPending && deleteInvite.variables === inv.id}
-                          onClick={() => deleteInvite.mutate(inv.id)}
-                        >
-                          <Trash2 size={16} aria-hidden="true" />
-                        </Button>
-                      </div>
+              inviteList.map((inv) => {
+                const fullUrl = `${window.location.origin}${inv.url}`;
+                return (
+                  <div
+                    key={inv.id}
+                    className="flex items-center justify-between gap-2 rounded-large-element bg-primary text-secondary p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-secondary text-xs">
+                        {inv.role === "contributor" ? "Can view & add" : "Can view only"}
+                        {" · "}
+                        {formatExpiration(inv.expires_at)}
+                      </p>
                       <CopyableValue
+                        className="mt-2"
                         value={fullUrl}
                         copyLabel="Copy"
                         surface="primary"
-                        ariaLabel="Active share link"
+                        ariaLabel="Share link address"
                       />
                     </div>
-                  );
-                })}
-              </div>
+                    <Button
+                      size="iconSm"
+                      variant="danger"
+                      aria-label="Remove this link"
+                      loading={deleteInvite.isPending && deleteInvite.variables === inv.id}
+                      onClick={() => deleteInvite.mutate(inv.id)}
+                    >
+                      <Trash2 size={ICON_SIZE.xs} />
+                    </Button>
+                  </div>
+                );
+              })
             )}
-          </div>
-
-          <div className="flex justify-end pt-2">
-            <Button variant="outline" onClick={close}>
-              Done
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                setError(null);
+                setCreatingLink(true);
+              }}
+            >
+              New link
             </Button>
-          </div>
+          </section>
         </div>
+      </ModalCard>
+      {creatingLink && album && (
+        <CreateAlbumLinkModal
+          open
+          album={album}
+          overlayClassName={NESTED_OVERLAY_CLASS}
+          onClose={() => setCreatingLink(false)}
+          onDone={() => {
+            setCreatingLink(false);
+            queryClient.invalidateQueries({ queryKey: invitesQueryKey });
+            queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+          }}
+        />
       )}
-    </ModalCard>
+    </>
   );
 }
 

@@ -40,7 +40,7 @@ describe("PhotoThumb cascading animation", () => {
 
     const img = container.querySelector("img");
     expect(img).toBeInTheDocument();
-    expect(img?.className).toContain("motion-safe:transition-[opacity,transform]");
+    expect(img?.className).toContain("motion-safe:transition-[opacity,scale]");
     expect(img?.className).toContain("motion-reduce:opacity-100");
     expect(img?.className).toContain("opacity-0");
 

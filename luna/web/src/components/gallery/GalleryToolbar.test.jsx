@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import GalleryToolbar from "./GalleryToolbar.jsx";
@@ -173,6 +173,51 @@ describe("GalleryToolbar", () => {
     // The menu stays open so the "Rescanning drives…" state is visible
     expect(screen.getByRole("menu", { name: /More options/i })).toBeInTheDocument();
   });
+
+  it("locks rescan while pending/confirmed, then animates back to Rescan drives", async () => {
+    const user = userEvent.setup();
+    let resolveRescan;
+    const onRescan = vi.fn(
+      () => new Promise((resolve) => { resolveRescan = resolve; })
+    );
+    const props = {
+      segments: SEGMENTS,
+      segment: "library",
+      onSegmentChange: vi.fn(),
+      query: "",
+      onQueryChange: vi.fn(),
+      onRescan,
+      rescanPending: false,
+    };
+    const { rerender } = render(<GalleryToolbar {...props} />);
+
+    await user.click(screen.getByRole("button", { name: /More options/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Rescan drives/i }));
+    expect(onRescan).toHaveBeenCalledTimes(1);
+
+    // In flight: locked, and the resting label is leaving upward
+    rerender(<GalleryToolbar {...props} rescanPending={true} />);
+    expect(screen.getByRole("menuitem", { name: /Rescanning drives/i })).toBeDisabled();
+    // The menu is portaled to document.body — query there, not `container`
+    expect(document.querySelector(".animate-rescan-swap-out")).toBeTruthy();
+
+    // Resolved: "Started scan." shows but the row stays locked
+    resolveRescan();
+    rerender(<GalleryToolbar {...props} rescanPending={false} />);
+    expect(
+      await screen.findByRole("menuitem", { name: /Started scan/i })
+    ).toBeDisabled();
+
+    // After the dwell it rolls back: "Started scan." exits downward and the
+    // row is clickable again
+    await waitFor(
+      () => {
+        expect(screen.getByRole("menuitem", { name: /Rescan drives/i })).toBeEnabled();
+        expect(document.querySelector(".animate-rescan-swap-out-back")).toBeTruthy();
+      },
+      { timeout: 3000 }
+    );
+  }, 5000);
 
   it("closes the More menu on outside click", async () => {
     const user = userEvent.setup();

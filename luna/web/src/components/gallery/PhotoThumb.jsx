@@ -126,7 +126,7 @@ export default function PhotoThumb({
           ref={(img) => {
             if (img?.complete) setLoaded(true);
           }}
-          className={`h-full w-full object-cover motion-safe:transition-[opacity,transform] motion-safe:duration-300 group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100 ${
+          className={`h-full w-full object-cover motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}
         />

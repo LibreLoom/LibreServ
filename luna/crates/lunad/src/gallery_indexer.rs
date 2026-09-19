@@ -49,6 +49,15 @@ struct Inner {
     watches: HashMap<String, MountWatch>,
 }
 
+/// A failed catch-up scan: which drive failed plus the user-facing message.
+/// `message` keeps a `{drive}` placeholder; the status endpoint fills it with
+/// the drive's label (or "this drive" when the caller cannot see that drive).
+#[derive(Debug, Clone)]
+struct ScanError {
+    drive_id: String,
+    message: String,
+}
+
 /// Snapshot for `/api/v1/gallery/status`.
 #[derive(Debug, Clone)]
 pub struct GalleryStatus {
@@ -59,6 +68,8 @@ pub struct GalleryStatus {
     pub drive_id: Option<String>,
     pub found_count: u64,
     pub last_error: Option<String>,
+    /// Drive whose catch-up scan produced `last_error`, for `{drive}` lookup.
+    pub error_drive_id: Option<String>,
 }
 
 pub struct GalleryIndexer {
@@ -67,7 +78,7 @@ pub struct GalleryIndexer {
     scanning: Arc<AtomicBool>,
     found_count: Arc<AtomicU64>,
     active_drive: Arc<Mutex<Option<String>>>,
-    last_error: Arc<Mutex<Option<String>>>,
+    scan_error: Arc<Mutex<Option<ScanError>>>,
     inner: Arc<Mutex<Inner>>,
 }
 
@@ -78,7 +89,7 @@ impl GalleryIndexer {
         let scanning = Arc::new(AtomicBool::new(false));
         let found_count = Arc::new(AtomicU64::new(0));
         let active_drive = Arc::new(Mutex::new(None));
-        let last_error = Arc::new(Mutex::new(None));
+        let scan_error = Arc::new(Mutex::new(None));
         let inner = Arc::new(Mutex::new(Inner {
             mounts: HashMap::new(),
             watches: HashMap::new(),
@@ -89,7 +100,7 @@ impl GalleryIndexer {
             scanning: scanning.clone(),
             found_count: found_count.clone(),
             active_drive: active_drive.clone(),
-            last_error: last_error.clone(),
+            scan_error: scan_error.clone(),
             inner: inner.clone(),
         });
 
@@ -104,7 +115,7 @@ impl GalleryIndexer {
                     scanning,
                     found_count,
                     active_drive,
-                    last_error,
+                    scan_error,
                 )
             })
             .expect("spawn gallery indexer");
@@ -120,7 +131,9 @@ impl GalleryIndexer {
         let scanning = self.scanning.load(Ordering::Relaxed);
         let pending = self.pending.load(Ordering::Relaxed);
         let drive_id = self.active_drive.lock().unwrap().clone();
-        let last_error = self.last_error.lock().unwrap().clone();
+        let scan_error = self.scan_error.lock().unwrap().clone();
+        let last_error = scan_error.as_ref().map(|e| e.message.clone());
+        let error_drive_id = scan_error.map(|e| e.drive_id);
         let phase = if scanning {
             "scanning"
         } else if pending > 0 {
@@ -136,7 +149,18 @@ impl GalleryIndexer {
             drive_id,
             found_count: self.found_count.load(Ordering::Relaxed),
             last_error,
+            error_drive_id,
         }
+    }
+
+    /// Test hook: pretend a catch-up scan failed so API tests can exercise the
+    /// `last_error` / `{drive}` substitution path without a flaky real failure.
+    #[cfg(test)]
+    pub fn debug_set_error(&self, drive_id: &str, message: &str) {
+        *self.scan_error.lock().unwrap() = Some(ScanError {
+            drive_id: drive_id.to_string(),
+            message: message.to_string(),
+        });
     }
 
     pub fn notify(&self, event: GalleryEvent) {
@@ -297,7 +321,7 @@ fn worker_loop(
     scanning: Arc<AtomicBool>,
     found_count: Arc<AtomicU64>,
     active_drive: Arc<Mutex<Option<String>>>,
-    last_error: Arc<Mutex<Option<String>>>,
+    scan_error: Arc<Mutex<Option<ScanError>>>,
 ) {
     let mut upserts: HashSet<(String, String)> = HashSet::new();
     let mut removes: HashSet<(String, String)> = HashSet::new();
@@ -467,15 +491,16 @@ fn worker_loop(
             match gallery::scan_drive(&drive_id, &root) {
                 Ok(report) => {
                     found_count.store(report.found, Ordering::Relaxed);
-                    let mut err = last_error.lock().unwrap();
-                    *err = None;
+                    *scan_error.lock().unwrap() = None;
                 }
                 Err(e) => {
                     tracing::warn!(drive_id, error = %e, "gallery catch-up scan failed");
-                    let mut err = last_error.lock().unwrap();
-                    *err = Some(
-                        "Luna couldn't finish looking through this drive. Try Look again, or unplug the drive and plug it back in.".into(),
-                    );
+                    *scan_error.lock().unwrap() = Some(ScanError {
+                        drive_id: drive_id.clone(),
+                        message:
+                            "Luna couldn't finish looking through {drive}. Try looking through it again, or unplug the drive and plug it back in."
+                                .into(),
+                    });
                 }
             }
             scanning.store(false, Ordering::Relaxed);

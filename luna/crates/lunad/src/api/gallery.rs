@@ -283,7 +283,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/gallery/albums/{home}/{id}/items",
-            post(add_items).delete(remove_item),
+            get(list_items).post(add_items).delete(remove_item),
         )
         .route(
             "/api/v1/gallery/albums/{home}/{id}/members",
@@ -722,6 +722,21 @@ async fn status(
             drive_id = None;
         }
     }
+    // Scan errors keep a "{drive}" placeholder — name the drive when the
+    // caller may see it, otherwise stay generic.
+    let mut last_error = st.last_error.clone();
+    if last_error.as_deref().is_some_and(|m| m.contains("{drive}")) {
+        let label = st.error_drive_id.as_deref().and_then(|id| {
+            let conn = state.db.lock().ok()?;
+            crate::db::get_drive(&conn, id)
+                .ok()
+                .flatten()
+                .filter(|_| crate::auth::has_drive_access(&user, &conn, id))
+                .map(|row| row.label)
+        });
+        let name = label.map_or_else(|| "this drive".to_string(), |l| format!("\"{l}\""));
+        last_error = last_error.map(|m| m.replace("{drive}", &name));
+    }
     Json(json!({
         "scanning": st.scanning,
         "pending": st.pending,
@@ -730,7 +745,7 @@ async fn status(
         "drive_id": drive_id,
         "drive_label": drive_label,
         "found_count": st.found_count,
-        "last_error": st.last_error,
+        "last_error": last_error,
     }))
 }
 
@@ -1665,6 +1680,42 @@ async fn remove_item(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// `GET …/items` — the photo refs an album holds, so the web UI can show
+/// which albums a selection already belongs to before applying changes.
+async fn list_items(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path((home, id)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let root = resolve_mount(&state, &home)?;
+    let album = gallery::get_album(&root, &home, &id)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't open that album.",
+            )
+        })?
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+    if !can_view_album(&user, &root, &album) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this album.",
+        ));
+    }
+    let items = gallery::list_album_item_refs(&root, &id).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't list that album's photos.",
+        )
+    })?;
+    Ok(Json(json!(
+        items
+            .into_iter()
+            .map(|(drive_id, path)| json!({ "drive_id": drive_id, "path": path }))
+            .collect::<Vec<_>>()
+    )))
+}
+
 async fn list_members(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -2260,6 +2311,79 @@ mod tests {
         assert!(v.get("drive_id").is_some());
         assert!(v.get("drive_label").is_some());
         assert!(v.get("last_error").is_some());
+    }
+
+    #[tokio::test]
+    async fn status_names_the_failing_drive_in_last_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        db::upsert_drive(
+            &conn,
+            "d-photos",
+            "Family Photos",
+            "as_is",
+            "ext4",
+            "sdz",
+            "/mnt/d-photos",
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Err", "Err", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+        state.gallery.debug_set_error(
+            "d-photos",
+            "Luna couldn't finish looking through {drive}. Try looking through it again, or unplug the drive and plug it back in.",
+        );
+        let make_router = || {
+            axum::Router::new()
+                .merge(super::router())
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    crate::auth::guard,
+                ))
+                .with_state(state.clone())
+        };
+        let get_status = |router: axum::Router| {
+            let token = token.clone();
+            async move {
+                let response = router
+                    .oneshot(
+                        Request::builder()
+                            .uri("/api/v1/gallery/status")
+                            .header("Authorization", format!("Bearer {token}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+                    .await
+                    .unwrap();
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+            }
+        };
+
+        let v = get_status(make_router()).await;
+        let msg = v["last_error"].as_str().unwrap();
+        assert!(
+            msg.contains("\"Family Photos\""),
+            "last_error should name the drive, got: {msg}"
+        );
+        assert!(!msg.contains("{drive}"));
+
+        // A drive the caller cannot resolve falls back to a generic reference.
+        state
+            .gallery
+            .debug_set_error("d-gone", "Luna couldn't finish looking through {drive}.");
+        let v = get_status(make_router()).await;
+        let msg = v["last_error"].as_str().unwrap();
+        assert!(msg.contains("this drive"), "got: {msg}");
+        assert!(!msg.contains("{drive}"));
     }
 
     #[tokio::test]

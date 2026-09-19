@@ -253,6 +253,23 @@ export default function GalleryToolbar({
     }
   }, [moreOpen, updateMenuPosition]);
 
+  const rescanPhase = rescanPending ? "pending" : rescanState;
+  const [rescanLeaving, setRescanLeaving] = useState(/** @type {string|null} */ (null));
+  const rescanPhaseRef = useRef(rescanPhase);
+  // When the phase changes, keep the outgoing state mounted for one swap
+  // animation so the old icon + label can slide out instead of vanishing.
+  if (rescanPhaseRef.current !== rescanPhase) {
+    setRescanLeaving(rescanPhaseRef.current);
+    rescanPhaseRef.current = rescanPhase;
+  }
+
+  useEffect(() => {
+    if (!rescanLeaving) return undefined;
+    const t = setTimeout(() => setRescanLeaving(null), 240);
+    return () => clearTimeout(t);
+  }, [rescanLeaving]);
+
+  const rescanReturning = rescanLeaving === "success" || rescanLeaving === "error";
   const hasSelect = Boolean(showSelect && onSelectModeChange);
   const selectButton = (
     <div
@@ -350,6 +367,36 @@ export default function GalleryToolbar({
     onQueryChange({ target: { value: "" } });
   };
 
+  const rescanContent = (/** @type {string} */ phase) => (
+    <>
+      {phase === "success" ? (
+        <Check size={15} className="shrink-0 text-success" aria-hidden="true" />
+      ) : phase === "error" ? (
+        <X size={15} className="shrink-0 text-error" aria-hidden="true" />
+      ) : (
+        <RefreshCw
+          size={15}
+          className={cn("shrink-0 text-accent", phase === "pending" && "animate-spin")}
+          aria-hidden="true"
+        />
+      )}
+      <span
+        className={cn(
+          phase === "success" && "text-success",
+          phase === "error" && "text-error"
+        )}
+      >
+        {phase === "success"
+          ? "Started scan."
+          : phase === "error"
+            ? "Failed to start"
+            : phase === "pending"
+              ? "Rescanning drives…"
+              : "Rescan drives"}
+      </span>
+    </>
+  );
+
   const moreMenuPortal = moreOpen
     ? createPortal(
         <div
@@ -415,36 +462,46 @@ export default function GalleryToolbar({
               <button
                 type="button"
                 role="menuitem"
-                disabled={rescanPending}
+                disabled={rescanPhase !== "idle"}
                 aria-live="polite"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors hover:bg-primary hover:text-secondary active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="relative overflow-hidden w-full flex items-center gap-2.5 px-3 py-2 rounded-pill text-xs font-mono text-left cursor-pointer transition-colors enabled:hover:bg-primary enabled:hover:text-secondary enabled:active:scale-[0.98] disabled:cursor-not-allowed"
                 onClick={handleRescan}
               >
+                {/* Conveyor swap: the outgoing icon + label stay mounted for one
+                    animation and slide out through the row's clipped top edge
+                    while the incoming pair rises from the bottom; returning to
+                    "Rescan drives" rolls the other way. The enter animation only
+                    runs when a previous state is leaving, so opening the menu
+                    doesn't replay it. */}
                 <span
-                  key={rescanPending ? "pending" : rescanState}
-                  className="flex items-center gap-2.5 animate-in fade-in duration-200"
-                >
-                  {rescanState === "success" && !rescanPending ? (
-                    <>
-                      <Check size={15} className="shrink-0 text-success" aria-hidden="true" />
-                      <span className="text-success">Started scan.</span>
-                    </>
-                  ) : rescanState === "error" && !rescanPending ? (
-                    <>
-                      <X size={15} className="shrink-0 text-error" aria-hidden="true" />
-                      <span className="text-error">Failed to start</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw
-                        size={15}
-                        className={cn("shrink-0 text-accent", rescanPending && "animate-spin")}
-                        aria-hidden="true"
-                      />
-                      <span>{rescanPending ? "Rescanning drives…" : "Rescan drives"}</span>
-                    </>
+                  key={rescanPhase}
+                  className={cn(
+                    "flex items-center gap-2.5",
+                    rescanLeaving &&
+                      (rescanReturning
+                        ? "animate-rescan-swap-in-back"
+                        : "animate-rescan-swap-in")
                   )}
+                >
+                  {rescanContent(rescanPhase)}
                 </span>
+                {rescanLeaving && (
+                  <span
+                    className="absolute inset-x-3 inset-y-0 flex items-center pointer-events-none"
+                    aria-hidden="true"
+                  >
+                    <span
+                      className={cn(
+                        "flex items-center gap-2.5",
+                        rescanReturning
+                          ? "animate-rescan-swap-out-back"
+                          : "animate-rescan-swap-out"
+                      )}
+                    >
+                      {rescanContent(rescanLeaving)}
+                    </span>
+                  </span>
+                )}
               </button>
             )}
 

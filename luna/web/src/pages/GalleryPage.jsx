@@ -3,12 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Film,
+  ArrowLeft,
   Image as ImageIcon,
   Lock,
   Pencil,
   Plus,
   PlugZap,
+  Share2,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import GalleryFilterSheet, {
   clearFilterChip,
   countActiveFilters,
   filterChipList,
+  readSavedFilters,
 } from "../components/gallery/GalleryFilterSheet.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import CreateShareModal from "../components/files/CreateShareModal";
@@ -43,7 +45,6 @@ import DayJumpModal, {
   nearestDayKey,
 } from "../components/gallery/DayJumpModal.jsx";
 import PhotoEditModal from "../components/gallery/PhotoEditModal.jsx";
-import AlbumMembersPanel from "../components/gallery/AlbumMembersPanel.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
@@ -874,12 +875,24 @@ export default function GalleryPage() {
     },
   });
 
-  const addToAlbum = useMutation({
-    /** @param {{ album: object, photos: object[], close?: () => void }} args */
-    mutationFn: ({ album, photos: items }) =>
-      postJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/items`, {
-        items: items.map((p) => ({ drive_id: p.drive_id, path: p.path })),
-      }),
+  const applyAlbumPick = useMutation({
+    /** @param {{ changes: Array<{ album: object, add?: object[], remove?: object[] }>, close?: () => void }} args */
+    mutationFn: async ({ changes }) => {
+      for (const change of changes) {
+        const base = `/api/v1/gallery/albums/${change.album.home_drive_id}/${change.album.id}/items`;
+        if (change.add?.length) {
+          await postJson(base, {
+            items: change.add.map((p) => ({ drive_id: p.drive_id, path: p.path })),
+          });
+        }
+        for (const item of change.remove || []) {
+          await deleteJson(base, {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ drive_id: item.drive_id, path: item.path }),
+          });
+        }
+      }
+    },
     onSuccess: (_data, vars) => {
       if (vars.close) vars.close();
       else setAlbumPick(null);
@@ -1420,7 +1433,7 @@ export default function GalleryPage() {
             setRenameValue(album.name || "");
           }}
           onLock={(album) => lockAlbumMut.mutate({ album, locked: !album.locked })}
-          onSmart={(smart) => {
+          onSmart={(smart, saved) => {
             if (smart === "duplicates") {
               setDuplicatesView(true);
               setAlbumView(null);
@@ -1431,6 +1444,10 @@ export default function GalleryPage() {
               return;
             }
             handleSegmentChange("library");
+            setQ("");
+            setSearch("");
+            setSearchOpen(false);
+            setDayFilter(null);
             if (smart === "videos") {
               setFilters((prev) => ({ ...EMPTY_FILTERS, ...prev, kind: "video" }));
             }
@@ -1445,13 +1462,25 @@ export default function GalleryPage() {
               const fromDate = new Date(Date.now() - 30 * 86400 * 1000);
               const toYmd = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
               const fromYmd = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, "0")}-${String(fromDate.getDate()).padStart(2, "0")}`;
-              setDayFilter(null);
               setFilters((prev) => ({
                 ...EMPTY_FILTERS,
                 ...prev,
                 dateFrom: fromYmd,
                 dateTo: toYmd,
               }));
+            }
+            if (smart === "unalbumed") {
+              setFilters({ ...EMPTY_FILTERS, albumMembership: "none" });
+            }
+            if (smart === "undated") {
+              setFilters({ ...EMPTY_FILTERS, undated: true });
+            }
+            if (smart === "saved" && saved?.filters) {
+              setFilters({
+                ...EMPTY_FILTERS,
+                ...saved.filters,
+                formats: [...(saved.filters?.formats || [])],
+              });
             }
           }}
         />
@@ -1490,6 +1519,7 @@ export default function GalleryPage() {
             <Button
               variant="outline"
               surface="primary"
+              size="sm"
               onClick={() => {
                 setPlace(null);
                 setAlbumView(null);
@@ -1500,7 +1530,7 @@ export default function GalleryPage() {
                 setSearch("");
               }}
             >
-              Back
+              <ArrowLeft size={14} /> Back
             </Button>
             <p className="font-mono text-sm truncate">
               {duplicatesView
@@ -1570,25 +1600,24 @@ export default function GalleryPage() {
                     setRenameValue(albumView.name || "");
                   }}
                 >
-                  Rename
+                  <Pencil size={14} /> Rename
                 </Button>
                 <Button
                   variant="secondary"
                   surface="primary"
+                  size="sm"
                   onClick={() => {
                     setError(null);
                     setShareAlbum(albumView);
                   }}
                 >
-                  Share album
+                  <Share2 size={14} /> Share album
                 </Button>
               </>
             )}
           </div>
         </div>
       )}
-
-      {albumView && canManageAlbum(albumView, user) && <AlbumMembersPanel album={albumView} />}
 
       {albumEmpty && (
         <EmptyState
@@ -1711,7 +1740,7 @@ export default function GalleryPage() {
         onSelectAll={selection.selectAllInView}
         favoriting={bulkFavorite.isPending}
         archiving={archiveMut.isPending}
-        busy={trashMany.isPending || removeFromAlbum.isPending || addToAlbum.isPending}
+        busy={trashMany.isPending || removeFromAlbum.isPending || applyAlbumPick.isPending}
         onClear={selection.clear}
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
         onAddToAlbum={() => setAlbumPick(selection.selectedItems)}
@@ -1929,17 +1958,18 @@ export default function GalleryPage() {
       <AddToAlbumModal
         open={!!albumPick}
         albums={albums.data || []}
+        photos={albumPick || []}
         albumsLoading={!!albumPick && (albums.isLoading || albums.isPending || (albums.isFetching && !albums.data))}
-        adding={addToAlbum.isPending}
+        applying={applyAlbumPick.isPending}
         error={albumPick ? error : null}
         overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         onClose={() => {
           setAlbumPick(null);
           setError(null);
         }}
-        onAdd={(album, close) => {
+        onApply={(changes, close) => {
           if (!albumPick?.length) return;
-          addToAlbum.mutate({ album, photos: albumPick, close });
+          applyAlbumPick.mutate({ changes, close });
         }}
       />
 
@@ -2095,42 +2125,59 @@ function AlbumsPanel({
   if (loading) {
     return <GalleryLoadingStatus label="Loading albums…" />;
   }
+  // Read per render — cheap localStorage hit, and picks up filters saved from
+  // the filter sheet without a remount.
+  const savedFilters = readSavedFilters();
   return (
-    <div className="space-y-6">
-      <div className="space-y-3" data-slot="smart-albums">
-        <p className="font-mono text-sm">Smart albums</p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" surface="primary" size="sm" onClick={() => onSmart("videos")}>
-            <Film size={14} /> Videos
-          </Button>
-          <Button variant="secondary" surface="primary" size="sm" onClick={() => onSmart("last30")}>
-            Last 30 days
-          </Button>
-          <Button variant="secondary" surface="primary" size="sm" onClick={() => onSmart("screenshots")}>
-            Screenshots
-          </Button>
-          <Button variant="secondary" surface="primary" size="sm" onClick={() => onSmart("duplicates")}>
-            Possible duplicates
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-4">
+      <div
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 animate-nav-slide-in"
+        data-slot="albums-toolbar"
+      >
         <Dropdown
           options={[
-            { value: "newest", label: "Newest" },
-            { value: "oldest", label: "Oldest" },
-            { value: "name", label: "Name" },
-            { value: "most", label: "Most photos" },
+            { value: "videos", label: "Videos" },
+            { value: "last30", label: "Last 30 days" },
+            { value: "screenshots", label: "Screenshots" },
+            { value: "duplicates", label: "Possible duplicates" },
+            { value: "unalbumed", label: "Not in an album" },
+            { value: "undated", label: "No date" },
+            ...savedFilters.map((item) => ({ value: `saved:${item.id}`, label: item.name })),
           ]}
-          value={sort}
-          onChange={setSort}
-          bg="primary"
-          aria-label="Sort albums"
+          value=""
+          placeholder="Smart albums"
+          onChange={(choice) => {
+            if (choice.startsWith("saved:")) {
+              const item = savedFilters.find((f) => `saved:${f.id}` === choice);
+              if (item) onSmart("saved", item);
+            } else {
+              onSmart(choice);
+            }
+          }}
+          bg="secondary"
+          fullWidth
+          className="w-36"
+          aria-label="Smart albums"
         />
-        <Button variant="secondary" surface="primary" onClick={onCreate}>
-          <Plus size={16} /> New album
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Dropdown
+            options={[
+              { value: "newest", label: "Newest" },
+              { value: "oldest", label: "Oldest" },
+              { value: "name", label: "Name" },
+              { value: "most", label: "Most photos" },
+            ]}
+            value={sort}
+            onChange={setSort}
+            bg="secondary"
+            fullWidth
+            className="w-36"
+            aria-label="Sort albums"
+          />
+          <Button variant="secondary" surface="primary" size="sm" className="w-36" onClick={onCreate}>
+            <Plus size={16} /> New album
+          </Button>
+        </div>
       </div>
       {sorted.length === 0 ? (
         <EmptyState
@@ -2196,7 +2243,7 @@ function AlbumsPanel({
                   className="min-w-0 flex-1"
                   onClick={() => onShare(album)}
                 >
-                  Share album
+                  <Share2 size={14} /> Share album
                 </Button>
                 <Button
                   variant="ghost"

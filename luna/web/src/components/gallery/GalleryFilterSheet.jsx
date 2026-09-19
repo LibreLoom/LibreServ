@@ -245,7 +245,7 @@ export function clearFilterChip(filters, chipId) {
   return next;
 }
 
-function readSavedFilters() {
+export function readSavedFilters() {
   try {
     const raw = localStorage.getItem(SAVED_FILTERS_KEY);
     if (!raw) return [];

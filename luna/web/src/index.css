@@ -410,6 +410,64 @@ select:focus:not(:focus-visible) {
     will-change: transform, opacity;
 }
 
+/* Rescan menu row — conveyor swap between states: the outgoing icon + label
+   slide out through the row's clipped top edge while the incoming pair rises
+   from the bottom. 175% of the line height clears the row in both directions. */
+@keyframes rescan-swap-in {
+    from {
+        transform: translateY(175%);
+    }
+    to {
+        transform: none;
+    }
+}
+
+@keyframes rescan-swap-out {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(-175%);
+    }
+}
+
+.animate-rescan-swap-in {
+    animation: rescan-swap-in 220ms var(--motion-easing-emphasized-decelerate) both;
+}
+
+.animate-rescan-swap-out {
+    animation: rescan-swap-out 220ms var(--motion-easing-emphasized-accelerate) both;
+}
+
+/* Same conveyor, reversed: returning to "Rescan drives" rolls the content
+   back down — success/error exit through the bottom, the resting label drops
+   back in from the top. */
+@keyframes rescan-swap-in-back {
+    from {
+        transform: translateY(-175%);
+    }
+    to {
+        transform: none;
+    }
+}
+
+@keyframes rescan-swap-out-back {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(175%);
+    }
+}
+
+.animate-rescan-swap-in-back {
+    animation: rescan-swap-in-back 220ms var(--motion-easing-emphasized-decelerate) both;
+}
+
+.animate-rescan-swap-out-back {
+    animation: rescan-swap-out-back 220ms var(--motion-easing-emphasized-accelerate) both;
+}
+
 /* Toggle thumb — springy scale squish when it lands */
 @keyframes toggle-thumb-settle {
     0% {
@@ -1009,6 +1067,8 @@ select:focus:not(:focus-visible) {
     .animate-dropdown-open,
     .animate-dropdown-close,
     .animate-dropdown-option,
+    .animate-rescan-swap-in,
+    .animate-rescan-swap-in-back,
     .animate-toggle-settle,
     .animate-segmented-settle,
     .animate-alert-enter,
@@ -1054,7 +1114,9 @@ select:focus:not(:focus-visible) {
 .delay-700 { animation-delay: 700ms; }
 
 @media (prefers-reduced-motion: reduce) {
-    .slide-out-to-top {
+    .slide-out-to-top,
+    .animate-rescan-swap-out,
+    .animate-rescan-swap-out-back {
         animation: none !important;
         opacity: 0;
     }
