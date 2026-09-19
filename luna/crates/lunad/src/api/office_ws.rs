@@ -113,7 +113,10 @@ pub async fn sdkjs_dispatch(
 /// The sdkjs font loader resolves `../../../../fonts/` against the site root
 /// (Document Server's nginx layout) — serve the pack's generated fonts.
 /// The route shadows the web app's own /fonts/* brand fonts, so a miss falls
-/// through to the embedded dist handler instead of a bare 404.
+/// through to the embedded dist handler — but only for real dist assets: its
+/// SPA fallback would hand index.html back with a 200, which sdkjs consumes
+/// as corrupt font data (or a poisoned service-worker cache entry), so an
+/// HTML answer must surface as a real 404.
 pub async fn fonts_dispatch(
     State(state): State<AppState>,
     Path(tail): Path<String>,
@@ -126,7 +129,19 @@ pub async fn fonts_dispatch(
     }
     match ServeDir::new(dir).oneshot(req).await {
         Ok(res) if res.status() != StatusCode::NOT_FOUND => res.into_response(),
-        Ok(_) => crate::staticweb::handle(&orig_path).into_response(),
+        Ok(_) => {
+            let res = crate::staticweb::handle(&orig_path);
+            let is_spa_index = res
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|ct| ct.starts_with("text/html"));
+            if is_spa_index {
+                StatusCode::NOT_FOUND.into_response()
+            } else {
+                res.into_response()
+            }
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
