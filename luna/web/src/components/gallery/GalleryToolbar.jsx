@@ -539,7 +539,7 @@ export default function GalleryToolbar({
             onClear={clearQuery}
           />
           {iconButtons}
-          <div className="pr-1.5 shrink-0">
+          <div className="shrink-0">
             <SegmentedControl
               options={segments}
               value={segment}
@@ -568,7 +568,7 @@ export default function GalleryToolbar({
       </div>
 
       {/* Bottom bar on small screens: Category bar below the search bar */}
-      <div className={cn(pillShell, "justify-center py-1 px-1.5")}>
+      <div className={cn(pillShell, "justify-center")}>
         <SegmentedControl
           options={segments}
           value={segment}
