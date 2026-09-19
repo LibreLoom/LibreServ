@@ -396,6 +396,9 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             lat REAL,
             lon REAL,
             place_label TEXT NOT NULL DEFAULT '',
+            place_city TEXT NOT NULL DEFAULT '',
+            place_region TEXT NOT NULL DEFAULT '',
+            place_country TEXT NOT NULL DEFAULT '',
             camera_make TEXT NOT NULL DEFAULT '',
             camera_model TEXT NOT NULL DEFAULT '',
             lens TEXT NOT NULL DEFAULT '',
@@ -495,6 +498,63 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     ensure_column(conn, "photos", "iso", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(conn, "photos", "focal_mm", "REAL NOT NULL DEFAULT 0")?;
     ensure_column(conn, "photos", "flash", "INTEGER NOT NULL DEFAULT -1")?;
+    ensure_column(conn, "photos", "place_city", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "photos", "place_region", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "photos", "place_country", "TEXT NOT NULL DEFAULT ''")?;
+    backfill_photo_places(conn)?;
+    Ok(())
+}
+
+/// Fill derived place columns for GPS'd rows indexed before they existed.
+/// Idempotent — a row with any place column filled is left alone, so this
+/// becomes a no-op once caught up. Rows that enrich to all-empty (e.g. open
+/// ocean) are re-checked on each open, which is a handful of rows at most.
+fn backfill_photo_places(conn: &Connection) -> anyhow::Result<()> {
+    let pending: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM photos
+         WHERE lat IS NOT NULL AND lon IS NOT NULL
+           AND place_city = '' AND place_region = '' AND place_country = ''",
+        [],
+        |r| r.get(0),
+    )?;
+    if pending == 0 {
+        return Ok(());
+    }
+    let places = crate::places::index();
+    let rows = {
+        let mut sel = conn.prepare(
+            "SELECT path, lat, lon FROM photos
+             WHERE lat IS NOT NULL AND lon IS NOT NULL
+               AND place_city = '' AND place_region = '' AND place_country = ''",
+        )?;
+        sel.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, f64>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?
+    };
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut upd = tx.prepare(
+            "UPDATE photos
+             SET place_city = ?2, place_region = ?3, place_country = ?4, place_label = ?5
+             WHERE path = ?1",
+        )?;
+        for (path, lat, lon) in rows {
+            let info = places.enrich(lat, lon);
+            upd.execute(params![
+                path,
+                info.city,
+                info.region,
+                info.country,
+                info.label
+            ])?;
+        }
+    }
+    tx.commit()?;
     Ok(())
 }
 
