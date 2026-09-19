@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { FlaskConical, MoreHorizontal, Save, X } from "lucide-react";
+import { MoreHorizontal, Save, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard.jsx";
 import Button from "../ui/Button.jsx";
 import PageNotice from "../common/PageNotice.jsx";
@@ -438,6 +438,14 @@ export default function FullscreenEditorFrame({
                    corner clipping. */
                 <div
                   data-slot="editor-rail"
+                  // Focus contract, half 1: chrome never takes DOM focus on
+                  // mouse press (keyboard Tab/Enter is unaffected). The
+                  // EuroOffice iframe types through a hidden sink that only
+                  // re-arms on an element-focus event that never fires when
+                  // the frame's focus leaves and returns — a rail click
+                  // killed typing. The frame's focus watchdog (half 2,
+                  // watchEuroOfficeFocus) heals whatever still slips through.
+                  onMouseDown={(e) => e.preventDefault()}
                   className="flex w-14 shrink-0 flex-col items-center border-r border-primary/20 bg-secondary py-3 text-primary"
                 >
                   <div className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
@@ -469,19 +477,6 @@ export default function FullscreenEditorFrame({
                         <Save size={ICON_SIZE.xl} aria-hidden="true" />
                       </Button>
                     ) : null}
-                    {/* TEMP: meaningless test button for the keyboard-freeze
-                        investigation — does nothing but take a click. */}
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="icon"
-                      smoothResize={false}
-                      haptic="light"
-                      onClick={() => console.log("test button clicked")}
-                      aria-label="Test"
-                    >
-                      <FlaskConical size={ICON_SIZE.xl} aria-hidden="true" />
-                    </Button>
                     {/* React 19 ref-as-prop: Button spreads ...props onto the
                         <button>, so closeRef still reaches the DOM node the
                         focus effect above targets. */}
@@ -505,6 +500,9 @@ export default function FullscreenEditorFrame({
                    viewport height. */
                 <div
                   data-slot="editor-topbar"
+                  // Same rule as the rail — a chrome click must not pull
+                  // DOM focus out of the editor frame.
+                  onMouseDown={(e) => e.preventDefault()}
                   className="flex h-10 shrink-0 items-center gap-2 border-b border-primary/20 bg-secondary pl-4 pr-1.5 text-primary"
                 >
                   <span

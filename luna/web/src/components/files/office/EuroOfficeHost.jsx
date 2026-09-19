@@ -15,6 +15,7 @@ import {
   restoreEuroOfficeEditing,
   ensureOfficeBundle,
   euroOfficeDocumentType,
+  watchEuroOfficeFocus,
   loadEuroOfficeDocsApi,
   patchEuroOfficeDownloadAs,
   patchEuroOfficeReconnect,
@@ -209,6 +210,8 @@ export default function EuroOfficeHost({
     let unsubChanges;
     /** @type {(() => void) | undefined} */
     let unsubStale;
+    /** @type {(() => void) | undefined} */
+    let unsubFocus;
 
     // A coded drop (error/disconnectReason: restore 4010, updateVersion
     // 4008, noCache 4009) is the server telling the client its document
@@ -509,6 +512,13 @@ export default function EuroOfficeHost({
                 style.textContent = "#status-action,#label-action{visibility:hidden}";
                 hostDoc.head.appendChild(style);
               }
+              // The frame owns a focus watchdog: while it is the focused
+              // browsing context and no real input inside owns DOM focus,
+              // the keyboard sink holds it. Luna chrome clicks blur the
+              // frame and the sdk never re-arms the sink on its own, so
+              // typing stayed dead until a window blur→focus.
+              unsubFocus?.();
+              unsubFocus = watchEuroOfficeFocus(hostIframe);
               // Attach Ctrl+S interception to the live document (attaching
               // right after `new DocEditor` hits the pre-navigation document,
               // which the load throws away).
@@ -668,6 +678,7 @@ export default function EuroOfficeHost({
       unsubSaved?.();
       unsubChanges?.();
       unsubStale?.();
+      unsubFocus?.();
       try {
         editor?.destroyEditor?.();
       } catch {

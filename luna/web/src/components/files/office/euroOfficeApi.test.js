@@ -7,6 +7,7 @@ import {
   requestEuroOfficeSaveLock,
   patchEuroOfficeReconnect,
   patchEuroOfficeSaveState,
+  watchEuroOfficeFocus,
   restoreEuroOfficeEditing,
   x2tConvert,
   ensureOfficeBundle,
@@ -427,6 +428,160 @@ describe("restoreEuroOfficeEditing", () => {
     restoreEuroOfficeEditing(/** @type {any} */ (iframe));
     expect(el.remove).toHaveBeenCalled();
     expect(w.Common.util.Shortcuts.resumeEvents).toHaveBeenCalled();
+  });
+});
+
+describe("watchEuroOfficeFocus", () => {
+  /**
+   * Fake of the iframe world wired for listener capture: the window and
+   * document record addEventListener callbacks so a test can fire the
+   * frame's "focus" event and the capture-phase press by hand.
+   */
+  const makeIframe = () => {
+    const sink = { focus: vi.fn(), id: "area_id" };
+    const winHandlers = {};
+    const docHandlers = {};
+    const doc = {
+      activeElement: null,
+      body: { nodeName: "BODY" },
+      documentElement: { nodeName: "HTML" },
+      focused: false,
+      hasFocus() {
+        return this.focused;
+      },
+      getElementById: () => sink,
+      addEventListener: (ev, cb, capture) => {
+        docHandlers[ev] = { cb, capture };
+      },
+      removeEventListener: vi.fn(),
+    };
+    doc.activeElement = doc.body;
+    const w = {
+      document: doc,
+      PointerEvent: function () {},
+      addEventListener: (ev, cb) => {
+        winHandlers[ev] = cb;
+      },
+      removeEventListener: vi.fn(),
+      focus: vi.fn(() => {
+        doc.focused = true;
+      }),
+      Asc: {
+        c_oAscAsyncActionType: { BlockInteraction: 1 },
+        editor: {
+          asc_enableKeyEvents: vi.fn(),
+          WordControl: { IsFocus: true, TextBoxInput: sink },
+        },
+      },
+      AscCommon: {
+        ConnectionState: { Authorized: 2, SaveChanges: 3, AskSaveChanges: 11 },
+        g_inputContext: { setInterfaceEnableKeyEvents: vi.fn() },
+      },
+      Common: {
+        Utils: { ModalWindow: { isVisible: () => false } },
+        util: { Shortcuts: { resumeEvents: vi.fn() } },
+      },
+    };
+    const iframe = { contentWindow: w, contentDocument: doc };
+    return { iframe, w, doc, sink, winHandlers, docHandlers };
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("the interval refocuses the sink when the frame owns focus but <body> is active", () => {
+    vi.useFakeTimers();
+    const { iframe, w, doc, sink } = makeIframe();
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    doc.focused = true;
+    vi.advanceTimersByTime(150);
+    expect(w.Asc.editor.asc_enableKeyEvents).toHaveBeenCalledWith(true);
+    expect(sink.focus).toHaveBeenCalled();
+  });
+
+  it("never steals while the frame isn't focused — chrome focus is respected", () => {
+    vi.useFakeTimers();
+    const { iframe, sink } = makeIframe();
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    vi.advanceTimersByTime(600);
+    expect(sink.focus).not.toHaveBeenCalled();
+  });
+
+  it("leaves real inputs, plugin frames, and keyboard elements alone", () => {
+    vi.useFakeTimers();
+    const { iframe, doc, sink } = makeIframe();
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    doc.focused = true;
+    for (const ae of [
+      { nodeName: "INPUT" },
+      { nodeName: "TEXTAREA" },
+      { nodeName: "IFRAME" },
+      { nodeName: "DIV", isContentEditable: true },
+      { nodeName: "LI", closest: () => ({}) },
+    ]) {
+      doc.activeElement = ae;
+      vi.advanceTimersByTime(150);
+    }
+    expect(sink.focus).not.toHaveBeenCalled();
+  });
+
+  it("refocuses when the frame window regains focus, without waiting a tick", () => {
+    vi.useFakeTimers();
+    const { iframe, doc, sink, winHandlers } = makeIframe();
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    doc.focused = true;
+    winHandlers.focus();
+    vi.advanceTimersByTime(0);
+    expect(sink.focus).toHaveBeenCalled();
+  });
+
+  it("a press that starts unfocused pulls the frame in through both paths", () => {
+    const { iframe, w, doc, sink, docHandlers } = makeIframe();
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    doc.focused = false;
+    docHandlers.pointerdown.cb({ type: "pointerdown" });
+    // window.focus() AND the sink element — engines differ on which honors.
+    expect(w.focus).toHaveBeenCalled();
+    expect(sink.focus).toHaveBeenCalled();
+  });
+
+  it("suspends enforcement while an editor modal is up", () => {
+    vi.useFakeTimers();
+    const { iframe, w, doc, sink } = makeIframe();
+    w.Common.Utils.ModalWindow.isVisible = () => true;
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    doc.focused = true;
+    vi.advanceTimersByTime(600);
+    expect(sink.focus).not.toHaveBeenCalled();
+    expect(w.Asc.editor.asc_enableKeyEvents).not.toHaveBeenCalled();
+  });
+
+  it("keeps key events armed when the sink already holds focus", () => {
+    vi.useFakeTimers();
+    const { iframe, w, doc, sink } = makeIframe();
+    watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    doc.focused = true;
+    doc.activeElement = sink;
+    vi.advanceTimersByTime(150);
+    expect(w.Asc.editor.asc_enableKeyEvents).toHaveBeenCalledWith(true);
+    expect(sink.focus).not.toHaveBeenCalled();
+  });
+
+  it("unsubscribes everything and stops the watchdog", () => {
+    vi.useFakeTimers();
+    const { iframe, w, doc, sink } = makeIframe();
+    const unsub = watchEuroOfficeFocus(/** @type {any} */ (iframe));
+    unsub();
+    doc.focused = true;
+    vi.advanceTimersByTime(600);
+    expect(sink.focus).not.toHaveBeenCalled();
+    expect(w.removeEventListener).toHaveBeenCalledWith("focus", expect.any(Function));
+    expect(doc.removeEventListener).toHaveBeenCalledWith(
+      "pointerdown",
+      expect.any(Function),
+      true,
+    );
   });
 });
 

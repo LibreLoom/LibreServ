@@ -645,6 +645,127 @@ export function restoreEuroOfficeEditing(iframe) {
 }
 
 /**
+ * Focus watchdog for the editor frame.
+ *
+ * EuroOffice types through a hidden textarea sink (`#area_id`), and the
+ * sdk's only refocus path is a document-capture `focus` listener inside
+ * the frame. When DOM focus leaves the frame entirely — a rail click, a
+ * Luna dialog — the browser resets the frame document's activeElement to
+ * <body>. Clicking back in refocuses the *frame* but no element inside
+ * (the sdk cancels the press's default action), so that listener never
+ * runs and keystrokes land on <body> — dead until a window blur→focus.
+ *
+ * Rather than patching every theft path, the frame owns one invariant,
+ * enforced on a timer and on the two moments it can break:
+ *
+ *   While the editor frame is the focused browsing context, and no real
+ *   input inside it owns DOM focus, the keyboard sink holds DOM focus.
+ *
+ * Triggers:
+ *
+ * - window `focus` — the frame regained focus; enforce on the spot.
+ * - capture `pointerdown` — when the press starts unfocused (some engines
+ *   skip frame focus on a canceled mousedown), pull the frame in through
+ *   window.focus() AND the sink element itself — whichever the engine
+ *   honors — then enforce.
+ * - interval — heals everything else: modal closes, focus-restore quirks,
+ *   sdk internals that park activeElement on <body> with no event.
+ *
+ * Focus is never stolen: while the frame isn't focused, a real modal is
+ * up, or a genuine input / plugin frame / sdk keyboard element inside
+ * owns DOM focus, nothing happens.
+ *
+ * Returns an unsubscribe fn.
+ * @param {HTMLIFrameElement | null} iframe the DocsAPI frame (same-origin)
+ */
+export function watchEuroOfficeFocus(iframe) {
+  const w = /** @type {any} */ (iframe?.contentWindow);
+  const doc = iframe?.contentDocument;
+  if (!w || !doc) return () => {};
+
+  const getSink = () =>
+    /** @type {HTMLElement | null} */ (
+      w.Asc?.editor?.WordControl?.TextBoxInput ??
+      doc.getElementById?.("area_id") ??
+      null
+    );
+
+  /**
+   * A legitimate focus owner inside the editor — editable fields, plugin
+   * frames, or elements the sdk flags to keep keyboard focus
+   * (oo_editor_input / oo_editor_keyboard). Everything else is fair game
+   * for the sink, matching the sdk's own capture-focus policy.
+   */
+  const ownsFocus = (el) => {
+    const tag = el?.nodeName;
+    return (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "IFRAME" ||
+      !!el?.isContentEditable ||
+      !!el?.closest?.("[oo_editor_input],[oo_editor_keyboard]")
+    );
+  };
+
+  const enforce = () => {
+    try {
+      const api = w.Asc?.editor;
+      if (!api || !doc.hasFocus?.()) return;
+      if (w.Common?.Utils?.ModalWindow?.isVisible?.()) return;
+      const sink = getSink();
+      if (!sink) return;
+      const ae = doc.activeElement;
+      if (ae === sink) {
+        // Sink focused but the key pipeline may be disarmed — cheap no-ops
+        // when already enabled.
+        api.asc_enableKeyEvents?.(true);
+        w.AscCommon?.g_inputContext?.setInterfaceEnableKeyEvents?.(true);
+        return;
+      }
+      if (ae && ae !== doc.body && ae !== doc.documentElement && ownsFocus(ae)) {
+        return;
+      }
+      api.asc_enableKeyEvents?.(true);
+      w.AscCommon?.g_inputContext?.setInterfaceEnableKeyEvents?.(true);
+      sink.focus?.();
+    } catch {
+      // A broken tick must not kill the watchdog — the next one heals.
+    }
+  };
+
+  const onWindowFocus = () => setTimeout(enforce, 0);
+  const onPress = () => {
+    if (!doc.hasFocus()) {
+      try {
+        w.focus();
+      } catch {
+        // engines differ on iframe window.focus()
+      }
+      // Where window.focus() is ignored for frames, focusing the sink
+      // element drags the whole focus chain into the frame — the same way
+      // the sdk's own init focus works.
+      try {
+        getSink()?.focus?.();
+      } catch {
+        // ignore
+      }
+    }
+    enforce();
+  };
+
+  const pressEvent =
+    typeof w.PointerEvent === "function" ? "pointerdown" : "mousedown";
+  w.addEventListener("focus", onWindowFocus);
+  doc.addEventListener(pressEvent, onPress, true);
+  const id = setInterval(enforce, 150);
+  return () => {
+    clearInterval(id);
+    w.removeEventListener("focus", onWindowFocus);
+    doc.removeEventListener(pressEvent, onPress, true);
+  };
+}
+
+/**
  * Transparent reconnect for the docstorage socket.
  *
  * The pack cannot recover a raw transport close on its own:
