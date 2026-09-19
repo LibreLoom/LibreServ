@@ -218,6 +218,29 @@ impl OfficeDocHub {
             .map(|s| (s.binding.drive_id.clone(), s.binding.path.clone()))
     }
 
+    /// The key of the session already live on this file — bound to it and
+    /// holding at least one participant — if any.
+    ///
+    /// A minted key fingerprints the file's size+mtime at first open, so
+    /// every save that lands on disk changes what a fresh session request
+    /// computes: a later opener would get a different key and land in an
+    /// empty room with its own converted bundle while the live document
+    /// keeps editing elsewhere. Session create must join the live room
+    /// instead — its bundle plus op log IS the document's current state.
+    ///
+    /// Empty sessions are never reused: with nobody connected, their op log
+    /// may reach past the file's current bytes (a save followed by an
+    /// external change), so a fresh versioned key is the safe start there.
+    pub async fn live_key_for(&self, drive_id: &str, path: &str) -> Option<String> {
+        let hub = self.inner.lock().await;
+        hub.sessions.iter().find_map(|(key, session)| {
+            (session.binding.drive_id == drive_id
+                && session.binding.path == path
+                && !session.participants.is_empty())
+            .then(|| key.clone())
+        })
+    }
+
     pub async fn subscribe(&self, key: &str) -> broadcast::Receiver<Value> {
         let mut bus = self.bus.lock().await;
         bus.entry(key.to_string())
@@ -1631,6 +1654,30 @@ mod tests {
         // Free hold → still answered.
         let reply = hub.un_save_lock("k", 2).await.unwrap().unwrap();
         assert_eq!(reply["type"], "unSaveLock");
+    }
+
+    #[tokio::test]
+    async fn live_key_for_matches_only_rooms_with_participants() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        // Registered but nobody connected → not live.
+        assert_eq!(hub.live_key_for("drive-a", "docs/a.docx").await, None);
+        // A bound session on a different file must not match.
+        assert_eq!(hub.live_key_for("drive-a", "docs/b.docx").await, None);
+        assert_eq!(hub.live_key_for("drive-b", "docs/a.docx").await, None);
+
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            hub.live_key_for("drive-a", "docs/a.docx").await,
+            Some("k".to_string())
+        );
+
+        // The room going empty ends reuse — a stale op log must not be
+        // replayed onto a file that may have changed since.
+        hub.disconnect("k", 1).await;
+        assert_eq!(hub.live_key_for("drive-a", "docs/a.docx").await, None);
     }
 
     #[tokio::test]

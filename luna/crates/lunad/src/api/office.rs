@@ -121,7 +121,16 @@ async fn create_session(
             )
         })?;
 
-    let key = document_key(&drive_id, &path, size, modified);
+    // The key fingerprints the file's size+mtime — but only to keep a stale
+    // converted bundle from ever opening for a changed file. When a room is
+    // already live on this file its key embeds the meta from *its* first
+    // open, which every save since has invalidated; minting a fresh key
+    // would park the joiner in an isolated room. Reuse the live key — its
+    // bundle + op replay delivers the live document, not the disk bytes.
+    let key = match state.office_docs.live_key_for(&drive_id, &path).await {
+        Some(live) => live,
+        None => document_key(&drive_id, &path, size, modified),
+    };
     state.office_docs.register_key(&key, &drive_id, &path).await;
 
     // The docstorage shim never fetches document.url (the open reply names
@@ -596,7 +605,7 @@ mod http_tests {
         54321,
     );
 
-    fn test_app() -> (tempfile::TempDir, axum::Router) {
+    fn test_app() -> (tempfile::TempDir, axum::Router, crate::AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
@@ -606,8 +615,8 @@ mod http_tests {
                 state.clone(),
                 crate::auth::guard,
             ))
-            .with_state(state);
-        (dir, app)
+            .with_state(state.clone());
+        (dir, app, state)
     }
 
     fn req(method: Method, uri: &str, body: Body, cookie: &str, csrf: &str) -> HttpReq<Body> {
@@ -677,7 +686,7 @@ mod http_tests {
     /// an empty document. The PUT must be rejected and the prior file kept.
     #[tokio::test]
     async fn bundle_put_rejects_empty_and_preserves_prior_file() {
-        let (dir, app) = test_app();
+        let (dir, app, _state) = test_app();
         let (cookie, csrf) = admin_login(&app).await;
 
         let mount = dir.path().join("drive-a");
@@ -748,5 +757,93 @@ mod http_tests {
         let res = call(&app, req(Method::PUT, &uri, Body::empty(), &cookie, &csrf)).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         assert_eq!(std::fs::metadata(&bin).unwrap().len(), 4);
+    }
+
+    /// Regression: the doc key fingerprints the file's size+mtime, so a save
+    /// landing under an open editor changed what a second opener computed —
+    /// the two landed in different docstorage rooms and never saw each
+    /// other. While a room is live on the file, session create must return
+    /// its key instead of minting a fresh fingerprint.
+    #[tokio::test]
+    async fn session_reuses_live_room_across_file_writes() {
+        let (dir, app, state) = test_app();
+        let (cookie, csrf) = admin_login(&app).await;
+
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        let doc = mount.join("Letter.rtf");
+        std::fs::write(&doc, b"{\\rtf1 hello}").unwrap();
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::upsert_drive(
+                &conn,
+                "drive-a",
+                "A",
+                "mounted",
+                "ext4",
+                "sda",
+                mount.to_str().unwrap(),
+            )
+            .unwrap();
+        }
+
+        async fn open_key(app: &axum::Router, cookie: &str, csrf: &str) -> String {
+            let res = call(
+                app,
+                req(
+                    Method::POST,
+                    "/api/v1/office/session",
+                    Body::from(r#"{"drive_id":"drive-a","path":"Letter.rtf"}"#),
+                    cookie,
+                    csrf,
+                ),
+            )
+            .await;
+            let status = res.status();
+            let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            assert_eq!(
+                status,
+                200,
+                "session body: {}",
+                String::from_utf8_lossy(&body)
+            );
+            let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            v["key"].as_str().unwrap().to_string()
+        }
+
+        // A opens the file and its editor auths on the docstorage socket —
+        // the room is now live.
+        let key_a = open_key(&app, &cookie, &csrf).await;
+        state
+            .office_docs
+            .auth(
+                &key_a,
+                1,
+                &serde_json::json!({
+                    "type": "auth",
+                    "docid": key_a,
+                    "user": { "id": "u-max", "username": "Max" },
+                    "mode": "edit",
+                }),
+                true,
+            )
+            .await
+            .unwrap();
+
+        // An autosave lands — the file's size+mtime now differ from what
+        // A's key was minted from.
+        std::fs::write(&doc, b"{\\rtf1 hello, a longer saved body}").unwrap();
+
+        // B opens mid-dirty-session: same room, not a fresh isolated key.
+        let key_b = open_key(&app, &cookie, &csrf).await;
+        assert_eq!(key_b, key_a);
+
+        // Once the room empties the next open mints a fresh fingerprint
+        // again — the old bundle must not shadow the changed file.
+        state.office_docs.disconnect(&key_a, 1).await;
+        let key_c = open_key(&app, &cookie, &csrf).await;
+        assert_ne!(key_c, key_a);
     }
 }
