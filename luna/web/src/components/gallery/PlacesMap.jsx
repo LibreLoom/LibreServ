@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Check, Crop, ImageIcon, MapPin, Pencil } from "lucide-react";
+import { Check, Crop, ImageIcon, MapPin, Pencil, X } from "lucide-react";
 import Supercluster from "supercluster";
 import {
   MapContainer,
@@ -416,7 +416,7 @@ export default function PlacesMap({
     <Card
       noHeightAnim
       padding={false}
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
+      className="@container relative flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
     >
       {/* Draw control — one corner pill that resizes to fit its content. */}
       <div
@@ -440,12 +440,14 @@ export default function PlacesMap({
             className="pop-in flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap px-3.5 py-2 text-xs font-mono [scrollbar-width:none]"
           >
             <Crop size={15} className="shrink-0 text-accent animate-pulse" aria-hidden="true" />
-            <span className="font-medium">Draw custom area</span>
-            <span className="text-accent hidden sm:inline">· Drag across the map</span>
+            <span>Draw custom area</span>
+            <span className="text-accent hidden @md:inline">· Drag across the map</span>
             <Button
               type="button"
               size="sm"
               variant="ghost"
+              aria-label="Cancel"
+              title="Cancel"
               className="ml-1 h-6 px-2 text-xs rounded-pill"
               onClick={() => {
                 haptic("light");
@@ -453,7 +455,8 @@ export default function PlacesMap({
                 setDrawnBbox(null);
               }}
             >
-              Cancel
+              <span className="hidden @sm:inline">Cancel</span>
+              <X size={14} className="@sm:hidden" aria-hidden="true" />
             </Button>
           </div>
         ) : (
@@ -467,17 +470,19 @@ export default function PlacesMap({
             >
               <Check size={12} strokeWidth={3} />
             </span>
-            <span className="font-medium">
+            <span>
               {matchedCount === 0
-                ? "No photos in area"
-                : `${matchedCount} ${matchedCount === 1 ? "photo" : "photos"} in area`}
+                ? "No photos"
+                : `${matchedCount} ${matchedCount === 1 ? "photo" : "photos"}`}
+              <span className="hidden @sm:inline"> in area</span>
             </span>
-            <span className="text-accent hidden sm:inline">· Drag again to adjust</span>
+            <span className="text-accent hidden @xl:inline">· Drag again to adjust</span>
             {matchedCount > 0 && (
               <Button
                 type="button"
                 size="sm"
                 variant="accent"
+                aria-label="Open photos"
                 className="h-6 shrink-0 px-3 text-xs rounded-pill"
                 onClick={() => {
                   haptic("medium");
@@ -491,13 +496,16 @@ export default function PlacesMap({
                   setDrawnBbox(null);
                 }}
               >
-                Open photos
+                <span className="@sm:hidden">Open</span>
+                <span className="hidden @sm:inline">Open photos</span>
               </Button>
             )}
             <Button
               type="button"
               size="sm"
               variant="ghost"
+              aria-label="Cancel"
+              title="Cancel"
               className="h-6 shrink-0 px-2 text-xs rounded-pill"
               onClick={() => {
                 haptic("light");
@@ -505,7 +513,8 @@ export default function PlacesMap({
                 setDrawnBbox(null);
               }}
             >
-              Cancel
+              <span className="hidden @sm:inline">Cancel</span>
+              <X size={14} className="@sm:hidden" aria-hidden="true" />
             </Button>
           </div>
         )}
