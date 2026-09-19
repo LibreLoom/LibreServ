@@ -64,16 +64,55 @@ if [ -f "${LUNA_WEB}/package-lock.json" ]; then
 fi
 
 # Ensure mock-drive presets are present/plugged (seeded by .cursor/install.sh;
-# re-plug any that a previous session left unplugged).
+# re-plug any that a previous session left unplugged). Same path resolution as
+# mock-drive.py; .drive.json marks a completed spawn — a dir without it is a
+# partial spawn and gets respawned.
+export LUNA_DATA_DIR="${LUNA_DATA_DIR:-${REPO_ROOT}/luna/dev}"
+MOCK_DRIVES="${LUNA_MOCK_DRIVES_PATH:-${LUNA_DATA_DIR}/mock-drives}"
 for preset in photos documents media projects deep mixed empty; do
-  drive="${REPO_ROOT}/luna/dev/mock-drives/${preset}"
+  drive="${MOCK_DRIVES}/${preset}"
   if [ -d "${drive}" ] && [ -f "${drive}/.unplugged" ]; then
     (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="plug ${preset}") || true
-  elif [ ! -d "${drive}" ]; then
+  elif [ ! -f "${drive}/.drive.json" ]; then
     (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="spawn ${preset} ${preset}") \
       || echo ">> mock-drive spawn ${preset} failed (non-fatal)"
   fi
 done
+
+# Scrub the legacy pre-preset mock drive (superseded by mock-drives/ presets).
+rm -rf "${LUNA_DATA_DIR}/mock-pssd-vol"
+if [ -f "${LUNA_DATA_DIR}/luna.db" ]; then
+  python3 - <<'PY'
+import os
+import sqlite3
+from pathlib import Path
+
+db = Path(os.environ["LUNA_DATA_DIR"]) / "luna.db"
+con = sqlite3.connect(db)
+cur = con.cursor()
+ids = [r[0] for r in cur.execute("SELECT id FROM drives WHERE device = 'sdmock'")]
+for did in ids:
+    for table, col in (
+        ("index_entries", "drive_id"),
+        ("indexed_dirs", "drive_id"),
+        ("file_hashes", "drive_id"),
+        ("uploads", "drive_id"),
+        ("grants", "drive_id"),
+        ("shares", "drive_id"),
+    ):
+        cur.execute(f"DELETE FROM {table} WHERE {col} = ?", (did,))
+    cur.execute("DELETE FROM jobs WHERE from_drive = ? OR to_drive = ?", (did, did))
+    cur.execute(
+        "DELETE FROM protections WHERE source_drive = ? OR target_drive = ?",
+        (did, did),
+    )
+    cur.execute("DELETE FROM drives WHERE id = ?", (did,))
+con.commit()
+con.close()
+if ids:
+    print(f">> Removed {len(ids)} legacy sdmock drive row(s) from luna.db")
+PY
+fi
 
 # Luna Connect mock: cloud backup unlocked + domain hostname + device-token so
 # External Services UI shows (connect_active). lunad terminals must set

@@ -247,9 +247,12 @@ cd "${REPO_ROOT}/luna"
 make build-daemon
 # Seed the mock-drive system for Cloud Agents / local review.
 # Unique presets only (docs/code/all are aliases for other presets).
+# Same path resolution as mock-drive.py; .drive.json marks a completed spawn.
 echo ">> Seeding Luna mock drives"
+export LUNA_DATA_DIR="${LUNA_DATA_DIR:-${REPO_ROOT}/luna/dev}"
+MOCK_DRIVES="${LUNA_MOCK_DRIVES_PATH:-${LUNA_DATA_DIR}/mock-drives}"
 for preset in photos documents media projects deep mixed empty; do
-  if [ -d "${REPO_ROOT}/luna/dev/mock-drives/${preset}" ]; then
+  if [ -f "${MOCK_DRIVES}/${preset}/.drive.json" ]; then
     (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="plug ${preset}") || true
   else
     (cd "${REPO_ROOT}/luna" && make mock-drive ARGS="spawn ${preset} ${preset}")
