@@ -14,6 +14,10 @@
 /desktop/packaging/flatpak/build-dir
 /desktop/packaging/flatpak/.flatpak-builder
 
+# Python bytecode caches (scripts/)
+__pycache__/
+*.pyc
+
 # local luna dev data dir
 /dev
 /desktop/packaging/flatpak/repo
