@@ -10,7 +10,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use image::{ImageFormat, ImageReader};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::Serialize;
 
 const THUMB_MAX: u32 = 400;
@@ -272,6 +273,9 @@ struct PendingUpsert {
     lat: Option<f64>,
     lon: Option<f64>,
     place_label: String,
+    place_city: String,
+    place_region: String,
+    place_country: String,
     camera_make: String,
     camera_model: String,
     lens: String,
@@ -394,6 +398,9 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                     lat: None,
                     lon: None,
                     place_label: String::new(),
+                    place_city: String::new(),
+                    place_region: String::new(),
+                    place_country: String::new(),
                     camera_make: String::new(),
                     camera_model: String::new(),
                     lens: String::new(),
@@ -418,9 +425,9 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             let iso = meta.iso.unwrap_or(0);
             let focal_mm = meta.focal_mm.unwrap_or(0.0);
             let flash = flash_to_i64(meta.flash);
-            let place_label = match (lat, lon) {
-                (Some(la), Some(lo)) => place_label_for(la, lo),
-                _ => String::new(),
+            let place = match (lat, lon) {
+                (Some(la), Some(lo)) => crate::places::index().enrich(la, lo),
+                _ => crate::places::PlaceInfo::default(),
             };
 
             let mut width = 0;
@@ -459,7 +466,10 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 height,
                 lat,
                 lon,
-                place_label,
+                place_label: place.label,
+                place_city: place.city.to_string(),
+                place_region: place.region.to_string(),
+                place_country: place.country.to_string(),
                 camera_make,
                 camera_model,
                 lens,
@@ -511,8 +521,8 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
     let tx = conn.unchecked_transaction()?;
     for row in pending.drain(..) {
         tx.execute(
-            "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+            "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, place_city, place_region, place_country, camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
              ON CONFLICT(path) DO UPDATE SET
                name = excluded.name,
                size = excluded.size,
@@ -524,6 +534,9 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                lat = excluded.lat,
                lon = excluded.lon,
                place_label = excluded.place_label,
+               place_city = excluded.place_city,
+               place_region = excluded.place_region,
+               place_country = excluded.place_country,
                camera_make = excluded.camera_make,
                camera_model = excluded.camera_model,
                lens = excluded.lens,
@@ -544,6 +557,9 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                 row.lat,
                 row.lon,
                 row.place_label,
+                row.place_city,
+                row.place_region,
+                row.place_country,
                 row.camera_make,
                 row.camera_model,
                 row.lens,
@@ -615,9 +631,9 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
     let iso = meta.iso.unwrap_or(0);
     let focal_mm = meta.focal_mm.unwrap_or(0.0);
     let flash = flash_to_i64(meta.flash);
-    let place_label = match (lat, lon) {
-        (Some(la), Some(lo)) => place_label_for(la, lo),
-        _ => String::new(),
+    let place = match (lat, lon) {
+        (Some(la), Some(lo)) => crate::places::index().enrich(la, lo),
+        _ => crate::places::PlaceInfo::default(),
     };
     let duration_secs = if kind == "video" {
         probe_video_duration_secs(&path_buf)
@@ -635,7 +651,10 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
         height: 0,
         lat,
         lon,
-        place_label,
+        place_label: place.label,
+        place_city: place.city.to_string(),
+        place_region: place.region.to_string(),
+        place_country: place.country.to_string(),
         camera_make,
         camera_model,
         lens,
@@ -1194,7 +1213,7 @@ fn query_drive_photos(
         .or(filter.archived_user.as_deref())
         .or(filter.exclude_archived_user.as_deref())
         .unwrap_or("");
-    let q_pat = filter
+    let mut q_pat = filter
         .q
         .as_ref()
         .map(|q| {
@@ -1303,9 +1322,20 @@ fn query_drive_photos(
         .map(str::to_ascii_lowercase)
         .filter(|s| s == "none" || s == "any")
         .unwrap_or_default();
+    // Tokenize the free-text query into structured predicates (places,
+    // dates, kinds, …) plus leftover LIKE terms. When it produced nothing
+    // at all, fall back to the historical whole-`q` substring match.
+    let parsed_q = filter
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(|q| crate::search_query::parse(q, now_unix()));
+    if parsed_q.as_ref().is_some_and(|p| !p.is_empty()) {
+        q_pat.clear();
+    }
 
-    let mut stmt = conn.prepare(
-        "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
+    let mut sql = "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
                 p.width, p.height, p.kind, p.lat, p.lon, p.place_label, p.has_thumb,
                 CASE WHEN f.path IS NOT NULL THEN 1 ELSE 0 END,
                 COALESCE(p.duration_secs, 0),
@@ -1371,87 +1401,89 @@ fn query_drive_photos(
                     SELECT 1 FROM album_items ai
                     WHERE ai.path = p.path AND ai.drive_id = ?32
                 ))
-           ))",
-    )?;
-    let rows = stmt.query_map(
-        params![
-            uid,
-            q_pat,
-            from,
-            to,
-            place,
-            fav_only,
-            bbox_active,
-            bbox_min_lon,
-            bbox_max_lon,
-            bbox_min_lat,
-            bbox_max_lat,
-            archived_only,
-            exclude_archived,
-            kind,
+           ))"
+    .to_string();
+    let mut binds: Vec<Value> = vec![
+        uid.to_string().into(),
+        q_pat.into(),
+        from.into(),
+        to.into(),
+        place.into(),
+        fav_only.into(),
+        bbox_active.into(),
+        bbox_min_lon.into(),
+        bbox_max_lon.into(),
+        bbox_min_lat.into(),
+        bbox_max_lat.into(),
+        archived_only.into(),
+        exclude_archived.into(),
+        kind.to_string().into(),
+        camera_make.to_string().into(),
+        camera_model.to_string().into(),
+        lens.to_string().into(),
+        iso_min.into(),
+        iso_max.into(),
+        focal_min.into(),
+        focal_max.into(),
+        flash.into(),
+        orientation.into(),
+        has_gps.into(),
+        hour_from.into(),
+        hour_to.into(),
+        min_megapixels.into(),
+        min_duration.into(),
+        max_duration.into(),
+        undated.into(),
+        album_membership.into(),
+        drive_id.to_string().into(),
+    ];
+    if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
+        append_query_clauses(&mut sql, &mut binds, pq);
+    }
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(binds), |row| {
+        let path: String = row.get(0)?;
+        let has_thumb: i64 = row.get(10)?;
+        let favorited: i64 = row.get(11)?;
+        let place_label: String = row.get(9)?;
+        let duration_secs: i64 = row.get(12)?;
+        let camera_make: String = row.get(13)?;
+        let camera_model: String = row.get(14)?;
+        let lens: String = row.get(15)?;
+        let iso: i64 = row.get(16)?;
+        let focal_mm: f64 = row.get(17)?;
+        let flash: i64 = row.get(18)?;
+        Ok(Photo {
+            drive_id: drive_id.to_string(),
+            path: path.clone(),
+            name: row.get(1)?,
+            size: row.get::<_, i64>(2)? as u64,
+            taken_at: row.get(3)?,
+            width: row.get::<_, i64>(4)? as u32,
+            height: row.get::<_, i64>(5)? as u32,
+            thumb: if has_thumb != 0 {
+                thumb_url(drive_id, &path)
+            } else {
+                String::new()
+            },
+            kind: row.get(6)?,
+            lat: row.get(7)?,
+            lon: row.get(8)?,
+            place_label: if place_label.is_empty() {
+                None
+            } else {
+                Some(place_label)
+            },
             camera_make,
             camera_model,
             lens,
-            iso_min,
-            iso_max,
-            focal_min,
-            focal_max,
+            iso: iso.max(0) as u32,
+            focal_mm,
             flash,
-            orientation,
-            has_gps,
-            hour_from,
-            hour_to,
-            min_megapixels,
-            min_duration,
-            max_duration,
-            undated,
-            album_membership,
-            drive_id,
-        ],
-        |row| {
-            let path: String = row.get(0)?;
-            let has_thumb: i64 = row.get(10)?;
-            let favorited: i64 = row.get(11)?;
-            let place_label: String = row.get(9)?;
-            let duration_secs: i64 = row.get(12)?;
-            let camera_make: String = row.get(13)?;
-            let camera_model: String = row.get(14)?;
-            let lens: String = row.get(15)?;
-            let iso: i64 = row.get(16)?;
-            let focal_mm: f64 = row.get(17)?;
-            let flash: i64 = row.get(18)?;
-            Ok(Photo {
-                drive_id: drive_id.to_string(),
-                path: path.clone(),
-                name: row.get(1)?,
-                size: row.get::<_, i64>(2)? as u64,
-                taken_at: row.get(3)?,
-                width: row.get::<_, i64>(4)? as u32,
-                height: row.get::<_, i64>(5)? as u32,
-                thumb: if has_thumb != 0 {
-                    thumb_url(drive_id, &path)
-                } else {
-                    String::new()
-                },
-                kind: row.get(6)?,
-                lat: row.get(7)?,
-                lon: row.get(8)?,
-                place_label: if place_label.is_empty() {
-                    None
-                } else {
-                    Some(place_label)
-                },
-                camera_make,
-                camera_model,
-                lens,
-                iso: iso.max(0) as u32,
-                focal_mm,
-                flash,
-                duration_secs: duration_secs.max(0) as u32,
-                favorited: favorited != 0,
-            })
-        },
-    )?;
+            duration_secs: duration_secs.max(0) as u32,
+            favorited: favorited != 0,
+        })
+    })?;
 
     let mut photos = Vec::new();
     for row in rows {
@@ -1461,23 +1493,212 @@ fn query_drive_photos(
         {
             continue;
         }
-        // Format filter: SQLite instr finds the first '.', which breaks on
-        // dotted directory names — refine in Rust when a format was requested.
-        // `format` may be a single ext or a comma-separated list.
-        if !format.is_empty() {
-            let allowed: HashSet<String> = format
-                .split(',')
-                .map(normalize_format_ext)
-                .filter(|s| !s.is_empty())
-                .collect();
+        // Format filter: refine in Rust when a format was requested — the
+        // `format` param and `q` format words ("heic", "raw") both apply.
+        let mut allowed: HashSet<String> = format
+            .split(',')
+            .map(normalize_format_ext)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
+            allowed.extend(pq.formats.iter().cloned());
+        }
+        if !allowed.is_empty() {
             let ext = normalize_format_ext(&path_ext_lower(&photo.path));
-            if allowed.is_empty() || !allowed.contains(&ext) {
+            if !allowed.contains(&ext) {
                 continue;
             }
         }
         photos.push(photo);
     }
     Ok(photos)
+}
+
+/// Append `q`-parser predicates to the base query. Binds continue at `?33`
+/// (the base statement uses `?1..=?32`; `?32` is the drive id). Values the
+/// parser produced as integers are inlined — only user text goes through
+/// binds, so there is no injection surface.
+fn append_query_clauses(
+    sql: &mut String,
+    binds: &mut Vec<Value>,
+    pq: &crate::search_query::ParsedQuery,
+) {
+    const EFF: &str = "COALESCE(NULLIF(p.taken_at, 0), p.mtime)";
+    let like = |s: &str| -> Value {
+        let t: String = s.chars().filter(|c| *c != '%' && *c != '_').collect();
+        Value::Text(format!("%{t}%"))
+    };
+    // One shared text-match predicate for LIKE params: file/camera text,
+    // every place column, and same-drive album names.
+    let text_match = |p: &str| -> String {
+        format!(
+            "p.name LIKE {p} COLLATE NOCASE OR p.path LIKE {p} COLLATE NOCASE \
+             OR p.camera_make LIKE {p} COLLATE NOCASE OR p.camera_model LIKE {p} COLLATE NOCASE \
+             OR p.lens LIKE {p} COLLATE NOCASE OR p.place_label LIKE {p} COLLATE NOCASE \
+             OR p.place_city LIKE {p} COLLATE NOCASE OR p.place_region LIKE {p} COLLATE NOCASE \
+             OR p.place_country LIKE {p} COLLATE NOCASE \
+             OR EXISTS (SELECT 1 FROM album_items ai JOIN albums al ON al.id = ai.album_id \
+                        AND al.name LIKE {p} COLLATE NOCASE \
+                        WHERE ai.drive_id = ?32 AND ai.path = p.path)"
+        )
+    };
+    let mut n = 32usize;
+    for term in &pq.like_terms {
+        n += 1;
+        sql.push_str(&format!(" AND ({})", text_match(&format!("?{n}"))));
+        binds.push(like(term));
+    }
+    for place in &pq.places {
+        // A resolved phrase still text-matches (a file named "portland-x.jpg"
+        // must hit even when the photo is in Texas), plus canonical-name
+        // equality on the derived place columns, plus a bbox around each
+        // resolved city center for rows whose label differs.
+        n += 1;
+        let mut alts = vec![text_match(&format!("?{n}"))];
+        binds.push(like(&place.raw));
+        for name in &place.names {
+            n += 1;
+            alts.push(format!(
+                "lower(p.place_city) = ?{n} OR lower(p.place_region) = ?{n} \
+                 OR lower(p.place_country) = ?{n} OR lower(p.place_label) = ?{n}"
+            ));
+            binds.push(Value::Text(name.to_lowercase()));
+        }
+        for (lat, lon) in &place.centers {
+            let dlat = crate::places::CITY_QUERY_RADIUS_KM / 111.0;
+            let dlon = dlat / lat.to_radians().cos().abs().max(0.3);
+            n += 4;
+            alts.push(format!(
+                "(p.lat BETWEEN ?{} AND ?{} AND p.lon BETWEEN ?{} AND ?{})",
+                n - 3,
+                n - 2,
+                n - 1,
+                n
+            ));
+            binds.extend([
+                Value::Real(lat - dlat),
+                Value::Real(lat + dlat),
+                Value::Real(lon - dlon),
+                Value::Real(lon + dlon),
+            ]);
+        }
+        sql.push_str(&format!(" AND ({})", alts.join(" OR ")));
+    }
+    if !pq.months.is_empty() {
+        let list = pq
+            .months
+            .iter()
+            .map(|m| m.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(
+            " AND CAST(strftime('%m', {EFF}, 'unixepoch') AS INTEGER) IN ({list})"
+        ));
+    }
+    if !pq.years.is_empty() {
+        let list = pq
+            .years
+            .iter()
+            .map(|y| y.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(
+            " AND CAST(strftime('%Y', {EFF}, 'unixepoch') AS INTEGER) IN ({list})"
+        ));
+    }
+    if !pq.weekdays.is_empty() {
+        let list = pq
+            .weekdays
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(
+            " AND CAST(strftime('%w', {EFF}, 'unixepoch') AS INTEGER) IN ({list})"
+        ));
+    }
+    if !pq.day_windows.is_empty() {
+        let parts: Vec<String> = pq
+            .day_windows
+            .iter()
+            .map(|w| {
+                let mut s = format!(
+                    "(CAST(strftime('%m', {EFF}, 'unixepoch') AS INTEGER) = {} \
+                     AND CAST(strftime('%d', {EFF}, 'unixepoch') AS INTEGER) \
+                     BETWEEN {} AND {})",
+                    w.month, w.day_lo, w.day_hi
+                );
+                if let Some(wd) = w.weekday {
+                    s.insert_str(
+                        s.len() - 1,
+                        &format!(" AND CAST(strftime('%w', {EFF}, 'unixepoch') AS INTEGER) = {wd}"),
+                    );
+                }
+                s
+            })
+            .collect();
+        sql.push_str(&format!(" AND ({})", parts.join(" OR ")));
+    }
+    for (lo, hi) in &pq.ranges {
+        n += 2;
+        sql.push_str(&format!(" AND ({EFF} >= ?{} AND {EFF} < ?{})", n - 1, n));
+        binds.push(Value::Integer(*lo));
+        binds.push(Value::Integer(*hi));
+    }
+    if !pq.hours.is_empty() {
+        let parts: Vec<String> = pq
+            .hours
+            .iter()
+            .map(|(lo, hi)| {
+                if lo <= hi {
+                    format!("(({EFF} / 3600) % 24) BETWEEN {lo} AND {hi}")
+                } else {
+                    format!("(({EFF} / 3600) % 24) >= {lo} OR (({EFF} / 3600) % 24) <= {hi}")
+                }
+            })
+            .collect();
+        sql.push_str(&format!(" AND ({})", parts.join(" OR ")));
+    }
+    if let Some(kind) = pq.kind {
+        n += 1;
+        sql.push_str(&format!(" AND p.kind = ?{n}"));
+        binds.push(Value::Text(kind.to_string()));
+    }
+    if let Some(o) = pq.orientation {
+        n += 1;
+        sql.push_str(&format!(
+            " AND ((?{n} = 'landscape' AND p.width > p.height AND p.width > 0) OR \
+                  (?{n} = 'portrait' AND p.height > p.width AND p.height > 0) OR \
+                  (?{n} = 'square' AND p.width = p.height AND p.width > 0))"
+        ));
+        binds.push(Value::Text(o.to_string()));
+    }
+    if let Some(f) = pq.flash {
+        n += 1;
+        sql.push_str(&format!(" AND p.flash = ?{n}"));
+        binds.push(Value::Integer(f));
+    }
+    if pq.favorites_only {
+        sql.push_str(" AND f.path IS NOT NULL");
+    }
+    if pq.favorites_none {
+        sql.push_str(" AND f.path IS NULL");
+    }
+    if pq.archived_only {
+        sql.push_str(" AND ar.path IS NOT NULL");
+    }
+    if pq.archived_none {
+        sql.push_str(" AND ar.path IS NULL");
+    }
+    if pq.undated {
+        sql.push_str(" AND p.taken_at = 0");
+    }
+    if pq.no_gps {
+        sql.push_str(" AND (p.lat IS NULL OR p.lon IS NULL)");
+    }
+    if pq.has_gps {
+        sql.push_str(" AND p.lat IS NOT NULL AND p.lon IS NOT NULL");
+    }
 }
 
 pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceCluster>> {
@@ -1773,65 +1994,10 @@ pub fn place_key(lat: f64, lon: f64) -> String {
     format!("{lat:.1},{lon:.1}")
 }
 
-/// Coarse offline place label from a tiny hardcoded city list (~150 km).
+/// Coarse offline place label: nearest gazetteer city (~150 km), else its
+/// region or country, else raw coordinates.
 pub fn place_label_for(lat: f64, lon: f64) -> String {
-    const CITIES: &[(&str, f64, f64)] = &[
-        ("New York", 40.71, -74.01),
-        ("Los Angeles", 34.05, -118.24),
-        ("Chicago", 41.88, -87.63),
-        ("Toronto", 43.65, -79.38),
-        ("Mexico City", 19.43, -99.13),
-        ("São Paulo", -23.55, -46.63),
-        ("Buenos Aires", -34.60, -58.38),
-        ("London", 51.51, -0.13),
-        ("Paris", 48.86, 2.35),
-        ("Berlin", 52.52, 13.41),
-        ("Madrid", 40.42, -3.70),
-        ("Rome", 41.90, 12.50),
-        ("Moscow", 55.76, 37.62),
-        ("Istanbul", 41.01, 28.98),
-        ("Cairo", 30.04, 31.24),
-        ("Lagos", 6.52, 3.38),
-        ("Johannesburg", -26.20, 28.05),
-        ("Dubai", 25.20, 55.27),
-        ("Mumbai", 19.08, 72.88),
-        ("Delhi", 28.61, 77.21),
-        ("Bangkok", 13.76, 100.50),
-        ("Singapore", 1.35, 103.82),
-        ("Hong Kong", 22.32, 114.17),
-        ("Shanghai", 31.23, 121.47),
-        ("Beijing", 39.90, 116.41),
-        ("Tokyo", 35.68, 139.69),
-        ("Seoul", 37.57, 126.98),
-        ("Sydney", -33.87, 151.21),
-        ("Melbourne", -37.81, 144.96),
-        ("Auckland", -36.85, 174.76),
-    ];
-    const MAX_KM: f64 = 150.0;
-    let mut best: Option<(&str, f64)> = None;
-    for (name, clat, clon) in CITIES {
-        let d = haversine_km(lat, lon, *clat, *clon);
-        if d <= MAX_KM {
-            match best {
-                Some((_, bd)) if d >= bd => {}
-                _ => best = Some((*name, d)),
-            }
-        }
-    }
-    match best {
-        Some((name, _)) => name.to_string(),
-        None => format!("{lat:.1}°, {lon:.1}°"),
-    }
-}
-
-fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    const R: f64 = 6371.0;
-    let to_rad = |d: f64| d * std::f64::consts::PI / 180.0;
-    let (phi1, phi2) = (to_rad(lat1), to_rad(lat2));
-    let d_phi = to_rad(lat2 - lat1);
-    let d_lam = to_rad(lon2 - lon1);
-    let a = (d_phi / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (d_lam / 2.0).sin().powi(2);
-    2.0 * R * a.sqrt().asin()
+    crate::places::label_for(lat, lon)
 }
 
 fn urlencode(input: &str) -> String {
@@ -3484,12 +3650,102 @@ mod tests {
     #[test]
     fn place_label_for_nearest_city_or_coords() {
         assert_eq!(place_label_for(48.86, 2.35), "Paris");
-        assert_eq!(place_label_for(40.71, -74.01), "New York");
+        assert_eq!(place_label_for(40.71, -74.01), "New York City");
         let remote = place_label_for(0.0, 0.0);
         assert!(
             remote.contains('°'),
             "expected coordinate fallback, got {remote}"
         );
+    }
+
+    #[test]
+    fn q_resolves_places_dates_kinds_and_albums() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        adopt(root, "d1");
+        {
+            let conn = open_drive_db(root).unwrap();
+            // (path, taken_at, kind, lat, lon, city, region, country)
+            let rows: &[(&str, i64, &str, Option<f64>, Option<f64>, &str, &str, &str)] = &[
+                (
+                    "seattle.jpg",
+                    1_694_736_000,
+                    "image",
+                    Some(47.61),
+                    Some(-122.33),
+                    "Seattle",
+                    "Washington",
+                    "United States",
+                ),
+                (
+                    "bend.jpg",
+                    1_665_792_000,
+                    "image",
+                    Some(44.06),
+                    Some(-121.31),
+                    "Bend",
+                    "Oregon",
+                    "United States",
+                ),
+                (
+                    "bkk.jpg",
+                    1_703_462_400,
+                    "image",
+                    Some(13.75),
+                    Some(100.50),
+                    "Bangkok",
+                    "Bangkok",
+                    "Thailand",
+                ),
+                ("clip.mp4", 1_694_736_000, "video", None, None, "", "", ""),
+                ("plain.jpg", 1_694_736_000, "image", None, None, "", "", ""),
+            ];
+            for (path, taken, kind, lat, lon, city, region, country) in rows {
+                conn.execute(
+                    "INSERT INTO photos
+                     (path, name, size, mtime, taken_at, kind, lat, lon,
+                      place_label, place_city, place_region, place_country)
+                     VALUES (?1, ?1, 100, ?2, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8)",
+                    params![path, taken, kind, lat, lon, city, region, country],
+                )
+                .unwrap();
+            }
+        }
+        let album = create_album(root, "d1", "u1", "Camping Trip").unwrap();
+        add_album_items(root, &album.id, &[("d1".into(), "seattle.jpg".into())]).unwrap();
+
+        let mounts = vec![("d1".into(), root.to_path_buf())];
+        let names = |q: &str| -> Vec<String> {
+            list_photos(
+                &mounts,
+                None,
+                &ListFilter {
+                    q: Some(q.into()),
+                    ..Default::default()
+                },
+                50,
+                0,
+            )
+            .unwrap()
+            .items
+            .iter()
+            .map(|p| p.path.clone())
+            .collect()
+        };
+
+        assert_eq!(names("seattle"), ["seattle.jpg"]);
+        assert_eq!(names("oregon"), ["bend.jpg"]);
+        assert_eq!(names("thailand"), ["bkk.jpg"]);
+        assert_eq!(names("videos"), ["clip.mp4"]);
+        assert_eq!(names("christmas"), ["bkk.jpg"]);
+        assert_eq!(names("september"), ["clip.mp4", "plain.jpg", "seattle.jpg"]);
+        assert_eq!(names("2022"), ["bend.jpg"]);
+        assert_eq!(names("no location"), ["clip.mp4", "plain.jpg"]);
+        assert_eq!(names("camping trip"), ["seattle.jpg"]);
+        // A resolved place keeps its text fallback: files named after a place
+        // match even with no GPS.
+        assert_eq!(names("bend"), ["bend.jpg"]);
+        assert_eq!(names("nowhereville"), Vec::<String>::new());
     }
 
     #[test]
