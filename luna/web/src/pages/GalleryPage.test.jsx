@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -597,6 +597,67 @@ describe("GalleryPage", () => {
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
     expect(screen.getByText(/tap the heart/i)).toBeInTheDocument();
+  });
+
+  it("shows one empty state when search and filters both match nothing", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch({ galleryItems: [] });
+    renderGallery();
+    // Smart album "Videos" applies the kind=video filter on the Library.
+    fireEvent.click(await screen.findByRole("button", { name: /^Videos$/i }));
+    expect(await screen.findByText(/No photos match these filters/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
+
+    const card = await screen.findByText(/with these filters on/i);
+    expect(screen.queryByText(/No photos match these filters/i)).not.toBeInTheDocument();
+    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+    const emptyState = /** @type {HTMLElement} */ (card.closest("[data-slot=empty-state]"));
+    expect(within(emptyState).getByRole("button", { name: /^Clear search$/i })).toBeInTheDocument();
+
+    // Clearing the filters falls back to the search-only empty state.
+    fireEvent.click(within(emptyState).getByRole("button", { name: /^Clear filters$/i }));
+    expect(await screen.findByText(/Try another word or clear the search/i)).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+  });
+
+  it("shows only the search empty state when a Favorites search matches nothing", async () => {
+    stubGalleryFetch({ galleryItems: [] });
+    renderGallery();
+    fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
+    expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
+
+    expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No favorites yet/i)).not.toBeInTheDocument();
+    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+  });
+
+  it("names the album when a search inside it matches nothing", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch({
+      galleryItems: [],
+      albums: [
+        {
+          id: "al1",
+          home_drive_id: "a",
+          name: "Trips",
+          item_count: 0,
+          shared: false,
+          cover_thumb: null,
+        },
+      ],
+    });
+    renderGallery();
+    fireEvent.click(await screen.findByRole("button", { name: /^Trips\b/i }));
+    expect(await screen.findByText(/This album is empty/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
+
+    expect(await screen.findByText(/in this album/i)).toBeInTheDocument();
+    expect(screen.queryByText(/This album is empty/i)).not.toBeInTheDocument();
+    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
   });
 
   it("shows an empty Favorites state even while gallery indexing is busy", async () => {

@@ -647,23 +647,27 @@ export default function GalleryPage() {
     !albumView &&
     !dayFilter &&
     filterActiveCount === 0;
-  const filtersEmpty =
+  // Empty states are mutually exclusive: layered search+filters gets its own
+  // card, then search alone, filters alone, then the bare context cards.
+  const scopedEmpty =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
-    driveList.length > 0 &&
-    filterActiveCount > 0 &&
     (activeSegment === "library" ||
       activeSegment === "favorites" ||
       activeSegment === "archive" ||
       !!albumView ||
       !!place);
+  const searchAndFiltersEmpty = scopedEmpty && !!search && filterActiveCount > 0;
+  const filtersEmpty =
+    scopedEmpty && !search && filterActiveCount > 0 && (driveList.length > 0 || !!albumView);
   const noFavorites =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "favorites" &&
+    !search &&
     filterActiveCount === 0;
   const noArchive =
     !gallery.isLoading &&
@@ -671,23 +675,22 @@ export default function GalleryPage() {
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "archive" &&
+    !search &&
     filterActiveCount === 0;
-  const searchEmpty =
-    !gallery.isLoading &&
-    !gallery.isError &&
-    photos.length === 0 &&
-    !!search &&
-    (activeSegment === "library" || activeSegment === "favorites" || activeSegment === "archive");
+  const searchEmpty = scopedEmpty && !!search && filterActiveCount === 0;
   const albumEmpty =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
-    !!albumView;
+    !!albumView &&
+    !search &&
+    filterActiveCount === 0;
   const placeEmpty =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
-    !!place;
+    !!place &&
+    filterActiveCount === 0;
 
   const indexingProgress =
     indexing && foundCount > 0
@@ -1339,11 +1342,41 @@ export default function GalleryPage() {
         />
       )}
 
+      {searchAndFiltersEmpty && (
+        <EmptyState
+          icon={ImageIcon}
+          title="No matches"
+          description={`Nothing matched “${search}”${albumView ? " in this album" : ""} with these filters on. Try another word, or clear a filter chip.`}
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setFilters({ ...EMPTY_FILTERS });
+                  setDayFilter(null);
+                }}
+              >
+                Clear filters
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setQ("");
+                  setSearch("");
+                }}
+              >
+                Clear search
+              </Button>
+            </div>
+          }
+        />
+      )}
+
       {searchEmpty && (
         <EmptyState
           icon={ImageIcon}
           title="No matches"
-          description={`Nothing matched “${search}”. Try another word or clear the search.`}
+          description={`Nothing matched “${search}”${albumView ? " in this album" : ""}. Try another word or clear the search.`}
         />
       )}
 
