@@ -190,6 +190,20 @@ func TestNewRealClientDefaults(t *testing.T) {
 	}
 }
 
+func TestNewRealClientDefaultRefusesRedirects(t *testing.T) {
+	client := NewRealClient(Config{})
+	if client.client.CheckRedirect == nil {
+		t.Fatal("expected CheckRedirect on default HTTP client")
+	}
+	err := client.client.CheckRedirect(nil, nil)
+	if err == nil {
+		t.Fatal("expected CheckRedirect to refuse redirects")
+	}
+	if !strings.Contains(err.Error(), "redirects are not followed") {
+		t.Fatalf("CheckRedirect = %v, want redirects-are-not-followed error", err)
+	}
+}
+
 func TestFakeClientLifecycleProvisioningAndInfo(t *testing.T) {
 	ctx := context.Background()
 	fake := NewFakeClient()

@@ -40,7 +40,14 @@ type RealClient struct {
 
 func NewRealClient(cfg Config) *RealClient {
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+		// Production default: never follow redirects (SSRF / credential exfil via 302).
+		// Tests inject httptest via Config.HTTPClient and keep their own policy.
+		cfg.HTTPClient = &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("connect client redirects are not followed")
+			},
+		}
 	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://connect.serv.libreloom.org"
