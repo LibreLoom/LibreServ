@@ -15,6 +15,7 @@ import random
 import shutil
 import sqlite3
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -890,10 +891,6 @@ def cmd_spawn(args: argparse.Namespace) -> int:
 
     dev_name = sanitize_device_name(name)
     target_dir = MOCK_DRIVES_DIR / name
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    # Remove unplugged marker if it was there
-    (target_dir / ".unplugged").unlink(missing_ok=True)
 
     preset = args.preset.lower()
     if preset not in PRESETS:
@@ -912,9 +909,20 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         "usb": True,
         "mount_readonly": args.readonly,
     }
-    (target_dir / ".drive.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
-    file_count = PRESETS[preset](target_dir)
+    # Generate into a hidden sibling and swap it in, so an interrupted spawn
+    # never leaves a half-populated drive directory behind.
+    MOCK_DRIVES_DIR.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{name}.tmp-", dir=MOCK_DRIVES_DIR))
+    try:
+        (staging_dir / ".drive.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        file_count = PRESETS[preset](staging_dir)
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        os.replace(staging_dir, target_dir)
+    except BaseException:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
 
     print(f">> Spawned mock drive '{name}' successfully!")
     print(f"   Device Name : {dev_name}")
