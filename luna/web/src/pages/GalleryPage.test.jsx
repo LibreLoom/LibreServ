@@ -609,9 +609,20 @@ describe("GalleryPage", () => {
     window.history.replaceState(null, "", "/gallery#albums");
     stubGalleryFetch({ galleryItems: [] });
     renderGallery();
-    // Smart album "Videos" applies the kind=video filter on the Library.
-    fireEvent.click(await screen.findByRole("button", { name: /^Videos$/i }));
-    expect(await screen.findByText(/No photos match these filters/i)).toBeInTheDocument();
+    // Smart album "Videos" applies the kind=video filter inside Albums.
+    fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /^Videos$/i }));
+    const noMatch = await screen.findByText(/No photos match these filters/i);
+    // The Back chrome sits above the empty state, not under it.
+    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const emptyStateEl = noMatch.closest("[data-slot=empty-state]");
+    expect(chrome).toBeTruthy();
+    expect(emptyStateEl).toBeTruthy();
+    expect(
+      /** @type {HTMLElement} */ (chrome).compareDocumentPosition(
+        /** @type {Element} */ (emptyStateEl),
+      ),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
 
@@ -625,6 +636,53 @@ describe("GalleryPage", () => {
     fireEvent.click(within(emptyState).getByRole("button", { name: /^Clear filters$/i }));
     expect(await screen.findByText(/Try another word or clear the search/i)).toBeInTheDocument();
     expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+  });
+
+  it("keeps a smart album inside Albums, can save it as an album, and Back returns to the grid", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch();
+    renderGallery();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /^Videos$/i }));
+
+    // The Albums segment stays selected and the smart view gets its own chrome.
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^Albums$/i })).toHaveAttribute("aria-checked", "true");
+    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    expect(chrome).toBeTruthy();
+    expect(within(/** @type {HTMLElement} */ (chrome)).getByText("Videos")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        vi.mocked(globalThis.fetch).mock.calls.some(([url]) =>
+          String(url).includes("kind=video"),
+        ),
+      ).toBe(true);
+    });
+
+    // Save as album opens the New album modal seeded with the shown photos.
+    fireEvent.click(
+      within(/** @type {HTMLElement} */ (chrome)).getByRole("button", { name: /Save as album/i }),
+    );
+    const nameInput = await screen.findByLabelText(/Album name/i);
+    expect(nameInput).toHaveValue("Videos");
+    expect(screen.getByText(/Adds 2 selected photos/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Create$/i }));
+    await waitFor(() => {
+      expect(
+        vi.mocked(globalThis.fetch).mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/gallery/albums") &&
+            (init?.method || "GET").toUpperCase() === "POST",
+        ),
+      ).toBe(true);
+    });
+
+    // Back returns to the albums grid, not the library.
+    fireEvent.click(await screen.findByRole("button", { name: /^Back$/i }));
+    expect(await screen.findByRole("button", { name: /Smart albums/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^Albums$/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText("Videos")).not.toBeInTheDocument();
   });
 
   it("shows only the search empty state when a Favorites search matches nothing", async () => {
@@ -697,7 +755,7 @@ describe("GalleryPage", () => {
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
   });
 
-  it("offers Look again when the library is idle and empty", async () => {
+  it("offers Rescan drives when the library is idle and empty", async () => {
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       const method = (init.method || "GET").toUpperCase();
@@ -731,7 +789,7 @@ describe("GalleryPage", () => {
     renderGallery();
     expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
     expect(screen.getByText(/Add pictures to a drive/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Look again/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Rescan drives/i }));
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some(

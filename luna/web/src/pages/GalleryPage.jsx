@@ -247,6 +247,9 @@ export default function GalleryPage() {
   const [place, setPlace] = useState(null);
   const [placesDrawMode, setPlacesDrawMode] = useState(false);
   const [albumView, setAlbumView] = useState(null);
+  const [smartView, setSmartView] = useState(
+    /** @type {{ key: string, label: string }|null} */ (null),
+  );
   const [dayFilter, setDayFilter] = useState(
     /** @type {{ ymd: string, from: number, to: number, label: string }|null} */ (
       initialHash.day ? (() => {
@@ -319,7 +322,10 @@ export default function GalleryPage() {
         // leave albumView; segment switch clears below
       }
       if (parsed.segment !== "places") setPlace(null);
-      if (parsed.segment !== "albums") setAlbumView(null);
+      if (parsed.segment !== "albums") {
+        setAlbumView(null);
+        setSmartView(null);
+      }
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -331,13 +337,14 @@ export default function GalleryPage() {
       setPlace(null);
       setPlacesDrawMode(false);
       setAlbumView(null);
+      setSmartView(null);
       setDayFilter(null);
       setDuplicatesView(false);
       setFilters({ ...EMPTY_FILTERS });
       window.location.hash = next;
       setSegment(next);
     },
-    [activeSegment, setPlace, setPlacesDrawMode, setAlbumView, setDayFilter, setDuplicatesView, setFilters, setSegment],
+    [activeSegment, setPlace, setPlacesDrawMode, setAlbumView, setSmartView, setDayFilter, setDuplicatesView, setFilters, setSegment],
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
@@ -658,10 +665,14 @@ export default function GalleryPage() {
       activeSegment === "favorites" ||
       activeSegment === "archive" ||
       !!albumView ||
+      !!smartView ||
       !!place);
   const searchAndFiltersEmpty = scopedEmpty && !!search && filterActiveCount > 0;
   const filtersEmpty =
-    scopedEmpty && !search && filterActiveCount > 0 && (driveList.length > 0 || !!albumView);
+    scopedEmpty &&
+    !search &&
+    filterActiveCount > 0 &&
+    (driveList.length > 0 || !!albumView || !!smartView);
   const noFavorites =
     !gallery.isLoading &&
     !gallery.isError &&
@@ -1110,7 +1121,7 @@ export default function GalleryPage() {
       activeSegment === "favorites" ||
       activeSegment === "archive" ||
       (activeSegment === "places" && place) ||
-      (activeSegment === "albums" && albumView));
+      (activeSegment === "albums" && (albumView || smartView)));
 
   const placesMapOverview = activeSegment === "places" && !place && !duplicatesView;
 
@@ -1133,6 +1144,7 @@ export default function GalleryPage() {
     dayFilter ||
     place ||
     albumView ||
+    smartView ||
     rangeFromFilters ||
     filters.kind ||
     filters.undated ||
@@ -1263,6 +1275,141 @@ export default function GalleryPage() {
         <PageNotice variant="warning" className="mb-4">
           {statusLastError}
         </PageNotice>
+      )}
+
+      {detailChrome && (
+        <div
+          key={
+            dayFilter?.ymd
+            || place?.key
+            || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
+            || (duplicatesView ? "duplicates" : null)
+            || smartView?.key
+            || filters.kind
+            || rangeFromFilters?.label
+            || "filter"
+          }
+          data-slot="gallery-detail-chrome"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 animate-nav-slide-in"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              onClick={() => {
+                setPlace(null);
+                setAlbumView(null);
+                setSmartView(null);
+                setDayFilter(null);
+                setDuplicatesView(false);
+                setFilters({ ...EMPTY_FILTERS });
+                setQ("");
+                setSearch("");
+              }}
+            >
+              <ArrowLeft size={14} /> Back
+            </Button>
+            <p className="font-mono text-sm truncate">
+              {duplicatesView
+                ? "Possible duplicates"
+                : dayFilter?.label
+                || place?.label
+                || albumView?.name
+                || smartView?.label
+                || rangeFromFilters?.label
+                || (filters.undated ? "Undated" : null)
+                || (filters.albumMembership === "none" ? "Not in an album" : null)
+                || (filters.albumMembership === "any" ? "In an album" : null)
+                || (filters.kind === "video" ? "Videos" : null)
+                || (filters.kind === "image" ? "Photos" : null)
+                || search}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {smartView && photos.length > 0 && (
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="sm"
+                onClick={() => {
+                  setNewAlbumSeed(photos);
+                  setNewAlbumName(smartView.label);
+                  setNewAlbumOpen(true);
+                }}
+              >
+                Save as album
+              </Button>
+            )}
+            {place && (
+              <>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setNewAlbumSeed(photos);
+                    setNewAlbumName(place.label || "Place");
+                    setNewAlbumOpen(true);
+                  }}
+                >
+                  Album from place
+                </Button>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setFilterFocus("where");
+                    setFiltersOpen(true);
+                  }}
+                >
+                  Draw a custom area…
+                </Button>
+              </>
+            )}
+            {dayFilter && (
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="sm"
+                onClick={() => {
+                  setNewAlbumSeed(photos);
+                  setNewAlbumName(dayFilter.label);
+                  setNewAlbumOpen(true);
+                }}
+              >
+                Album from day
+              </Button>
+            )}
+            {albumView && canManageAlbum(albumView, user) && (
+              <>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setRenameAlbum(albumView);
+                    setRenameValue(albumView.name || "");
+                  }}
+                >
+                  <Pencil size={14} /> Rename
+                </Button>
+                <Button
+                  variant="secondary"
+                  surface="primary"
+                  size="sm"
+                  onClick={() => {
+                    setError(null);
+                    setShareAlbum(albumView);
+                  }}
+                >
+                  <Share2 size={14} /> Share album
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {gallery.isLoading && photos.length === 0 && activeSegment === "library" && (
@@ -1413,7 +1560,7 @@ export default function GalleryPage() {
         />
       )}
 
-      {activeSegment === "albums" && !albumView && !duplicatesView && (
+      {activeSegment === "albums" && !albumView && !smartView && !duplicatesView && (
         <AlbumsPanel
           albums={albums.data || []}
           loading={albums.isLoading}
@@ -1434,22 +1581,39 @@ export default function GalleryPage() {
           }}
           onLock={(album) => lockAlbumMut.mutate({ album, locked: !album.locked })}
           onSmart={(smart, saved) => {
-            if (smart === "duplicates") {
-              setDuplicatesView(true);
-              setAlbumView(null);
-              setPlace(null);
-              setDayFilter(null);
-              setFilters({ ...EMPTY_FILTERS });
-              setSegment("albums");
-              return;
-            }
-            handleSegmentChange("library");
+            setAlbumView(null);
+            setPlace(null);
+            setDayFilter(null);
             setQ("");
             setSearch("");
             setSearchOpen(false);
-            setDayFilter(null);
+            if (smart === "duplicates") {
+              setSmartView(null);
+              setFilters({ ...EMPTY_FILTERS });
+              setDuplicatesView(true);
+              setSegment("albums");
+              return;
+            }
+            const labels = {
+              videos: "Videos",
+              last30: "Last 30 days",
+              screenshots: "Screenshots",
+              unalbumed: "Not in an album",
+              undated: "No date",
+            };
+            setDuplicatesView(false);
+            if (smart === "saved" && saved?.filters) {
+              setSmartView({ key: `saved:${saved.id}`, label: saved.name || "Saved filter" });
+              setFilters({
+                ...EMPTY_FILTERS,
+                ...saved.filters,
+                formats: [...(saved.filters?.formats || [])],
+              });
+              return;
+            }
+            setSmartView({ key: smart, label: labels[smart] || "Smart album" });
             if (smart === "videos") {
-              setFilters((prev) => ({ ...EMPTY_FILTERS, ...prev, kind: "video" }));
+              setFilters({ ...EMPTY_FILTERS, kind: "video" });
             }
             if (smart === "screenshots") {
               setFilters({ ...EMPTY_FILTERS });
@@ -1462,25 +1626,17 @@ export default function GalleryPage() {
               const fromDate = new Date(Date.now() - 30 * 86400 * 1000);
               const toYmd = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
               const fromYmd = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, "0")}-${String(fromDate.getDate()).padStart(2, "0")}`;
-              setFilters((prev) => ({
+              setFilters({
                 ...EMPTY_FILTERS,
-                ...prev,
                 dateFrom: fromYmd,
                 dateTo: toYmd,
-              }));
+              });
             }
             if (smart === "unalbumed") {
               setFilters({ ...EMPTY_FILTERS, albumMembership: "none" });
             }
             if (smart === "undated") {
               setFilters({ ...EMPTY_FILTERS, undated: true });
-            }
-            if (smart === "saved" && saved?.filters) {
-              setFilters({
-                ...EMPTY_FILTERS,
-                ...saved.filters,
-                formats: [...(saved.filters?.formats || [])],
-              });
             }
           }}
         />
@@ -1498,124 +1654,6 @@ export default function GalleryPage() {
               setPlacesDrawMode(false);
             }}
           />
-        </div>
-      )}
-
-      {detailChrome && (
-        <div
-          key={
-            dayFilter?.ymd
-            || place?.key
-            || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
-            || (duplicatesView ? "duplicates" : null)
-            || filters.kind
-            || rangeFromFilters?.label
-            || "filter"
-          }
-          data-slot="gallery-detail-chrome"
-          className="mb-4 flex flex-wrap items-center justify-between gap-3 animate-nav-slide-in"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <Button
-              variant="outline"
-              surface="primary"
-              size="sm"
-              onClick={() => {
-                setPlace(null);
-                setAlbumView(null);
-                setDayFilter(null);
-                setDuplicatesView(false);
-                setFilters({ ...EMPTY_FILTERS });
-                setQ("");
-                setSearch("");
-              }}
-            >
-              <ArrowLeft size={14} /> Back
-            </Button>
-            <p className="font-mono text-sm truncate">
-              {duplicatesView
-                ? "Possible duplicates"
-                : dayFilter?.label
-                || place?.label
-                || albumView?.name
-                || rangeFromFilters?.label
-                || (filters.undated ? "Undated" : null)
-                || (filters.albumMembership === "none" ? "Not in an album" : null)
-                || (filters.albumMembership === "any" ? "In an album" : null)
-                || (filters.kind === "video" ? "Videos" : null)
-                || (filters.kind === "image" ? "Photos" : null)
-                || search}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {place && (
-              <>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setNewAlbumSeed(photos);
-                    setNewAlbumName(place.label || "Place");
-                    setNewAlbumOpen(true);
-                  }}
-                >
-                  Album from place
-                </Button>
-                <Button
-                  variant="outline"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setFilterFocus("where");
-                    setFiltersOpen(true);
-                  }}
-                >
-                  Draw a custom area…
-                </Button>
-              </>
-            )}
-            {dayFilter && (
-              <Button
-                variant="secondary"
-                surface="primary"
-                size="sm"
-                onClick={() => {
-                  setNewAlbumSeed(photos);
-                  setNewAlbumName(dayFilter.label);
-                  setNewAlbumOpen(true);
-                }}
-              >
-                Album from day
-              </Button>
-            )}
-            {albumView && canManageAlbum(albumView, user) && (
-              <>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setRenameAlbum(albumView);
-                    setRenameValue(albumView.name || "");
-                  }}
-                >
-                  <Pencil size={14} /> Rename
-                </Button>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setError(null);
-                    setShareAlbum(albumView);
-                  }}
-                >
-                  <Share2 size={14} /> Share album
-                </Button>
-              </>
-            )}
-          </div>
         </div>
       )}
 
