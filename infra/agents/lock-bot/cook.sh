@@ -240,6 +240,23 @@ echo "==> pin commands: dsh performs lock generation per prompt.md (wrapper list
 export DSH_HOME="${HERE}/dsh-home"
 export DSH_PERMISSION_MODE=danger-full-access
 export PYTHONUNBUFFERED=1
+
+# --- memory defense (2026-08-28 pscA OOM; stock thresholds, user mandate) ---
+# dsh-memory-guard is installed in the toolchain image inside the global dsh
+# package, where its cordis/schemastery peers resolve. The live profile lives in
+# the force-pulled clone, so link the plugin into that profile when missing.
+# node_modules/ is gitignored, so the link survives `git clean -fd` between cooks.
+GUARD_SRC="/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-memory-guard"
+if [ -d "${GUARD_SRC}" ]; then
+  mkdir -p "${DSH_HOME}/profiles/headless/node_modules"
+  [ -e "${DSH_HOME}/profiles/headless/node_modules/dsh-memory-guard" ] \
+    || ln -s "${GUARD_SRC}" "${DSH_HOME}/profiles/headless/node_modules/dsh-memory-guard"
+else
+  echo "cook.sh: dsh-memory-guard missing from the image; running without it" >&2
+fi
+# V8 backstop above the plugin's heapLimitMb (2048) so the plugin aborts the
+# session gracefully before V8 throws "JavaScript heap out of memory".
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=2560"
 PROMPT_FILE="${HERE}/prompt.md"
 TASK="$(cat "${PROMPT_FILE}")
 
