@@ -125,11 +125,23 @@ async fn create_session(
     // converted bundle from ever opening for a changed file. When a room is
     // already live on this file its key embeds the meta from *its* first
     // open, which every save since has invalidated; minting a fresh key
-    // would park the joiner in an isolated room. Reuse the live key — its
-    // bundle + op replay delivers the live document, not the disk bytes.
-    let key = match state.office_docs.live_key_for(&drive_id, &path).await {
-        Some(live) => live,
-        None => document_key(&drive_id, &path, size, modified),
+    // would park the joiner in an isolated room. Co-editing clients reuse
+    // the live key — its bundle + op replay delivers the live document, not
+    // the disk bytes.
+    //
+    // Viewers are the exception: the editor mounts view-only when the user
+    // lacks write access or the format can't be saved back, and a view-mode
+    // participant is never sent the authChanges op replay. Reusing the key
+    // there would open the bundle minus every op since — older than the
+    // file itself — so viewers mint a fresh key and convert current disk.
+    let key = if can_write && can_save_office_ext(&file_type) {
+        state
+            .office_docs
+            .claim_live_key(&drive_id, &path)
+            .await
+            .unwrap_or_else(|| document_key(&drive_id, &path, size, modified))
+    } else {
+        document_key(&drive_id, &path, size, modified)
     };
     state.office_docs.register_key(&key, &drive_id, &path).await;
 
@@ -174,6 +186,32 @@ fn document_type_for(ext: &str) -> Option<&'static str> {
         | "otp" => "slide",
         _ => return None,
     })
+}
+
+fn can_save_office_ext(ext: &str) -> bool {
+    // Mirrors OFFICE_SAVE_EXT in web/src/lib/fileKinds.js — the formats the
+    // bundled x2t.wasm writes back without silent loss. Anything else mounts
+    // the editor view-only even for users with write access.
+    matches!(
+        ext,
+        "docx"
+            | "dotx"
+            | "docxf"
+            | "oform"
+            | "rtf"
+            | "odt"
+            | "ott"
+            | "xlsx"
+            | "xltx"
+            | "xlsb"
+            | "ods"
+            | "ots"
+            | "pptx"
+            | "ppsx"
+            | "potx"
+            | "odp"
+            | "otp"
+    )
 }
 
 /// Bundle GET — the editor iframe fetches `Editor.bin`, `media/*`, and the
@@ -787,13 +825,13 @@ mod http_tests {
             .unwrap();
         }
 
-        async fn open_key(app: &axum::Router, cookie: &str, csrf: &str) -> String {
+        async fn open_key(app: &axum::Router, cookie: &str, csrf: &str, path: &str) -> String {
             let res = call(
                 app,
                 req(
                     Method::POST,
                     "/api/v1/office/session",
-                    Body::from(r#"{"drive_id":"drive-a","path":"Letter.rtf"}"#),
+                    Body::from(format!(r#"{{"drive_id":"drive-a","path":"{path}"}}"#)),
                     cookie,
                     csrf,
                 ),
@@ -815,7 +853,7 @@ mod http_tests {
 
         // A opens the file and its editor auths on the docstorage socket —
         // the room is now live.
-        let key_a = open_key(&app, &cookie, &csrf).await;
+        let key_a = open_key(&app, &cookie, &csrf, "Letter.rtf").await;
         state
             .office_docs
             .auth(
@@ -837,13 +875,98 @@ mod http_tests {
         std::fs::write(&doc, b"{\\rtf1 hello, a longer saved body}").unwrap();
 
         // B opens mid-dirty-session: same room, not a fresh isolated key.
-        let key_b = open_key(&app, &cookie, &csrf).await;
+        let key_b = open_key(&app, &cookie, &csrf, "Letter.rtf").await;
         assert_eq!(key_b, key_a);
 
-        // Once the room empties the next open mints a fresh fingerprint
-        // again — the old bundle must not shadow the changed file.
+        // B's claim also covers the gap between A's disconnect and B's
+        // socket auth — a concurrent opener still lands in the live room.
         state.office_docs.disconnect(&key_a, 1).await;
-        let key_c = open_key(&app, &cookie, &csrf).await;
+        let key_d = open_key(&app, &cookie, &csrf, "Letter.rtf").await;
+        assert_eq!(key_d, key_a);
+
+        // Once the room is empty and no joiner's claim is pending, the next
+        // open mints a fresh fingerprint again — the old bundle must not
+        // shadow the changed file.
+        state.office_docs.expire_claim(&key_a).await;
+        let key_c = open_key(&app, &cookie, &csrf, "Letter.rtf").await;
         assert_ne!(key_c, key_a);
+    }
+
+    /// The same live room must NOT be reused for a client that will mount
+    /// view-only — view participants are never sent the authChanges replay,
+    /// so they'd open the bundle minus every op since. fodt is openable but
+    /// not writable by this x2t build, so even a writer mounts view mode.
+    #[tokio::test]
+    async fn session_for_view_only_format_mints_fresh_keys() {
+        let (dir, app, state) = test_app();
+        let (cookie, csrf) = admin_login(&app).await;
+
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(&mount).unwrap();
+        let doc = mount.join("Letter.fodt");
+        std::fs::write(&doc, b"<office:document/>").unwrap();
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::upsert_drive(
+                &conn,
+                "drive-a",
+                "A",
+                "mounted",
+                "ext4",
+                "sda",
+                mount.to_str().unwrap(),
+            )
+            .unwrap();
+        }
+
+        async fn open_fodt(app: &axum::Router, cookie: &str, csrf: &str) -> String {
+            let res = call(
+                app,
+                req(
+                    Method::POST,
+                    "/api/v1/office/session",
+                    Body::from(r#"{"drive_id":"drive-a","path":"Letter.fodt"}"#),
+                    cookie,
+                    csrf,
+                ),
+            )
+            .await;
+            let status = res.status();
+            let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            assert_eq!(
+                status,
+                200,
+                "session body: {}",
+                String::from_utf8_lossy(&body)
+            );
+            let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            v["key"].as_str().unwrap().to_string()
+        }
+
+        // A view-mode room can even be live (someone is watching) — the key
+        // is still minted fresh, because reuse would open the bundle without
+        // the ops layered over it.
+        let key_a = open_fodt(&app, &cookie, &csrf).await;
+        state
+            .office_docs
+            .auth(
+                &key_a,
+                1,
+                &serde_json::json!({
+                    "type": "auth",
+                    "docid": key_a,
+                    "user": { "id": "u-max", "username": "Max" },
+                    "mode": "view",
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        std::fs::write(&doc, b"<office:document>edited</office:document>").unwrap();
+        let key_b = open_fodt(&app, &cookie, &csrf).await;
+        assert_ne!(key_b, key_a);
     }
 }
