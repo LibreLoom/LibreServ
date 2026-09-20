@@ -245,16 +245,32 @@ export PYTHONUNBUFFERED=1
 
 # --- memory defense (2026-08-28 pscA OOM; stock thresholds, user mandate) ---
 # dsh-memory-guard is installed in the toolchain image inside the global dsh
-# package, where its cordis/schemastery peers resolve. The live profile lives in
-# the force-pulled clone, so link the plugin into that profile when missing.
-# node_modules/ is gitignored, so the link survives `git clean -fd` between cooks.
+# package, where its @deepseek-ai/cordis and @deepseek-ai/schemastery peers
+# resolve. The live profile lives in the force-pulled clone, so link the plugin
+# into that profile. node_modules/ is gitignored, so the link survives
+# `git clean -fd` between cooks and only has to be created once per volume.
+#
+# This is MANDATORY when the profile patch references it, not best-effort: the
+# cordis.patch.yml below inserts dsh-memory-guard BY NAME, so an unresolvable
+# package aborts dsh at boot with ERR_MODULE_NOT_FOUND and kills the whole cook.
+# Fail here with an actionable message instead of letting that surface as a
+# cryptic plugin-loader stack trace. The check is driven by the patch itself so
+# the requirement can never drift from the code that creates it.
 GUARD_SRC="/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-memory-guard"
-if [ -d "${GUARD_SRC}" ]; then
-  mkdir -p "${DSH_HOME}/profiles/headless/node_modules"
-  [ -e "${DSH_HOME}/profiles/headless/node_modules/dsh-memory-guard" ] \
-    || ln -s "${GUARD_SRC}" "${DSH_HOME}/profiles/headless/node_modules/dsh-memory-guard"
-else
-  echo "cook.sh: dsh-memory-guard missing from the image; running without it" >&2
+GUARD_LINK="${DSH_HOME}/profiles/headless/node_modules/dsh-memory-guard"
+if grep -q 'dsh-memory-guard' "${DSH_HOME}/profiles/headless/cordis.patch.yml" 2>/dev/null; then
+  if [ ! -d "${GUARD_SRC}" ]; then
+    echo "cook.sh: FATAL dsh-memory-guard is required by cordis.patch.yml but missing from the image" >&2
+    echo "cook.sh:   expected at ${GUARD_SRC}" >&2
+    echo "cook.sh:   rebuild with /stack/compose/atlas-bot/build.sh" >&2
+    exit 2
+  fi
+  mkdir -p "$(dirname "${GUARD_LINK}")"
+  [ -e "${GUARD_LINK}" ] || ln -s "${GUARD_SRC}" "${GUARD_LINK}"
+  if [ ! -e "${GUARD_LINK}" ]; then
+    echo "cook.sh: FATAL could not link dsh-memory-guard into ${GUARD_LINK}" >&2
+    exit 2
+  fi
 fi
 # V8 backstop above the plugin's heapLimitMb (2048) so the plugin aborts the
 # session gracefully before V8 throws "JavaScript heap out of memory".
