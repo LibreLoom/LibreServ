@@ -37,7 +37,7 @@ function RequireAuth({ children }) {
   return children;
 }
 
-/** Feeds the dashboard "Recent files" card from wherever the user browses. */
+/** Feeds the dashboard "Recents" card from wherever the user browses. */
 function RecentItemsTracker() {
   useRecentItemsTracker();
   return null;

@@ -549,7 +549,7 @@ const RECENT_KIND_LABELS = {
  */
 function RecentItemsCard({ items, drives }) {
   return (
-    <Card icon={History} title="Recent files">
+    <Card icon={History} title="Recents">
       <ul className="space-y-3">
         {items.map((item) => {
           const liveLabel = drives.find((d) => d.id === item.driveId)?.label;
