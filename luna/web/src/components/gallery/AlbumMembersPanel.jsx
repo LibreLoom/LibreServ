@@ -9,6 +9,7 @@ import PageNotice from "../common/PageNotice.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { TermHint } from "../ui/Tooltip.jsx";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../context/ToastContext.jsx";
 import { apiErrorMessage, deleteJson, getJson, putJson } from "../../lib/api";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
@@ -27,6 +28,7 @@ const MEMBER_ROLE_OPTIONS = [
  * @param {{ album: { home_drive_id: string, id: string, name?: string } }} props
  */
 export default function AlbumMembersPanel({ album }) {
+  const { addToast } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
@@ -60,6 +62,7 @@ export default function AlbumMembersPanel({ album }) {
         role: pickRole,
       }),
     onSuccess: () => {
+      addToast({ type: "success", message: "Added to the album." });
       setPickUser("");
       setError(null);
       invalidate();
@@ -76,6 +79,7 @@ export default function AlbumMembersPanel({ album }) {
       }),
     onMutate: ({ userId }) => setUpdatingUserId(userId),
     onSuccess: () => {
+      addToast({ type: "success", message: "Access updated." });
       setError(null);
       invalidate();
     },
@@ -89,7 +93,10 @@ export default function AlbumMembersPanel({ album }) {
       deleteJson(
         `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/members/${userId}`,
       ),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      addToast({ type: "success", message: "Removed from the album." });
+      invalidate();
+    },
     onError: (err) => setError(apiErrorMessage(err, "Luna couldn't remove that person.")),
   });
 

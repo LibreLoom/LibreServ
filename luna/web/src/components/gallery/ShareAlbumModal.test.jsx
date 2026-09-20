@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext.jsx";
 import ShareAlbumModal from "./ShareAlbumModal.jsx";
+import { ToastProvider } from "../../context/ToastContext";
 
 const ALBUM = {
   id: "alb-test-1",
@@ -17,6 +18,7 @@ function renderModal(props = {}) {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
+    <ToastProvider>
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <AuthProvider>
@@ -28,7 +30,8 @@ function renderModal(props = {}) {
           />
         </AuthProvider>
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
+    </ToastProvider>,
   );
 }
 

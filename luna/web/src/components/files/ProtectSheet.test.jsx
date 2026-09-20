@@ -9,6 +9,7 @@ import ProtectSheet, {
   cloudFolderPath,
   matchesCloudSource,
 } from "./ProtectSheet";
+import { ToastProvider } from "../../context/ToastContext";
 
 function stubProtectApi({
   drives = [],
@@ -59,13 +60,15 @@ function stubProtectApi({
 function renderSheet(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <AuthProvider>
           <ProtectSheet driveId="d1" path="photos" onClose={() => {}} {...props} />
         </AuthProvider>
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 

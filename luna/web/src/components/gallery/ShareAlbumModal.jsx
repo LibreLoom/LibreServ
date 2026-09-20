@@ -11,6 +11,7 @@ import PageNotice from "../common/PageNotice";
 import Spinner from "../ui/Spinner";
 import { apiErrorMessage, deleteJson, getJson } from "../../lib/api";
 import { haptic } from "../../utils/haptics";
+import { useToast } from "../../context/ToastContext.jsx";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 /**
@@ -46,6 +47,7 @@ export default function ShareAlbumModal({
   overlayClassName,
 }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [creatingLink, setCreatingLink] = useState(false);
   const [error, setError] = useState(null);
 
@@ -65,7 +67,7 @@ export default function ShareAlbumModal({
         `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/invites/${inviteId}`,
       ),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Link removed." });
       queryClient.invalidateQueries({ queryKey: invitesQueryKey });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },

@@ -25,6 +25,7 @@ import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
 import FolderPickerModal from "./FolderPickerModal";
+import { useToast } from "../../context/ToastContext.jsx";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
 import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
 import { cn } from "@/lib/utils";
@@ -120,6 +121,7 @@ function applyFlip(el, fromRect, direction) {
  */
 export default function FileSearch() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [actionError, setActionError] = useState(null);
@@ -167,6 +169,7 @@ export default function FileSearch() {
     },
     onSuccess: () => {
       setActionError(null);
+      addToast({ type: "success", message: "Moved to Trash." });
       queryClient.invalidateQueries({ queryKey: ["search"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["trash"] });
@@ -186,6 +189,10 @@ export default function FileSearch() {
     },
     onSuccess: () => {
       setActionError(null);
+      addToast({
+        type: "success",
+        message: copyKind === "move" ? "Luna is moving that file." : "Luna is copying that file.",
+      });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["search"] });
     },

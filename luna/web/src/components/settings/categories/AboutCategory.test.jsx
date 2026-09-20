@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../../context/AuthContext";
 import AboutCategory from "./AboutCategory";
+import { ToastProvider } from "../../../context/ToastContext";
 
 const SHIPPED_KEY = "RWBUILTIN";
 const SOURCE_RESPONSE = {
@@ -108,13 +109,15 @@ function renderPage(fetchImpl) {
   vi.stubGlobal("fetch", fetchImpl);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <MemoryRouter initialEntries={["/settings?cat=about"]}>
       <QueryClientProvider client={client}>
         <AuthProvider>
           <AboutCategory />
         </AuthProvider>
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 

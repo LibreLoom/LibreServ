@@ -10,10 +10,10 @@ import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
 import PairingQrModal from "../PairingQrModal.jsx";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
-import PageNotice from "../../common/PageNotice";
-import { showPageLevelError } from "../../../lib/modalScopedError";
 import ShakeTarget from "../../ui/ShakeTarget";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
+import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
+import { useToast } from "../../../context/ToastContext";
 
 function formatWhen(unix) {
   if (!unix) return "Never";
@@ -141,6 +141,7 @@ AccessTokenItem.propTypes = {
 };
 
 export default function AccessCategory() {
+  const { addToast } = useToast();
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [tokenError, setTokenError] = useState(null);
@@ -173,6 +174,7 @@ export default function AccessCategory() {
       expires_in_days: expiresInDays ? Number(expiresInDays) : undefined,
     }),
     onSuccess: (data) => {
+      addToast({ type: "success", message: "Token created." });
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setNewToken(data);
       setShowQr(false);
@@ -191,17 +193,19 @@ export default function AccessCategory() {
   const revokeOne = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/device-tokens/${id}`),
     onSuccess: () => {
+      addToast({ type: "success", message: "Token revoked." });
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setUsageFor(null);
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  useStrandedErrorToast(error, showQr, () => setError(null));
+
   const tokenList = tokens.data || [];
 
   return (
     <div className="space-y-4">
-      {showPageLevelError(error, showQr) && <PageNotice variant="error">{error}</PageNotice>}
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
         <SettingsRow

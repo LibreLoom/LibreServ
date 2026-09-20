@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import DashboardPage from "./DashboardPage";
+import { ToastProvider } from "../context/ToastContext";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -127,13 +128,15 @@ function renderPage() {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
+    <ToastProvider>
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <AuthProvider>
           <DashboardPage />
         </AuthProvider>
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 

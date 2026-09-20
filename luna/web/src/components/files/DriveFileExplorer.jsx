@@ -11,15 +11,15 @@ import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import useCanProtect from "../../hooks/useCanProtect.js";
 import useDriveMove from "../../hooks/useDriveMove.js";
+import useStrandedErrorToast from "../../hooks/useStrandedErrorToast.js";
+import { useToast } from "../../context/ToastContext.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import Spinner from "../ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
-import PageNotice from "../common/PageNotice.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
 import ShakeTarget from "../ui/ShakeTarget.jsx";
-import { showPageLevelError } from "../../lib/modalScopedError.js";
 import { haptic } from "../../utils/haptics.js";
 import {
   apiErrorMessage,
@@ -249,6 +249,7 @@ export default function DriveFileExplorer({
   onViewerPathChange,
 }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [innerPath, setInnerPath] = useState("");
   const path = controlledPath !== undefined ? controlledPath : innerPath;
 
@@ -477,6 +478,12 @@ export default function DriveFileExplorer({
     });
 
     invalidate([...touched]);
+    if (!hadError && batch.length > 0) {
+      addToast({
+        type: "success",
+        message: batch.length === 1 ? "1 file uploaded." : `${batch.length} files uploaded.`,
+      });
+    }
   }
 
   const removeMutation = useMutation({
@@ -487,7 +494,10 @@ export default function DriveFileExplorer({
     },
     // Modal dismisses via ModalCard close() so exit animation can play.
     onSuccess: (_d, paths) => {
-      haptic("success");
+      addToast({
+        type: "success",
+        message: paths.length === 1 ? "Moved to Trash." : `Moved ${paths.length} items to Trash.`,
+      });
       invalidate(paths);
     },
     onError: (err) => {
@@ -500,7 +510,7 @@ export default function DriveFileExplorer({
     mutationFn: (/** @type {string} */ fullPath) =>
       postJson(`/api/v1/drives/${driveId}/files/mkdir`, { path: fullPath }),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Folder created." });
       invalidate();
     },
     onError: (err) => {
@@ -531,7 +541,7 @@ export default function DriveFileExplorer({
       return fullPath;
     },
     onSuccess: (_data, fullPath) => {
-      haptic("success");
+      addToast({ type: "success", message: "File created." });
       invalidate();
       if (createKind?.openAfter === "text" || createKind?.openAfter === "viewer") {
         setViewerPath(fullPath);
@@ -577,7 +587,7 @@ export default function DriveFileExplorer({
         new_name: newName,
       }),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Renamed." });
       invalidate();
     },
     onError: (err) => {
@@ -600,7 +610,12 @@ export default function DriveFileExplorer({
       }
     },
     onSuccess: (_d, vars) => {
-      haptic("success");
+      addToast({
+        type: "success",
+        message: transfer?.kind === "move"
+          ? "Luna is moving those files."
+          : "Luna is copying those files.",
+      });
       invalidate();
       if (vars.driveId && vars.driveId !== driveId) {
         queryClient.invalidateQueries({ queryKey: ["files", vars.driveId] });
@@ -626,12 +641,10 @@ export default function DriveFileExplorer({
   const shownRename = renameTarget ?? renameSnapRef.current;
   const nameModalOpen = createKind != null || renameTarget != null;
   const actionModalOpen = deletePaths != null || transfer != null || nameModalOpen;
+  useStrandedErrorToast(actionError, actionModalOpen, () => setActionError(null));
 
   return (
     <>
-      {showPageLevelError(actionError, actionModalOpen) && (
-        <PageNotice variant="error" className="mb-3">{actionError}</PageNotice>
-      )}
       {uploads.length > 0 && (
         <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
       )}

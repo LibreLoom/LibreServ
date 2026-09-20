@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "../../context/ToastContext";
 import CreateShareModal from "./CreateShareModal";
 
 function wrap(ui) {
@@ -10,9 +11,11 @@ function wrap(ui) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return (
-    <QueryClientProvider client={client}>
-      <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>
+    <ToastProvider>
+      <QueryClientProvider client={client}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    </ToastProvider>
   );
 }
 
