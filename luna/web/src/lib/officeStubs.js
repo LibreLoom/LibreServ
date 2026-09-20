@@ -443,7 +443,7 @@ export function blankOfficeStub(stub, text = "") {
  * @returns {Promise<string>}
  */
 export async function extractOfficePlainText(bytes, pathOrName) {
-  const buf = bytes instanceof ArrayBuffer ? bytes : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const buf = bytes instanceof ArrayBuffer ? bytes : bytes.slice().buffer;
   const name = String(pathOrName || "").toLowerCase();
   const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
 

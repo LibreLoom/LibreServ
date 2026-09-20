@@ -5,7 +5,7 @@
 // directory, so keeping them side-by-side is what makes the wasm load work.
 // x2t.js is a classic (non-modularized) emscripten build: it populates a
 // global `Module` object, which must exist before importScripts runs.
-/* global self, importScripts, fetch */
+/* global importScripts */
 
 const PACK = "/eurooffice";
 

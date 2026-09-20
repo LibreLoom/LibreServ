@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import { AuthProvider } from "../../context/AuthContext.jsx";
 import ShareAlbumModal from "./ShareAlbumModal.jsx";
 
 const ALBUM = {
@@ -16,12 +18,16 @@ function renderModal(props = {}) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ShareAlbumModal
-        open
-        album={ALBUM}
-        onClose={vi.fn()}
-        {...props}
-      />
+      <MemoryRouter>
+        <AuthProvider>
+          <ShareAlbumModal
+            open
+            album={ALBUM}
+            onClose={vi.fn()}
+            {...props}
+          />
+        </AuthProvider>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -32,6 +38,7 @@ describe("ShareAlbumModal", () => {
   });
 
   it("defaults to viewer role and required 30-day expiry", async () => {
+    let postedBody = null;
     const fetchMock = vi.fn(async (url, options) => {
       const u = String(url);
       const method = (options?.method || "GET").toUpperCase();
@@ -42,9 +49,7 @@ describe("ShareAlbumModal", () => {
         });
       }
       if (u.includes("/invites") && method === "POST") {
-        const body = JSON.parse(String(options?.body || "{}"));
-        expect(body.role).toBe("viewer");
-        expect(body.expires_in_days).toBe(30);
+        postedBody = JSON.parse(String(options?.body || "{}"));
         return new Response(
           JSON.stringify({
             id: "inv-new",
@@ -62,10 +67,18 @@ describe("ShareAlbumModal", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderModal();
-    expect(screen.getByText("Can view only")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "New link" }));
+    expect(
+      await screen.findByRole("heading", { name: "New link" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Expires in 30 days")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Generate link/i }));
-    expect(await screen.findByText("Link ready to share")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create link" }));
+    expect(
+      await screen.findByRole("heading", { name: "Link ready" })
+    ).toBeInTheDocument();
+    expect(postedBody).toMatchObject({ role: "viewer", expires_in_days: 30 });
   });
 
   it("renders active invites and allows creating a link", async () => {
@@ -110,15 +123,15 @@ describe("ShareAlbumModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    expect(screen.getByRole("heading", { name: 'Share "Summer Trip"' })).toBeInTheDocument();
-    expect(await screen.findByText("View only")).toBeInTheDocument();
-    expect(screen.getByText("Active links (1)")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+    expect(await screen.findByText(/Can view only/)).toBeInTheDocument();
+    expect(screen.getByText(/Never expires/)).toBeInTheDocument();
 
-    // Click Generate link
-    const generateBtn = screen.getByRole("button", { name: /Generate link/i });
-    await user.click(generateBtn);
-
-    expect(await screen.findByText("Link ready to share")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "New link" }));
+    await user.click(await screen.findByRole("button", { name: "Create link" }));
+    expect(
+      await screen.findByRole("heading", { name: "Link ready" })
+    ).toBeInTheDocument();
   });
 
   it("allows revoking an existing invite link", async () => {
@@ -162,12 +175,15 @@ describe("ShareAlbumModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    expect(await screen.findByText("Can view & add")).toBeInTheDocument();
-    const revokeBtn = screen.getByRole("button", { name: "Revoke link" });
+    expect(await screen.findByText(/Can view & add/)).toBeInTheDocument();
+    const revokeBtn = screen.getByRole("button", { name: "Remove this link" });
     await user.click(revokeBtn);
 
     await waitFor(() => {
       expect(deleted).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Can view & add/)).not.toBeInTheDocument();
     });
   });
 });
