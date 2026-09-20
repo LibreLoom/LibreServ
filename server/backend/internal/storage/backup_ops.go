@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,7 +28,7 @@ func (s *BackupService) backupDatabaseWithRestic(ctx context.Context, dbFilePath
 		return fmt.Errorf("restic database backup: %w", err)
 	}
 
-	log.Printf("Database also backed up with restic: snapshot %s (%d bytes added)", summary.SnapshotID, summary.DataAdded)
+	slog.Info("Database also backed up with restic", "snapshot_id", summary.SnapshotID, "bytes_added", summary.DataAdded)
 	return nil
 }
 
@@ -183,7 +184,7 @@ func (s *BackupService) StoreUploadedDatabaseBackup(ctx context.Context, filenam
 		return nil, fmt.Errorf("failed to save database backup record: %w", err)
 	}
 
-	log.Printf("Uploaded database backup stored: %s (%d bytes)", backup.ID, backup.Size)
+	slog.Info("Uploaded database backup stored", "backup_id", backup.ID, "bytes", backup.Size)
 	return backup, nil
 }
 
@@ -197,7 +198,7 @@ func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, er
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+			slog.Warn("failed to close rows", "error", cerr)
 		}
 	}()
 
@@ -208,7 +209,7 @@ func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, er
 		var lastRun, nextRun sql.NullTime
 		var compress, includeConfig, includeLogs bool
 		if err := rows.Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &compress, &includeConfig, &includeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt); err != nil {
-			log.Printf("failed to scan backup schedule: %v", err)
+			slog.Warn("failed to scan backup schedule", "error", err)
 			continue
 		}
 		bs.Type = BackupType(scheduleType)
@@ -263,7 +264,7 @@ func (s *BackupService) CreateSchedule(ctx context.Context, schedule *BackupSche
 		return fmt.Errorf("failed to create backup schedule: %w", err)
 	}
 
-	log.Printf("Backup schedule created: %s", schedule.ID)
+	slog.Info("Backup schedule created", "schedule_id", schedule.ID)
 	return nil
 }
 
@@ -276,7 +277,7 @@ func (s *BackupService) UpdateSchedule(ctx context.Context, schedule *BackupSche
 		return fmt.Errorf("failed to update backup schedule: %w", err)
 	}
 
-	log.Printf("Backup schedule updated: %s", schedule.ID)
+	slog.Info("Backup schedule updated", "schedule_id", schedule.ID)
 	return nil
 }
 
@@ -286,7 +287,7 @@ func (s *BackupService) DeleteSchedule(ctx context.Context, scheduleID string) e
 		return fmt.Errorf("failed to delete backup schedule: %w", err)
 	}
 
-	log.Printf("Backup schedule deleted: %s", scheduleID)
+	slog.Info("Backup schedule deleted", "schedule_id", scheduleID)
 	return nil
 }
 
@@ -346,6 +347,6 @@ func (s *BackupService) CreateRepository(ctx context.Context, repo *BackupReposi
 		return fmt.Errorf("failed to create backup repository: %w", err)
 	}
 
-	log.Printf("Backup repository created: %s (type=%s)", repo.ID, repo.RepoType)
+	slog.Info("Backup repository created", "repo_id", repo.ID, "repo_type", repo.RepoType)
 	return nil
 }
