@@ -2,11 +2,20 @@
 // Decode dsh session.jsonl.zstd the same way
 // @deepseek-ai/dsh-session-persistence-jsonl does: Node zlib zstdDecompressSync
 // plus concatenated-frame scan. Do not call the host glibc zstd binary.
+//
+// v2 (memory fix, 2026-08-28): the original tailed the session file by
+// re-decompressing the ENTIRE file every 2s and re-parsing every line,
+// retaining every event key in an unbounded `seen` Set. For long CI jobs
+// (100+ steps, 4000+ events) this ballooned to 5.7GB+ RSS and was a
+// major contributor to the 2026-08-28 pscA OOM. This version reads only the
+// NEW bytes appended since the last tick (zstd flush frames are appended
+// monotonically by the persistence layer), so memory stays flat regardless
+// of session size.
 import { zstdDecompressSync } from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
 
-const ZSTD_MAGIC = 0xFD2FB528;
+const ZSTD_MAGIC = 0xfd2fb528;
 const SKIP = new Set([
   "assistant/chunk",
   "tool-call-chunks",
@@ -63,19 +72,26 @@ function scanZstdFrames(buffer, maxFrames = Number.POSITIVE_INFINITY) {
   return { frames };
 }
 
-function decompressFile(file) {
-  const buf = fs.readFileSync(file);
-  if (!file.endsWith(".zstd")) return buf.toString("utf8");
-  const { frames } = scanZstdFrames(buf);
+// Decompress only the frames wholly contained in `buffer` (all of them, or
+// starting from a given offset). Returns { text, completeFramesEnd } where
+// completeFramesEnd is the byte offset just past the last fully-decoded frame.
+function decompressFrames(buffer, fromOffset = 0) {
+  const { frames } = scanZstdFrames(buffer.subarray(fromOffset));
   const parts = [];
+  // Frames are relative to fromOffset; convert back.
+  let lastEnd = fromOffset;
   for (const { start, end } of frames) {
+    const absStart = fromOffset + start;
+    const absEnd = fromOffset + end;
     try {
-      parts.push(zstdDecompressSync(buf.subarray(start, end)));
+      parts.push(zstdDecompressSync(buffer.subarray(absStart, absEnd)));
+      lastEnd = absEnd;
     } catch {
+      // torn/partial frame at the tail; stop here
       break;
     }
   }
-  return parts.length ? Buffer.concat(parts).toString("utf8") : "";
+  return { text: parts.length ? Buffer.concat(parts).toString("utf8") : "", lastEnd };
 }
 
 function collectLogs(dir, acc) {
@@ -151,11 +167,12 @@ function emitLine(line, logf) {
   process.stderr.write(line);
 }
 
-function replay(raw, file, lastN, seen, logf) {
-  let n = 0;
+// Replay lines from `raw` that we have not emitted yet, keyed by (seq,type).
+// `seen` retains the dedup keys for the CURRENT file only; when we switch
+// files we reset it. For a single growable file, we only ever hand `raw`
+// the NEW tail, so `seen` stays small.
+function replay(raw, file, seen, logf) {
   for (const line0 of raw.split("\n")) {
-    n += 1;
-    if (n <= lastN) continue;
     const line = line0.trim();
     if (!line) continue;
     let ev;
@@ -164,30 +181,133 @@ function replay(raw, file, lastN, seen, logf) {
     } catch {
       continue;
     }
-    const key = `${file}\0${ev.seq ?? n}\0${ev.type || ""}`;
+    const key = `${file}\0${ev.seq ?? ""}\0${ev.type || ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const t = ev.type || "";
     if (SKIP.has(t)) continue;
     emitLine(`==> dsh ${summarize(ev)}\n`, logf);
   }
-  return n;
 }
 
-const argv = process.argv.slice(2);
-if (argv[0] === "--once") {
-  const file = argv[1];
+function visibleAssistantText(ev) {
+  const msg = ev && ev.data && ev.data.message;
+  const content = msg && typeof msg === "object" ? msg.content : null;
+  if (!Array.isArray(content)) return "";
+  const bits = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "reasoning") continue;
+    if (part.type === "text" && typeof part.text === "string") bits.push(part.text);
+  }
+  return bits.join("").trim();
+}
+
+function lastVisibleText(raw) {
+  let last = "";
+  for (const line0 of raw.split("\n")) {
+    const line = line0.trim();
+    if (!line) continue;
+    let ev;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (ev.type !== "assistant/message") continue;
+    const t = visibleAssistantText(ev);
+    if (t) last = t;
+  }
+  return last;
+}
+
+// Read only the bytes of `file` from `fromOffset` onward, decompress new
+// frames, and replay new events. Returns the new safe offset (end of the
+// last complete frame) or the previous offset if nothing was gained.
+function processTail(file, fromOffset) {
+  let fd;
+  let buf;
+  try {
+    fd = fs.openSync(file, "r");
+    const st = fs.fstatSync(fd);
+    const size = st.size;
+    if (size <= fromOffset) return fromOffset;
+    // Read from the last processed offset to EOF.
+    buf = Buffer.allocUnsafe(size - fromOffset);
+    fs.readSync(fd, buf, 0, buf.length, fromOffset);
+  } catch {
+    return fromOffset;
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+  }
+  let text = "";
+  let lastEnd = fromOffset;
+  if (buf.length > 0) {
+    try {
+      const dec = decompressFrames(buf);
+      text = dec.text;
+      lastEnd = fromOffset + (dec.lastEnd - 0);
+    } catch {
+      return fromOffset;
+    }
+  }
+  if (text) replay(text, file, seenFor(file), logf);
+  return lastEnd;
+}
+
+// Per-file seen sets: only current file's keys are retained.
+const seenMaps = new Map();
+function seenFor(file) {
+  let s = seenMaps.get(file);
+  if (!s) {
+    s = new Set();
+    seenMaps.set(file, s);
+    // Bound memory: if we track many files, drop the oldest.
+    if (seenMaps.size > 4) {
+      const first = seenMaps.keys().next().value;
+      seenMaps.delete(first);
+    }
+  }
+  return s;
+}
+
+if (process.argv.slice(2)[0] === "--last-text") {
+  const home = process.argv.slice(2)[1] || "/opt/docs-bot/dsh-home";
+  const roots = [...new Set([
+    path.join(home, "sessions"),
+    "/opt/docs-bot/dsh-home/sessions",
+    "/opt/dsh/sessions",
+  ])];
+  const newest = newestSession(roots);
+  if (!newest) process.exit(1);
+  let raw = "";
+  try {
+    const buf = fs.readFileSync(newest);
+    raw = decompressFrames(buf).text;
+  } catch {
+    process.exit(1);
+  }
+  const text = lastVisibleText(raw);
+  if (!text) process.exit(1);
+  process.stdout.write(text);
+  process.exit(0);
+}
+
+if (process.argv.slice(2)[0] === "--once") {
+  const file = process.argv.slice(2)[1];
   if (!file) {
     process.stderr.write("log_dsh_events.mjs --once <session.jsonl.zstd>\n");
     process.exit(2);
   }
-  const raw = decompressFile(file);
-  replay(raw, file, 0, new Set(), null);
+  const buf = fs.readFileSync(file);
+  const raw = decompressFrames(buf).text;
+  const seen = new Set();
+  replay(raw, file, seen, null);
   process.exit(0);
 }
 
-const home = argv[0] || "/opt/docs-bot/dsh-home";
-const logfile = argv[1];
+const home = process.argv.slice(2)[0] || "/opt/docs-bot/dsh-home";
+const logfile = process.argv.slice(2)[1];
 if (!logfile) {
   process.stderr.write("log_dsh_events.mjs <DSH_HOME> <logfile>\n");
   process.exit(2);
@@ -203,23 +323,23 @@ const logf = fs.openSync(logfile, "a");
 emitLine("==> dsh logger start\n", logf);
 
 let lastFile = "";
-let lastN = 0;
-const seen = new Set();
+let offsets = new Map();
 
 function tick() {
   const newest = newestSession(roots);
   if (!newest) return;
   if (newest !== lastFile) {
     lastFile = newest;
-    lastN = 0;
   }
-  let raw = "";
+  let off = offsets.get(newest) || 0;
+  let next = off;
   try {
-    raw = decompressFile(newest);
+    next = processTail(newest, off);
   } catch {
+    // transient; keep old offset (rescan from old offset next tick)
     return;
   }
-  lastN = replay(raw, newest, lastN, seen, logf);
+  if (next > off) offsets.set(newest, next);
 }
 
 setInterval(tick, 2000);
