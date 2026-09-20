@@ -1,4 +1,4 @@
-# AGENTS.md - LibreLoom monorepo guide
+# AGENTS.md - LibreServ monorepo guide
 
 This repo holds multiple products. Product-specific rules live in each area's
 own AGENTS.md — read it before working there.
@@ -7,7 +7,7 @@ own AGENTS.md — read it before working there.
 
 ```
 LibreServ/
-├── sol/                  # LibreServ ("sol") — the home server product
+├── sol/                  # LibreServ Sol — the home server product
 │   ├── server/backend/   # Go 1.26 backend (chi/v5)
 │   ├── server/frontend/  # React 19 + Vite 7 + Tailwind 4
 │   ├── connect/          # LibreServ Connect cloud SaaS (independent Go module)
@@ -17,7 +17,7 @@ LibreServ/
 │   ├── Dockerfile        # all-in-one image (build context = repo root)
 │   └── AGENTS.md         # sol-specific rules
 │
-├── luna/                 # Luna — the file box product
+├── luna/                 # LibreServ Luna — the file box product
 │   ├── crates/lunad      # Rust daemon
 │   ├── crates/luna-core  # shared Rust lib
 │   ├── web/              # Luna web UI (React/Vite)
