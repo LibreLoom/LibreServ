@@ -72,9 +72,9 @@ grub-mkimage \
 	-p /boot/grub \
 	-d "$GRUB_EFI_DIR" \
 	all_video boot cat chain configfile echo efi_gop efi_uga fat font \
-	gfxterm gzio halt iso9660 linux loadenv ls lsefi normal part_gpt \
-	part_msdos probe reboot regexp search search_fs_file search_fs_uuid \
-	search_label sleep test true video \
+	gfxterm gzio halt iso9660 linux linuxefi loadenv ls lsefi normal \
+	part_gpt part_msdos probe reboot regexp search search_fs_file \
+	search_fs_uuid search_label sleep test true video \
 	|| die "grub-mkimage failed"
 
 # Visible EFI tree on the ISO (some firmwares / USB tools look here first).
