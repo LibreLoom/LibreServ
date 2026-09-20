@@ -29,7 +29,8 @@ LibreServ/
 │
 ├── infra/                # shared tooling
 │   ├── ci-source/        # custom CI runner source (./ci launcher auto-rebuilds)
-│   ├── agents/           # repo automation bots (atlas/docs/lock)
+│   ├── agents/           # repo automation bots (atlas/docs/lock); common/ holds
+│   │                     # the shared dsh-home, loops, and plugins
 │   ├── docs/             # release process docs
 │   └── AGENTS.md
 │
