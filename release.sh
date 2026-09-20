@@ -615,16 +615,45 @@ build_binaries() {
         if [ ! -f luna/mobile/local.properties ]; then
             echo "sdk.dir=${ANDROID_HOME}" > luna/mobile/local.properties
         fi
-        # No release keystore in-repo yet — ship a debug-signed installable APK for prereleases.
+        # Keystore may arrive as base64 in an env secret (cloud agents can't
+        # mount files) — decode to a temp file and point the build at it.
+        if [ -z "${LUNA_ANDROID_KEYSTORE:-}" ] && [ -n "${LUNA_ANDROID_KEYSTORE_B64:-}" ]; then
+            LUNA_ANDROID_KEYSTORE="$(mktemp)"
+            printf '%s' "$LUNA_ANDROID_KEYSTORE_B64" | base64 -d > "$LUNA_ANDROID_KEYSTORE"
+            chmod 600 "$LUNA_ANDROID_KEYSTORE"
+            export LUNA_ANDROID_KEYSTORE
+        fi
+        # Signed release APK when the keystore env is set (see
+        # luna/mobile/README.md "Release signing"); otherwise a debug-signed
+        # build for prereleases. F-Droid builds and signs its own APK.
+        ANDROID_RELEASE_SIGNED=false
+        if [ -n "${LUNA_ANDROID_KEYSTORE:-}" ]; then
+            APK_TASK="assembleRelease"
+            APK_OUT="luna/mobile/app/build/outputs/apk/release/app-release.apk"
+            ANDROID_RELEASE_SIGNED=true
+        else
+            log_warn "LUNA_ANDROID_KEYSTORE not set — APK will be debug-signed"
+            APK_TASK="assembleDebug"
+            APK_OUT="luna/mobile/app/build/outputs/apk/debug/app-debug.apk"
+        fi
+        # F-Droid reads versionCode from this file at each luna-v* tag — warn
+        # if it hasn't moved since the last tag (no new build will publish).
+        APP_VC="$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' luna/mobile/app/build.gradle.kts | head -1)"
+        LAST_LUNA_TAG="$(git tag -l 'luna-v*' | sort -V | tail -1)"
+        if [ -n "$APP_VC" ] && [ -n "$LAST_LUNA_TAG" ]; then
+            LAST_VC="$(git show "$LAST_LUNA_TAG:luna/mobile/app/build.gradle.kts" 2>/dev/null | sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' | head -1)"
+            if [ -n "$LAST_VC" ] && [ "$APP_VC" -le "$LAST_VC" ]; then
+                log_warn "versionCode $APP_VC is not greater than $LAST_LUNA_TAG's $LAST_VC — bump it in luna/mobile/app/build.gradle.kts or F-Droid will not publish a new build"
+            fi
+        fi
         if [ ! -w "${GRADLE_USER_HOME:-$HOME/.gradle}" ]; then
             export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/luna-gradle}"
         fi
         if [ ! -w "${ANDROID_USER_HOME:-$HOME/.config/.android}" ]; then
             export ANDROID_USER_HOME="${ANDROID_USER_HOME:-/tmp/luna-android}"
         fi
-        APK_OUT="luna/mobile/app/build/outputs/apk/debug/app-debug.apk"
         rm -f "$APK_OUT"
-        if ! (cd luna/mobile && ./gradlew assembleDebug --no-daemon); then
+        if ! (cd luna/mobile && ./gradlew "$APK_TASK" --no-daemon); then
             log_error "Android APK build failed"
             rm -rf "$BUILD_DIR"
             exit 1
@@ -633,6 +662,17 @@ build_binaries() {
             log_error "Android APK missing at $APK_OUT"
             rm -rf "$BUILD_DIR"
             exit 1
+        fi
+        if [ "$APK_TASK" = "assembleRelease" ]; then
+            APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+            if [ -n "$APKSIGNER" ]; then
+                if ! "$APKSIGNER" verify "$APK_OUT"; then
+                    log_error "apksigner could not verify the release APK signature"
+                    rm -rf "$BUILD_DIR"
+                    exit 1
+                fi
+                log_info "Release APK signature verified"
+            fi
         fi
         cp "$APK_OUT" "$BUILD_DIR/luna-android.apk"
 
@@ -680,7 +720,7 @@ build_binaries() {
     
     # Build frontend first
     log_info "Building frontend..."
-    cd server/backend
+    cd sol/server/backend
 
     # Clean old build to avoid permission issues
     rm -rf OS/dist
@@ -696,7 +736,7 @@ build_binaries() {
     
     # Download restic binaries for embedding
     log_info "Downloading restic for embedding..."
-    cd server/backend
+    cd sol/server/backend
     
     RESTIC_VERSION="0.19.1"
     
@@ -719,7 +759,7 @@ build_binaries() {
     
     # Build Linux AMD64
     log_info "Building libreserv-linux-amd64..."
-    cd server/backend
+    cd sol/server/backend
     if ! GOOS=linux GOARCH=amd64 go build -tags "embedfront embedrestic" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
@@ -734,7 +774,7 @@ build_binaries() {
     
     # Build Linux ARM64
     log_info "Building libreserv-linux-arm64..."
-    cd server/backend
+    cd sol/server/backend
 
     # Download ARM64 restic for embedding
     log_info "Downloading restic ${RESTIC_VERSION} for linux/arm64..."
@@ -757,7 +797,7 @@ build_binaries() {
         rm -rf "$BUILD_DIR"
         exit 1
     fi
-    rm -f server/backend/OS/bin/restic
+    rm -f sol/server/backend/OS/bin/restic
     cd ../..
     
     # Generate checksums
@@ -799,6 +839,11 @@ create_release_notes() {
         COMMITS=$(git log --oneline --decorate --no-merges -20 2>/dev/null || true)
     fi
 
+    ANDROID_SIGN_NOTE="debug-signed prerelease build"
+    if [ "${ANDROID_RELEASE_SIGNED:-false}" = true ]; then
+        ANDROID_SIGN_NOTE="release-signed; also on F-Droid"
+    fi
+
     if [ "$YES" = true ]; then
         RELEASE_NOTES="$(cat <<EOF
 ## What's Changed
@@ -812,7 +857,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 - \`luna-rapidinstall-x86_64.iso.xz\` — factory USB installer (xz-compressed ISO)
 - \`luna-desktop-x86_64.flatpak\` — Luna Desktop
 - \`Luna-Desktop-Setup-*-x86_64.exe\` — Luna Desktop (Windows, unsigned test/prerelease installer; SmartScreen may warn)
-- \`luna-android.apk\` — Luna Android photo backup (debug-signed until a release keystore lands)
+- \`luna-android.apk\` — Luna Android photo backup (${ANDROID_SIGN_NOTE})
 - \`SHA256SUMS.txt\` + \`SHA256SUMS.txt.minisig\` — signed checksums
 
 ## Upgrade Notes
@@ -825,7 +870,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 **Luna Desktop (Windows):** Run \`Luna-Desktop-Setup-*-x86_64.exe\` (per-user install under Local App Data). Windows may warn that the publisher is unknown — that is expected for this unsigned prerelease build.
 
-**Luna Android:** Install \`luna-android.apk\` (allow installs from this source). Photo backup for your Luna.
+**Luna Android:** Install via F-Droid, or sideload \`luna-android.apk\` (allow installs from this source). Photo backup for your Luna. Note: an F-Droid install and this APK are signed by different keys — switching channels requires uninstalling first.
 
 ## Commits Since Last Release
 
@@ -1188,7 +1233,7 @@ main() {
     print_banner
     
     # Check if in correct directory
-    if [ ! -f "./ci" ] || [ ! -d "./server/backend" ]; then
+    if [ ! -f "./ci" ] || [ ! -d "./sol/server/backend" ]; then
         log_error "Must run from LibreServ root directory"
         exit 1
     fi

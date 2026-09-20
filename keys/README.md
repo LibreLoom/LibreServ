@@ -51,7 +51,7 @@ Keep these identical to the committed files:
 | File | Must match |
 |------|------------|
 | `keys/libreserv.minisign.pub` | canonical LibreServ pub |
-| `server/backend/internal/system/releases.minisign.pub` | LibreServ embed (`go:embed`) |
+| `sol/server/backend/internal/system/releases.minisign.pub` | LibreServ embed (`go:embed`) |
 | `install.sh` `RELEASE_MINISIGN_PUB` heredoc | LibreServ installer |
 | `keys/lsluna.minisign.pub` | canonical Luna pub |
 | `luna/crates/lunad/src/updates.rs` `PINNED_PUB` | Luna embed (`include_str!`) |
@@ -66,7 +66,7 @@ minisign -R -s ~/.minisign/lsluna.key -p keys/lsluna.minisign.pub
 ```
 
 After regenerating LibreServ’s pub, copy it into
-`server/backend/internal/system/releases.minisign.pub` and the heredoc in
+`sol/server/backend/internal/system/releases.minisign.pub` and the heredoc in
 `install.sh`.
 
 ## Verify checksums

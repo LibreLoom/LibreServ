@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  *   - surface="secondary" (default — inside a Card) → text-primary
  *   - surface="primary"   (on the page background)  → text-secondary
  *
- * Ported from LibreServ `server/frontend` so Luna cards can reuse the same
+ * Ported from LibreServ `sol/server/frontend` so Luna cards can reuse the same
  * value-table pattern. Keep the two copies in sync.
  *
  * @param {object} props

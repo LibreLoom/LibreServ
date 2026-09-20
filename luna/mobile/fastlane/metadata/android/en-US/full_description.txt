@@ -1,0 +1,18 @@
+Luna is a small home server you own and control. This app keeps a copy of
+your phone's photos on it — automatically, in the background, over your own
+network.
+
+How it works:
+
+1. On your Luna, open Settings → Security and create an access token.
+2. In this app, paste the token — or tap "Show as QR code" on your Luna and
+   scan it here. Your password is never stored on the phone.
+3. New photos copy to your Luna automatically. If an upload is interrupted
+   it resumes where it left off.
+
+You choose when uploads happen — for example only on Wi-Fi, or only while
+charging — and which folder on your Luna they land in.
+
+This app talks only to your own Luna. There are no ads, no analytics, and no
+third-party servers. It requires a Luna device (or a Luna server address) to
+sign in.

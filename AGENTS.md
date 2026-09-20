@@ -1,4 +1,48 @@
-# AGENTS.md - LibreServ Codebase Guide
+# AGENTS.md - LibreLoom monorepo guide
+
+This repo holds multiple products. Product-specific rules live in each area's
+own AGENTS.md — read it before working there.
+
+## Layout
+
+```
+LibreServ/
+├── sol/                  # LibreServ ("sol") — the home server product
+│   ├── server/backend/   # Go 1.26 backend (chi/v5)
+│   ├── server/frontend/  # React 19 + Vite 7 + Tailwind 4
+│   ├── connect/          # LibreServ Connect cloud SaaS (independent Go module)
+│   ├── iso/              # kiosk image bits
+│   ├── install.sh        # public installer — fetched via raw URL, path is load-bearing
+│   ├── install-lib/      # installer helpers
+│   ├── Dockerfile        # all-in-one image (build context = repo root)
+│   └── AGENTS.md         # sol-specific rules
+│
+├── luna/                 # Luna — the file box product
+│   ├── crates/lunad      # Rust daemon
+│   ├── crates/luna-core  # shared Rust lib
+│   ├── web/              # Luna web UI (React/Vite)
+│   ├── desktop/          # GTK 4 + libadwaita companion app
+│   ├── mobile/           # Android companion app (F-Droid + signed APK)
+│   ├── connect/          # Luna Connect cloud companion (independent Go module)
+│   ├── os/               # Debian live OS, A/B updates, factory ISO
+│   └── AGENTS.md         # luna-specific rules
+│
+├── infra/                # shared tooling
+│   ├── ci-source/        # custom CI runner source (./ci launcher auto-rebuilds)
+│   ├── agents/           # repo automation bots (atlas/docs/lock)
+│   ├── docs/             # release process docs
+│   └── AGENTS.md
+│
+├── ci                    # CI launcher (stays at root — muscle memory)
+├── release.sh            # release pipeline (both products)
+├── keys/                 # release minisign PUBLIC keys — public raw-URL path,
+│                         # do not move (lunad fetches keys/ over HTTP at runtime)
+└── .cursor/              # Cloud Agent environment definition
+```
+
+**Public paths that must not move** (consumed by released artifacts/users):
+`install.sh` → now `sol/install.sh` (README updated), `keys/*.minisign.pub`
+(lunad's updater fetches `raw/branch/main/keys/<name>`).
 
 ## Quick Reference
 
@@ -8,109 +52,16 @@
 | `./ci run -profile full` | Run full CI suite non-interactively |
 | `./ci run -profile libreserv` | LibreServ release gate (backend + frontend; no Luna/Connect) |
 | `./ci run -profile luna` | Luna only (`luna/ci.sh`: Rust, web, desktop, mobile) |
-| `cd server/backend && make lint` | Format check + vet Go code |
-| `cd server/frontend && npm run lint && npm run typecheck` | Lint + typecheck frontend |
+| `cd sol/server/backend && make lint` | Format check + vet Go code |
+| `cd sol/server/frontend && npm run lint && npm run typecheck` | Lint + typecheck frontend |
 
 ---
 
-## Architecture
-
-```
-LibreServ/
-├── server/backend/           # Go 1.26 backend (chi/v5 router)
-│   ├── cmd/libreserv/        # Entry point
-│   ├── internal/
-│   │   ├── api/              # HTTP handlers + middleware + router
-│   │   │   ├── handlers/     # Endpoint handlers
-│   │   │   │   └── response.go # JSONError, JSONResponse helpers
-│   │   │   ├── middleware/   # Auth, CORS, CSRF, rate-limit, security headers
-│   │   ├── apps/             # App lifecycle + catalog
-│   │   ├── auth/             # JWT authentication
-│   │   ├── database/         # SQLite + migrations (internal/database/migrations/)
-│   │   ├── podman/           # Container runtime (Podman) integration
-│   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
-│   │   ├── storage/          # Backup service (restic + tar fallback)
-│   │   ├── jobqueue/         # Background jobs
-│   │   ├── wifi/             # LibreServ setup hotspot (hostapd+dnsmasq)
-│   │   └── jobs/             # Simple time-based scheduler
-│   ├── configs/              # YAML config (must copy .example → .yaml before run)
-│   ├── apps/                # App catalog (repo apps loaded from disk; currently empty — curated catalog will be a separate repo)
-│   ├── OS/dist/              # Frontend build output (gitignored)
-│   └── Makefile
-│
-├── server/frontend/          # React 19 + Vite 7 + Tailwind 4
-│   └── src/
-│       ├── pages/            # Route pages (.jsx, NOT .tsx)
-│       ├── hooks/            # Custom hooks (useAuth, useApps, etc.)
-│       ├── context/          # AuthContext, ThemeContext, ToastContext
-│       ├── components/       # UI components
-│       └── index.css         # Theme variables + Tailwind config
-│
-├── luna/                     # Luna file box: lunad (Rust) + web. Setup is Ethernet-only; there is no setup AP.
-├── luna-connect/             # Luna Connect cloud app (independent Go 1.26). Host: connect.luna.libreloom.org. Device names: *.luna.servers.libreloom.org. Stripe $8/TB/month backups.
-├── connect/                  # Cloud SaaS companion (LibreServ Connect). Independent Go 1.26 module
-│                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
-│                             # LibreServ devices: email relay, DNS/domain, cloud backups, tunnel access,
-│                             # AI inference, and human support. Has its own configs, admin API, and device API.
-├── ci-source/                # Custom CI runner source (binaries gitignored; ./ci launcher auto-rebuilds)
-```
-
----
-
-## Build & Run
-
-### Backend
-```bash
-cd server/backend
-cp configs/libreserv.yaml.example configs/libreserv.yaml   # Required first time
-make build                                    # → bin/libreserv
-make run                                      # Build + run with LIBRESERV_INSECURE_DEV=true
-make test                                     # All unit tests
-make lint                                     # gofmt check + go vet
-make security                                 # govulncheck + gosec + staticcheck
-make frontend-build                           # Install + build frontend to OS/dist/
-BUILD_TAGS=embedfront make build              # Binary with embedded frontend
-make restic-fetch                             # Download restic binary for backups
-```
-
-### Frontend
-```bash
-cd server/frontend
-npm install
-npm run dev                                   # Dev server on port 3000 (not default 5173)
-npm run build                                 # Production build → ../backend/OS/dist/
-npm run lint
-npm run typecheck                             # TypeScript checking (yes, on .jsx files)
-npm test                                      # Vitest (not Jest)
-npm run scan:colors                           # Detect hardcoded colors in UI code
-```
-### LibreServ Connect (cloud SaaS module)
-```bash
-cd connect
-cp configs/connect.yaml.example configs/connect.yaml   # Required first time
-make build                                    # → bin/connect-server
-make run                                      # Build + run
-make test                                     # Unit tests
-make lint                                     # gofmt + go vet
-```
-Env prefix: `CONNECT_` (viper), e.g. `CONNECT_SERVER_PORT`, `CONNECT_AUTH_ADMIN_TOKEN_SECRET`.
-
-### Luna Connect (cloud companion for Luna)
-```bash
-cd luna-connect
-cp configs/luna-connect.yaml.example configs/luna-connect.yaml
-make test
-make build   # → bin/luna-connect
-```
-Env prefix: `LUNACONNECT_`. Public URL `https://connect.luna.libreloom.org`. Admin → Connections stores Stripe, Resend, B2, and Cloudflare (tunnel + DNS) in `service_providers`; yaml/env is the fallback when no enabled DB provider exists (same overlay pattern as Stripe).
-
----
-
-## Conventions
+## Conventions (all products)
 
 ### PLAIN LANGUAGE (non-negotiable)
 
-LibreServ's users are **not technical**. The product goal is "99% of users shouldn't need a terminal." Write **simple** copy — short sentences, what to do next, why a field exists. Simple is **not** baby talk. Do not invent household metaphors that dodge ordinary words.
+Our users are **not technical**. The product goal is "99% of users shouldn't need a terminal." Write **simple** copy — short sentences, what to do next, why a field exists. Simple is **not** baby talk. Do not invent household metaphors that dodge ordinary words.
 
 **The point of this rule:** never dump a ritual like `curl -xOStR https://connect.com` and "now find the CORS header" into the UI. The point is **not** to replace `router`, `ethernet`, `admin`, or `read` with a euphemism.
 
@@ -160,25 +111,13 @@ Do not append manual version query strings to static asset URLs in production bu
 |---|---|---|
 | `favicon.svg?v=6` on production | Vite content-hashes built assets; query cachebusters pollute URLs, break CDN caching semantics, and look amateur | Clean paths (`/favicon.svg`); rely on build hashes or proper `Cache-Control` headers |
 
-### Go
-- Module path: `gt.plainskill.net/LibreLoom/LibreServ`
-- Router: `github.com/go-chi/chi/v5` (not gin)
-- Error response: `JSONError(w, statusCode, message)` — dot-imported from `internal/api/response`
-- Auth context: `middleware.GetUser(ctx)` returns `*middleware.User`, `middleware.GetUserID(ctx)` returns `(string, bool)`
-- Env var prefix: `LIBRESERV_` (viper), e.g. `LIBRESERV_SERVER_PORT`, `LIBRESERV_AUTH_JWT_SECRET`
-- Run `go fmt` before commit; `go vet` must pass
-- Integration tests: build tag `integration`, require Podman:
-  ```bash
-  go test -v -tags=integration ./tests/integration/...
-  ```
-- Race detector: `make test-race` targets middleware, auth, jobqueue only
+### Frontend (all web UIs)
 
-### Frontend
 - File extensions: `.jsx` (not `.tsx`) — but `npm run typecheck` still validates via JSDoc/TS-check
 - Test runner: **Vitest** (not Jest), uses `@testing-library/react` + jsdom
-- Vite dev port: **3000** (hardcoded, `strictPort: true`); proxies `/api` and `/health` to `localhost:8080`
 - Import order: React → Third-party → Local (include `.jsx` extension in imports)
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
+- The same component set exists in `sol/server/frontend` and `luna/web` — fixes to shared components (`PageNotice`, `Table`, `Tooltip`, `HeaderCard`, `Page`, Dropdown, settings categories) must land in **both** copies. (A shared package is on the roadmap; until then, sync by hand.)
 
 #### Form field focus (non-negotiable)
 
@@ -262,96 +201,17 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
   - Never remark that the remotes are on the same commit — that is the expected state, not a coincidence worth reporting.
 - **Push to one forge only.** Commits and branches pushed to one forge are copied to the others by the mirror. Push once to the branch's upstream remote (usually `origin`), then stop.
 - **Git tags do not sync across platforms.** A tag pushed to GitHub (e.g. `luna-connect-v0.2.28`, `luna-v0.0.26`) will **not** appear on Forgejo or GitLab via the mirror. Hosts that pull Forgejo (e.g. Luna Connect at `/opt/LibreServ`) will not see GitHub-only tags. Push release tags to the forge the consumer actually fetches, or deploy with `deploy.sh --head` / an explicit SHA until that forge has the tag.
-- **Do not** dual-push the same commit or branch to a second forge “so it shows up faster.” That races the mirror and can break sync. Tags are the exception only when a consumer forge is missing a release tag it needs (see above).
+- **Do not** dual-push the same commit or branch to a second forge "so it shows up faster." That races the mirror and can break sync. Tags are the exception only when a consumer forge is missing a release tag it needs (see above).
 - If Forgejo (or another forge) looks behind on **branches** after a GitHub push, **wait for the mirror** — do not dual-push commits to catch it up.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
 - Branch naming: `feat/{desc}`, `fix/{desc}`, `docs/{desc}`, `chore/{desc}`
 
-
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`LUNA_CONNECT_URL=http://127.0.0.1:18765 make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
 - **Luna Connect mock (Cloud Agents):** `.cursor/start.sh` runs `luna/scripts/seed-mock-connect.sh`, which starts the mock on `:18765`, sets subdomain `max` → `max.luna.servers.libreloom.org`, unlocks cloud backup, and mints `luna/dev/device-token` when missing. Override with `LUNA_MOCK_SUBDOMAIN` / `LUNA_MOCK_DOMAIN`. Control with `make -C luna mock-connect ARGS="status|domain set …|backup unlock|…"`. See `luna/README.md` → Luna Connect Mock.
-- **Luna companion rapid-dev:** from `luna/`, `make companion-dev` prints the recipe. `make daemon-dev` (cargo-watch lunad), `make desktop-dev` (GTK cargo-watch + auto sign-in), `make mobile-dev` (Android `installDebug` + relaunch on save; needs `adb`). See `luna/desktop/README.md` and `luna/mobile/README.md`. Office-editing dev: `make eurooffice` extracts the EuroOffice asset pack into `luna/dev/` and runs a Document Server sidecar on `:8088` (see `luna/docs/eurooffice.md`).
 - `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
-
----
-
-## Testing
-
-### Backend
-```bash
-cd server/backend
-go test ./...                                          # All unit tests
-go test -v -run TestName ./internal/apps               # Specific test
-go test -race ./internal/auth                           # Race detector
-go test -coverprofile=coverage.out ./cmd/... ./internal/...  # Coverage
-```
-
-### Frontend
-```bash
-cd server/frontend
-npm test                                               # All tests
-npm test -- src/hooks/useAuth.test.jsx                 # Single file
-npm test -- --coverage                                 # With coverage
-npm test -- --watch                                    # Watch mode
-```
-
-### Integration (requires Podman)
-```bash
-cd server/backend
-go test -v -tags=integration ./tests/integration/...
-```
-
----
-
-## Common Tasks
-
-**New API endpoint:**
-1. Create handler in `internal/api/handlers/{resource}.go`
-2. Add route in `internal/api/router.go` (not server.go — routes live in router.go)
-3. Write test in `{resource}_test.go`
-
-**New frontend page:**
-1. Create `src/pages/{PageName}.jsx`
-2. Add lazy-loaded route in `src/App.jsx`
-
-**Reset dev data:**
-```bash
-rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
-```
-
----
-
-## Key Notes
-
-- **Database:** SQLite. Migrations in `internal/database/migrations/` are squashed into one `001_schema.sql`; `migrate.go` reconciles old numbered migrations on existing DBs
-- **Container Runtime:** Required for app runtime (`podman compose`). Integration tests also need Podman.
-- **Config:** `server/backend/configs/libreserv.yaml` — must be created from `.example` before first run
-- **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, LibreServ generates and persists them to the config file. If config is read-only, set `LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` env vars instead.
-- **Frontend build output:** `server/backend/OS/dist/` (gitignored). Production binaries with embedded frontend: `BUILD_TAGS=embedfront make build`
-- **Restic:** Backup system requires restic binary. `make restic-fetch` downloads it; `embedrestic` build tag bundles it in the binary.
-- **Caddy:** Reverse proxy for HTTPS. Mode can be `enabled`/`noop`/`disabled` in config. ACME certs via DNS-01 challenge.
-- **CI:** `./ci` is a custom Go binary that runs tests in containers via **Podman** (not Docker). The runner connects to Podman's Docker-compatible socket (rootless `$XDG_RUNTIME_DIR/podman/podman.sock`, then rootful, then Docker fallback) and starts `systemctl --user start podman.socket` if needed. Bind mounts use the `:z` SELinux relabel (required by Podman rootless on this SELinux-enforcing host). The `./ci` launcher builds `ci-source/bin/ci-<os>-<arch>` from source and **auto-rebuilds it when any `ci-source/*.go` is newer than the binary** — the binaries are gitignored, so edits to `ci-source/` are picked up automatically on the next `./ci` run. To prebuild all platforms locally, run `ci-source/build.sh` (Windows: `ci-source/build.ps1`). E2E (Playwright) tests are **removed** for now — they'll be re-added with broader coverage later. The `podman-build` test uses `Container: "host"` (runs `podman build` on the host, not in a container — SELinux blocks mounting the podman socket into a container). No GitHub Actions — all CI is local.
-- **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
-- **Connect module:** `gt.plainskill.net/LibreLoom/LibreServConnect` — independent Go module in `connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
-- **Setup hotspot (LibreServ only):** If setup isn't finished and there's no cable or home Wi-Fi, LibreServ briefly broadcasts an open network named "LibreServ Setup" (`internal/wifi` hostapd+dnsmasq). A phone joins that network, opens the wizard, and the hotspot stops once the box is online. **Luna has no setup AP** — Ethernet cable only (`luna/crates/lunad/src/hotspot.rs` is a stub that never starts).
-- **Luna Connect opt-in (`device-token`):** Connect is **off by default**. Luna only polls connect.luna.libreloom.org when `{data_dir}/device-token` exists with a valid Crockford token. No `disable-connect` file — empty opt-out at install is success. **`connect.json`** holds cloud bind state (hostname, tunnel) plus an optional `first_user_secret`, and only matters when a device token is present. Setup is open on LAN (loopback, private IPs, `luna.local` / `.local` hostnames; proxy `X-Forwarded-For` / `CF-Connecting-IP` respected — `is_lan_request` in `luna/crates/lunad/src/api/setup.rs`, UI hints only). **First registration over the public hostname requires the full device token** — `first_user_on_public_host` in `luna/crates/lunad/src/api/auth.rs` matches it case-insensitively against `{data_dir}/device-token` or `first_user_secret` in `connect.json` (with an on-demand `poll_status()` refresh; plain-language refusal when missing or wrong). No 8-char `X-Setup-Token` prefix gate anymore (`setup_access.rs` is deleted); Connect onboarding links to `/setup?token=` to prefill the token. Never tell users to finish setup on an HDMI/on-device screen — Luna setup is browser-only. Add/remove tokens in Settings → About → Advanced; External Services UI shows only when `connect_active`. User-facing term is **device token**, not setup code or device code.
-
-## Frontend Components
-
-- **`components/ui/` primitives** — the standardized building blocks. Pages and components must use these instead of hand-rolled equivalents, so one change propagates across the whole UI:
-  - **Button** (`src/components/ui/Button.jsx`) — the canonical button. Read its doc comment before use: variants `primary` (main action on cards), `secondary` (main action on page bg), `accent` (form/modal submit), `danger` (destructive), `outline` (cancel/back), `ghost` (icon-only). The `surface` prop names the BACKDROP the button sits on (`"primary"` = page bg, `"secondary"` = card, the default); outline/ghost chrome contrasts automatically. Use `loading` for pending states, `fullWidth` instead of `w-full`, and `asChild` to style a `Link`/`<a>` as a button. Never hand-roll pill buttons or pill-styled links.
-  - **Page** (`src/components/ui/Page.jsx`) — the standard page shell (`bg-primary text-secondary`, skip-link target, optional HeaderCard title). Every routed content page uses it (full-screen flows like Login/Setup are the exception).
-  - **Card / ModalCard / HeaderCard** (`src/components/cards/`) — surfaces. `bg-secondary text-primary` by default; `surface="primary"` inverts.
-  - **HeaderCard auto-splits when chrome does not fit.** It prefers a single one-line pill; when `leftContent`/`rightContent` cannot fit beside the title, it measures overflow and stacks separate cards (title, then sides). Do not put navigation or back links in the header — use the bottom navbar (`Navbar` — desktop pill + mobile FAB/dialog; Luna mirrors LibreServ). Put taglines in Page `bottomContent` (renders below the header, not inside it). Keep Luna and LibreServ `HeaderCard`/`Page` copies in sync.
-  - **Tooltip** (`src/components/ui/Tooltip.jsx`, same file in Luna web) — `InfoHint` (ⓘ, longer aside) and `TermHint` (dotted underline on a word). Hover, focus, and tap. Do not use native `title=` for new glosses. Keep Luna and LibreServ copies in sync.
-- **Dropdown** — Always use the project's `Dropdown` component (`src/components/common/Dropdown.jsx`) instead of a raw `<select>`. It accepts `options` as `Array<{value: string, label: string}>`, supports `fullWidth`, `bg` ( `"primary"` | `"secondary"`), and `onChange(value: string)`.
-- **Haptics** — `src/utils/haptics.js` (`haptic()` with presets `selection`, `light`, `medium`, `heavy`, `rigid`, `soft`, `success`, `warning`, `error`, `nudge`) is wired into Button/Toggle/SegmentedControl/Dropdown — do not sprinkle it through pages. The user toggle lives in Settings → Appearance.
-- **Model fetch endpoint** — `POST /settings/ai-support/models` (admin-only) accepts `{ base_url, api_key }` and returns `{ models: [] }` fetched live from the provider. Use this to populate model Dropdowns in AI config modals.
-- **ChatHeader crash guard** — `ChatHeader`'s `ModelPill` must guard against empty `modelOptions` (e.g. `resolvedModelOptions[0]?.value || ""`), because `chat.models` starts empty before `loadModels` resolves.
 
 ## Notes for Agents
 
 - **Go versions are real.** The Go version declared in this repository (currently 1.26) exists in real life — not just in this project's environment. Do not question whether `golang:1.26-alpine`, `golang:1.26-bookworm`, or any other Go 1.26 image is available: it is. Treat Go toolchain versions mentioned in this repo as unconditionally available.
 - **This project is in early development. There are no existing users.** Do not worry about backwards compatibility, migration paths, or deprecating old fields smoothly unless explicitly asked. When the backend or design changes, obsolete frontend concepts can be torn down completely without guarding for legacy state. The AI model fields that exist now are `main_model` (agent model), `review_model` (safety review model), `summary_model` (optional model that summarizes the session so the reviewer has context), and `review_enabled` (whether tool-call review runs). `default_model`, `agents[]`, `snapshot_before_writes`, `credit_cap`, and similar old concepts are fully dead.
-- **LibreServ is WAN-accessible by design** once a domain is configured — the auth endpoints (`/auth/login`, `/auth/password-reset/*`, `/auth/invite/{token}`) are internet-exposed, not LAN-only. There is no public `/auth/register`. Center this in every auth/security decision: the primary defenses are strong passwords + rate limiting + 2FA, **not captchas** (captcha is decided against for v1). Prefer admin-invited users over open public registration.

@@ -4,8 +4,8 @@
 set -e
 
 SELF="$(cd "$(dirname "$0")" && pwd)"
-BIN_DIR="$SELF/ci-source/bin"
-SOURCE_DIR="$SELF/ci-source"
+BIN_DIR="$SELF/infra/ci-source/bin"
+SOURCE_DIR="$SELF/infra/ci-source"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
