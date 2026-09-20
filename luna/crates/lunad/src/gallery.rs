@@ -3666,7 +3666,17 @@ mod tests {
         {
             let conn = open_drive_db(root).unwrap();
             // (path, taken_at, kind, lat, lon, city, region, country)
-            let rows: &[(&str, i64, &str, Option<f64>, Option<f64>, &str, &str, &str)] = &[
+            type PhotoRow = (
+                &'static str,
+                i64,
+                &'static str,
+                Option<f64>,
+                Option<f64>,
+                &'static str,
+                &'static str,
+                &'static str,
+            );
+            let rows: &[PhotoRow] = &[
                 (
                     "seattle.jpg",
                     1_694_736_000,
