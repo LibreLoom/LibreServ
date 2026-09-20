@@ -7,6 +7,11 @@ sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 command: luna-desktop
+# Host flatpak-builder 1.2.x invokes `appstream-compose` (appstream 0.15/GLIB
+# CLI) inside `flatpak build`; the runtime ships appstream 1.x where the tool
+# is `appstreamcli-compose` with an incompatible CLI. The app still ships its
+# metainfo.xml — this only skips regenerating collection metadata for a repo.
+appstream-compose: false
 finish-args:
   - --share=network
   - --share=ipc
