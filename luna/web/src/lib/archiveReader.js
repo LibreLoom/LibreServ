@@ -42,7 +42,7 @@ export function listZipEntries(buf) {
 /**
  * @param {ArrayBuffer} buf
  * @param {{ name: string, size: number, offset: number, compressedSize: number, method: number }} entry
- * @returns {Promise<Uint8Array>}
+ * @returns {Promise<Uint8Array<ArrayBuffer>>}
  */
 export async function readZipEntry(buf, entry) {
   const view = new DataView(buf);

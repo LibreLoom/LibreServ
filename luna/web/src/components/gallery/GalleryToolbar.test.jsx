@@ -176,6 +176,7 @@ describe("GalleryToolbar", () => {
 
   it("locks rescan while pending/confirmed, then animates back to Rescan drives", async () => {
     const user = userEvent.setup();
+    /** @type {undefined | ((v?: unknown) => void)} */
     let resolveRescan;
     const onRescan = vi.fn(
       () => new Promise((resolve) => { resolveRescan = resolve; })
@@ -202,7 +203,7 @@ describe("GalleryToolbar", () => {
     expect(document.querySelector(".animate-rescan-swap-out")).toBeTruthy();
 
     // Resolved: "Started scan." shows but the row stays locked
-    resolveRescan();
+    resolveRescan?.();
     rerender(<GalleryToolbar {...props} rescanPending={false} />);
     expect(
       await screen.findByRole("menuitem", { name: /Started scan/i })

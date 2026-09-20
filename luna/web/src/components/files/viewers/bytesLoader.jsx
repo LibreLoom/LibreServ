@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { apiErrorMessage, apiFetch } from "../../../lib/api.js";

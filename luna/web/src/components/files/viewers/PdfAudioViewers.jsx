@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
 
@@ -66,12 +66,8 @@ AudioViewer.propTypes = {
 };
 
 function AudioPlayer({ bytes, path }) {
-  const [url, setUrl] = useState(/** @type {string|null} */ (null));
-  useEffect(() => {
-    const objectUrl = URL.createObjectURL(new Blob([bytes]));
-    setUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [bytes]);
+  const url = useMemo(() => URL.createObjectURL(new Blob([bytes])), [bytes]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
   if (!url) return null;
   return (
     <div className="rounded-large-element bg-primary text-secondary p-4">
