@@ -29,6 +29,9 @@ const SAVE_LOCK_TTL: Duration = Duration::from_secs(60);
 /// Normal release is `lunaSaveEnd`/`bundle_refreshed`/disconnect; this only
 /// covers a saver that vanished without any of those.
 const SAVE_ELECTION_TTL: Duration = Duration::from_secs(300);
+/// How long a session-create claim keeps a room matchable while the joiner's
+/// socket is still connecting — must cover create → DocsAPI boot → auth.
+const CLAIM_TTL: Duration = Duration::from_secs(60);
 
 static SOCK_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -108,6 +111,12 @@ pub struct DocSession {
     /// restore is refused (Stale) and it reloads the saved bundle instead of
     /// silently diverging. Fresh joins (no sessionId) are unaffected.
     pub resurrected: bool,
+    /// A joiner claimed this room at session create and its socket hasn't
+    /// authenticated yet. The claim keeps the room matchable for concurrent
+    /// openers while participants is empty — otherwise a last-participant
+    /// disconnect between one opener's lookup and another's would mint them
+    /// different keys and split the room.
+    pub pending_until: Option<Instant>,
 }
 
 impl DocSession {
@@ -124,6 +133,7 @@ impl DocSession {
             save_election: None,
             next_index_user: 1,
             last_event: Instant::now(),
+            pending_until: None,
             resurrected: false,
         }
     }
@@ -216,6 +226,52 @@ impl OfficeDocHub {
         hub.sessions
             .get(key)
             .map(|s| (s.binding.drive_id.clone(), s.binding.path.clone()))
+    }
+
+    /// Claim the room already live on this file for a joining editor —
+    /// returns its key and holds the room open to concurrent openers for
+    /// [`CLAIM_TTL`] while the socket authenticates.
+    ///
+    /// A minted key fingerprints the file's size+mtime at first open, so
+    /// every save that lands on disk changes what a fresh session request
+    /// computes: a later opener would get a different key and land in an
+    /// empty room with its own converted bundle while the live document
+    /// keeps editing elsewhere. Session create must join the live room
+    /// instead — its bundle plus op log IS the document's current state.
+    ///
+    /// The claim is what makes this safe under races: lookup and mark happen
+    /// in one lock hold, and a last-participant disconnect before the
+    /// joiner's `auth` cannot drop the room out from under matching — the
+    /// claim still counts as occupancy until it expires.
+    ///
+    /// Sessions with neither participants nor a live claim never match:
+    /// their op log may reach past the file's current bytes (a save followed
+    /// by an external change), so a cold open mints a fresh versioned key.
+    pub async fn claim_live_key(&self, drive_id: &str, path: &str) -> Option<String> {
+        let mut hub = self.inner.lock().await;
+        let now = Instant::now();
+        let key = hub
+            .sessions
+            .iter()
+            .find(|(_, s)| {
+                s.binding.drive_id == drive_id
+                    && s.binding.path == path
+                    && (!s.participants.is_empty()
+                        || s.pending_until.is_some_and(|until| until > now))
+            })
+            .map(|(k, _)| k.clone())?;
+        let session = hub.sessions.get_mut(&key)?;
+        session.pending_until = Some(now + CLAIM_TTL);
+        session.last_event = now;
+        Some(key)
+    }
+
+    #[cfg(test)]
+    pub async fn expire_claim(&self, key: &str) {
+        let mut hub = self.inner.lock().await;
+        if let Some(s) = hub.sessions.get_mut(key) {
+            s.pending_until = Some(Instant::now() - Duration::from_secs(1));
+        }
     }
 
     pub async fn subscribe(&self, key: &str) -> broadcast::Receiver<Value> {
@@ -1631,6 +1687,45 @@ mod tests {
         // Free hold → still answered.
         let reply = hub.un_save_lock("k", 2).await.unwrap().unwrap();
         assert_eq!(reply["type"], "unSaveLock");
+    }
+
+    #[tokio::test]
+    async fn claim_live_key_matches_only_rooms_with_occupants() {
+        let hub = OfficeDocHub::new();
+        make_session(&hub, "k").await;
+        // Registered but nobody connected → not live.
+        assert_eq!(hub.claim_live_key("drive-a", "docs/a.docx").await, None);
+        // A bound session on a different file must not match.
+        assert_eq!(hub.claim_live_key("drive-a", "docs/b.docx").await, None);
+        assert_eq!(hub.claim_live_key("drive-b", "docs/a.docx").await, None);
+
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            hub.claim_live_key("drive-a", "docs/a.docx").await,
+            Some("k".to_string())
+        );
+
+        // The joiner's claim keeps matching through the last disconnect —
+        // that interleave is what split concurrent openers into two rooms.
+        hub.claim_live_key("drive-a", "docs/a.docx").await;
+        hub.disconnect("k", 1).await;
+        assert_eq!(
+            hub.claim_live_key("drive-a", "docs/a.docx").await,
+            Some("k".to_string())
+        );
+
+        // An expired claim stops counting: with the room truly cold, the
+        // stale-op-log risk returns and a fresh key must be minted.
+        hub.inner
+            .lock()
+            .await
+            .sessions
+            .get_mut("k")
+            .unwrap()
+            .pending_until = Some(Instant::now() - Duration::from_secs(1));
+        assert_eq!(hub.claim_live_key("drive-a", "docs/a.docx").await, None);
     }
 
     #[tokio::test]
