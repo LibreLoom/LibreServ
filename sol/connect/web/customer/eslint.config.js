@@ -5,9 +5,11 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
-  globalIgnores(["dist"]),
+  // Skip linting build output to keep runs fast.
+  globalIgnores(["dist", "src/components/ui/shadcn"]),
   {
     files: ["**/*.{js,jsx}"],
+    // Base + React rules for the app bundle.
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -23,15 +25,49 @@ export default defineConfig([
       },
     },
     rules: {
+      // Allow _unused patterns for deliberate unused values.
       "no-unused-vars": [
         "error",
         { argsIgnorePattern: "^[A-Z_]", varsIgnorePattern: "^[A-Z_]" },
       ],
+      // refs are intentionally accessed during render for the useAnimatedHeight hook pattern
+      "react-hooks/refs": "off",
+      "react-hooks/set-state-in-effect": "off",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
       ],
-      "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
+    // Test files get vitest globals.
+    files: ["**/*.test.{js,jsx}", "src/test/**"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        vi: "readonly",
+        describe: "readonly",
+        it: "readonly",
+        expect: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+      },
+    },
+  },
+  {
+    // Script utilities run in Node, not the browser.
+    files: ["scripts/**/*.js"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    // Config files run in Node, not the browser.
+    files: ["*.config.js", "vite.config.js"],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ]);

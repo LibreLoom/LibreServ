@@ -1,3 +1,4 @@
+// color-scan: ignore-file -- brand-mark hexes (#FF9910/#FF5F08) and mask gradient stops are intentional raw values
 import { useEffect, useState } from "react";
 
 const PACKETS_LTR = [
@@ -64,11 +65,11 @@ function LibreServLogo({ className = "w-16 h-16" }) {
       aria-label="LibreServ"
     >
       {/* Outer subtle border */}
-      <rect x="0" y="0" width="240" height="240" rx="32" fill="#767676" />
+      <rect x="0" y="0" width="240" height="240" rx="32" className="fill-muted-foreground" />
       {/* Crisp surface */}
       <rect x="2" y="2" width="236" height="236" rx="30" className="fill-card" />
       {/* Iconic bottom-right circle marker */}
-      <circle cx="200" cy="200" r="24" className="fill-foreground" stroke="#767676" strokeWidth="2" />
+      <circle cx="200" cy="200" r="24" className="fill-foreground stroke-muted-foreground" strokeWidth="2" />
     </svg>
   );
 }

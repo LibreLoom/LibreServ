@@ -43,7 +43,7 @@ vi.mock("../context/AuthContext.jsx", () => ({
 }));
 
 beforeEach(() => {
-  global.ResizeObserver = class {
+  globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}
     disconnect() {}
@@ -459,7 +459,7 @@ describe("OnboardingPage DIY verify", () => {
   });
 
   it("blocks advancing to password when the email already has an account", async () => {
-    api.mockImplementation(async (path, opts) => {
+    api.mockImplementation(async (path, _opts) => {
       if (path === "/api/v1/account/check-email") {
         const err = new Error("That email already has an account. Sign in instead.");
         err.status = 409;

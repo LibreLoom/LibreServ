@@ -7,7 +7,9 @@
       if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) isDark = true;
     }
     if (isDark) document.documentElement.classList.add("dark");
-  } catch (e) {}
+  } catch {
+    /* theme detection is best-effort */
+  }
   try {
     var f = document.getElementById("favicon");
     if (f) {
@@ -15,5 +17,7 @@
         ? "/favicon-dark.svg"
         : "/favicon.svg";
     }
-  } catch (e) {}
+  } catch {
+    /* favicon swap is best-effort */
+  }
 })();

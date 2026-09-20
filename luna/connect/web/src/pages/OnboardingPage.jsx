@@ -42,7 +42,6 @@ import {
 import {
   DEVICE_ONLINE_POLL_MS,
   fetchDeviceSetupReadiness,
-  fetchDeviceSetupReady,
 } from "../lib/deviceOnline.js";
 import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 import { buildLunaSetupLink } from "../lib/lunaSetupLink.js";
@@ -1332,11 +1331,6 @@ export default function OnboardingPage() {
   );
 
   const renderPlugIn = () => {
-    const targetHost =
-      activeReadiness.hostname ||
-      hostname ||
-      (name ? `${name}.luna.servers.libreloom.org` : "your-luna.luna.servers.libreloom.org");
-
     // State 1: Luna is offline
     if (!activeReadiness.online) {
       return (

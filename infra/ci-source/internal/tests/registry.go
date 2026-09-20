@@ -40,6 +40,7 @@ func (r *Registry) GetByIDs(ids []string) []*Test {
 func init() {
 	addGoTests()
 	addFrontendTests()
+	addConnectWebTests()
 	addFuzzTests()
 	addSecurityTests()
 	addIntegrationTests()
@@ -273,6 +274,129 @@ func addFrontendTests() {
 	})
 }
 
+func addConnectWebTests() {
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-web-lint",
+		Name:        "Luna Connect Web ESLint",
+		Description: "Run ESLint on the Luna Connect web frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run lint",
+		WorkDir:     "/repo/luna/connect/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-web-test",
+		Name:        "Luna Connect Web Unit Tests",
+		Description: "Run Vitest unit tests for the Luna Connect web frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm test",
+		WorkDir:     "/repo/luna/connect/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-web-build",
+		Name:        "Luna Connect Web Build",
+		Description: "Build the Luna Connect web frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run build",
+		WorkDir:     "/repo/luna/connect/web",
+		Timeout:     15 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-web-colors",
+		Name:        "Luna Connect Web Color Scan",
+		Description: "Scan Luna Connect web for hardcoded colors that should use CSS variables",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run scan:colors",
+		WorkDir:     "/repo/luna/connect/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-web-admin-lint",
+		Name:        "Connect Admin Web ESLint",
+		Description: "Run ESLint on the Connect admin frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run lint",
+		WorkDir:     "/repo/sol/connect/web/admin",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-web-admin-typecheck",
+		Name:        "Connect Admin Web TypeScript Check",
+		Description: "Run tsc --noEmit on the Connect admin frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run typecheck",
+		WorkDir:     "/repo/sol/connect/web/admin",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-web-admin-build",
+		Name:        "Connect Admin Web Build",
+		Description: "Build the Connect admin frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run build",
+		WorkDir:     "/repo/sol/connect/web/admin",
+		Timeout:     15 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-web-customer-lint",
+		Name:        "Connect Customer Web ESLint",
+		Description: "Run ESLint on the Connect customer frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run lint",
+		WorkDir:     "/repo/sol/connect/web/customer",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-web-customer-typecheck",
+		Name:        "Connect Customer Web TypeScript Check",
+		Description: "Run tsc --noEmit on the Connect customer frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run typecheck",
+		WorkDir:     "/repo/sol/connect/web/customer",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-web-customer-build",
+		Name:        "Connect Customer Web Build",
+		Description: "Build the Connect customer frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run build",
+		WorkDir:     "/repo/sol/connect/web/customer",
+		Timeout:     15 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-deploy-test",
+		Name:        "Luna Connect Deploy Script Tests",
+		Description: "Unit tests for luna/connect deploy.sh ref resolution (no root required)",
+		Type:        TestTypeUnit,
+		Container:   "host",
+		Command:     "bash deploy/deploy_test.sh",
+		WorkDir:     "/repo/luna/connect",
+		Timeout:     5 * time.Minute,
+	})
+}
+
 func addFuzzTests() {
 	fuzzTests := []struct {
 		id     string
@@ -393,9 +517,9 @@ func addIntegrationTests() {
 		Container:   "host",
 		// Do not raise nofile above the host hard limit — crun setrlimit fails
 		// with EPERM on restricted environments (e.g. Cloud Agent VMs at 524288).
-		Command:     "podman build -t libreserv:test .",
-		WorkDir:     "/repo",
-		Timeout:     20 * time.Minute,
+		Command: "podman build -t libreserv:test -f sol/Dockerfile .",
+		WorkDir: "/repo",
+		Timeout: 20 * time.Minute,
 	})
 }
 

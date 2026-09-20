@@ -8,7 +8,8 @@ export function notifyEmailVerifiedCrossTab() {
     if (typeof BroadcastChannel !== "undefined") {
       const channel = new BroadcastChannel(EMAIL_VERIFIED_CHANNEL);
       channel.postMessage({ verified: true });
-      channel.close();
+      // close() can drop a just-posted message before delivery; defer it a tick
+      setTimeout(() => channel.close(), 0);
     }
     // storage events fire in other tabs only; set then remove to trigger listeners.
     localStorage.setItem(EMAIL_VERIFIED_STORAGE_KEY, String(Date.now()));

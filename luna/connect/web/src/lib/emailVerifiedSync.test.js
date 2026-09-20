@@ -9,14 +9,37 @@ import {
 describe("emailVerifiedSync", () => {
   beforeEach(() => {
     localStorage.clear();
+    // jsdom has no BroadcastChannel and Node's global lives in a different
+    // realm than module code under vitest, so delivery never crosses. Stub a
+    // minimal same-name pub/sub to test the module's wiring, not the platform.
+    const channels = new Map();
+    class FakeBroadcastChannel {
+      constructor(name) {
+        this.name = name;
+        this.onmessage = null;
+        if (!channels.has(name)) channels.set(name, new Set());
+        channels.get(name).add(this);
+      }
+      postMessage(data) {
+        for (const ch of channels.get(this.name) ?? []) {
+          if (ch !== this && ch.onmessage) {
+            queueMicrotask(() => ch.onmessage({ data }));
+          }
+        }
+      }
+      close() {
+        channels.get(this.name)?.delete(this);
+      }
+    }
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it("notifies listeners via BroadcastChannel when supported", async () => {
-    if (typeof BroadcastChannel === "undefined") return;
     const handler = vi.fn();
     const listener = new BroadcastChannel(EMAIL_VERIFIED_CHANNEL);
     listener.onmessage = () => handler();

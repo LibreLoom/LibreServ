@@ -66,7 +66,7 @@ export default function Dashboard() {
   });
 
   const consentMut = useMutation({
-    mutationFn: ({ id, decision }) => api.respondConsent(id, decision),
+    mutationFn: (/** @type {{ id: string, decision: string }} */ vars) => api.respondConsent(vars.id, vars.decision),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["consent-requests"] }),
   });
 

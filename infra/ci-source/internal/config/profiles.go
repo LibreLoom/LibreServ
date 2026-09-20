@@ -37,14 +37,14 @@ var Profiles = map[string]*Profile{
 	"quick": {
 		ID:          "quick",
 		Name:        "Quick",
-		Description: "Fast feedback - format, vet, unit tests, build, lint, typecheck for backend and connect (12 tests)",
+		Description: "Fast feedback - format, vet, unit tests, build, lint, typecheck for backend and connect",
 		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "go-rollback-test", "frontend-lint", "frontend-test", "frontend-typecheck", "connect-fmt", "connect-vet", "connect-test", "connect-build", "luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build"},
 	},
 	"backend": {
 		ID:          "backend",
 		Name:        "Backend",
 		Description: "Backend tests - format, vet, unit tests, race, build, rollback, coverage, connect",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage", "connect-fmt", "connect-vet", "connect-test", "connect-build", "luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build"},
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage", "connect-fmt", "connect-vet", "connect-test", "connect-build", "luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build", "connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-deploy-test"},
 	},
 	"frontend": {
 		ID:          "frontend",
@@ -65,6 +65,7 @@ var Profiles = map[string]*Profile{
 			"fuzz-config-main", "fuzz-config-smtp", "fuzz-config-runtime", "fuzz-config-caddy", "fuzz-config-acme",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
+			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-deploy-test",
 		},
 	},
 	"security": {
@@ -100,6 +101,7 @@ var Profiles = map[string]*Profile{
 			"coverage", "podman-build",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
+			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-deploy-test",
 			"luna-ci",
 		},
 	},
@@ -115,6 +117,7 @@ var Profiles = map[string]*Profile{
 			"coverage", "podman-build",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
+			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-deploy-test",
 			"luna-ci",
 		},
 	},
@@ -122,7 +125,7 @@ var Profiles = map[string]*Profile{
 		ID:          "connect",
 		Name:        "Connect",
 		Description: "All Connect module tests (6 tests)",
-		TestIDs:     []string{"connect-fmt", "connect-vet", "connect-test", "connect-build", "connect-gosec", "connect-staticcheck", "luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build"},
+		TestIDs:     []string{"connect-fmt", "connect-vet", "connect-test", "connect-build", "connect-gosec", "connect-staticcheck", "luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build", "connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-deploy-test"},
 	},
 	"libreserv": {
 		ID:          "libreserv",
@@ -153,6 +156,7 @@ var Profiles = map[string]*Profile{
 			"coverage", "podman-build",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"luna-connect-fmt", "luna-connect-vet", "luna-connect-test", "luna-connect-build",
+			"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build", "connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build", "luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build", "luna-connect-web-colors", "luna-connect-deploy-test",
 			"luna-ci",
 		},
 	},

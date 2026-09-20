@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { serializeShakeTrigger } from "../utils/shake.js";
 
 /**
- * Drives label error color: red on failure, fades to normal on form resubmit,
- * returns to red if the field is still invalid after the attempt completes.
+ * Drives label error color: error tone on failure, fades to normal on form resubmit,
+ * returns to error tone if the field is still invalid after the attempt completes.
  *
  * @param {unknown} error
  * @param {unknown} [shake]

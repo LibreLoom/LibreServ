@@ -215,8 +215,9 @@ PlanCard.propTypes = {
 };
 
 // ─── SubdomainPicker — free subdomain with live preview + availability ─────
-function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, checkingSub, suffix, onContinue, error = "" }) {
+function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, suffix, onContinue, error = "" }) {
   const debounceRef = useRef(null);
+  const [checkingSub, setCheckingSub] = useState(false);
   const fullAddress = subdomainName ? `${subdomainName}.${suffix}` : "";
 
   const handleChange = (e) => {
@@ -224,13 +225,19 @@ function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, set
     setSubdomainName(v);
     setSubAvailability(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!v || v.length < 3) return;
+    if (!v || v.length < 3) {
+      setCheckingSub(false);
+      return;
+    }
+    setCheckingSub(true);
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await api.checkSubdomain(v);
         setSubAvailability(res.available);
       } catch {
         setSubAvailability(null);
+      } finally {
+        setCheckingSub(false);
       }
     }, 400);
   };
@@ -306,7 +313,6 @@ SubdomainPicker.propTypes = {
   setSubdomainName: PropTypes.func.isRequired,
   subAvailability: PropTypes.bool,
   setSubAvailability: PropTypes.func.isRequired,
-  checkingSub: PropTypes.bool.isRequired,
   suffix: PropTypes.string.isRequired,
   onContinue: PropTypes.func.isRequired,
   error: PropTypes.string,
@@ -480,7 +486,6 @@ export default function Onboarding() {
 
   const [subdomainName, setSubdomainName] = useState(saved.current?.subdomainName || "");
   const [subAvailability, setSubAvailability] = useState(null); // null | true | false
-  const [checkingSub, setCheckingSub] = useState(false);
   const [customDomainOpen, setCustomDomainOpen] = useState(false);
   const [customDomainQuery, setCustomDomainQuery] = useState("");
   const [domainResults, setDomainResults] = useState([]);
@@ -571,7 +576,7 @@ export default function Onboarding() {
       try {
         const res = await api.createCheckout(selectedPlan);
         if (res.checkout_url && res.checkout_url !== "#") {
-          window.location.href = res.checkout_url;
+          window.location.assign(res.checkout_url);
           return;
         }
         // No checkout URL — fall through to next step
@@ -702,21 +707,6 @@ export default function Onboarding() {
   const goBack = () => navigate("/");
   const handleBack = step === 0 ? goBack : goPrev;
 
-  // Reset the account substep flow when leaving/re-entering the account step.
-  // Coming back from the verify step (typo fix) jumps straight to the email
-  // question — that's why the user went back.
-  const prevStepRef = useRef(step);
-  useEffect(() => {
-    if (prevStepRef.current === step) return;
-    const cameFrom = prevStepRef.current;
-    prevStepRef.current = step;
-    if (step === 1) {
-      setAuthSubStep(cameFrom === 2 ? Math.max(authFields.length - 2, 0) : 0);
-      setAuthSubDir(cameFrom === 2 ? "left" : "right");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
-
   // ===== Step Renderers =====
 
   const renderWelcome = () => (
@@ -820,6 +810,21 @@ export default function Onboarding() {
           valid: password.length >= 8,
         },
       ];
+
+  // Reset the account substep flow when leaving/re-entering the account step.
+  // Coming back from the verify step (typo fix) jumps straight to the email
+  // question — that's why the user went back.
+  const prevStepRef = useRef(step);
+  useEffect(() => {
+    if (prevStepRef.current === step) return;
+    const cameFrom = prevStepRef.current;
+    prevStepRef.current = step;
+    if (step === 1) {
+      setAuthSubStep(cameFrom === 2 ? Math.max(authFields.length - 2, 0) : 0);
+      setAuthSubDir(cameFrom === 2 ? "left" : "right");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const currentAuthField = authFields[authSubStep] || authFields[0];
   const isLastAuthSubStep = authSubStep === authFields.length - 1;
@@ -1099,7 +1104,6 @@ export default function Onboarding() {
           setSubdomainName={setSubdomainName}
           subAvailability={subAvailability}
           setSubAvailability={setSubAvailability}
-          checkingSub={checkingSub}
           suffix={domainSuffix}
           error={error}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
@@ -1158,7 +1162,6 @@ export default function Onboarding() {
           setSubdomainName={setSubdomainName}
           subAvailability={subAvailability}
           setSubAvailability={setSubAvailability}
-          checkingSub={checkingSub}
           suffix={domainSuffix}
           error={error}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
