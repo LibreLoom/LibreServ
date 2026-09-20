@@ -45,7 +45,7 @@ If cook.sh fails, the loop logs and continues. It does not crash the container.
 ## Image and compose
 
 Share the atlas-bot image (it already has dsh, node, go, rust, plus `fj` for atlas-bot).
-lock-bot does not use `fj` — `lib/forgejo.sh` does REST over curl. Keep it that way.
+lock-bot does not use `fj` — `common/forgejo.sh` (shared) does REST over curl. Keep it that way.
 Look up the live image with: inspect atlas-bot Config.Image.
 
 Compose: `compose.yml` in this directory.

@@ -15,6 +15,11 @@ import { zstdDecompressSync } from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
 
+// Default dsh home for the calling bot: BOT_NAME env (e.g. "docs-bot")
+// selects /opt/<bot>/dsh-home. Callers normally pass DSH_HOME via argv.
+const BOT_NAME = process.env.BOT_NAME || "bot";
+const BOT_HOME = `/opt/${BOT_NAME}/dsh-home`;
+
 const ZSTD_MAGIC = 0xfd2fb528;
 const SKIP = new Set([
   "assistant/chunk",
@@ -272,10 +277,10 @@ function seenFor(file) {
 }
 
 if (process.argv.slice(2)[0] === "--last-text") {
-  const home = process.argv.slice(2)[1] || "/opt/docs-bot/dsh-home";
+  const home = process.argv.slice(2)[1] || `${BOT_HOME}`;
   const roots = [...new Set([
     path.join(home, "sessions"),
-    "/opt/docs-bot/dsh-home/sessions",
+    `${BOT_HOME}/sessions`,
     "/opt/dsh/sessions",
   ])];
   const newest = newestSession(roots);
@@ -306,7 +311,7 @@ if (process.argv.slice(2)[0] === "--once") {
   process.exit(0);
 }
 
-const home = process.argv.slice(2)[0] || "/opt/docs-bot/dsh-home";
+const home = process.argv.slice(2)[0] || `${BOT_HOME}`;
 const logfile = process.argv.slice(2)[1];
 if (!logfile) {
   process.stderr.write("log_dsh_events.mjs <DSH_HOME> <logfile>\n");
@@ -315,7 +320,7 @@ if (!logfile) {
 
 const roots = [...new Set([
   path.join(home, "sessions"),
-  "/opt/docs-bot/dsh-home/sessions",
+  `${BOT_HOME}/sessions`,
   "/opt/dsh/sessions",
 ])];
 

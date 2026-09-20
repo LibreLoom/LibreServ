@@ -44,7 +44,7 @@ If cook.sh fails, the loop logs and continues. It does not crash the container.
 
 Share `localhost/atlas-bot:latest`. Own volume `docs-bot-data` at `/data` only. Never share atlas or lock-bot `/data`. No `/opt` bind. PID 1 is compose bootstrap then git `loop.sh`.
 The image ships `fj` for atlas-bot's PR review state, but docs-bot does not use it —
-`lib/forgejo.sh` does REST over curl. Keep it that way.
+`common/forgejo.sh` (shared) does REST over curl. Keep it that way.
 Do not register a Forgejo runner.
 Do not publish 8787. Do not include atlas-bot or lock-bot in this compose file.
 

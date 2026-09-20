@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
-# Tiny Forgejo REST helpers. Never print the token.
-# Always authenticate as atlas-bot. Never the Actions token (that
+# Tiny Forgejo REST helpers shared by all bots. Never print the token.
+# Always authenticate as the calling bot — never the Actions token (that
 # posts as forgejo-actions).
+#
+# Requires BOT_NAME (e.g. "atlas-bot"). Reads the token from the per-bot
+# env var derived from it: atlas-bot -> ATLAS_BOT_TOKEN, docs-bot ->
+# DOCS_BOT_TOKEN, lock-bot -> LOCK_BOT_TOKEN.
 set -euo pipefail
 FORGEJO_URL="${FORGEJO_URL:-https://gt.plainskill.net}"
-if [[ -z "${ATLAS_BOT_TOKEN:-}" ]]; then
-  echo "forgejo.sh: ATLAS_BOT_TOKEN is required (will not fall back to FORGEJO_TOKEN)" >&2
+
+if [[ -z "${BOT_NAME:-}" ]]; then
+  echo "forgejo.sh: BOT_NAME is required (set it before sourcing)" >&2
   exit 2
 fi
-TOKEN="${ATLAS_BOT_TOKEN}"
+TOKEN_VAR="$(echo "${BOT_NAME}" | tr '[:lower:]-' '[:upper:]_')_TOKEN"
+if [[ -z "${!TOKEN_VAR:-}" ]]; then
+  echo "forgejo.sh: ${TOKEN_VAR} is required (will not fall back to FORGEJO_TOKEN)" >&2
+  exit 2
+fi
+TOKEN="${!TOKEN_VAR}"
 
 api() {
   local method="$1"; shift
   local attempt=1
-  local max="${ATLAS_API_RETRIES:-3}"
+  local retries_var
+  retries_var="$(echo "${BOT_NAME}" | tr '[:lower:]-' '[:upper:]_')_API_RETRIES"
+  local max="${!retries_var:-3}"
   local out err rc
   while true; do
-    err="$(mktemp /tmp/atlas-curl-XXXXXX)"
+    err="$(mktemp "/tmp/${BOT_NAME}-curl-XXXXXX")"
     set +e
     out="$(curl -sS -f -X "${method}" \
       -H "Authorization: token ${TOKEN}" \
@@ -31,7 +43,7 @@ api() {
       printf '%s' "${out}"
       return 0
     fi
-    echo "==> forgejo ${method} failed rc=${rc} try=${attempt}/$( [[ $attempt -lt $max ]] && echo $max || echo $max ) $(tr '\n' ' ' < "${err}" | tail -c 200)" >&2
+    echo "==> forgejo ${method} failed rc=${rc} try=${attempt}/${max} $(tr '\n' ' ' < "${err}" | tail -c 200)" >&2
     rm -f "${err}"
     if [[ ${attempt} -ge ${max} ]]; then
       return "${rc}"
@@ -63,6 +75,20 @@ fj_get_comment() {
   api GET "${FORGEJO_URL}/api/v1/repos/${owner}/${repo}/issues/comments/${comment_id}"
 }
 
+fj_list_open_prs() {
+  local owner="$1" repo="$2"
+  api GET "${FORGEJO_URL}/api/v1/repos/${owner}/${repo}/pulls?state=open&limit=50"
+}
+
+# Prints the new PR's html_url (falls back to api url).
+fj_create_pr() {
+  local owner="$1" repo="$2" head="$3" base="$4" title="$5" body="$6"
+  python3 -c "import json,sys; print(json.dumps({'title': sys.argv[1], 'body': sys.argv[2], 'head': sys.argv[3], 'base': sys.argv[4]}))" \
+    "${title}" "${body}" "${head}" "${base}" | \
+    api POST "${FORGEJO_URL}/api/v1/repos/${owner}/${repo}/pulls" -d @- | \
+    python3 -c "import json,sys; p=json.load(sys.stdin); print(p.get('html_url') or p.get('url') or '')"
+}
+
 # Quote-reply: Forgejo CreateIssueCommentOption only has body (no reply_to).
 # GET the parent, then POST the standard Gitea/Forgejo quote-reply body.
 # Prints the new comment id.
@@ -83,7 +109,7 @@ fj_comment_reply() {
     fj_comment "${owner}" "${repo}" "${index}" "${body}"
     return
   fi
-  parent_file="$(mktemp /tmp/atlas-parent-XXXXXX)"
+  parent_file="$(mktemp "/tmp/${BOT_NAME}-parent-XXXXXX")"
   printf '%s' "${parent}" > "${parent_file}"
   payload="$(python3 - "${parent_file}" "${body}" "${FORGEJO_URL}" "${owner}" "${repo}" "${index}" "${reply_to_id}" <<'PY'
 import json, pathlib, sys

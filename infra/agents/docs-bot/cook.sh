@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # docs-bot scheduled cook. No event payload. No mention webhook.
 set -eu
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+COMMON="${HERE}/../common"
+export BOT_NAME=docs-bot
 export TZ="${TZ:-America/Los_Angeles}"
 export RUSTUP_HOME="${RUSTUP_HOME:-/data/rustup}"
 export CARGO_HOME="${CARGO_HOME:-/data/cargo}"
@@ -18,10 +20,10 @@ fi
 
 BOT_REPO_DIR="${BOT_REPO_DIR:-/data/LibreServ}"
 if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
-  COMMON="${BOT_REPO_DIR}/infra/agents/common/git-sync.sh"
-  if [ -f "${COMMON}" ]; then
+  GIT_SYNC="${BOT_REPO_DIR}/infra/agents/common/git-sync.sh"
+  if [ -f "${GIT_SYNC}" ]; then
     # shellcheck disable=SC1091
-    . "${COMMON}"
+    . "${GIT_SYNC}"
     sync_libreserv "${DOCS_BOT_TOKEN}"
   else
     host="${FORGEJO_URL:-https://gt.plainskill.net}"
@@ -46,7 +48,7 @@ if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
     exec /bin/bash "${NEW}" "$@"
   fi
 fi
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
 if [ -n "${DOCS_GITHUB_TOKEN:-}" ]; then
   export GITHUB_TOKEN="${DOCS_GITHUB_TOKEN}"
 else
@@ -58,7 +60,7 @@ export FORGEJO_TOKEN="${DOCS_BOT_TOKEN}"
 export FORGEJO_BASE="${FORGEJO_URL}"
 export FJ_TOKEN="${DOCS_BOT_TOKEN}"
 # shellcheck disable=SC1091
-. "${HERE}/lib/forgejo.sh"
+. "${COMMON}/forgejo.sh"
 
 ORG="${DOCS_ORG:-LibreLoom}"
 REPO="${DOCS_REPO:-LibreServ}"
@@ -188,7 +190,7 @@ for pr in data if isinstance(data,list) else []:
   fi
 fi
 echo "==> skip lockfile generation (docs-bot)"
-export DSH_HOME="${HERE}/dsh-home"
+export DSH_HOME="${COMMON}/dsh-home"
 export DSH_PERMISSION_MODE=danger-full-access
 export PYTHONUNBUFFERED=1
 
@@ -220,8 +222,8 @@ Do not take atlas-bot or ai-proxy down."
 
 echo "==> dsh start $(date -u +%H:%M:%SZ) job=${JOBID}"
 : > "${DSH_LOG}"
-if [ -f "${HERE}/log_dsh_events.mjs" ]; then
-  node "${HERE}/log_dsh_events.mjs" "${DSH_HOME}" "${DSH_LOG}" &
+if [ -f "${COMMON}/log_dsh_events.mjs" ]; then
+  node "${COMMON}/log_dsh_events.mjs" "${DSH_HOME}" "${DSH_LOG}" &
   LOG_PID=$!
   echo "==> dsh event logger pid=${LOG_PID}"
 fi

@@ -4,7 +4,9 @@
 # Never mounts a docker socket, never SSHs, never touches /stack.
 # Comments MUST go out as atlas-bot, never forgejo-actions.
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+COMMON="${HERE}/../common"
+export BOT_NAME=atlas-bot
 
 # Toolchain for dsh. Rust lives on /data so it survives image recreate.
 export RUSTUP_HOME="${RUSTUP_HOME:-/data/rustup}"
@@ -19,10 +21,10 @@ fi
 # /opt/atlas-bot/cook.sh is a trampoline. Real code is git-pulled each cook.
 BOT_REPO_DIR="${BOT_REPO_DIR:-/data/LibreServ}"
 if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
-  COMMON="${BOT_REPO_DIR}/infra/agents/common/git-sync.sh"
-  if [ -f "${COMMON}" ]; then
+  GIT_SYNC="${BOT_REPO_DIR}/infra/agents/common/git-sync.sh"
+  if [ -f "${GIT_SYNC}" ]; then
     # shellcheck disable=SC1091
-    . "${COMMON}"
+    . "${GIT_SYNC}"
     sync_libreserv "${ATLAS_BOT_TOKEN}"
   else
     host="${FORGEJO_URL:-https://gt.plainskill.net}"
@@ -51,12 +53,12 @@ if [ "${BOT_ALREADY_SYNCED:-}" != "1" ]; then
     exec /bin/bash "${NEW}" "$@"
   fi
 fi
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
 unset GITHUB_TOKEN || true
 export FORGEJO_TOKEN="${ATLAS_BOT_TOKEN}"
 
 # shellcheck disable=SC1091
-source "${HERE}/lib/forgejo.sh"
+source "${COMMON}/forgejo.sh"
 OWNERS="${HERE}/lib/owners.sh"
 
 FORGEJO_URL="${FORGEJO_URL:-https://gt.plainskill.net}"
@@ -535,7 +537,7 @@ cooked_status_body() {
 
 extract_comment() {
   # Visible assistant text only (type=text). Never reasoning.
-  node "${HERE}/log_dsh_events.mjs" --last-text "${DSH_HOME:-${HERE}/dsh-home}" 2>/dev/null || true
+  node "${COMMON}/log_dsh_events.mjs" --last-text "${DSH_HOME:-${COMMON}/dsh-home}" 2>/dev/null || true
 }
 
 post_result() {
@@ -721,7 +723,7 @@ Complete the task."
 
 # Force atlas profile. Container env DSH_HOME=/opt/dsh is the nightly tree
 # (approval=ask, coder+high). Headless cannot click approvals.
-export DSH_HOME="${HERE}/dsh-home"
+export DSH_HOME="${COMMON}/dsh-home"
 export DSH_PERMISSION_MODE=danger-full-access
 
 # --- memory defense (2026-08-28 pscA OOM; stock thresholds, user mandate) ---
@@ -927,7 +929,7 @@ log_dsh_events() {
   local logfile="$1"
   # Node 22 zlib zstd + dsh concatenated-frame scan (log_dsh_events.mjs).
   # Host glibc zstd is broken in this image; do not call /usr/local/bin/zstd.
-  node "${HERE}/log_dsh_events.mjs" "${DSH_HOME:-/opt/atlas-bot/dsh-home}" "${logfile}" || true
+  node "${COMMON}/log_dsh_events.mjs" "${DSH_HOME:-/opt/atlas-bot/dsh-home}" "${logfile}" || true
 }
 
 run_dsh() {

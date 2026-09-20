@@ -10,8 +10,13 @@ infra/
 ├── ci-source/      # ./ci runner source (Go). Binaries gitignored;
 │                   # the root ./ci launcher rebuilds when sources change.
 ├── agents/         # automation bots: atlas-bot, docs-bot, lock-bot
-│                   # (three diverged copies of one template — consolidation
-│                   # is on the roadmap; edit all three or extract common/)
+│   ├── common/     # shared machinery: loop.sh, forgejo.sh (BOT_NAME-
+│   │               # parameterized), log_dsh_events.mjs, dsh-home/,
+│   │               # git-sync.sh — edit here, not per-bot
+│   └── <bot>/      # per-bot: cook.sh body, prompt.md, compose.yml,
+│                   # docs, bot-specific tools. loop.sh is a stub that
+│                   # execs ../common/loop.sh — keep it (deployed compose
+│                   # files exec the per-bot path).
 ├── docs/           # process docs (RELEASE.md, …)
 └── AGENTS.md
 
