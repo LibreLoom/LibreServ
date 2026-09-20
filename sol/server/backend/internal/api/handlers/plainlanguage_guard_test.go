@@ -7,7 +7,7 @@ import (
 )
 
 // TestPlainLanguageErrorMessages guards the plain-language rule for API errors
-// (AGENTS.md → "PLAIN LANGUAGE (non-negotiable)"; GOALS.md production-readiness
+// (AGENTS.md → "PLAIN LANGUAGE (non-negotiable)"; sol/GOALS.md production-readiness
 // item "Plain-language rule enforced across API error messages").
 //
 // It fails if any handler returns a raw technical error string to the user via

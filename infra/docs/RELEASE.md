@@ -252,7 +252,7 @@ Wrong secret for the product (LibreServ vs Luna). Confirm env vars and
 1. Update docs / README if needed
 2. Announce
 3. Watch issues for 24–48 hours
-4. Check off items in [GOALS.md](../GOALS.md)
+4. Check off items in [GOALS.md](../../sol/GOALS.md)
 
 ## Security
 

@@ -116,7 +116,7 @@ style treatise: there isn't one. Do what the neighboring files do and leave.
 
 ## Where things live
 
-- [GOALS.md](GOALS.md) — what we are building and what is still unchecked.
+- [GOALS.md](sol/GOALS.md) — what we are building and what is still unchecked.
 - [AGENTS.md](AGENTS.md) — architecture, conventions, how the stack runs.
 - [infra/docs/RELEASE.md](infra/docs/RELEASE.md) — how we cut signed `v*` / `luna-v*` releases.
 - [SECURITY.md](SECURITY.md) — how to report a hole instead of casually opening one.

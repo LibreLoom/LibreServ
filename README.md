@@ -8,13 +8,13 @@ LibreServ is meant to ship on hardware with the software already installed. **99
 
 Active development. Go backend, React/Vite frontend, Caddy reverse proxy, SQLite, apps via Podman.
 
-MVP is a non-technical user walking setup → install an app → backup → restore without a terminal. Live checklist: [GOALS.md](GOALS.md).
+MVP is a non-technical user walking setup → install an app → backup → restore without a terminal. Live checklist: [GOALS.md](sol/GOALS.md).
 
 ## What's here
 
 - **Backend** (`sol/server/backend`) — API, app lifecycle, monitoring, backups
 - **Frontend** (`sol/server/frontend`) — Vite/React; production build goes in `sol/server/backend/OS/dist/` (gitignored)
-- **App catalog** — templates from `sol/server/backend/apps/` on disk (empty here); curated apps will live in a separate repo ([GOALS.md](GOALS.md))
+- **App catalog** — templates from `sol/server/backend/apps/` on disk (empty here); curated apps will live in a separate repo ([GOALS.md](sol/GOALS.md))
 - **Luna** (`luna/`) — Ethernet-only file box (`lunad` + web). No setup Wi-Fi access point.
 - **CI** — `./ci` (backend tests + frontend lint/build)
 
@@ -44,7 +44,7 @@ Needs: Podman + `podman-compose`. Copy `sol/server/backend/configs/libreserv.yam
 
 ## Contributing
 
-[GOALS.md](GOALS.md) is what we are building. [CONTRIBUTING.md](CONTRIBUTING.md) is the workflow. Push access → `main`; otherwise open a PR. Donate: https://ko-fi.com/libreloom
+[GOALS.md](sol/GOALS.md) is what we are building. [CONTRIBUTING.md](CONTRIBUTING.md) is the workflow. Push access → `main`; otherwise open a PR. Donate: https://ko-fi.com/libreloom
 
 ## License
 
