@@ -248,7 +248,7 @@ export default function AddToAlbumModal({
                         </span>
                         <span className="min-w-0 flex-1 truncate">
                           <span className="font-mono text-sm">{album.name}</span>
-                          <span className="text-xs">
+                          <span className="font-mono text-xs">
                             {typeof album.item_count === "number"
                               ? ` · ${album.item_count} ${album.item_count === 1 ? "item" : "items"}`
                               : ""}
