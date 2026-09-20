@@ -1,5 +1,8 @@
 # LibreServ Goals
 
+> **Not actively updated.** Focus is on Luna right now; this file is kept for
+> reference and may be stale — check `git log`, not this list, for current state.
+
 This is the single source of truth for **what we're building** and **what's left**.
 It's a goals checklist, not a granular task tracker — issues and `git log` are the
 record of how things actually got done.

@@ -74,6 +74,7 @@ connect/configs/connect.yaml
 !.cursor/install.sh
 !.cursor/start.sh
 .catalyst-code/
+.crush/
 .fleet/
 .vscode-server/
 .gitnexus/
