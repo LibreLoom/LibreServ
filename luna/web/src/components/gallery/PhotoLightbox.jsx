@@ -12,7 +12,6 @@ import {
   Info,
   Link2,
   Play,
-  RotateCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -92,7 +91,6 @@ export function resolveDownloadSrc(photo, opts = {}) {
  *   onShare?: (photo: object) => void,
  *   onAlbum?: (photo: object) => void,
  *   onTrash?: (photo: object) => void,
- *   onEdit?: (photo: object) => void,
  *   onSetCover?: (photo: object) => void,
  *   slideshow?: boolean,
  *   onSlideshowChange?: (on: boolean) => void,
@@ -113,7 +111,6 @@ export default function PhotoLightbox({
   onShare,
   onAlbum,
   onTrash,
-  onEdit,
   onSetCover,
   slideshow = false,
   onSlideshowChange,
@@ -451,21 +448,6 @@ export default function PhotoLightbox({
               </Button>
             </Tooltip>
           )}
-          {!guest && onEdit && photo.kind !== "video" && (
-            <Tooltip content="Rotate" popupClassName="z-[100]">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  haptic("light");
-                  onEdit(photo);
-                }}
-                aria-label="Rotate"
-              >
-                <RotateCw size={18} />
-              </Button>
-            </Tooltip>
-          )}
           <Tooltip content="Download" popupClassName="z-[100]">
             <Button variant="ghost" size="sm" asChild>
               <a href={dl} download onClick={() => haptic("light")}>
@@ -520,7 +502,6 @@ PhotoLightbox.propTypes = {
   onShare: PropTypes.func,
   onAlbum: PropTypes.func,
   onTrash: PropTypes.func,
-  onEdit: PropTypes.func,
   onSetCover: PropTypes.func,
   slideshow: PropTypes.bool,
   onSlideshowChange: PropTypes.func,

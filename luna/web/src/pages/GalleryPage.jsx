@@ -44,7 +44,6 @@ import DayJumpModal, {
   dayBoundsLocal,
   nearestDayKey,
 } from "../components/gallery/DayJumpModal.jsx";
-import PhotoEditModal from "../components/gallery/PhotoEditModal.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "../components/ui/Spinner.jsx";
@@ -278,7 +277,6 @@ export default function GalleryPage() {
     /** @type {{ ymd: string, label: string }|null} */ (null),
   );
   const jumpPagesRef = useRef(0);
-  const [editPhoto, setEditPhoto] = useState(null);
   const [columns, setColumns] = useState(readGridCols);
   const [lockedGate, setLockedGate] = useState(null);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
@@ -1134,7 +1132,6 @@ export default function GalleryPage() {
     || shareAlbum != null
     || renameAlbum != null
     || jumpOpen
-    || editPhoto != null
     || lockedGate != null
     || lightbox != null
     || filtersOpen
@@ -1825,7 +1822,6 @@ export default function GalleryPage() {
           onShare={setSharePhoto}
           onAlbum={(p) => setAlbumPick([p])}
           onTrash={setTrashPhoto}
-          onEdit={setEditPhoto}
           onSetCover={albumView ? (p) => setAlbumCover.mutate(p) : undefined}
           slideshow={slideshow}
           onSlideshowChange={setSlideshow}
@@ -2103,15 +2099,6 @@ export default function GalleryPage() {
         </ul>
       </ModalCard>
 
-      <PhotoEditModal
-        open={!!editPhoto}
-        photo={editPhoto}
-        onClose={() => setEditPhoto(null)}
-        onSaved={() => {
-          queryClient.invalidateQueries({ queryKey: ["gallery"] });
-          setEditPhoto(null);
-        }}
-      />
       </div>
     </Page>
   );
