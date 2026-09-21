@@ -2,7 +2,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { Check, AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth.jsx";
-import Button from "../../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loading }) {
   const { request } = useAuth();

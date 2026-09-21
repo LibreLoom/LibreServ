@@ -5,14 +5,14 @@ import { Trash2 } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard";
 import AlbumMembersPanel from "./AlbumMembersPanel.jsx";
 import CreateAlbumLinkModal from "./CreateAlbumLinkModal.jsx";
-import Button from "../ui/Button";
-import CopyableValue from "../ui/CopyableValue";
-import PageNotice from "../common/PageNotice";
-import Spinner from "../ui/Spinner";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { apiErrorMessage, deleteJson, getJson } from "../../lib/api";
-import { haptic } from "../../utils/haptics";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "../../context/ToastContext.jsx";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * Format unix timestamp expiration into a human-readable label.

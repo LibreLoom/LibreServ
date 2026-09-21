@@ -1,11 +1,11 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { ChevronRight, Lock } from "lucide-react";
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import SettingsUserCard from "./SettingsUserCard";
-import CardButton from "../ui/CardButton";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import { visibleCategories } from "./settingsCategories";
 import useConnectActive from "../../hooks/useConnectActive";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SettingsSidebar({
   user,

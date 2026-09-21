@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Image as ImageIcon, Upload } from "lucide-react";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "../components/common/EmptyState";
-import ShakeTarget from "../components/ui/ShakeTarget";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import PhotoLightbox, {
   resolveDisplaySrc,

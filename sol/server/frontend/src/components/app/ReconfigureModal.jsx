@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, Settings, ChevronDown, ChevronUp, Info, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import ConfigFieldRenderer from "./wizard/ConfigFieldRenderer";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
   const contentRef = useRef(null);

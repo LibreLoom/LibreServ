@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { cn } from "@/lib/utils";
-import { haptic } from "../../utils/haptics.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * TextLink — an inline text link that contrasts on both surfaces.

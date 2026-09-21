@@ -1,10 +1,10 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { memo } from "react";
 import { AlertTriangle, Info, HardDrive, Cpu, MemoryStick } from "lucide-react";
-import Card from "../../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import AppIcon from "../../common/AppIcon";
-import Button from "../../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 
 const ACCESS_MODEL_INFO = {

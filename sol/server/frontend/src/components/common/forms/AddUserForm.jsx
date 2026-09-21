@@ -4,13 +4,13 @@ import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
-import Button from "../../ui/Button";
-import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import {
   passwordPolicyError,
   PASSWORD_FIELD_PLACEHOLDER,
-} from "../../../lib/passwordPolicy";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+} from "@libreloom/ui/lib/passwordPolicy.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * @param {{ onSuccess?: any }} _

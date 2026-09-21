@@ -1,11 +1,11 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useRef, useEffect } from "react";
-import Card from "../cards/Card";
-import Button from "../ui/Button";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
-import { canUseClipboard, copyToClipboard as clipboardCopy } from "../../utils/clipboard";
+import { canUseClipboard, copyToClipboard as clipboardCopy } from "@libreloom/ui/utils/clipboard.js";
 import { sanitizeURL } from "../../lib/sanitize";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const GROUP_LABELS = {
   credentials: { label: "Credentials", icon: Lock },

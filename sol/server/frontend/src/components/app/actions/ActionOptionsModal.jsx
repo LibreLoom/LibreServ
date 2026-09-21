@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ModalCard from "../../cards/ModalCard";
-import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import ConfigFieldRenderer from "../wizard/ConfigFieldRenderer";
 import { ActionConfirmModal } from "./ActionConfirmModal";
 import { ActionResultModal } from "./ActionResultModal";

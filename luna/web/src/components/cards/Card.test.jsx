@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import Card from "./Card";
-import HeaderCard from "./HeaderCard";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import HeaderCard from "@libreloom/ui/components/cards/HeaderCard.jsx";
 
 describe("Card", () => {
   it("puts layout className on the overflow clip and does not double-radius the fill", () => {

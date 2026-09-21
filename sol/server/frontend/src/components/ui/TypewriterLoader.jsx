@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useRef, useEffect } from "react";
 import PropTypes from "prop-types";
 

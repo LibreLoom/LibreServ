@@ -1,8 +1,8 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 import UptimeCard from "../components/dashboard/UptimeCard";
-import Page from "../components/ui/Page";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
 import AppCards from "../components/dashboard/AppCards";
 import StressIndexCard from "../components/dashboard/StressIndexCard";
 import CriticalIssues from "../components/common/CriticalIssues";

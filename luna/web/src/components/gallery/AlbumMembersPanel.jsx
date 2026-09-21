@@ -3,15 +3,15 @@ import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import Button from "../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
-import PageNotice from "../common/PageNotice.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { TermHint } from "../ui/Tooltip.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext.jsx";
 import { apiErrorMessage, deleteJson, getJson, putJson } from "../../lib/api";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const MEMBER_ROLE_OPTIONS = [
   { value: "viewer", label: "Can view" },

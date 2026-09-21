@@ -3,16 +3,16 @@ import PropTypes from "prop-types";
 import { BookOpen, Code, Download, Pencil } from "lucide-react";
 import MarkdownEditor from "./MarkdownEditor.jsx";
 import PlainTextSurface from "./PlainTextSurface.jsx";
-import PageNotice from "../common/PageNotice.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "../common/SegmentedControl.jsx";
-import ShakeTarget from "../ui/ShakeTarget.jsx";
-import Button from "../ui/Button.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { TermHint } from "../ui/Tooltip.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { CollabDocSync } from "./collabDocSync.js";
 import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
 import { contentHref, downloadHref } from "../../lib/paths.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // Autosave mirrors EuroOfficeHost: fire once typing pauses for
 // AUTOSAVE_IDLE_MS, never let unsaved work age past AUTOSAVE_MAX_MS during

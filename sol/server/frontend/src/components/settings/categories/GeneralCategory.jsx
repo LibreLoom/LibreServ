@@ -1,5 +1,5 @@
 import { Clock } from "lucide-react";
-import Toggle from "../../common/Toggle";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SettingsCard from "../SettingsCard";
 import SystemUpdatesCard from "./SystemUpdatesCard";
 import RepoStatusCard from "./RepoStatusCard";

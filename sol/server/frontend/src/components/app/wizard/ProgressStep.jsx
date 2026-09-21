@@ -1,11 +1,11 @@
 import { memo, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { CheckCircle, XCircle, Copy, Check, ChevronDown } from "lucide-react";
 import TypewriterLoader from "../../../components/ui/TypewriterLoader";
-import Button from "../../../components/ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useAuth } from "../../../hooks/useAuth";
-import { cn } from "@/lib/utils";
-import { copyWithFeedback } from "../../../utils/clipboard";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { copyWithFeedback } from "@libreloom/ui/utils/clipboard.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const ALL_INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },

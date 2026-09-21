@@ -1,12 +1,21 @@
 # Stage 1: Build Frontend
+# Mirror the repo layout: @libreloom/ui is a file: dep at ../../../shared/ui,
+# and npm validates the lockfile's relative path — so the container must have
+# the same directory depth as the real repo.
 FROM node:22-alpine AS frontend-builder
-WORKDIR /app/frontend
+WORKDIR /repo/sol/server/frontend
+COPY shared/ui /repo/shared/ui
 COPY sol/server/frontend/package*.json ./
 RUN npm ci
+# Point the linked package's dependency resolution at the app's own
+# node_modules — peers resolve to the app's exact versions, no second install
+RUN ln -s /repo/sol/server/frontend/node_modules /repo/shared/ui/node_modules
 COPY sol/server/frontend/ ./
 # Copy .lore to repo root where frontend expects it
-COPY .lore /.lore
-RUN npm run build
+COPY .lore /repo/.lore
+# Vite's outDir is ../backend/OS/dist — the backend tree isn't in this stage,
+# so pre-create it for the gzip plugin's closeBundle scandir
+RUN mkdir -p /repo/sol/server/backend/OS/dist && npm run build
 
 # Stage 2: Build Backend
 FROM golang:1.26-alpine AS backend-builder
@@ -29,8 +38,8 @@ RUN adduser -D -u 1000 libreserv
 WORKDIR /app
 # Copy backend binary
 COPY --from=backend-builder /app/backend/bin/libreserv /app/libreserv
-# Copy frontend assets (vite outputs to /app/backend/OS/dist due to outDir: "../backend/OS/dist")
-COPY --from=frontend-builder /app/backend/OS/dist /app/OS/dist
+# Copy frontend assets (vite outputs to /repo/sol/server/backend/OS/dist due to outDir: "../backend/OS/dist")
+COPY --from=frontend-builder /repo/sol/server/backend/OS/dist /app/OS/dist
 # Copy default configs
 COPY sol/server/backend/configs /app/configs
 # Use example config as default (env vars override specific settings at runtime)

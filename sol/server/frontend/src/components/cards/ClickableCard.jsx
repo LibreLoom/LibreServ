@@ -1,7 +1,7 @@
 // @ts-nocheck — polymorphic `as` forwards arbitrary element props (href/to/type) to Card; TS can't express this via JSDoc. Card itself remains type-checked.
 import { Link } from "react-router-dom";
 
-import Card from "./Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 
 /**
  * A standardized clickable card that wraps arbitrary content rather than the

@@ -1,8 +1,8 @@
 import { memo, useMemo } from "react";
 import { Check } from "lucide-react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function WizardStepper({ currentStep, hasSubdomainStep }) {
   const steps = useMemo(() => {

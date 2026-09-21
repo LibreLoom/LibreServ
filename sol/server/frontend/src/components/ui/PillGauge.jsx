@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**
  * PillGauge — a segmented pill gauge, the Simplex Mono progress bar.

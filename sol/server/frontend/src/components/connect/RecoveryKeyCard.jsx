@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { Key, Copy, Check, Download, Eye, EyeOff, AlertTriangle, Loader2 } from "lucide-react";
-import Card from "../cards/Card.jsx";
-import Button from "../ui/Button.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import api from "../../lib/api.js";
-import { canUseClipboard, copyWithFeedback } from "../../utils/clipboard";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { canUseClipboard, copyWithFeedback } from "@libreloom/ui/utils/clipboard.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const [revealed, setRevealed] = useState(false);

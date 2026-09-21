@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /** Old category ids → current sidebar ids (bookmarks / deep links). */
 const HASH_ALIASES = {

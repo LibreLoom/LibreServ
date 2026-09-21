@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { CheckCircle, ExternalLink, ArrowLeft } from "lucide-react";
-import Button from "../../ui/Button";
-import CopyableValue from "../../ui/CopyableValue";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { sanitizeURL } from "../../../lib/sanitize";
 
 function CompleteStep({ app, instance, onDone }) {

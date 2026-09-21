@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, RefreshCw, Router, Wifi, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import api from "../../lib/api";
-import Button from "../ui/Button";
-import Pill from "../common/Pill";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import ModalCard from "../cards/ModalCard";
-import ShakeTarget from "../ui/ShakeTarget";
-import { TermHint } from "../ui/Tooltip";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const PICK_NETWORK_ERROR = "Pick your home network first.";
 

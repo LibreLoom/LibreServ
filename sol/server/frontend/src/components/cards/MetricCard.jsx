@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
-import Card from "../cards/Card";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 
 /**
  * MetricCard — a small centered label + value card used in stat grids.

@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Globe2 } from "lucide-react";
 import { Link } from "react-router-dom";
-import CopyableValue from "../../ui/CopyableValue";
-import Button from "../../ui/Button";
-import Pill from "../../common/Pill";
-import { TermHint } from "../../ui/Tooltip";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import SettingsCard from "../SettingsCard";
 import { getJson } from "../../../lib/api";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
 

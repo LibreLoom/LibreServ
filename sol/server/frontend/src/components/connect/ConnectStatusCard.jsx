@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { Plug, PlugZap, ExternalLink, LogOut, CircleHelp } from "lucide-react";
-import Card from "../cards/Card.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
-import Callout from "../common/Callout";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const PLAN_BADGES = {
   free: { label: "Connect Free", class: "bg-accent/10 text-accent" },

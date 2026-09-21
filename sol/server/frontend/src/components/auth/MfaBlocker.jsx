@@ -1,8 +1,8 @@
 import { useAuth } from "../../hooks/useAuth";
 import { ShieldCheck, LogOut } from "lucide-react";
 import { MfaSetupWizard } from "../profile/MfaCard";
-import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * Fullscreen gate shown to admins who have no MFA method enabled.

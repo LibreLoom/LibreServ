@@ -8,6 +8,10 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react"],
+  },
+  server: {
+    fs: { allow: [path.resolve(__dirname, "../../..")] },
   },
   test: {
     environment: "jsdom",

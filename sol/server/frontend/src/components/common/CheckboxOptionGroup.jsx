@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import PropTypes from "prop-types";
 
 export default function CheckboxOptionGroup({

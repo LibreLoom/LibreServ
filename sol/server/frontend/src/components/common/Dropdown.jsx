@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useSmoothResize } from "../../hooks/useSmoothResize";
-import { haptic } from "../../utils/haptics";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * @typedef {object} DropdownProps

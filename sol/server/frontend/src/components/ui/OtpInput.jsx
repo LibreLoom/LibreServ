@@ -13,8 +13,8 @@
 import { OTPInput } from "input-otp";
 import PropTypes from "prop-types";
 import { useRef } from "react";
-import { cn } from "../../lib/utils";
-import useShakeOnError from "../../hooks/useShakeOnError";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import useShakeOnError from "@libreloom/ui/hooks/useShakeOnError.js";
 
 /**
  * @param {{

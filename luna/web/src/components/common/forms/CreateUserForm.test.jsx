@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CreateUserForm, { mapCreateUserApiError } from "./CreateUserForm";
 
-vi.mock("../../ui/Button.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({ children, disabled, loading, onClick, type = "button" }) => (
     <button type={/** @type {"button" | "submit" | "reset"} */ (type)} disabled={disabled || loading} onClick={onClick}>
       {children}

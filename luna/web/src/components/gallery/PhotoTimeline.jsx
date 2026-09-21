@@ -2,11 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, ChevronDown } from "lucide-react";
-import Spinner from "../ui/Spinner.jsx";
-import Button from "../ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PhotoThumb from "./PhotoThumb.jsx";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** @param {number|null|undefined} ts */
 export function dayKey(ts) {

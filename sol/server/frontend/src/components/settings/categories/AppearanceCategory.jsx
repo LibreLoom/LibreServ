@@ -1,13 +1,13 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useRef } from "react";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Vibrate } from "lucide-react";
-import Toggle from "../../common/Toggle";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SegmentedControl from "../../common/SegmentedControl";
 import SettingsRow from "../SettingsRow";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
-import { useHapticsEnabled, setHapticsEnabled, haptic } from "../../../utils/haptics";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { useHapticsEnabled, setHapticsEnabled, haptic } from "@libreloom/ui/utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },

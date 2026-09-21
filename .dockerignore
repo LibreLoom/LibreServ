@@ -3,4 +3,9 @@
 
 # But not these
 !sol
+!shared
 !.lore
+
+# But never shared package's installed deps
+shared/ui/node_modules
+shared/ui/coverage

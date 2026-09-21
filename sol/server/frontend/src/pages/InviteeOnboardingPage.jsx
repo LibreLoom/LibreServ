@@ -2,16 +2,16 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2, AlertCircle, ShieldCheck } from "lucide-react";
 import api from "../lib/api";
-import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
-import FieldLabel from "../components/common/forms/FieldLabel";
-import Alert from "../components/common/Alert";
-import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
+import Alert from "@libreloom/ui/components/common/Alert.jsx";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import {
   meetsPasswordPolicy,
   PASSWORD_POLICY_HINT,
-} from "../lib/passwordPolicy";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+} from "@libreloom/ui/lib/passwordPolicy.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * Public onboarding page reached via an invitation link (/invite/:token).

@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import Spinner from "../../ui/Spinner.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import OfficeIssueCard from "./OfficeIssueCard.jsx";
 import { useAuth } from "../../../context/AuthContext.jsx";
-import { useTheme } from "../../../hooks/useTheme.jsx";
+import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { downloadHref, pathBasename } from "../../../lib/paths.js";
 import {
   canSaveOfficeExt,

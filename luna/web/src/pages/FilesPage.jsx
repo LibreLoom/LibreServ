@@ -8,11 +8,11 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../components/cards/ModalCard";
-import Button from "../components/ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "../components/common/EmptyState";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
 import FileSearch from "../components/files/FileSearch";

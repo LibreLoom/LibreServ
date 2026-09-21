@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import CopyableValue from "./CopyableValue.jsx";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 
 describe("CopyableValue", () => {
   const originalClipboard = navigator.clipboard;

@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { Waypoints, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
-import Toggle from "../common/Toggle.jsx";
-import Button from "../ui/Button.jsx";
-import ShakeTarget from "../ui/ShakeTarget.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function TunnelServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "", loading = false }) {
   const [useConnect, setUseConnect] = useState(

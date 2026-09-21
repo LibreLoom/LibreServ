@@ -3,13 +3,13 @@ import { CheckCircle2, Globe, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
-import Toggle from "../common/Toggle";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { useAuth } from "../../hooks/useAuth";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { testBackend } from "../../lib/network-api";
-import { ICON_SIZE, PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
+import { ICON_SIZE, PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
 
 // "Manual address" is the default app-picker option; choosing a running app
 // fills the destination for you. The route itself never requires an app.

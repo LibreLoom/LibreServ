@@ -4,11 +4,11 @@ import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import api from "../../../lib/api";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import ModalCard from "../../cards/ModalCard";
 import ConfirmModal from "../../cards/ConfirmModal";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const inputClasses =
   "w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 outline-none focus:border-accent border-primary/30";

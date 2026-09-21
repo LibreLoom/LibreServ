@@ -1,6 +1,6 @@
 import { cloneElement } from "react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**
  * LayeredCard — LayeredPill's vertical sibling (same layered grammar, stacked).

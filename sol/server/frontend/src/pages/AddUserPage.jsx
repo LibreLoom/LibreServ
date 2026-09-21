@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserPlus, Mail } from "lucide-react";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import SegmentedControl from "../components/common/SegmentedControl";
 import AddUserForm from "../components/common/forms/AddUserForm";
 import InviteUserForm from "../components/common/forms/InviteUserForm";

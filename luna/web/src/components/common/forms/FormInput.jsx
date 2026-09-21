@@ -1,10 +1,10 @@
 import { User, Lock, Mail, Eye, EyeOff } from "lucide-react";
 import { useRef, useState } from "react";
-import { cn } from "@/lib/utils";
-import useShakeOnError from "../../../hooks/useShakeOnError";
-import FieldLabel from "./FieldLabel";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { haptic } from "../../../utils/haptics.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import useShakeOnError from "@libreloom/ui/hooks/useShakeOnError.js";
+import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 const ICONS = {
   username: User,

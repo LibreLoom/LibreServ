@@ -1,11 +1,11 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useCallback } from "react";
 import { ShieldAlert, AlertTriangle } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import ModalCard from "../cards/ModalCard";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledged }) {
   const { request } = useAuth();

@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -9,11 +9,11 @@ import {
   Terminal,
   X,
 } from "lucide-react";
-import { ICON_SIZE, PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
-import Card from "../cards/Card";
+import { ICON_SIZE, PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../cards/ModalCard";
-import Toggle from "../common/Toggle";
-import Button from "../ui/Button";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 const DEFAULT_LINE_COUNT = 500;
 const LOAD_MORE_INCREMENT = 500;

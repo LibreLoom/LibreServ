@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 /**
  * @param {{ label: any, description?: any, children: any, className?: string, hideDivider?: boolean, compact?: boolean, mono?: boolean, stack?: boolean }} _
  */

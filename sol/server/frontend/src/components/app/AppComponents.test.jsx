@@ -27,12 +27,12 @@ vi.mock("../../hooks/useAuth.jsx", () => ({
 vi.mock("../../context/ToastContext.jsx", () => ({
   useToast: () => toastMock,
 }));
-vi.mock("../../utils/clipboard.js", () => ({
+vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
   canUseClipboard: () => clipboardState.ok,
   copyToClipboard: clipboardCopyMock,
   copyWithFeedback: copyWithFeedbackMock,
 }));
-vi.mock("../cards/Card.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, headerActions, title }) => (
     <section>
       {title && <h2>{title}</h2>}
@@ -50,7 +50,7 @@ vi.mock("../cards/ModalCard.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../common/Toggle.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Toggle.jsx", () => ({
   default: ({ "aria-label": ariaLabel, checked, label, onChange }) => (
     <button
       type="button"
@@ -78,7 +78,7 @@ vi.mock("../common/Dropdown.jsx", () => ({
     </select>
   ),
 }));
-vi.mock("../ui/Button.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     "aria-label": ariaLabel,
     children,

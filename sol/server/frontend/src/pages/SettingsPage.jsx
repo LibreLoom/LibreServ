@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { useTheme } from "../hooks/useTheme";
+import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import ErrorDisplay from "../components/common/ErrorDisplay";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
-import Button from "../components/ui/Button";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
@@ -16,7 +16,7 @@ import {
   updateSecuritySettings,
   sendTestNotification,
 } from "../lib/security-api.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import {
   getNotifications,
   updateNotifications,

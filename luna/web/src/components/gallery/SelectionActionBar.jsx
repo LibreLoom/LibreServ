@@ -14,9 +14,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import Button from "../ui/Button.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { haptic } from "../../utils/haptics.js";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 // One sequence for both directions — the exit is this same animation played
 // in reverse via Animation.reverse(), so interrupting select mode turns the

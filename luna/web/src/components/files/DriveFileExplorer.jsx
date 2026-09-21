@@ -14,13 +14,13 @@ import useDriveMove from "../../hooks/useDriveMove.js";
 import useStrandedErrorToast from "../../hooks/useStrandedErrorToast.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
-import Card from "../cards/Card.jsx";
-import Button from "../ui/Button.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
-import ShakeTarget from "../ui/ShakeTarget.jsx";
-import { haptic } from "../../utils/haptics.js";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import {
   apiErrorMessage,
   deleteJson,
@@ -31,7 +31,7 @@ import {
   postJson,
   putBinaryProgress,
 } from "../../lib/api.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";

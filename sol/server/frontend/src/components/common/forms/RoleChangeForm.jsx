@@ -2,9 +2,9 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Shield } from "lucide-react";
 import Dropdown from "../Dropdown";
-import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();

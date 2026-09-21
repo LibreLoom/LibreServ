@@ -24,11 +24,11 @@ vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ request: vi.fn(), me: { id: "u1" }, initialized: true }),
 }));
 
-vi.mock("../components/cards/HeaderCard", () => ({
+vi.mock("@libreloom/ui/components/cards/HeaderCard.jsx", () => ({
   default: ({ title }) => <div data-testid="header-title">{title}</div>,
 }));
 
-vi.mock("../components/cards/Card", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, className }) => <div className={className} data-testid="card">{children}</div>,
 }));
 

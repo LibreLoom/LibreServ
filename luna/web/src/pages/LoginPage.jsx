@@ -3,9 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { login as loginQuips } from "../assets/greetings";
-import Card from "../components/cards/Card";
-import StepTransition from "../components/common/StepTransition";
-import Button from "../components/ui/Button";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import FormInput from "../components/common/forms/FormInput";
 
 const LOGIN_STEPS = ["form"];

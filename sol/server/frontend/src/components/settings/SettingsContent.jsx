@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import GeneralCategory from "./categories/GeneralCategory.jsx";
 import AppearanceCategory from "./categories/AppearanceCategory.jsx";
 import SecurityCategory from "./categories/SecurityCategory.jsx";

@@ -1,15 +1,15 @@
 import { Heart, Coffee } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
-import ValueDisplay from "../../common/ValueDisplay.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import SystemUpdatesCard from "./SystemUpdatesCard.jsx";
 import SystemChecksCard from "./SystemChecksCard.jsx";
 import UpdateSourceCard from "./UpdateSourceCard.jsx";
 import AccessAddressesCard from "./AccessAddressesCard.jsx";
 import OpenSourceLicenses from "./OpenSourceLicenses.jsx";
 import { getJson } from "../../../lib/api";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function AboutCategory() {
   const setup = useQuery({

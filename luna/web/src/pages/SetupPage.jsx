@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
-import { PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock } from "lucide-react";
@@ -10,7 +10,7 @@ import {
   PASSWORD_POLICY_HINT,
   PASSWORD_FIELD_PLACEHOLDER,
   passwordChecks,
-} from "../lib/passwordPolicy";
+} from "@libreloom/ui/lib/passwordPolicy.js";
 import {
   USERNAME_POLICY_HINT,
   displayNamePolicyError,
@@ -23,19 +23,19 @@ import {
   stripSetupTokenFromSearch,
 } from "../lib/setupTokenParam.js";
 import { useAuth } from "../context/AuthContext";
-import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
+import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useSetupProgress from "../hooks/useSetupProgress";
 import useConnectActive from "../hooks/useConnectActive";
-import { StepTransitionContext } from "../components/setup/StepTransitionContext";
-import { StepTransitionProvider } from "../components/setup/StepTransition";
-import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
-import useLabelErrorState from "../hooks/useLabelErrorState";
+import { StepTransitionContext } from "@libreloom/ui/components/setup/StepTransitionContext.js";
+import { StepTransitionProvider } from "@libreloom/ui/components/setup/StepTransition.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import useLabelErrorState from "@libreloom/ui/hooks/useLabelErrorState.js";
 import PreflightStep from "../components/setup/PreflightStep.jsx";
 import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
-import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
-import { haptic } from "../utils/haptics.js";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {

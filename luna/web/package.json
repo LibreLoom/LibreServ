@@ -17,6 +17,7 @@
     "@codemirror/language-data": "^6.5.2",
     "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.7.2",
+    "@libreloom/ui": "file:../../shared/ui",
     "@tanstack/react-query": "^5.102.8",
     "agentation": "^3.0.2",
     "class-variance-authority": "^0.7.1",

@@ -1,9 +1,9 @@
 import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
-import Pill from "./Pill.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSoftwareUpdates } from "../../hooks/useSoftwareUpdates.jsx";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { haptic } from "../../utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * SoftwareUpdatePill — shows in the dashboard header when a Luna software

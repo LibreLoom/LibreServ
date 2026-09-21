@@ -15,16 +15,16 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import Button from "../ui/Button.jsx";
-import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import LightboxMedia from "./LightboxMedia.jsx";
 import PhotoInfoPanel from "./PhotoInfoPanel.jsx";
 import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
 import { Link } from "react-router-dom";
 import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
-import { haptic } from "../../utils/haptics.js";
-import { cn } from "@/lib/utils";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /** Match `fullscreen-overlay-out` / `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;

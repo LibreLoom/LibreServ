@@ -1,20 +1,20 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Dropdown from "../components/common/Dropdown";
-import Button from "../components/ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import AppIcon from "../components/common/AppIcon";
 import EmptyState from "../components/common/EmptyState";
 import StateOverlay from "../components/cards/StateOverlay";
 import { Search, Download, Check, Settings, ExternalLink } from "lucide-react";
-import LayeredPill from "../components/ui/LayeredPill";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import { statusConfig } from "../data/statusConfig";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 import { sanitizeURL } from "../lib/sanitize";
-import { cn } from "@/lib/utils";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // Status color for the layered pill's icon — mirrors StatusPill's tint mapping
 // (success/warning/error/info) as plain text colors.

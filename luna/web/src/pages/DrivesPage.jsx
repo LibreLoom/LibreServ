@@ -3,23 +3,23 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../components/cards/ModalCard";
-import Pill from "../components/common/Pill";
-import Button from "../components/ui/Button";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
-import CollapsibleSection from "../components/common/CollapsibleSection";
-import ValueDisplay from "../components/common/ValueDisplay";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
+import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import FileSearch from "../components/files/FileSearch";
-import Spinner from "../components/ui/Spinner.jsx";
-import { TermHint } from "../components/ui/Tooltip";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
@@ -28,7 +28,7 @@ import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../l
 import { describeDriveHealth } from "../lib/driveHealth";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
-import { haptic } from "../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** @param {number} n @param {string} one @param {string} many */
 function pluralCount(n, one, many) {

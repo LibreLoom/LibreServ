@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import { ThemeProvider } from "../context/ThemeContext";
+import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import UsersPage from "./UsersPage";
 import { ToastProvider } from "../context/ToastContext";
 

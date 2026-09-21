@@ -1,5 +1,5 @@
 import { memo } from "react";
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 
 const STAGGER_DELAY_MS = 25;
 const MAX_STAGGER_DELAY_MS = 200;

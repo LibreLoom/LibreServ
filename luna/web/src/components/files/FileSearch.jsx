@@ -13,23 +13,23 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../cards/ModalCard";
 import EmptyState from "../common/EmptyState";
-import PageNotice from "../common/PageNotice";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice";
 import { showPageLevelError } from "../../lib/modalScopedError";
-import ShakeTarget from "../ui/ShakeTarget";
-import Button from "../ui/Button";
-import Spinner from "../ui/Spinner.jsx";
-import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
 import FolderPickerModal from "./FolderPickerModal";
 import { useToast } from "../../context/ToastContext.jsx";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
 import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
-import { cn } from "@/lib/utils";
-import { haptic } from "../../utils/haptics";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;

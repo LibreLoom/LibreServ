@@ -11,10 +11,10 @@
 import { useEffect, useRef, useState } from "react";
 import { File as FileIcon, Folder, Info, TriangleAlert } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import PageNotice from "../common/PageNotice.jsx";
-import { InfoHint, TermHint } from "../ui/Tooltip.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../../lib/rootTerm.js";
 import { describeInspectSummary } from "../../lib/fileCounts.js";
 

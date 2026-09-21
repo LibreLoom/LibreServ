@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import {
@@ -21,14 +21,14 @@ import {
   HardDriveDownload,
   ArrowRight,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import AppIcon from "../../common/AppIcon";
-import Callout from "../../common/Callout";
-import CollapsibleSection from "../../common/CollapsibleSection";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
-import Pill from "../../common/Pill";
-import Button from "../../ui/Button";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsCard from "../SettingsCard.jsx";
 import SettingsRow from "../SettingsRow.jsx";
 import ScheduleForm from "../../backups/ScheduleForm";

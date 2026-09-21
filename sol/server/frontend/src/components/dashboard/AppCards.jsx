@@ -1,14 +1,14 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings, ArrowRight } from "lucide-react";
-import Card from "../cards/Card";
-import Button from "../ui/Button";
-import CardButton from "../ui/CardButton";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
 import { useApps } from "../../hooks/useApps";
 import { useIsNarrow } from "../../hooks/useIsNarrow";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { sanitizeURL } from "../../lib/sanitize";
 
 function formatDuration(seconds) {

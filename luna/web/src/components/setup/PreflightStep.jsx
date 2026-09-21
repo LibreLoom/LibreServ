@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import PropTypes from "prop-types";
 import { AlertCircle, ArrowRight, Check, Loader2, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import Button from "../ui/Button.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { getJsonAllowErrorStatus } from "../../lib/api.js";
 import { summarizeError } from "../../lib/preflight-errors.js";
 import PreflightRemediation from "./PreflightRemediation.jsx";

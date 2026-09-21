@@ -42,6 +42,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react"],
   },
   publicDir: "public",
   build: {
@@ -66,7 +67,8 @@ export default defineConfig({
     open: false,
     allowedHosts: true,
     fs: {
-      allow: ["../.."],
+      // Repo root: serves the symlinked @libreloom/ui package (shared/ui/)
+      allow: ["../../.."],
     },
     proxy: {
       "/api": {

@@ -14,12 +14,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import EmptyState from "../components/common/EmptyState";
-import Card from "../components/cards/Card";
-import PageNotice from "../components/common/PageNotice";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { useToast } from "../context/ToastContext";
@@ -48,12 +48,12 @@ import DayJumpModal, {
 } from "../components/gallery/DayJumpModal.jsx";
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
-import Spinner from "../components/ui/Spinner.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
 import { useAuth } from "../context/AuthContext";
-import { haptic } from "../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import {
   apiErrorMessage,
   deleteJson,

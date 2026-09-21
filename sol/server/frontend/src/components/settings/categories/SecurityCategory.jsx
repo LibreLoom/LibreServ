@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useEffect, memo } from "react";
 import {
   Check,
@@ -8,14 +8,14 @@ import {
   RefreshCw,
   Filter,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import Toggle from "../../common/Toggle";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import Dropdown from "../../common/Dropdown";
-import Table from "../../common/Table";
-import Pill from "../../common/Pill";
-import Button from "../../ui/Button";
+import Table from "@libreloom/ui/components/common/Table.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import TypewriterLoader from "../../ui/TypewriterLoader";
 import SettingsCard from "../SettingsCard";
 import { useToast } from "../../../context/ToastContext";

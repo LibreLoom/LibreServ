@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { ThemeContext } from "../context/ThemeContext.jsx";
+import { ThemeContext } from"@libreloom/ui/context/ThemeContext.jsx";
 import { useTimeFormat } from "./useTimeFormat.jsx";
 
 vi.mock("../lib/time-utils", () => ({

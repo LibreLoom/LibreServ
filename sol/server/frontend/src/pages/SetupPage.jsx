@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
-import { PLACEHOLDER_TEXT } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
 import { useState, useEffect, useCallback, useMemo, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
@@ -11,15 +11,15 @@ import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";
 import { useAuth } from "../hooks/useAuth";
-import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
-import { StepTransitionContext } from "../components/setup/StepTransitionContext";
-import { StepTransitionProvider } from "../components/setup/StepTransition";
+import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
+import { StepTransitionContext } from "@libreloom/ui/components/setup/StepTransitionContext.js";
+import { StepTransitionProvider } from "@libreloom/ui/components/setup/StepTransition.jsx";
 import { MfaSetupWizard } from "../components/profile/MfaCard";
-import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
-import useLabelErrorState from "../hooks/useLabelErrorState";
-import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
-import { meetsPasswordPolicy, passwordChecks } from "../lib/passwordPolicy";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import useLabelErrorState from "@libreloom/ui/hooks/useLabelErrorState.js";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
+import { meetsPasswordPolicy, passwordChecks } from "@libreloom/ui/lib/passwordPolicy.js";
 import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────

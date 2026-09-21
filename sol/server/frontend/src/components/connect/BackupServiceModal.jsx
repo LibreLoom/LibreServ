@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { Database, Check, Plus, Trash2, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
-import Toggle from "../common/Toggle.jsx";
-import Button from "../ui/Button.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import RecoveryKeyCard from "./RecoveryKeyCard.jsx";
 import api from "../../lib/api.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function BackupServiceModal({ open, onClose, onSaved, service, repos, connectStatus = null, csrfToken = "", loading = false }) {
   const [useConnect, setUseConnect] = useState(

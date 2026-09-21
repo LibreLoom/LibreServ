@@ -1,5 +1,5 @@
-import Page from "../ui/Page";
-import Card from "../cards/Card";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import { useAuth } from "../../context/AuthContext";
 
 /**

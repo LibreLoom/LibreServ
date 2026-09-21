@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useEffect, useCallback } from "react";
 import {
   ShieldCheck,
@@ -11,11 +11,11 @@ import {
   XCircle,
   Loader2,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import Card from "../cards/Card";
-import Toggle from "../common/Toggle";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Dropdown from "../common/Dropdown";
-import Button from "../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import api from "../../lib/api";
 import { useToast } from "../../context/ToastContext";
 

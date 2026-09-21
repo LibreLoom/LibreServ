@@ -7,7 +7,7 @@ import { AuthContext } from "../context/AuthContextContext";
 import { renderWithProviders } from "../test/test-utils";
 import SettingsPage from "./SettingsPage";
 
-vi.mock("../hooks/useTheme", () => ({
+vi.mock("@libreloom/ui/hooks/useTheme.jsx", () => ({
   useTheme: () => ({
     theme: "system",
     setTheme: vi.fn(),

@@ -3,17 +3,17 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, HardDrive, Shield } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
-import Button from "../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "../common/Dropdown";
-import PageNotice from "../common/PageNotice";
-import Pill from "../common/Pill";
-import ShakeTarget from "../ui/ShakeTarget";
-import { InfoHint, Tooltip } from "../ui/Tooltip";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
-import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
-import { haptic } from "../../utils/haptics.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function pathKey(value) {
   return value || "";

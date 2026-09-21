@@ -1,7 +1,7 @@
 import { Wrench, Play, AlertTriangle } from "lucide-react";
-import Button from "../../ui/Button";
-import { cn } from "@/lib/utils";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /** @param {{ action: any, onExecute: any, disabled?: any, loading?: any }} _ */
 export function ActionCard({ action, onExecute, disabled, loading }) {

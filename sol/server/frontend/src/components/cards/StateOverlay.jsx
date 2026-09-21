@@ -1,5 +1,5 @@
-import Card from "./Card";
-import { cn } from "@/lib/utils";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**
  * StateOverlay — a full-viewport centered overlay used for loading and error

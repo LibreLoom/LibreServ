@@ -1,6 +1,6 @@
 import PropTypes from "prop-types";
 import { useFileEditor } from "./useFileEditor.js";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**
  * Plain-text editing surface — the same CodeMirror + shared-document

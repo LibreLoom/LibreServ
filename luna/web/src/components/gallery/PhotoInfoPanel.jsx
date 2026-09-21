@@ -16,11 +16,11 @@ import {
 import { Link } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import Button from "../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { fmtSize, folderHref } from "../../lib/paths.js";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** Same layer as other dialogs stacked over PhotoLightbox (its z-[80]). */
 const PANEL_Z_CLASS = "z-[90]";

@@ -5,10 +5,10 @@ import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import { Download, CheckCircle, AlertCircle, RefreshCw, Info, ExternalLink } from "lucide-react";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SystemUpdatesCard({ index = 0 }) {
   const { request } = useAuth();
