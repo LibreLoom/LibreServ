@@ -52,9 +52,9 @@ Keep these identical to the committed files:
 |------|------------|
 | `keys/libreserv.minisign.pub` | canonical LibreServ pub |
 | `sol/server/backend/internal/system/releases.minisign.pub` | LibreServ embed (`go:embed`) |
-| `install.sh` `RELEASE_MINISIGN_PUB` heredoc | LibreServ installer |
+| `sol/install.sh` `RELEASE_MINISIGN_PUB` heredoc | LibreServ installer |
 | `keys/lsluna.minisign.pub` | canonical Luna pub |
-| `luna/crates/lunad/src/updates.rs` `PINNED_PUB` | Luna embed (`include_str!`) |
+| `luna/crates/lunad/src/system/updates.rs` `PINNED_PUB` | Luna embed (`include_str!`) |
 
 A LibreServ unit test fails if the embed drifts from `keys/libreserv.minisign.pub`.
 
@@ -67,7 +67,7 @@ minisign -R -s ~/.minisign/lsluna.key -p keys/lsluna.minisign.pub
 
 After regenerating LibreServ’s pub, copy it into
 `sol/server/backend/internal/system/releases.minisign.pub` and the heredoc in
-`install.sh`.
+`sol/install.sh`.
 
 ## Verify checksums
 

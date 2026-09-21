@@ -118,7 +118,7 @@ Do not append manual version query strings to static asset URLs in production bu
 - Test runner: **Vitest** (not Jest), uses `@testing-library/react` + jsdom
 - Import order: React → Third-party → Local (include `.jsx` extension in imports)
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
-- Shared leaf components live in **`shared/ui`** (`@libreloom/ui`, a `file:` dep of both product webs). Edit shared files there — never fork them back into an app. Components that remain app-local (`Dropdown`, `SegmentedControl`, `EmptyState`, settings categories, page-level components) still exist per-app; keep cross-app copies in sync until they migrate.
+- Shared leaf components live in **`shared/ui`** (`@libreloom/ui`, a `file:` dep of both product webs). Edit shared files there — never fork them back into an app. Components that remain app-local (settings categories, page-level components) still exist per-app; keep cross-app copies in sync until they migrate.
 
 #### Form field focus (non-negotiable)
 
@@ -135,7 +135,7 @@ Users find Tailwind **focus rings on text boxes intrusive** when clicking with a
 
 #### Toasts — transient outcomes only
 
-`ToastContext` + `Toaster` exist in both `sol/server/frontend` and `luna/web` (`src/context/ToastContext.jsx`, `src/components/common/Toaster.jsx`) — keep the copies in sync like every other shared component. A toast announces that something **just finished**. It auto-dismisses in seconds, so it is never the only record of a persistent state.
+`ToastContext` + `Toaster` live in `shared/ui` (`context/ToastContext.jsx`, `components/common/Toaster.jsx`) — edit them there like every other shared component. A toast announces that something **just finished**. It auto-dismisses in seconds, so it is never the only record of a persistent state.
 
 **Do toast:**
 
@@ -230,7 +230,7 @@ The entire UI must be felt, not just seen. Every interactive surface, card, moda
 
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`LUNA_CONNECT_URL=http://127.0.0.1:18765 make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
-- **Luna Connect mock (Cloud Agents):** `.cursor/start.sh` runs `luna/scripts/seed-mock-connect.sh`, which starts the mock on `:18765`, sets subdomain `max` → `max.luna.servers.libreloom.org`, unlocks cloud backup, and mints `luna/dev/device-token` when missing. Override with `LUNA_MOCK_SUBDOMAIN` / `LUNA_MOCK_DOMAIN`. Control with `make -C luna mock-connect ARGS="status|domain set …|backup unlock|…"`. See `luna/README.md` → Luna Connect Mock.
+- **Luna Connect mock (Cloud Agents):** `luna/scripts/mocks/seed-mock-connect.sh` starts the mock on `:18765`, sets subdomain `max` → `max.luna.servers.libreloom.org`, unlocks cloud backup, and mints `luna/dev/device-token` when missing. Override with `LUNA_MOCK_SUBDOMAIN` / `LUNA_MOCK_DOMAIN`. Control with `make -C luna mock-connect ARGS="status|domain set …|backup unlock|…"`. See `luna/README.md` → Luna Connect Mock.
 - `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
 
 ## Notes for Agents

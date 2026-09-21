@@ -176,5 +176,5 @@ on the drive. Opening them still requires the EuroOffice pack.
 
 Distributors who ship EuroOffice/x2t assets must comply with AGPL-3.0 (source
 offer, license notice). See
-[`THIRD_PARTY_EUROOFFICE.md`](../THIRD_PARTY_EUROOFFICE.md) and the
+[`THIRD_PARTY_EUROOFFICE.md`](THIRD_PARTY_EUROOFFICE.md) and the
 **About → Open source licenses** card in Settings.

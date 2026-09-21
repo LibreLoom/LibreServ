@@ -29,8 +29,7 @@ Mirrors the app `src/` tree:
 ## Not shared (yet)
 
 Page-level and product-specific components stay in each app:
-`settings/categories/*`, `EmptyState`, `ConfirmModal`, `ModalCard`,
-`Dropdown`, `SegmentedControl`, `FormInput`, `OtpInput`, `TextLink`,
-`Navbar`, and everything under `components/{app,files,gallery,onboarding,…}`.
+`settings/categories/*`, `FormInput`, `OtpInput`, `TextLink`, `Navbar`, and
+everything under `components/{app,files,gallery,onboarding,…}`.
 The connect webs (`sol/connect/web/*`, `luna/connect/web`) use a separate
 shadcn-style kit — a second extraction candidate.
