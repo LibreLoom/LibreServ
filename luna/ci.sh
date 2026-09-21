@@ -96,7 +96,9 @@ echo "==> mobile unit tests"
 
 echo "==> web build"
 (
-  cd web
+  cd ../shared/ui
+  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
+  cd "$ROOT/web"
   npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
   npm run build
   npm test -- --run

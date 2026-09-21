@@ -8,6 +8,7 @@ MAKEFLAGS += --no-print-directory
 .PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack
 
 web:
+	cd ../shared/ui && npm install --no-audit --no-fund
 	cd web && npm install --no-audit --no-fund
 	cd web && npm run build
 
