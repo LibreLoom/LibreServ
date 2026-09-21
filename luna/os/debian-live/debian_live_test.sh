@@ -31,7 +31,8 @@ assert_file_has "$OSROOT/iso/wait-iso-build.sh" 'exit 1' "wait-iso-build must ex
 assert_file_has "$OSROOT/debian-live/auto/config" 'bookworm' "Debian live must pin bookworm"
 assert_file_has "$OSROOT/debian-live/auto/config" 'iso-hybrid' "Debian live must build hybrid ISO"
 assert_file_has "$OSROOT/iso/add-uefi-boot.sh" 'isohybrid-gpt-basdat' "ISO build must remaster with UEFI GPT basdat"
-assert_file_has "$OSROOT/iso/add-uefi-boot.sh" 'BOOTX64.EFI' "UEFI remaster must ship BOOTX64.EFI"
+assert_file_has "$OSROOT/iso/add-uefi-boot.sh" 'linux.mod is enough' \
+	"UEFI remaster must not require linuxefi.mod on GRUB 2.12+"
 assert_file_has "$OSROOT/iso/add-uefi-boot.sh" 'search --no-floppy --set=root --file /live/vmlinuz' \
 	"UEFI grub.cfg must search for /live/vmlinuz (ESP root has no live kernel)"
 assert_file_has "$OSROOT/iso/add-uefi-boot.sh" 'LUNAASSETS' "UEFI remaster must append LUNAASSETS factory FAT"
