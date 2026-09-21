@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::connect::ConnectError;
+use crate::net::connect::ConnectError;
 
 #[derive(Deserialize)]
 struct DomainBody {
@@ -72,7 +72,7 @@ async fn config(
 async fn status(
     State(state): State<AppState>,
     current: Option<Extension<crate::auth::CurrentUser>>,
-) -> Json<crate::connect::ConnectStatus> {
+) -> Json<crate::net::connect::ConnectStatus> {
     if state.connect.is_connect_active() {
         let connect = state.connect.clone();
         let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
@@ -220,7 +220,7 @@ async fn set_sources(
                 "Luna couldn't read your drives.",
             )
         })?;
-        crate::cloud_backup::validate_backup_sources(body.sources, &drives)
+        crate::backup::cloud_backup::validate_backup_sources(body.sources, &drives)
             .map_err(map_connect_err)?
     };
     let service = state.connect.clone();
@@ -261,7 +261,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
         ),
         ConnectError::GatewayChallenge => json_error(
             StatusCode::BAD_GATEWAY,
-            crate::connect::CONNECT_CHALLENGED_MSG,
+            crate::net::connect::CONNECT_CHALLENGED_MSG,
         ),
         ConnectError::Conflict => json_error(
             StatusCode::CONFLICT,
@@ -269,7 +269,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
         ),
         ConnectError::InvalidToken => json_error(
             StatusCode::UNAUTHORIZED,
-            crate::connect::DEVICE_TOKEN_REJECTED_MSG,
+            crate::net::connect::DEVICE_TOKEN_REJECTED_MSG,
         ),
         ConnectError::Other(msg) => json_error(StatusCode::BAD_REQUEST, msg),
     }

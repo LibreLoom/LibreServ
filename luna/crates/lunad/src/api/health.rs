@@ -47,20 +47,22 @@ async fn comprehensive_check(
         let computed = tokio::task::spawn_blocking(move || {
             let (preflight, drives) = {
                 let conn = db.lock().unwrap();
-                let preflight = crate::system_health::run_preflight(&data_dir, &conn);
+                let preflight = crate::system::system_health::run_preflight(&data_dir, &conn);
                 let drives = crate::db::list_drives(&conn).unwrap_or_default();
                 (preflight, drives)
             };
-            crate::system_health::finish_comprehensive(&data_dir, preflight, drives)
+            crate::system::system_health::finish_comprehensive(&data_dir, preflight, drives)
         })
         .await
-        .unwrap_or_else(|_| crate::system_health::ComprehensiveHealthResponse {
-            status: "error".into(),
-            timestamp: crate::db::now_unix(),
-            overall_pass: false,
-            checks: Default::default(),
-            summary: Default::default(),
-        });
+        .unwrap_or_else(
+            |_| crate::system::system_health::ComprehensiveHealthResponse {
+                status: "error".into(),
+                timestamp: crate::db::now_unix(),
+                overall_pass: false,
+                checks: Default::default(),
+                summary: Default::default(),
+            },
+        );
         cache.set(computed.clone());
         computed
     } else {
@@ -69,11 +71,11 @@ async fn comprehensive_check(
             let db = state.db.clone();
             let (preflight, drives) = {
                 let conn = db.lock().unwrap();
-                let preflight = crate::system_health::run_preflight(&data_dir, &conn);
+                let preflight = crate::system::system_health::run_preflight(&data_dir, &conn);
                 let drives = crate::db::list_drives(&conn).unwrap_or_default();
                 (preflight, drives)
             };
-            crate::system_health::finish_comprehensive(&data_dir, preflight, drives)
+            crate::system::system_health::finish_comprehensive(&data_dir, preflight, drives)
         })
     };
 
@@ -99,7 +101,7 @@ fn uptime() -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
     use tower::ServiceExt;
 

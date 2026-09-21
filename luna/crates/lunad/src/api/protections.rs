@@ -89,7 +89,7 @@ async fn create(
             "You don't have permission to save on the second drive.",
         ));
     }
-    let row = crate::protect::create(
+    let row = crate::backup::protect::create(
         &conn,
         &body.source_drive_id,
         &body.source_path,
@@ -142,7 +142,7 @@ async fn run(
         let Some(row) = crate::db::get_protection(&conn, &id).unwrap_or(None) else {
             return 0;
         };
-        crate::protect::sync(&conn, &row).unwrap_or(0)
+        crate::backup::protect::sync(&conn, &row).unwrap_or(0)
     });
     Ok(Json(
         json!({ "started": true, "message": "Luna is refreshing the protected copy." }),
@@ -152,7 +152,7 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
     use tower::ServiceExt;
 

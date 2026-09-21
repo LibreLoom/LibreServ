@@ -15,7 +15,7 @@ use crate::AppState;
 use crate::api::files::parse_range;
 use crate::api::response::json_error;
 use crate::auth::{self, AuthError};
-use crate::uploads::{self, UploadError};
+use crate::files::uploads::{self, UploadError};
 
 /// Share permissions: `read` (view + download), `write` (view + download +
 /// upload), `upload` (upload only, folders only).
@@ -251,7 +251,7 @@ async fn public(
     headers: HeaderMap,
 ) -> axum::response::Response {
     if prefers_html(&headers) && query.download.unwrap_or(0) == 0 {
-        return crate::staticweb::handle("");
+        return crate::system::staticweb::handle("");
     }
     let result: Result<axum::response::Response, (StatusCode, Json<Value>)> =
         public_inner(state, addr.ip().to_string(), token, query, headers).await;
@@ -667,7 +667,7 @@ async fn public_upload_complete(
     .map_err(map_upload_err)?;
     state.gallery.upsert(
         &row.drive_id,
-        &crate::gallery_indexer::join_rel(&row.path, &entry.name),
+        &crate::gallery::gallery_indexer::join_rel(&row.path, &entry.name),
     );
     state.touch_io_activity();
     Ok(Json(entry))
@@ -900,7 +900,7 @@ mod tests {
         let root = dir.path().join("drive");
         std::fs::create_dir_all(&root).unwrap();
         let marker = luna_core::marker::Marker::new("d1", "Test");
-        crate::drive_db::create(
+        crate::drives::drive_db::create(
             &root,
             &marker,
             &luna_core::marker::pick_prefix(&root).unwrap(),
@@ -1081,7 +1081,7 @@ mod http_tests {
     use super::*;
     use crate::api;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Method, Request as HttpReq};
@@ -1095,7 +1095,7 @@ mod http_tests {
     fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-        crate::drive_db::create(
+        crate::drives::drive_db::create(
             mount,
             &luna_core::marker::Marker::new("photos", "Photos"),
             &luna_core::marker::pick_prefix(mount).unwrap(),

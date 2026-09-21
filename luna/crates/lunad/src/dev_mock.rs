@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::detect::DetectedDrive;
+use crate::drives::detect::DetectedDrive;
 
 /// Default reported size when a mock drive omits `size_bytes` in `.drive.json`.
 pub const DEFAULT_SIZE_BYTES: u64 = 64_000_000_000;
@@ -146,7 +146,7 @@ pub fn scan_mock_drives() -> Vec<DetectedDrive> {
 
 /// Scan sysfs-backed drives and append spawned mock drives when active.
 pub fn scan_all(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
-    let mut drives = crate::detect::scan(sys_block, proc_mounts);
+    let mut drives = crate::drives::detect::scan(sys_block, proc_mounts);
     if enabled() {
         for mock in scan_mock_drives() {
             drives.retain(|d| d.name != mock.name);
@@ -213,7 +213,7 @@ mod tests {
         fs::write(sys.join("sda/size"), "1000\n").unwrap();
         fs::write(sys.join("sda/removable"), "1\n").unwrap();
 
-        let mut drives = crate::detect::scan(&sys, "proc /proc proc rw 0 0\n");
+        let mut drives = crate::drives::detect::scan(&sys, "proc /proc proc rw 0 0\n");
         for mock in scan_mock_drives_at(&mock_root, true) {
             drives.retain(|d| d.name != mock.name);
             drives.push(mock);
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn adopt_directory_fixture_as_is() {
         use crate::drives::DriveManager;
-        use crate::mount::CommandMounter;
+        use crate::drives::mount::CommandMounter;
         use std::sync::Arc;
 
         let root = tempfile::tempdir().unwrap();
@@ -248,7 +248,7 @@ mod tests {
         let row = row.unwrap();
         assert_eq!(row.label, "Portable SSD");
         assert_eq!(row.device, "sdmock_photos");
-        assert!(crate::drive_db::find_db_file(Path::new(&row.mount_point)).is_some());
+        assert!(crate::drives::drive_db::find_db_file(Path::new(&row.mount_point)).is_some());
     }
 
     #[test]

@@ -202,7 +202,7 @@ fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
 mod http_tests {
     use crate::api;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Method, Request as HttpReq, StatusCode};

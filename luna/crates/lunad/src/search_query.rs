@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::places;
+use crate::gallery::places;
 
 const MAX_TEXT_TERMS: usize = 8;
 

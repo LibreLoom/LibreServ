@@ -185,7 +185,9 @@ async fn stat_entry(
 
     // Luna's own bookkeeping (index db, gallery, trash root, protected
     // copies) is not a user file — never stat it.
-    if !in_trash && (files::is_internal_temp(&rel) || crate::protect::is_protected_store(&rel)) {
+    if !in_trash
+        && (files::is_internal_temp(&rel) || crate::backup::protect::is_protected_store(&rel))
+    {
         return Err(json_error(
             StatusCode::NOT_FOUND,
             "Luna can't find that file or folder.",
@@ -279,7 +281,7 @@ async fn stat_entry(
                 .ok()
                 .and_then(|drive| {
                     files::open_drive_db(&drive).ok().and_then(|index_conn| {
-                        crate::index::folder_totals_indexed(
+                        crate::files::index::folder_totals_indexed(
                             &index_conn,
                             std::path::Path::new(&drive.mount_point),
                             &id,
@@ -696,7 +698,7 @@ async fn rename_entry(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     check_access(&state, &user, &id, &body.path, true)?;
     let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_rel = crate::gallery_indexer::join_rel(parent, &body.new_name);
+    let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
     with_db(&state, |conn| {
         files::rename(conn, &id, &body.path, &body.new_name)
     })
@@ -860,7 +862,7 @@ async fn upload(
                     ));
                 }
 
-                let rel = crate::gallery_indexer::join_rel(&dest_rel, &name);
+                let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
@@ -1257,7 +1259,7 @@ mod http_tests {
     use super::*;
     use crate::api;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Method, Request as HttpReq};
@@ -1272,7 +1274,7 @@ mod http_tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let prefix = luna_core::marker::pick_prefix(mount).unwrap();
-        crate::drive_db::create(
+        crate::drives::drive_db::create(
             mount,
             &luna_core::marker::Marker::new("photos", "Photos"),
             &prefix,
@@ -1599,7 +1601,7 @@ mod http_tests {
     }
 
     fn list_trash_names(mount: &std::path::Path) -> Vec<String> {
-        let trash = crate::layout::Layout::detect(mount)
+        let trash = crate::drives::layout::Layout::detect(mount)
             .unwrap()
             .trash_dir(mount);
         std::fs::read_dir(trash)

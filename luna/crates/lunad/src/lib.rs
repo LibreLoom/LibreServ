@@ -1,58 +1,24 @@
 pub mod api;
 pub mod at_rest;
 pub mod auth;
+pub mod backup;
 pub mod budget;
-pub mod cloud_backup;
-pub mod collab;
 pub mod config;
-pub mod connect;
-pub mod console;
-pub mod dav;
-mod dav_fs;
 pub mod db;
-pub mod detect;
 pub mod dev_mock;
-pub mod dhcp;
-pub mod drive_db;
 pub mod drives;
-pub mod exif;
-pub mod factory_mag;
 pub mod files;
-pub mod fsprobe;
-pub mod fstrim;
 pub mod gallery;
-pub mod gallery_indexer;
 pub mod grants;
-pub mod heif;
 pub mod hibp;
-pub mod hotspot;
-pub mod index;
 pub mod jobs;
-pub mod layout;
-pub mod mount;
 pub mod net;
-pub mod office_docs;
+pub mod office;
 pub mod password;
-pub mod places;
-pub mod protect;
-pub mod ram_cache;
 pub mod rate_limit;
-pub mod recovery;
-pub mod recovery_drive;
-pub mod scrub;
 pub mod search_query;
 pub mod secrets;
-pub mod smart;
-pub mod staticweb;
-pub mod summary;
-pub mod system_health;
-mod update_host;
-pub mod updates;
-pub mod uploads;
-
-#[cfg(test)]
-mod runtime_perf;
-
+pub mod system;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -64,25 +30,25 @@ pub type DavHandler = dav_server::DavHandler;
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
-    pub drive_dbs: Arc<crate::drive_db::DriveDbPool>,
+    pub drive_dbs: Arc<crate::drives::drive_db::DriveDbPool>,
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
-    pub gallery: Arc<crate::gallery_indexer::GalleryIndexer>,
+    pub gallery: Arc<crate::gallery::gallery_indexer::GalleryIndexer>,
     pub auth: Arc<crate::auth::AuthService>,
-    pub connect: Arc<crate::connect::ConnectService>,
+    pub connect: Arc<crate::net::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
-    pub updates: std::sync::Arc<crate::updates::UpdateService>,
-    pub health_cache: crate::system_health::HealthCache,
-    pub ram_cache: crate::ram_cache::RamCache,
+    pub updates: std::sync::Arc<crate::system::updates::UpdateService>,
+    pub health_cache: crate::system::system_health::HealthCache,
+    pub ram_cache: crate::drives::ram_cache::RamCache,
     pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    pub collab: std::sync::Arc<crate::collab::CollabHub>,
-    pub office_docs: std::sync::Arc<crate::office_docs::OfficeDocHub>,
+    pub collab: std::sync::Arc<crate::office::collab::CollabHub>,
+    pub office_docs: std::sync::Arc<crate::office::office_docs::OfficeDocHub>,
 }
 
 impl AppState {
@@ -92,7 +58,7 @@ impl AppState {
         data_dir: &std::path::Path,
     ) -> Self {
         let db = Arc::new(Mutex::new(conn));
-        let drive_dbs = Arc::new(crate::drive_db::DriveDbPool::new());
+        let drive_dbs = Arc::new(crate::drives::drive_db::DriveDbPool::new());
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");
         let auth = Arc::new(crate::auth::AuthService::new(
@@ -100,9 +66,9 @@ impl AppState {
             secret,
             data_dir.to_path_buf(),
         ));
-        let gallery = crate::gallery_indexer::GalleryIndexer::start();
+        let gallery = crate::gallery::gallery_indexer::GalleryIndexer::start();
         let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone(), gallery.clone()));
-        let updates = Arc::new(crate::updates::UpdateService::from_db(
+        let updates = Arc::new(crate::system::updates::UpdateService::from_db(
             &db.lock().unwrap(),
             data_dir,
         ));
@@ -113,7 +79,7 @@ impl AppState {
             job_manager,
             gallery,
             auth,
-            connect: Arc::new(crate::connect::ConnectService::new(
+            connect: Arc::new(crate::net::connect::ConnectService::new(
                 data_dir,
                 std::env::var("LUNA_CONNECT_URL").ok(),
             )),
@@ -141,21 +107,21 @@ impl AppState {
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
             updates,
-            health_cache: crate::system_health::HealthCache::default(),
-            ram_cache: crate::ram_cache::RamCache::new(),
+            health_cache: crate::system::system_health::HealthCache::default(),
+            ram_cache: crate::drives::ram_cache::RamCache::new(),
             last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            collab: Arc::new(crate::collab::CollabHub::new()),
-            office_docs: Arc::new(crate::office_docs::OfficeDocHub::new()),
+            collab: Arc::new(crate::office::collab::CollabHub::new()),
+            office_docs: Arc::new(crate::office::office_docs::OfficeDocHub::new()),
         }
     }
 
-    pub fn with_connect(mut self, connect: Arc<crate::connect::ConnectService>) -> Self {
+    pub fn with_connect(mut self, connect: Arc<crate::net::connect::ConnectService>) -> Self {
         self.connect = connect;
         self
     }
 
-    pub fn with_updates(mut self, updates: Arc<crate::updates::UpdateService>) -> Self {
+    pub fn with_updates(mut self, updates: Arc<crate::system::updates::UpdateService>) -> Self {
         self.updates = updates;
         self
     }

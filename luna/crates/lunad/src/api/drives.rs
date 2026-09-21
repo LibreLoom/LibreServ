@@ -292,7 +292,7 @@ async fn eject(
     flush_dirty_before_unmount(&state, &id)?;
     with_db(&state.db, |conn| state.drive_manager.eject(conn, &id))
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e)))?;
-    crate::dav::drop_cached_handler(&state, &id);
+    crate::files::dav::drop_cached_handler(&state, &id);
     state.gallery.unwatch_mount(&id);
     state.ram_cache.drop_drive(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -307,7 +307,7 @@ async fn remove(
     flush_dirty_before_unmount(&state, &id)?;
     with_db(&state.db, |conn| state.drive_manager.remove(conn, &id))
         .map_err(|e| json_error(StatusCode::BAD_REQUEST, plain_remove_error(&e)))?;
-    crate::dav::drop_cached_handler(&state, &id);
+    crate::files::dav::drop_cached_handler(&state, &id);
     state.gallery.unwatch_mount(&id);
     state.ram_cache.drop_drive(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -346,7 +346,7 @@ async fn drive_health(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
-) -> Result<Json<crate::smart::DriveHealth>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<crate::drives::smart::DriveHealth>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
     let device = {
         let conn = state.db.lock().map_err(|_| {
@@ -365,7 +365,7 @@ async fn drive_health(
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
         drive.device
     };
-    let health = tokio::task::spawn_blocking(move || crate::smart::read(&device))
+    let health = tokio::task::spawn_blocking(move || crate::drives::smart::read(&device))
         .await
         .map_err(|_| {
             json_error(
@@ -431,10 +431,10 @@ async fn drive_summary(
     }
 
     let root = std::path::PathBuf::from(mount_point);
-    let space = crate::summary::disk_space(&root);
+    let space = crate::drives::summary::disk_space(&root);
     let (folders, files, shortcuts) = if can_list_root {
-        let counts = crate::summary::top_level_counts(&root);
-        let shortcuts = crate::summary::top_level_shortcuts(&root);
+        let counts = crate::drives::summary::top_level_counts(&root);
+        let shortcuts = crate::drives::summary::top_level_shortcuts(&root);
         (Some(counts.folders), Some(counts.files), shortcuts)
     } else {
         (None, None, grant_shortcuts)
@@ -452,7 +452,7 @@ async fn drive_summary(
     }))
 }
 
-fn find_device(name: &str) -> Option<crate::detect::DetectedDrive> {
+fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
     let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
     crate::dev_mock::scan_all(std::path::Path::new("/sys/block"), &mounts)
         .into_iter()

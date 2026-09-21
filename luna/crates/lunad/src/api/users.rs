@@ -129,7 +129,7 @@ fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
 #[cfg(test)]
 mod tests {
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
     use tower::ServiceExt;
 
