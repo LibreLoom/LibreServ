@@ -16,19 +16,27 @@ if ! rustup target list --installed | grep -qx "$MUSL_TARGET"; then
 	rustup target add "$MUSL_TARGET"
 fi
 
-if command -v musl-gcc >/dev/null 2>&1; then
-	export CC_x86_64_unknown_linux_musl=musl-gcc
-	export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
-fi
+# shellcheck source=lib/musl-link.sh
+. "$ROOT/os/lib/musl-link.sh"
+# ISO builds must not inherit a host RUSTFLAGS that adds -static-pie to rust-lld.
+unset RUSTFLAGS
+luna_musl_export "$MUSL_TARGET"
 
-echo "==> lunad ($MUSL_TARGET release)"
-cargo build --release -p lunad --target "$MUSL_TARGET"
+echo "==> lunad ($MUSL_TARGET static-pie release)"
+cargo build --release -p lunad --bin lunad --bin luna-console --target "$MUSL_TARGET"
 export LUNA_CONSOLE_BIN="$ROOT/target/${MUSL_TARGET}/release/luna-console"
 export LUNAD_BIN="$ROOT/target/${MUSL_TARGET}/release/lunad"
 if [ ! -x "$LUNAD_BIN" ]; then
 	echo "missing $LUNAD_BIN" >&2
 	exit 1
 fi
+if [ ! -x "$LUNA_CONSOLE_BIN" ]; then
+	echo "missing $LUNA_CONSOLE_BIN" >&2
+	exit 1
+fi
+echo "==> musl static-pie smoke (Alpine)"
+luna_musl_smoke_lunad "$LUNAD_BIN"
+luna_musl_smoke_console "$LUNA_CONSOLE_BIN"
 
 echo "==> EuroOffice pack (baked into the ISO, lands on LUNA_DATA)"
 if [ ! -f "$ROOT/os/dist/eurooffice-pack.tar.zst" ]; then

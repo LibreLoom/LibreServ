@@ -76,16 +76,23 @@ set prefix=($root)/boot/grub
 configfile /boot/grub/grub.cfg
 EOF
 # Embed enough modules that /boot/grub/grub.cfg can load the live kernel.
+# linux.mod is enough on GRUB 2.12+ (linuxefi was folded in). Older
+# grub-efi-amd64-bin still ships linuxefi.mod — include it only when present.
+_grub_mods="all_video boot cat chain configfile echo efi_gop efi_uga fat font \
+	gfxterm gzio halt iso9660 linux loadenv ls lsefi normal \
+	part_gpt part_msdos probe reboot regexp search search_fs_file \
+	search_fs_uuid search_label sleep test true video"
+if [ -f "$GRUB_EFI_DIR/linuxefi.mod" ]; then
+	_grub_mods="$_grub_mods linuxefi"
+fi
+# shellcheck disable=SC2086
 grub-mkimage \
 	-O x86_64-efi \
 	-o "$WORK/efi/EFI/BOOT/BOOTX64.EFI" \
 	-p /boot/grub \
 	-c "$WORK/boot.cfg" \
 	-d "$GRUB_EFI_DIR" \
-	all_video boot cat chain configfile echo efi_gop efi_uga fat font \
-	gfxterm gzio halt iso9660 linux linuxefi loadenv ls lsefi normal \
-	part_gpt part_msdos probe reboot regexp search search_fs_file \
-	search_fs_uuid search_label sleep test true video \
+	$_grub_mods \
 	|| die "grub-mkimage failed"
 
 # Visible EFI tree on the ISO (some firmwares / USB tools look here first).
