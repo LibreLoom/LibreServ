@@ -4,6 +4,7 @@ import Card from "../cards/Card";
 import Button from "../ui/Button";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
 import { canUseClipboard, copyToClipboard as clipboardCopy } from "../../utils/clipboard";
+import { useToast } from "../../context/ToastContext";
 import { sanitizeURL } from "../../lib/sanitize";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
@@ -64,6 +65,7 @@ export function ExposedInfoCard({ info }) {
   const [hoverReveal, setHoverReveal] = useState({});
   const [showAdvanced, setShowAdvanced] = useState(false);
   const clipboardOk = canUseClipboard();
+  const { addToast } = useToast();
 
   const toggleReveal = (key) => {
     setRevealed((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -76,6 +78,11 @@ export function ExposedInfoCard({ info }) {
         setCopied((prev) => ({ ...prev, [key]: true }));
         setTimeout(() => setCopied((prev) => ({ ...prev, [key]: false })), 2000);
       },
+      onError: () =>
+        addToast({
+          type: "error",
+          message: "Couldn't copy — select the text and copy it.",
+        }),
     });
   };
 

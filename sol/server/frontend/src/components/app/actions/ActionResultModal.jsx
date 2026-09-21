@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
 import { copyWithFeedback } from "../../../utils/clipboard";
+import { useToast } from "../../../context/ToastContext";
 import { cn } from "@/lib/utils";
 import ModalCard from "../../cards/ModalCard";
 import Button from "../../ui/Button";
@@ -9,6 +10,7 @@ import { ICON_SIZE } from "@/lib/ui-tokens";
 /** @param {{ result: any, onClose: any, action?: any }} _ */
 export function ActionResultModal({ result, onClose }) {
   const [showVerbose, setShowVerbose] = useState(false);
+  const { addToast } = useToast();
   const [copied, setCopied] = useState(false);
 
   if (!result) return null;
@@ -62,7 +64,13 @@ export function ActionResultModal({ result, onClose }) {
 
   const handleCopy = async () => {
     if (!output) return;
-    await copyWithFeedback(output, setCopied);
+    await copyWithFeedback(output, setCopied, {
+      onError: () =>
+        addToast({
+          type: "error",
+          message: "Couldn't copy — select the text and copy it.",
+        }),
+    });
   };
 
   return (

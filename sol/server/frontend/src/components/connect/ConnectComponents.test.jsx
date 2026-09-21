@@ -32,6 +32,9 @@ vi.mock("../../utils/clipboard.js", () => ({
   canUseClipboard: () => clipboardState.ok,
   copyWithFeedback: copyMock,
 }));
+vi.mock("../../context/ToastContext.jsx", () => ({
+  useToast: () => ({ addToast: vi.fn() }),
+}));
 vi.mock("react-router-dom", async (importOriginal) => {
   const original = await importOriginal();
   return {
@@ -85,11 +88,12 @@ vi.mock("../ui/Button.jsx", () => ({
     loading,
     onClick,
     title,
+    tooltip,
     type = "button",
   }) => (
     <button
       type={type}
-      aria-label={title}
+      aria-label={title || tooltip}
       disabled={disabled || loading}
       onClick={onClick}
     >
@@ -513,6 +517,7 @@ describe("connect component coverage", () => {
     expect(copyMock).toHaveBeenCalledWith(
       "recovery-secret",
       expect.any(Function),
+      expect.objectContaining({ onError: expect.any(Function) }),
     );
     await user.click(screen.getByRole("button", { name: "Download key file" }));
     expect(URL.createObjectURL).toHaveBeenCalled();

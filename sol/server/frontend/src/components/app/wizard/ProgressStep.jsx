@@ -5,6 +5,7 @@ import Button from "../../../components/ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { copyWithFeedback } from "../../../utils/clipboard";
+import { useToast } from "../../../context/ToastContext";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const ALL_INSTALL_PHASES = [
@@ -68,6 +69,7 @@ function getErrorHint(error) {
 
 function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
   const { request } = useAuth();
+  const { addToast } = useToast();
   const [currentPhase, setCurrentPhase] = useState(0);
   const [status, setStatus] = useState("installing");
   const [error, setError] = useState(null);
@@ -285,7 +287,13 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
   const handleCopyStream = async () => {
     const text = streamLines.join("");
     if (!text) return;
-    await copyWithFeedback(text, setStreamCopied);
+    await copyWithFeedback(text, setStreamCopied, {
+      onError: () =>
+        addToast({
+          type: "error",
+          message: "Couldn't copy — select the text and copy it.",
+        }),
+    });
   };
 
   if (error) {
@@ -294,7 +302,13 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
 
     const handleCopyError = async () => {
       if (!error) return;
-      await copyWithFeedback(error, setCopied);
+      await copyWithFeedback(error, setCopied, {
+        onError: () =>
+          addToast({
+            type: "error",
+            message: "Couldn't copy — select the text and copy it.",
+          }),
+      });
     };
 
     return (
