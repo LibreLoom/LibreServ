@@ -165,16 +165,12 @@ function PrintSheet({ side, tokens }) {
 
   return (
     <section className={`sheet sheet-${side}`} aria-label={`${side} print sheet`}>
-      <div className="sheet-label">{isFront ? "PAGE 1 · FULL-OPEN SIDE" : "PAGE 2 · REVERSE SIDE"}</div>
       {tokens.map((token, index) => (
         <div className="guide-row" key={`${side}-${index}`}>
           {isFront ? <FrontGuide /> : <ReverseGuide token={token} />}
-          <span className="guide-number">Guide {index + 1}</span>
         </div>
       ))}
-      <div className="cut-line" aria-hidden="true">
-        <span>Cut here</span>
-      </div>
+      <div className="cut-line" aria-hidden="true" />
     </section>
   );
 }

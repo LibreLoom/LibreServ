@@ -139,20 +139,6 @@ input {
   box-shadow: 0 0.25rem 1.5rem color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
-.sheet-label {
-  position: absolute;
-  top: 0.05in;
-  left: 50%;
-  z-index: 3;
-  translate: -50% 0;
-  padding: 0.02in 0.08in;
-  color: var(--accent);
-  background: var(--paper);
-  font-family: "FreeMono", "Courier New", monospace;
-  font-size: 6pt;
-  letter-spacing: 0.08em;
-}
-
 .guide-row {
   position: relative;
   width: 11in;
@@ -205,15 +191,6 @@ input {
   order: 3;
 }
 
-.guide-number {
-  position: absolute;
-  right: 0.08in;
-  bottom: 0.05in;
-  color: var(--accent);
-  font-family: "FreeMono", "Courier New", monospace;
-  font-size: 6pt;
-}
-
 .cut-line {
   position: absolute;
   top: 4.25in;
@@ -221,19 +198,6 @@ input {
   left: 0;
   z-index: 5;
   border-top: 0.75pt solid var(--ink);
-  text-align: center;
-}
-
-.cut-line span {
-  position: relative;
-  top: -0.09in;
-  padding-inline: 0.08in;
-  color: var(--ink);
-  background: var(--paper);
-  font-family: "FreeMono", "Courier New", monospace;
-  font-size: 6pt;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .panel h2,
@@ -482,8 +446,4 @@ input {
     break-after: auto;
   }
 
-  .sheet-label,
-  .guide-number {
-    display: none;
-  }
 }
