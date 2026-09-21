@@ -563,8 +563,8 @@ build_binaries() {
             exit 1
         fi
         log_info "Rapidinstall ISO compressed: $(du -h "$BUILD_DIR/luna-rapidinstall-x86_64.iso.xz" | cut -f1)"
-        # The ISO's musl lunad only runs on Luna OS — it segfaults on generic
-        # glibc distros. Ship a glibc binary as the public lunad-linux-amd64.
+        # Public download is a glibc binary so generic Linux hosts can run it.
+        # The ISO still bakes a musl static-pie lunad (see luna/os/lib/musl-link.sh).
         log_info "Building glibc lunad for generic Linux..."
         (cd luna && cargo build --release -p lunad --target x86_64-unknown-linux-gnu)
         LUNAD_GLIBC="luna/target/x86_64-unknown-linux-gnu/release/lunad"

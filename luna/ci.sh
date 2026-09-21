@@ -38,6 +38,7 @@ sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-is
 	os/lib/disk_test.sh os/lib/factory-assets_test.sh os/lib/flash-disk_test.sh \
 	os/ab_update_rehearsal_test.sh \
 	os/lib/alpine-image.sh \
+	os/lib/musl-link.sh os/lib/musl-binaries_test.sh \
 	os/iso/find-media.sh os/iso/find-media_test.sh \
 	os/iso/stage-debian-live.sh os/iso/build-debian-live.sh os/iso/wait-iso-build.sh \
 	os/iso/add-uefi-boot.sh \
@@ -50,6 +51,7 @@ sh os/iso/find-media_test.sh
 sh os/debian-live/debian_live_test.sh
 sh os/rapidinstall_wait_test.sh
 sh os/rootfs_test.sh
+sh os/lib/musl-binaries_test.sh
 # build-rootfs.sh is a thin concat wrapper; alpine-image lives in the frags.
 grep -q 'os/lib/alpine-image.sh' os/make-image.sh || {
 	echo "os/make-image.sh must source os/lib/alpine-image.sh" >&2
@@ -67,6 +69,19 @@ if grep -rq 'alpine:latest' os/make-image.sh os/lib/alpine-image.sh os/lib/build
 	echo "Alpine OS image scripts must not default to alpine:latest" >&2
 	exit 1
 fi
+
+echo "==> musl static-pie smoke"
+MUSL_TARGET="${MUSL_TARGET:-x86_64-unknown-linux-musl}"
+# shellcheck source=os/lib/musl-link.sh
+. os/lib/musl-link.sh
+unset RUSTFLAGS
+luna_musl_export "$MUSL_TARGET"
+if ! rustup target list --installed | grep -qx "$MUSL_TARGET"; then
+	rustup target add "$MUSL_TARGET"
+fi
+cargo build --release -p lunad --bin lunad --bin luna-console --target "$MUSL_TARGET"
+luna_musl_smoke_lunad "$ROOT/target/${MUSL_TARGET}/release/lunad"
+luna_musl_smoke_console "$ROOT/target/${MUSL_TARGET}/release/luna-console"
 
 echo "==> desktop (GTK / libadwaita)"
 (
