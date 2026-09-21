@@ -18,6 +18,16 @@ assert_file_has() {
 	fi
 }
 
+assert_file_lacks() {
+	_f="$1"
+	_pat="$2"
+	_msg="$3"
+	if grep -q "$_pat" "$_f"; then
+		echo "FAIL $_msg (found '$_pat' in $_f)" >&2
+		fail=$((fail + 1))
+	fi
+}
+
 assert_file_has "$OS/lib/disk.sh" 'partition_root_b' "disk helpers must expose slot B"
 assert_file_has "$OS/lib/disk.sh" 'partition_data' "disk helpers must expose LUNA_DATA"
 assert_file_has "$OS/lib/disk.sh" 'LUNA_SLOT_SIZE_MIB' "slot size must be shared with make-image"
@@ -36,6 +46,8 @@ cat $(ls "$FRAGS"/*.frag | sort) > "$_ROOTFS_BODY"
 assert_file_has "$_ROOTFS_BODY" 'LABEL=LUNA_DATA /var/lib/luna' "rootfs must mount data"
 assert_file_has "$_ROOTFS_BODY" 'luna-run' "OpenRC must prefer data-dir lunad"
 assert_file_has "$_ROOTFS_BODY" 'remount,ro,noatime' "root must remount read-only"
+assert_file_has "$_ROOTFS_BODY" 'critical_mounts="/var/lib/luna"' "LUNA_DATA must be a critical mount"
+assert_file_lacks "$_ROOTFS_BODY" 'runlevels/default/local' "boot hooks must not use OpenRC local.d"
 rm -f "$_ROOTFS_BODY"
 
 assert_file_has "$OS/make-image.sh" 'luna-os-x86_64.img' "make-image must produce the OTA slot asset"

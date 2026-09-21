@@ -40,12 +40,26 @@ if grep -E 'wpa_supplicant|dnsmasq' "$BUILD" >/dev/null 2>&1; then
 	echo "FAIL: Luna OS is Ethernet-only; do not package wpa_supplicant or dnsmasq" >&2
 	exit 1
 fi
-assert_file_has "$BUILD" 'for svc in hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network;' \
-	"boot runlevel must start luna-input before luna-network"
+assert_file_has "$BUILD" 'for svc in luna-root-ro hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network;' \
+	"boot runlevel must remount root read-only before network bring-up"
 assert_file_has "$BUILD" 'loopback' "boot runlevel must enable loopback service"
+assert_file_has "$BUILD" 'critical_mounts="/var/lib/luna"' \
+	"localmount must treat LUNA_DATA as critical"
+assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers fsck root localmount;' \
+	"sysinit must mount fstab before boot services start"
+assert_file_has "$BUILD" 'mountpoint -q /var/lib/luna' \
+	"lunad must refuse to start when LUNA_DATA is not mounted"
+assert_file_lacks "$BUILD" 'runlevels/default/local' \
+	"rootfs must not use OpenRC local.d for boot hooks"
+assert_file_has "$BUILD" 'etc/init.d/luna-root-ro' \
+	"rootfs must remount root via a dedicated OpenRC service"
+assert_file_has "$BUILD" 'etc/init.d/luna-boot-ok' \
+	"rootfs must mark tryboot success via a dedicated OpenRC service"
+assert_file_has "$BUILD" 'timeout 2 mount' \
+	"tryboot marker must not block boot on a slow ESP mount"
 assert_file_has "$BUILD" 'ip link set lo up' "luna-network-up must ensure lo interface is up"
-assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers;' \
-	"sysinit must enable Alpine hwdrivers coldplug (USB HID at boot)"
+assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers fsck root localmount;' \
+	"sysinit must enable Alpine hwdrivers coldplug and mount fstab before boot"
 assert_file_has "$BUILD" 'modules-load.d/luna-input.conf' "rootfs must ship keyboard module list"
 assert_file_has "$BUILD" 'luna-input-up' "rootfs must ship keyboard / HID bring-up script"
 assert_file_has "$BUILD" 'usbhid' "rootfs must load usbhid for USB keyboards"
@@ -72,7 +86,7 @@ assert_file_has "$BUILD" 'tmpfs /var/log' \
 	"syslog must land on tmpfs so messages do not wear the eMMC"
 assert_file_has "$BUILD" 'LABEL=LUNA_DATA /var/lib/luna' \
 	"rootfs must mount the data partition at /var/lib/luna"
-assert_file_has "$BUILD" 'luna-root-ro.start' \
+assert_file_has "$BUILD" 'luna-root-ro' \
 	"rootfs must remount root read-only + noatime"
 assert_file_has "$BUILD" 'luna-run' \
 	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"

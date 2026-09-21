@@ -64,15 +64,20 @@ printf 'auto lo\niface lo inet loopback\n' > "$ROOTFS/etc/network/interfaces"
 printf 'source /etc/network/interfaces.d/*.conf\n' >> "$ROOTFS/etc/network/interfaces"
 
 mkdir -p "$ROOTFS/etc/runlevels/default" "$ROOTFS/etc/runlevels/boot" "$ROOTFS/etc/runlevels/sysinit"
+# Fail boot when the data partition is missing — do not let lunad write state onto the OS slot.
+mkdir -p "$ROOTFS/etc/conf.d"
+cat > "$ROOTFS/etc/conf.d/localmount" <<'CONF'
+critical_mounts="/var/lib/luna"
+CONF
 # hwdrivers: Alpine's coldplug modalias pass. Without it, USB HID present at
 # power-on often never loads (hot-plug after boot still works via mdev).
-for svc in devfs dmesg mdev hwdrivers; do
+for svc in devfs dmesg mdev hwdrivers fsck root localmount; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/sysinit/$svc" 2>/dev/null || true
 done
-for svc in hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network; do
+for svc in luna-root-ro hwclock modules sysctl hostname bootmisc syslog loopback luna-input luna-network; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/boot/$svc" 2>/dev/null || true
 done
-for svc in avahi-daemon luna crond chronyd; do
+for svc in avahi-daemon luna luna-boot-ok crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
 

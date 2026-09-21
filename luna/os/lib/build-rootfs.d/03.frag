@@ -1,37 +1,58 @@
-# Remount root read-only + noatime after localmount (cmdline also passes ro,noatime).
-cat > "$ROOTFS/etc/local.d/luna-root-ro.start" <<'NORW'
+# Remount root read-only in the boot runlevel, before lunad or other writers start.
+cat > "$ROOTFS/usr/local/sbin/luna-root-ro" <<'NORW'
 #!/bin/sh
 mount -o remount,ro,noatime / 2>/dev/null || mount -o remount,noatime / 2>/dev/null || true
 NORW
-chmod +x "$ROOTFS/etc/local.d/luna-root-ro.start"
-ln -sf /etc/init.d/local "$ROOTFS/etc/runlevels/default/local" 2>/dev/null || true
+chmod +x "$ROOTFS/usr/local/sbin/luna-root-ro"
 
-# Mark tryboot success once lunad's OpenRC unit is up (best-effort).
-cat > "$ROOTFS/etc/local.d/luna-boot-ok.start" <<'BOOTOK'
+cat > "$ROOTFS/etc/init.d/luna-root-ro" <<'INIT'
+#!/sbin/openrc-run
+description="Remount Luna OS root read-only"
+command="/usr/local/sbin/luna-root-ro"
+depend() {
+    need localmount
+    before luna-input luna-network luna avahi-daemon
+}
+INIT
+chmod +x "$ROOTFS/etc/init.d/luna-root-ro"
+
+# Mark tryboot success after lunad is up (best-effort; must never block boot).
+cat > "$ROOTFS/usr/local/sbin/luna-boot-ok" <<'BOOTOK'
 #!/bin/sh
 # Clear GRUB tryboot failure state after a successful boot into this slot.
+if ! command -v grub-editenv >/dev/null 2>&1; then
+    exit 0
+fi
 for _env in /boot/efi/grub/grubenv /efi/grub/grubenv; do
     [ -f "$_env" ] || continue
-    if command -v grub-editenv >/dev/null 2>&1; then
-        grub-editenv "$_env" set luna_boot_ok=1 2>/dev/null || true
-        grub-editenv "$_env" set luna_tries=3 2>/dev/null || true
-    fi
+    grub-editenv "$_env" set luna_boot_ok=1 2>/dev/null || true
+    grub-editenv "$_env" set luna_tries=3 2>/dev/null || true
 done
-# ESP is often at /boot/efi only after an extra mount; also try by label.
-if command -v grub-editenv >/dev/null 2>&1 && command -v findfs >/dev/null 2>&1; then
-    _esp="$(findfs LABEL=LUNAESP 2>/dev/null || true)"
-    if [ -n "$_esp" ]; then
-        _m="$(mktemp -d /tmp/luna-esp.XXXXXX 2>/dev/null || true)"
-        if [ -n "$_m" ] && mount -o rw "$_esp" "$_m" 2>/dev/null; then
-            grub-editenv "$_m/grub/grubenv" set luna_boot_ok=1 2>/dev/null || true
-            grub-editenv "$_m/grub/grubenv" set luna_tries=3 2>/dev/null || true
-            umount "$_m" 2>/dev/null || true
-        fi
-        rmdir "$_m" 2>/dev/null || true
+# ESP lives on its own FAT partition; prefer the stable by-label path over findfs.
+for _esp in /dev/disk/by-label/LUNAESP; do
+    [ -e "$_esp" ] || continue
+    _m="$(mktemp -d /tmp/luna-esp.XXXXXX 2>/dev/null)" || continue
+    if timeout 2 mount -o rw "$_esp" "$_m" 2>/dev/null; then
+        grub-editenv "$_m/grub/grubenv" set luna_boot_ok=1 2>/dev/null || true
+        grub-editenv "$_m/grub/grubenv" set luna_tries=3 2>/dev/null || true
+        umount "$_m" 2>/dev/null || true
     fi
-fi
+    rmdir "$_m" 2>/dev/null || true
+    break
+done
 BOOTOK
-chmod +x "$ROOTFS/etc/local.d/luna-boot-ok.start"
+chmod +x "$ROOTFS/usr/local/sbin/luna-boot-ok"
+
+cat > "$ROOTFS/etc/init.d/luna-boot-ok" <<'INIT'
+#!/sbin/openrc-run
+description="Mark Luna GRUB tryboot successful"
+command="/usr/local/sbin/luna-boot-ok"
+depend() {
+    need luna
+    keyword -timeout -noparallel
+}
+INIT
+chmod +x "$ROOTFS/etc/init.d/luna-boot-ok"
 
 # Install the daemon binary.
 install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"
