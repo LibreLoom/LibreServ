@@ -1,8 +1,13 @@
-//! System tray (StatusNotifierItem) so Luna can keep running without a visible window.
+//! System tray so Luna can keep running without a visible window.
+//! Linux uses StatusNotifierItem (ksni); Windows uses Shell_NotifyIcon.
 
 use std::sync::{Arc, Mutex};
 
 use gtk::glib;
+
+#[cfg(windows)]
+use crate::tray_win;
+#[cfg(not(windows))]
 use ksni::blocking::TrayMethods;
 
 /// Commands the tray sends to the GTK main thread.
@@ -12,12 +17,14 @@ pub enum TrayCmd {
     Quit,
 }
 
+#[cfg(not(windows))]
 struct LunaTray {
     tx: std::sync::mpsc::Sender<TrayCmd>,
     icon_name: String,
     icon_theme_path: String,
 }
 
+#[cfg(not(windows))]
 impl ksni::Tray for LunaTray {
     fn id(&self) -> String {
         "org.libreloom.LunaDesktop".into()
@@ -71,11 +78,15 @@ impl ksni::Tray for LunaTray {
     }
 }
 
-/// Keeps the StatusNotifierItem service alive for the process lifetime.
+/// Keeps the tray backend alive for the process lifetime.
 pub struct TrayHandle {
+    #[cfg(not(windows))]
     _handle: ksni::blocking::Handle<LunaTray>,
+    #[cfg(windows)]
+    _win: tray_win::WinTray,
 }
 
+#[cfg(not(windows))]
 fn resolve_icon() -> (String, String) {
     let theme_path = nearby_icon_theme_path();
     let name = "org.libreloom.LunaDesktop";
@@ -91,6 +102,7 @@ fn resolve_icon() -> (String, String) {
     ("folder".into(), theme_path)
 }
 
+#[cfg(not(windows))]
 fn nearby_icon_theme_path() -> String {
     let Ok(exe) = std::env::current_exe() else {
         return String::new();
@@ -111,26 +123,35 @@ fn nearby_icon_theme_path() -> String {
     String::new()
 }
 
-/// Spawn the tray service. Polls commands on the GTK main loop.
-pub fn spawn_tray(on_cmd: impl Fn(TrayCmd) + 'static) -> Option<TrayHandle> {
-    let (tx, rx) = std::sync::mpsc::channel::<TrayCmd>();
+#[cfg(not(windows))]
+fn spawn_backend(tx: std::sync::mpsc::Sender<TrayCmd>) -> Option<TrayHandle> {
     let (icon_name, icon_theme_path) = resolve_icon();
     let tray = LunaTray {
         tx,
         icon_name,
         icon_theme_path,
     };
-
-    let handle = match tray.assume_sni_available(true).spawn() {
-        Ok(h) => h,
+    match tray.assume_sni_available(true).spawn() {
+        Ok(h) => Some(TrayHandle { _handle: h }),
         Err(e) => {
             eprintln!(
                 "luna-desktop: system tray unavailable ({e}); window close hides — use Settings → Quit {} to stop",
                 crate::product_name()
             );
-            return None;
+            None
         }
-    };
+    }
+}
+
+#[cfg(windows)]
+fn spawn_backend(tx: std::sync::mpsc::Sender<TrayCmd>) -> Option<TrayHandle> {
+    tray_win::spawn(tx).map(|_win| TrayHandle { _win: _win })
+}
+
+/// Spawn the tray. Polls commands on the GTK main loop.
+pub fn spawn_tray(on_cmd: impl Fn(TrayCmd) + 'static) -> Option<TrayHandle> {
+    let (tx, rx) = std::sync::mpsc::channel::<TrayCmd>();
+    let handle = spawn_backend(tx)?;
 
     let rx = Arc::new(Mutex::new(rx));
     let on_cmd = std::rc::Rc::new(on_cmd);
@@ -147,5 +168,5 @@ pub fn spawn_tray(on_cmd: impl Fn(TrayCmd) + 'static) -> Option<TrayHandle> {
         glib::ControlFlow::Continue
     });
 
-    Some(TrayHandle { _handle: handle })
+    Some(handle)
 }

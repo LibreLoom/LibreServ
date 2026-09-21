@@ -671,6 +671,79 @@ pub fn dest_dir(
     Ok(dir)
 }
 
+/// Destination directory for a new file, creating missing folders along the
+/// way. Uploads arrive holding the sender's folder layout (a folder dropped on
+/// the web UI, a backup/sync subfolder from the desktop app) — refusing to
+/// create the intermediate folders drops those files outright.
+///
+/// Each path prefix is re-resolved through `resolve_for_create_nofollow`
+/// immediately before it is created, so a symlink planted between steps can
+/// never steer creation outside the drive root.
+pub fn dest_dir_create(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<PathBuf, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let rel = real_rel(&root, rel).into_owned();
+    if is_internal_temp(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    match resolve_child(&root, rel.as_ref()) {
+        Ok(dir) => {
+            if !dir.is_dir() {
+                return Err(FilesError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotADirectory,
+                    "not a directory",
+                )));
+            }
+            Ok(dir)
+        }
+        Err(luna_core::path::PathError::NotFound(_)) => ensure_dir(&root, rel.as_ref()),
+        // A file sits where a folder should be: canonicalize reports ENOTDIR.
+        // ensure_dir's per-prefix walk turns it into a clean NotADirectory.
+        Err(luna_core::path::PathError::Io(e)) if e.kind() == std::io::ErrorKind::NotADirectory => {
+            ensure_dir(&root, rel.as_ref())
+        }
+        Err(e) => Err(FilesError::Path(e)),
+    }
+}
+
+/// Create every missing component of `rel` under `root`, component by
+/// component. The lexical `..`/absolute checks happened in `resolve_child`
+/// before we got here (it rejects those instead of returning NotFound).
+fn ensure_dir(root: &Path, rel: &str) -> Result<PathBuf, FilesError> {
+    let mut prefix = String::new();
+    let mut current = root.to_path_buf();
+    for part in rel.split('/').filter(|s| !s.is_empty()) {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(part);
+        let p = luna_core::path::resolve_for_create_nofollow(root, &prefix)
+            .map_err(FilesError::Path)?;
+        match std::fs::symlink_metadata(&p) {
+            Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {}
+            Ok(_) => {
+                return Err(FilesError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotADirectory,
+                    "not a directory",
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&p).map_err(FilesError::Io)?;
+            }
+            Err(e) => return Err(FilesError::Io(e)),
+        }
+        current = p;
+    }
+    Ok(current)
+}
+
 /// MIME types safe to render inline at the Luna origin. Everything else is
 /// forced to download so a crafted HTML/SVG/PDF/JS file sitting on a drive can
 /// never execute as a Luna page (stored XSS). `nosniff` must also be set on
@@ -1489,6 +1562,53 @@ mod tests {
         assert!(create(&conn, &id, "notes/.").is_err());
         create(&conn, &id, "readme.txt").unwrap();
         assert!(root.join("readme.txt").is_file());
+    }
+
+    #[test]
+    fn dest_dir_create_makes_missing_folders_inside_the_jail() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+
+        // The case that dropped backup/sync subfolders: nested destination
+        // that does not exist yet is created.
+        let dir = dest_dir_create(&conn, &id, "DesktopBackup/subdir/deep").unwrap();
+        assert!(dir.ends_with("DesktopBackup/subdir/deep"));
+        assert!(root.join("DesktopBackup/subdir/deep").is_dir());
+
+        // Existing dirs resolve as before, and "" is the root.
+        assert_eq!(
+            dest_dir_create(&conn, &id, "").unwrap(),
+            root.canonicalize().unwrap()
+        );
+        assert!(
+            dest_dir_create(&conn, &id, "DesktopBackup/subdir")
+                .unwrap()
+                .is_dir()
+        );
+
+        // Traversal and the `.luna-*` namespace stay off-limits; a file in the
+        // way is NotADirectory, not clobbered.
+        assert!(dest_dir_create(&conn, &id, "../outside").is_err());
+        assert!(dest_dir_create(&conn, &id, "DesktopBackup/../x").is_err());
+        std::fs::write(root.join("file.txt"), b"x").unwrap();
+        assert!(matches!(
+            dest_dir_create(&conn, &id, "file.txt/inside"),
+            Err(FilesError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotADirectory
+        ));
+
+        // A symlink mid-path must not steer creation outside the drive root.
+        #[cfg(unix)]
+        {
+            let outside = root.parent().unwrap().join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("hole")).unwrap();
+            assert!(matches!(
+                dest_dir_create(&conn, &id, "hole/pwned"),
+                Err(FilesError::Path(_))
+            ));
+            assert!(!outside.join("pwned").exists());
+        }
     }
 
     #[test]

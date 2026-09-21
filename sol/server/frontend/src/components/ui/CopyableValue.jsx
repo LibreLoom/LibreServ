@@ -28,6 +28,7 @@ export default function CopyableValue({
   multiline = false,
 }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const secure = canUseClipboard();
   const text = value == null ? "" : String(value);
 
@@ -107,10 +108,17 @@ export default function CopyableValue({
         variant="outline"
         surface={surface}
         className="shrink-0"
-        onClick={() => copyWithFeedback(text, setCopied)}
+        onClick={() =>
+          copyWithFeedback(text, setCopied, { onError: () => setFailed(true) })
+        }
       >
         {copied ? copiedLabel : copyLabel}
       </Button>
+      {failed && (
+        <p className={cn("text-sm", hintClass)}>
+          Copy didn't work in this browser — select the text and copy it.
+        </p>
+      )}
     </div>
   );
 }

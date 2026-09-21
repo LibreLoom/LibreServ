@@ -98,7 +98,15 @@ impl StatusPage {
                             };
                             if !p.error.is_empty() {
                                 any = true;
-                                let error_text = plain_status_error(&p.error);
+                                let error_text = if p.failed > 0 {
+                                    format!(
+                                        "{} couldn't copy yet — {}",
+                                        count_files(p.failed),
+                                        plain_status_error(&p.error)
+                                    )
+                                } else {
+                                    plain_status_error(&p.error)
+                                };
                                 let row = adw::ActionRow::builder()
                                     .title(name)
                                     .subtitle(&error_text)
@@ -165,6 +173,23 @@ impl StatusPage {
                                 row.add_prefix(&icon);
                                 list.append(&row);
                                 continue;
+                            }
+                            if p.conflicts > 0 {
+                                any = true;
+                                let row = adw::ActionRow::builder()
+                                    .title(name)
+                                    .subtitle(&format!(
+                                        "Kept both versions of {}. Look for files named \u{201c}(conflict from this computer)\u{201d} in the folder.",
+                                        count_files(p.conflicts)
+                                    ))
+                                    .build();
+                                row.set_title_lines(1);
+                                row.set_subtitle_lines(2);
+                                let icon =
+                                    gtk::Image::from_icon_name("dialog-information-symbolic");
+                                icon.set_icon_size(gtk::IconSize::Normal);
+                                row.add_prefix(&icon);
+                                list.append(&row);
                             }
                             if !p.running || p.phase != "Syncing" || p.current.is_empty() {
                                 continue;
@@ -241,6 +266,14 @@ fn short_name(path: &str) -> String {
         format!("{}…", &name[..45])
     } else {
         name.to_string()
+    }
+}
+
+fn count_files(n: u64) -> String {
+    if n == 1 {
+        "1 file".to_string()
+    } else {
+        format!("{n} files")
     }
 }
 
