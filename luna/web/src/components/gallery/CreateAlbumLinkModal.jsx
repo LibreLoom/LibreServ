@@ -9,6 +9,7 @@ import PageNotice from "../common/PageNotice";
 import Toggle from "../common/Toggle";
 import { apiErrorMessage, postJson } from "../../lib/api";
 import { haptic } from "../../utils/haptics";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const LINK_ERROR = "Couldn't create that link. Try again.";
 
@@ -36,6 +37,7 @@ export default function CreateAlbumLinkModal({
   onDone,
   overlayClassName,
 }) {
+  const { addToast } = useToast();
   const [role, setRole] = useState("viewer");
   const [days, setDays] = useState("30");
   const [allowUploads, setAllowUploads] = useState(false);
@@ -55,7 +57,7 @@ export default function CreateAlbumLinkModal({
         setError(LINK_ERROR);
         return;
       }
-      haptic("success");
+      addToast({ type: "success", message: "Link created." });
       setResult({ ...data, fullUrl: `${window.location.origin}${data.url}` });
     },
     onError: (err) => {

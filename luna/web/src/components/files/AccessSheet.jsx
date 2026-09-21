@@ -10,6 +10,7 @@ import PageNotice from "../common/PageNotice";
 import ShakeTarget from "../ui/ShakeTarget";
 import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../context/ToastContext.jsx";
 import { TermHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 import { dedupeIdenticalGrants, pathKey } from "../../lib/shareTree.js";
@@ -106,6 +107,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [error, setError] = useState(null);
   const [grantError, setGrantError] = useState(null);
   const [creatingLink, setCreatingLink] = useState(false);
@@ -155,7 +157,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     mutationFn: (body) => postJson("/api/v1/grants", body),
     onMutate: () => { setError(null); setGrantError(null); },
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Access granted." });
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
@@ -174,7 +176,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
     mutationFn: ({ id, permission: next }) => patchJson(`/api/v1/grants/${id}`, { permission: next }),
     onMutate: ({ id }) => setUpdatingGrantId(id),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Access updated." });
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       setError(null);
@@ -188,7 +190,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const revokeGrant = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/grants/${id}`),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Access removed." });
       queryClient.invalidateQueries({ queryKey: ["grants"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
     },
@@ -200,7 +202,7 @@ export default function AccessSheet({ driveId, path = "", kind = "folder", onClo
   const revokeShare = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/shares/${id}`),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Link removed." });
       queryClient.invalidateQueries({ queryKey: ["shares"] });
     },
     onError: (err) => {

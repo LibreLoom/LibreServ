@@ -13,6 +13,7 @@ import { apiErrorMessage, postJson } from "../../lib/api.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { joinPath } from "../../lib/paths.js";
 import { haptic } from "../../utils/haptics.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 /**
  * Pick a destination folder on a drive — replaces typed path fields.
@@ -43,6 +44,7 @@ export default function FolderPickerModal({
   error = null,
 }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const activeDrives = useMemo(() => {
     return (drives || []).filter((d) => (
       d.state !== "missing"
@@ -91,7 +93,7 @@ export default function FolderPickerModal({
       const fullPath = joinPath(path, parsed.name);
       await postJson(`/api/v1/drives/${drive.id}/files/mkdir`, { path: fullPath });
       await queryClient.invalidateQueries({ queryKey: ["files", drive.id, path] });
-      haptic("success");
+      addToast({ type: "success", message: "Folder created." });
     } catch (err) {
       haptic("error");
       setCreateError(apiErrorMessage(err, "Couldn't create that folder. Try another name."));

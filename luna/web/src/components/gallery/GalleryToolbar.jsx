@@ -174,10 +174,8 @@ export default function GalleryToolbar({
     try {
       await onRescan?.();
       setRescanState("success");
-      haptic("success");
     } catch {
       setRescanState("error");
-      haptic("error");
     }
     if (rescanTimerRef.current) clearTimeout(rescanTimerRef.current);
     rescanTimerRef.current = setTimeout(() => setRescanState("idle"), 2400);

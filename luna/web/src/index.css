@@ -1032,6 +1032,50 @@ select:focus:not(:focus-visible) {
     animation: otp-caret-blink 1.2s ease-out infinite;
 }
 
+/* Toast — M3 spring entrance; exit is JS-driven (height + margin collapse) */
+@keyframes toast-enter {
+    0% {
+        opacity: 0;
+        transform: translate(28px, -6px) scale(0.82);
+    }
+    55% {
+        opacity: 1;
+        transform: translate(-3px, 1px) scale(1.035);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+    }
+}
+
+.animate-toast-enter {
+    animation: toast-enter 380ms var(--motion-easing-emphasized) both;
+    will-change: transform, opacity;
+}
+
+/* Exit: fast fade + subtle scale; the grid row collapses layout height separately */
+@keyframes toast-exit {
+    0% { opacity: 1; transform: scale(1); }
+    45% { opacity: 0; transform: scale(0.94); }
+    100% { opacity: 0; transform: scale(0.9); }
+}
+
+.animate-toast-exit {
+    animation: toast-exit 320ms var(--motion-easing-emphasized-accelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Circular time-ring around the icon — depletes over the toast lifetime */
+@keyframes toast-ring {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 75.4; }
+}
+
+.toast-ring {
+    animation: toast-ring 3000ms linear forwards;
+    will-change: stroke-dashoffset;
+}
+
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
     .pop-in,
@@ -1041,6 +1085,15 @@ select:focus:not(:focus-visible) {
     .slide-in-from-left-pop,
     .slide-out-to-left-pop,
     .slide-out-to-bottom-4 {
+        animation: none !important;
+    }
+    .animate-toast-enter,
+    .animate-toast-exit {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
+    }
+    .toast-ring {
         animation: none !important;
     }
     .animate-md-bar-1,

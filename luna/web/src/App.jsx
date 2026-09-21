@@ -4,6 +4,8 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ToastProvider } from "./context/ToastContext";
+import Toaster from "./components/common/Toaster";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "./components/common/LoadingBar";
 import DrivesPage from "./pages/DrivesPage";
@@ -74,7 +76,8 @@ export default function App() {
       {import.meta.env.DEV && <Agentation />}
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AuthProvider>
+          <ToastProvider>
+            <AuthProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
@@ -92,7 +95,9 @@ export default function App() {
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
-          </AuthProvider>
+            <Toaster />
+            </AuthProvider>
+          </ToastProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>

@@ -5,7 +5,6 @@ import { Download, Image as ImageIcon, Upload } from "lucide-react";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
-import PageNotice from "../components/common/PageNotice";
 import ShakeTarget from "../components/ui/ShakeTarget";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import PhotoLightbox, {
@@ -13,6 +12,7 @@ import PhotoLightbox, {
   resolveDownloadSrc,
 } from "../components/gallery/PhotoLightbox.jsx";
 import { apiErrorMessage, getJson, postForm } from "../lib/api";
+import { useToast } from "../context/ToastContext";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 
 /**
@@ -21,7 +21,7 @@ import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 export default function PublicAlbumPage() {
   const { token } = useParams();
   const queryClient = useQueryClient();
-  const [error, setError] = useState(null);
+  const { addToast } = useToast();
   const [lightbox, setLightbox] = useState(/** @type {{ key: string }|null} */ (null));
   const dropRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const [dragOver, setDragOver] = useState(false);
@@ -48,10 +48,14 @@ export default function PublicAlbumPage() {
       for (const file of files) form.append("file", file);
       return postForm(`/api/v1/public/albums/${token}/upload`, form);
     },
-    onSuccess: () => {
+    onSuccess: (_d, files) => {
+      addToast({
+        type: "success",
+        message: files.length === 1 ? "1 photo added." : `${files.length} photos added.`,
+      });
       queryClient.invalidateQueries({ queryKey: ["public-album", token] });
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => addToast({ type: "error", message: apiErrorMessage(err) }),
   });
 
   const pages = useMemo(() => album.data?.pages || [], [album.data?.pages]);
@@ -148,11 +152,6 @@ export default function PublicAlbumPage() {
   return (
     <div className="min-h-screen bg-primary text-secondary" ref={dropRef}>
       <Page title={title} titleId="public-album-title">
-        {error && (
-          <PageNotice variant="error" className="mb-4">
-            {error}
-          </PageNotice>
-        )}
         {album.isError && (
           <EmptyState
             icon={ImageIcon}
@@ -208,7 +207,7 @@ export default function PublicAlbumPage() {
             </div>
             {canUpload && (
               <div className="mb-6">
-                <ShakeTarget shake={error}>
+                <ShakeTarget shake={upload.isError ? "upload-failed" : null}>
                   <label
                     className={`inline-flex cursor-pointer ${
                       dragOver ? "ring-2 ring-accent rounded-pill" : ""

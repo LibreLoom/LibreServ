@@ -133,6 +133,27 @@ Users find Tailwind **focus rings on text boxes intrusive** when clicking with a
 - Buttons, links, toggles, and dropdown triggers **may** keep `focus-visible:ring-*` — the ban applies to **text boxes and other form fields only**.
 - Shared `Input`/`Textarea` components and global base styles in `index.css` enforce this; do not override with per-field rings.
 
+#### Toasts — transient outcomes only
+
+`ToastContext` + `Toaster` exist in both `sol/server/frontend` and `luna/web` (`src/context/ToastContext.jsx`, `src/components/common/Toaster.jsx`) — keep the copies in sync like every other shared component. A toast announces that something **just finished**. It auto-dismisses in seconds, so it is never the only record of a persistent state.
+
+**Do toast:**
+
+- **One-shot async action results** — every `useMutation`/request fired by a user action (save, delete, send, eject, move, upload-finished, link created) gets a `success` toast, even when the UI also repaints: a modal animating closed or a row appearing is not the same as "it worked".
+- **Failures with no inline home** — `error` toast when the action came from a menu, FAB, drag-drop, or keyboard shortcut, or the dialog that launched it already closed. `message` = what failed in plain language; `description` = what to try next.
+- **Background/partial failures** — a card-level query, a poll, or a queued job that fails without the user pressing a button just now.
+- `addToast` fires the matching `success`/`error` haptic itself — drop the manual `haptic("success")`/`haptic("error")` at call sites that toast, or they double-buzz.
+
+**Don't toast:**
+
+- **Errors an open surface owns** — a still-open modal, sheet, or form keeps its error inside (`ModalErrorNotice`, `submitError`, field `error` + `shakeElement`). A toast floating over the dialog the user is fixing double-reports and steals focus. (When that surface closes on success, the success toast *is* the confirmation.)
+- **Synchronous validation** — shake + inline message; nothing was awaited.
+- **Rapid-toggle state** — favoriting, checkbox-style flips, autosave ticks: the heart filling or the "Saved" stamp already announces it, and toasts would spam on repeats. The haptic there is enough.
+- **Persistent state** — a page that can't load, offline/degraded banners, health warnings → `PageNotice` or card state until it clears.
+- **Progress** — LoadingBar/spinners, not toasts.
+
+One toast per outcome — never re-fire the same toast inside a retry or poll loop.
+
 ### Design / Theme
 
 **This is a recurring failure mode. Agents repeatedly break contrast and abandon the design system, producing invisible text and flat boxes. Default HARD to these rules; question any deviation out loud before shipping.**

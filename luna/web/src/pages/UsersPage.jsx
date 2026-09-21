@@ -11,16 +11,18 @@ import Pill from "../components/common/Pill";
 import Table from "../components/common/Table";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import { showPageLevelError } from "../lib/modalScopedError";
 import { InfoHint } from "../components/ui/Tooltip";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import CreateUserForm from "../components/common/forms/CreateUserForm";
+import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { haptic } from "../utils/haptics.js";
 
 export default function UsersPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { addToast } = useToast();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
@@ -34,7 +36,7 @@ export default function UsersPage() {
   const createMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/users", body),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "User added." });
       setCreating(false);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -47,7 +49,7 @@ export default function UsersPage() {
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/users/${id}`),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "User removed." });
       setUserToDelete(null);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -57,6 +59,9 @@ export default function UsersPage() {
       setError(apiErrorMessage(err, "Couldn't remove this user. Try again."));
     },
   });
+
+  const actionModalOpen = creating || userToDelete != null;
+  useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
   if (user?.role !== "admin") {
     return (
@@ -75,8 +80,6 @@ export default function UsersPage() {
   const showList = !loading && !users.isError && list.length > 0;
   const showEmpty = !loading && !users.isError && list.length === 0;
 
-  const actionModalOpen = creating || userToDelete != null;
-
   return (
     <>
       <Page
@@ -84,12 +87,6 @@ export default function UsersPage() {
         titleId="users-title"
         className={userToDelete ? "pop-out" : "pop-in"}
       >
-        {showPageLevelError(error, actionModalOpen) && (
-          <PageNotice variant="error" className="mb-4">
-            {error}
-          </PageNotice>
-        )}
-
         {users.isError && (
           <PageNotice variant="error" className="mb-4">
             {String(users.error?.message || "Couldn't load users. Try again.")}

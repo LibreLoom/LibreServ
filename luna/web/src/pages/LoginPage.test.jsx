@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
+import { ToastProvider } from "../context/ToastContext";
 
 function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
@@ -40,6 +41,7 @@ function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
 
 function renderLogin() {
   return render(
+    <ToastProvider>
     <MemoryRouter initialEntries={["/login"]}>
       <AuthProvider>
         <Routes>
@@ -48,6 +50,7 @@ function renderLogin() {
         </Routes>
       </AuthProvider>
     </MemoryRouter>
+    </ToastProvider>
   );
 }
 

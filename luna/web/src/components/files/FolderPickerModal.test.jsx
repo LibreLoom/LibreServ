@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FolderPickerModal from "./FolderPickerModal.jsx";
+import { ToastProvider } from "../../context/ToastContext";
 
 describe("FolderPickerModal", () => {
   beforeEach(() => {
@@ -22,6 +23,7 @@ describe("FolderPickerModal", () => {
       defaultOptions: { queries: { retry: false } },
     });
     return render(
+      <ToastProvider>
       <QueryClientProvider client={client}>
         <MemoryRouter>
           <FolderPickerModal
@@ -38,7 +40,8 @@ describe("FolderPickerModal", () => {
             {...props}
           />
         </MemoryRouter>
-      </QueryClientProvider>,
+      </QueryClientProvider>
+      </ToastProvider>,
     );
   }
 

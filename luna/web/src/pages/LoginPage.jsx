@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import { login as loginQuips } from "../assets/greetings";
 import Card from "../components/cards/Card";
 import StepTransition from "../components/common/StepTransition";
 import Button from "../components/ui/Button";
 import FormInput from "../components/common/forms/FormInput";
-import { haptic } from "../utils/haptics.js";
 
 const LOGIN_STEPS = ["form"];
 
@@ -16,6 +16,7 @@ function getLoginQuip() {
 }
 
 export default function LoginPage() {
+  const { addToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [username, setUsername] = useState("");
@@ -82,7 +83,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
-      haptic("success");
+      addToast({ type: "success", message: "Signed in." });
       navigate(returnTo, { replace: true });
     } catch (err) {
       setErrorStatus(err.status || "NetworkError");

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccessCategory from "./AccessCategory.jsx";
+import { ToastProvider } from "../../../context/ToastContext";
 
 function stubFetch(tokens = []) {
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
@@ -26,9 +27,11 @@ function stubFetch(tokens = []) {
 function renderAccess() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <QueryClientProvider client={client}>
       <AccessCategory />
-    </QueryClientProvider>,
+    </QueryClientProvider>
+    </ToastProvider>,
   );
 }
 

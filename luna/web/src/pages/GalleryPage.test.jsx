@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
+import { ToastProvider } from "../context/ToastContext";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 
@@ -123,13 +124,15 @@ function stubGalleryFetch({
 function renderGallery() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <AuthProvider>
           <GalleryPage />
         </AuthProvider>
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
+    </ToastProvider>,
   );
 }
 
@@ -866,13 +869,15 @@ describe("GalleryPage", () => {
       defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
     });
     render(
+      <ToastProvider>
       <QueryClientProvider client={client}>
         <MemoryRouter>
           <AuthProvider>
             <GalleryPage />
           </AuthProvider>
         </MemoryRouter>
-      </QueryClientProvider>,
+      </QueryClientProvider>
+      </ToastProvider>,
     );
     expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
     // Wait until indexing status is live so wasIndexingRef is armed; otherwise

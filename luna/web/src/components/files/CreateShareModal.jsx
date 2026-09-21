@@ -8,6 +8,7 @@ import PageNotice from "../common/PageNotice";
 import ShakeTarget from "../ui/ShakeTarget";
 import { postJson, apiErrorMessage } from "../../lib/api";
 import { haptic } from "../../utils/haptics";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const LINK_ERROR = "Couldn't create that link. Check that the file or folder is still on this drive, then try again.";
 
@@ -30,6 +31,7 @@ export default function CreateShareModal({
   open = true,
   overlayClassName,
 }) {
+  const { addToast } = useToast();
   const [password, setPassword] = useState("");
   const [days, setDays] = useState("30");
   const [permission, setPermission] = useState("read");
@@ -46,7 +48,7 @@ export default function CreateShareModal({
         onError?.(msg);
         return;
       }
-      haptic("success");
+      addToast({ type: "success", message: "Link created." });
       setError(null);
       const url = window.location.origin + data.url;
       try {
