@@ -65,11 +65,22 @@ chmod -R u+w "$ROOT" 2>/dev/null || true
 mkdir -p "$ROOT/boot/grub" "$WORK/efi/EFI/BOOT" "$ROOT/EFI/BOOT"
 
 echo "==> building UEFI GRUB (BOOTX64.EFI)"
+# Embed a bootstrap config in the EFI image itself: locate the ISO9660
+# volume holding the live kernel and chain to the real grub.cfg there.
+# Without this, firmwares that don't run the $cmdpath/grub.cfg fallback
+# (i.e. don't look for a config next to BOOTX64.EFI on the ESP) land at
+# a bare grub shell.
+cat >"$WORK/boot.cfg" <<'EOF'
+search --no-floppy --set=root --file /live/vmlinuz
+set prefix=($root)/boot/grub
+configfile /boot/grub/grub.cfg
+EOF
 # Embed enough modules that /boot/grub/grub.cfg can load the live kernel.
 grub-mkimage \
 	-O x86_64-efi \
 	-o "$WORK/efi/EFI/BOOT/BOOTX64.EFI" \
 	-p /boot/grub \
+	-c "$WORK/boot.cfg" \
 	-d "$GRUB_EFI_DIR" \
 	all_video boot cat chain configfile echo efi_gop efi_uga fat font \
 	gfxterm gzio halt iso9660 linux linuxefi loadenv ls lsefi normal \
