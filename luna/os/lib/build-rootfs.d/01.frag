@@ -33,9 +33,16 @@ command_background="yes"
 pidfile="/run/luna.pid"
 start_stop_daemon_args="--env LUNA_DATA_DIR=/var/lib/luna --env LUNA_PORT=80 --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 depend() {
-    need localmount
+    need localmount luna-root-ro
     # HTTP must not wait on mDNS — avahi can start in parallel.
     after luna-network
+}
+start_pre() {
+    if ! mountpoint -q /var/lib/luna; then
+        eerror "LUNA_DATA is not mounted at /var/lib/luna"
+        eerror "Check that the data partition exists and is labelled LUNA_DATA"
+        return 1
+    fi
 }
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"
