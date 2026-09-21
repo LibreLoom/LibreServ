@@ -4,7 +4,8 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import api from "../../lib/api.js";
 import { canUseClipboard, copyWithFeedback } from "@libreloom/ui/utils/clipboard.js";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { useToast } from "../../context/ToastContext";
+import { ICON_SIZE } from "@/lib/ui-tokens";
 
 export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const [revealed, setRevealed] = useState(false);
@@ -14,6 +15,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const [loading, setLoading] = useState(needsFetch);
   const [error, setError] = useState(null);
   const clipboardOk = canUseClipboard();
+  const { addToast } = useToast();
 
   useEffect(() => {
     if (!needsFetch) return;
@@ -33,7 +35,13 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const handleCopy = () => {
     const key = recoveryKey || repo?.password;
     if (!key || !clipboardOk) return;
-    copyWithFeedback(key, setCopied);
+    copyWithFeedback(key, setCopied, {
+      onError: () =>
+        addToast({
+          type: "error",
+          message: "Couldn't copy — select the text and copy it.",
+        }),
+    });
   };
 
   const handleDownload = () => {

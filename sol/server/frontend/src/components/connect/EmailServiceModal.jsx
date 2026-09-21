@@ -124,6 +124,9 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                     className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
+                {errors.host && (
+                  <p className="mt-1.5 px-4 text-xs text-error">{errors.host}</p>
+                )}
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Port</label>
@@ -136,6 +139,9 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                     className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
+                {errors.port && (
+                  <p className="mt-1.5 px-4 text-xs text-error">{errors.port}</p>
+                )}
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Username</label>

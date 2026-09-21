@@ -406,9 +406,7 @@ describe("MyProfile", () => {
 
     await user.click(screen.getByRole("button", { name: "Change Password" }));
     expect(screen.getByText("Current password is required")).toBeVisible();
-    expect(
-      screen.getByText("Password must be at least 12 characters"),
-    ).toBeVisible();
+    expect(screen.getByText("Enter a password.")).toBeVisible();
 
     await user.type(screen.getByLabelText("Current Password"), "wrong");
     await user.type(

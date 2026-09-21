@@ -20,6 +20,9 @@ vi.mock("../../../hooks/useAuth.jsx", () => ({
 vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
   copyWithFeedback: copyMock,
 }));
+vi.mock("../../../context/ToastContext.jsx", () => ({
+  useToast: () => ({ addToast: vi.fn() }),
+}));
 vi.mock("react-router-dom", async (importOriginal) => {
   const original = /** @type {Record<string, any>} */ (await importOriginal());
   return { ...original, useNavigate: () => navigateMock };
@@ -271,6 +274,7 @@ describe("installation wizard steps", () => {
     expect(copyMock).toHaveBeenCalledWith(
       expect.stringContaining("pull image"),
       expect.any(Function),
+      expect.objectContaining({ onError: expect.any(Function) }),
     );
     act(() => stream.onerror());
     expect(stream.close).toHaveBeenCalled();
@@ -301,6 +305,7 @@ describe("installation wizard steps", () => {
     expect(copyMock).toHaveBeenCalledWith(
       "port is already in use",
       expect.any(Function),
+      expect.objectContaining({ onError: expect.any(Function) }),
     );
   });
 
