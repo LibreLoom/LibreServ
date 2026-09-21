@@ -20,7 +20,23 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 |----------|---------|
 | Linux | **Flatpak** (`packaging/flatpak/`) — preferred; builds for the host CPU (`x86_64`, `aarch64`, …) |
 | Windows | **`.exe` installer** (`packaging/windows/`) — preferred |
+| macOS | **`.dmg`** (`packaging/macos/build.sh`) — must build on a Mac; GTK/libadwaita come from Homebrew and are bundled into the .app |
 | Linux (demo / CI) | AppImage (`packaging/appimage/build.sh`) |
+
+### macOS notes
+
+- Build host needs `brew install gtk4 libadwaita dylibbundler` then
+  `bash packaging/macos/build.sh` — produces `release/Luna-Desktop-*-macos-*.dmg`.
+- `UNIVERSAL=1` builds an arm64+x86_64 universal binary (needs both rustup targets).
+- The build ad-hoc signs by default (required on Apple Silicon). Set
+  `CODESIGN_IDENTITY` for a Developer ID signature and `NOTARYTOOL_PROFILE` to
+  notarize + staple the dmg.
+- Unsigned (ad-hoc) builds trip Gatekeeper on other machines: install by
+  dragging to `/Applications`, then right-click → **Open** once, or
+  `xattr -dr com.apple.quarantine "/Applications/Luna Desktop.app"`.
+- Platform bits: the tray is a native menu-bar status item (tray-icon crate,
+  not ksni), start-on-sign-in writes `~/Library/LaunchAgents/org.libreloom.LunaDesktop.plist`,
+  and app data lives in `~/Library/Application Support/Luna Desktop`.
 
 ## Build from source (Linux)
 
@@ -33,6 +49,9 @@ sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
 # Fedora
 sudo dnf install gtk4-devel libadwaita-devel pkgconf-pkg-config
 ```
+
+On macOS: `brew install gtk4 libadwaita pkgconf` (Rust via rustup), then
+`cargo run` / `cargo test` work as usual.
 
 ## Building on hosts with old GTK
 

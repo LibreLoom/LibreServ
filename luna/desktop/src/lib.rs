@@ -7,6 +7,8 @@ pub fn product_name() -> &'static str {
 
 pub mod autostart;
 pub mod backup;
+#[cfg(target_os = "macos")]
+pub mod bundle;
 pub mod dest;
 pub mod instance;
 pub mod luna;
@@ -25,7 +27,7 @@ pub mod tray_win;
 /// installed into the same prefix it was built for — which an NSIS
 /// install-anywhere layout is not — so the app sets the variables itself, at
 /// startup, before GTK initializes. Anything already set wins (dev boxes keep
-/// their own runtime). No-op off Windows.
+/// their own runtime). See the macOS variant below for the .app layout.
 #[cfg(windows)]
 pub fn ensure_runtime_env() {
     let Ok(exe) = std::env::current_exe() else {
@@ -61,8 +63,17 @@ pub fn ensure_runtime_env() {
     unsafe { std::env::set_var("PATH", path) };
 }
 
-/// No-op off Windows — GTK finds its runtime from the system install.
-#[cfg(not(windows))]
+/// macOS `.app` bundle variant — the bundle ships GTK resources under
+/// `Contents/Resources`, but the .app can live anywhere, so paths are
+/// resolved at startup rather than baked in.
+#[cfg(target_os = "macos")]
+pub fn ensure_runtime_env() {
+    bundle::setup_env();
+}
+
+/// No-op on platforms without a bundled runtime — GTK finds its runtime
+/// from the system install.
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn ensure_runtime_env() {}
 
 pub use luna_url::{LUNA_ADDRESS_PLACEHOLDER, normalize_luna_base_url};

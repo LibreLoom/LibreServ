@@ -24,7 +24,12 @@ pub fn data_dir() -> PathBuf {
         }
         return PathBuf::from(".").join("Luna Desktop");
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        PathBuf::from(home).join("Library/Application Support/Luna Desktop")
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
         PathBuf::from(home).join(".local/share/luna-desktop")

@@ -152,3 +152,4 @@ desktop-bundle: desktop-flatpak
 	@echo "Preferred Linux ship: $(FLATPAK_BUNDLE)"
 	@echo "Demo AppImage (optional): make desktop-appimage"
 	@echo "Windows: see desktop/packaging/windows/README.md"
+	@echo "macOS: run on a Mac — cd luna/desktop && bash packaging/macos/build.sh"

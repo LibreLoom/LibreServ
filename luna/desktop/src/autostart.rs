@@ -1,4 +1,5 @@
-//! Start Luna Desktop when you sign in (XDG autostart on Linux, HKCU Run on Windows).
+//! Start Luna Desktop when you sign in (XDG autostart on Linux, a LaunchAgent
+//! plist on macOS, HKCU Run on Windows).
 
 use std::path::PathBuf;
 
@@ -35,7 +36,7 @@ pub fn is_explicitly_disabled() -> bool {
     if disabled_marker_path().is_file() {
         return true;
     }
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let path = unix_impl::desktop_path();
         if path.is_file() {
@@ -51,10 +52,14 @@ pub fn is_explicitly_disabled() -> bool {
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    if macos_impl::is_launchctl_disabled() {
+        return true;
+    }
     false
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod unix_impl {
     use super::exec_path;
     use std::fs;
@@ -161,13 +166,122 @@ mod windows_impl {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+mod macos_impl {
+    use super::exec_path;
+    use std::fs;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    const LABEL: &str = "org.libreloom.LunaDesktop";
+
+    fn plist_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        PathBuf::from(home)
+            .join("Library/LaunchAgents")
+            .join(format!("{LABEL}.plist"))
+    }
+
+    fn launchctl(args: &[&str]) -> Option<std::process::Output> {
+        let uid = std::process::Command::new("id").arg("-u").output().ok()?;
+        let uid = String::from_utf8_lossy(&uid.stdout).trim().to_string();
+        let domain = format!("gui/{uid}");
+        let mut full = vec![args[0], domain.as_str()];
+        full.extend_from_slice(&args[1..]);
+        std::process::Command::new("launchctl")
+            .args(&full)
+            .output()
+            .ok()
+    }
+
+    /// True when `launchctl disable` left an override for our label — the
+    /// plist alone no longer means the agent will run.
+    pub fn is_launchctl_disabled() -> bool {
+        let Some(out) = launchctl(&["print-disabled"]) else {
+            return false;
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        text.lines()
+            .any(|l| l.contains(LABEL) && l.contains("disabled"))
+    }
+
+    pub fn is_enabled() -> bool {
+        plist_path().is_file()
+    }
+
+    fn xml_escape(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    }
+
+    pub fn set_enabled(enabled: bool) -> Result<(), String> {
+        let path = plist_path();
+        if !enabled {
+            let _ = fs::remove_file(&path);
+            // Stop it if loaded and record the override so macOS won't relaunch.
+            let _ = launchctl(&["bootout", LABEL]);
+            let _ = launchctl(&["disable", LABEL]);
+            return Ok(());
+        }
+        // Clear any previous `launchctl disable` override.
+        let _ = launchctl(&["enable", LABEL]);
+        let dir = path.parent().unwrap().to_path_buf();
+        fs::create_dir_all(&dir).map_err(|_| {
+            "Couldn't create the start-on-sign-in folder on this computer.".to_string()
+        })?;
+        // Inside a .app bundle the exe is Contents/MacOS/luna-desktop; a bare
+        // binary works too — LaunchAgent runs it directly, no shell quoting.
+        let exec = xml_escape(&exec_path().trim_matches('"'));
+        let body = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+             <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+             <plist version=\"1.0\">\n\
+             <dict>\n\
+             \t<key>Label</key>\n\
+             \t<string>{LABEL}</string>\n\
+             \t<key>ProgramArguments</key>\n\
+             \t<array>\n\
+             \t\t<string>{exec}</string>\n\
+             \t\t<string>--background</string>\n\
+             \t</array>\n\
+             \t<key>RunAtLoad</key>\n\
+             \t<true/>\n\
+             \t<key>ProcessType</key>\n\
+             \t<string>Interactive</string>\n\
+             </dict>\n\
+             </plist>\n"
+        );
+        let tmp = dir.join(format!("{LABEL}.plist.tmp"));
+        {
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o644);
+            }
+            let mut file = opts
+                .open(&tmp)
+                .map_err(|_| "Couldn't write the start-on-sign-in setting.".to_string())?;
+            file.write_all(body.as_bytes())
+                .map_err(|_| "Couldn't write the start-on-sign-in setting.".to_string())?;
+        }
+        fs::rename(tmp, path)
+            .map_err(|_| "Couldn't save the start-on-sign-in setting.".to_string())?;
+        Ok(())
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 use unix_impl as platform_impl;
+
+#[cfg(target_os = "macos")]
+use macos_impl as platform_impl;
 
 #[cfg(windows)]
 use windows_impl as platform_impl;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub use unix_impl::desktop_path;
 
 pub fn is_enabled() -> bool {
@@ -203,7 +317,7 @@ pub fn init_default() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 mod tests {
     use super::*;
     use std::fs;
@@ -325,6 +439,43 @@ mod tests {
         unsafe {
             std::env::remove_var("XDG_CONFIG_HOME");
             std::env::remove_var("LUNA_DESKTOP_DATA");
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn toggle_autostart_launchagent() {
+        let _g = crate::session::test_env::lock();
+        let dir = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+            std::env::set_var("LUNA_DESKTOP_DATA", dir.path());
+        }
+        assert!(!is_enabled());
+        set_enabled(true).unwrap();
+        assert!(is_enabled());
+        let text = fs::read_to_string(
+            dir.path()
+                .join("Library/LaunchAgents/org.libreloom.LunaDesktop.plist"),
+        )
+        .unwrap();
+        assert!(text.contains("<string>org.libreloom.LunaDesktop</string>"));
+        assert!(text.contains("--background"));
+        assert!(text.contains("<key>RunAtLoad</key>"));
+        set_enabled(false).unwrap();
+        assert!(!is_enabled());
+        unsafe {
+            std::env::remove_var("LUNA_DESKTOP_DATA");
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
         }
     }
 }
