@@ -17,7 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
+	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
@@ -45,7 +45,7 @@ type EmailSender interface {
 }
 
 // mfaEmailSender adapts a server.EmailSender to the func(email, code) error
-// signature that handlers.NewMFAHandler expects. nil -> email MFA disabled.
+// signature that handlersauth.NewMFAHandler expects. nil -> email MFA disabled.
 func mfaEmailSender(s EmailSender) func(email, code string) error {
 	if s == nil {
 		return nil
@@ -67,7 +67,7 @@ func (s *Server) SetEmailSender(sender EmailSender) {
 }
 
 // inviteSender adapts a server.EmailSender to the func(email, token) error
-// signature that handlers.NewInviteHandler expects, building the invite URL
+// signature that handlersauth.NewInviteHandler expects, building the invite URL
 // from baseURL. nil sender -> nil func (invites disabled).
 func inviteSender(s EmailSender, baseURL string) func(email, token string) error {
 	if s == nil {
@@ -112,12 +112,12 @@ type Server struct {
 	selfHealMonitor  *agent.SelfHealingMonitor
 	connectClient    connect.Client
 	connectChecker   *connect.EntitlementChecker
-	emailSender      EmailSender          // sends MFA email-OTP codes; nil disables email MFA
-	mfaHandler       *handlers.MFAHandler // rewired by SetEmailSender when SMTP settings change
-	inviteHandler    *handlers.InviteHandler
+	emailSender      EmailSender              // sends MFA email-OTP codes; nil disables email MFA
+	mfaHandler       *handlersauth.MFAHandler // rewired by SetEmailSender when SMTP settings change
+	inviteHandler    *handlersauth.InviteHandler
 	inviteBase       string
-	oidcHandler      http.Handler          // OIDC provider endpoints (discovery, authorize, token, userinfo)
-	oidcAdminHandler *handlers.OIDCHandler // admin API for managing OIDC clients per app
+	oidcHandler      http.Handler              // OIDC provider endpoints (discovery, authorize, token, userinfo)
+	oidcAdminHandler *handlersauth.OIDCHandler // admin API for managing OIDC clients per app
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -141,7 +141,7 @@ type ServerConfig struct {
 	ConnectChecker   *connect.EntitlementChecker
 	EmailSender      EmailSender
 	OIDCHandler      http.Handler
-	OIDCAdminHandler *handlers.OIDCHandler
+	OIDCAdminHandler *handlersauth.OIDCHandler
 }
 
 // JobQueue interface for job queue operations
@@ -412,7 +412,7 @@ func (s *Server) WithJobQueue(queue JobQueue) *Server {
 	return s
 }
 
-// Log implements handlers.AuditLogger
+// Log implements handlersshared.AuditLogger
 func (s *Server) Log(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{}) {
 	s.auditLog(ctx, action, targetID, targetName, status, message, metadata)
 }

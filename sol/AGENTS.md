@@ -13,8 +13,17 @@ sol/
 │   ├── cmd/libreserv/        # Entry point
 │   ├── internal/
 │   │   ├── api/              # HTTP handlers + middleware + router
-│   │   │   ├── handlers/     # Endpoint handlers
-│   │   │   │   └── response.go # JSONError, JSONResponse helpers
+│   │   │   ├── handlers/     # Endpoint handlers, grouped by domain:
+│   │   │   │   ├── auth/     #   login, sessions, MFA, OIDC, API tokens, CSRF, invites, users
+│   │   │   │   ├── apps/     #   app lifecycle, catalog, repos, scripts, logs, job queue
+│   │   │   │   ├── network/  #   routes, ACME, DNS/DDNS, domains, connectivity, wifi, tunnel
+│   │   │   │   ├── backups/  #   backup runs and schedules
+│   │   │   │   ├── services/ #   external cloud services (Connect, plans)
+│   │   │   │   ├── system/   #   health, monitoring, settings, setup, audit, security
+│   │   │   │   ├── shared/   #   cross-domain request/session helpers
+│   │   │   │   └── testutil/ #   shared test fixtures
+│   │   │   ├── response/     # JSONError, JSONResponse helpers
+│   │   │   └── router.go     # All routes live here
 │   │   │   ├── middleware/   # Auth, CORS, CSRF, rate-limit, security headers
 │   │   ├── apps/             # App lifecycle + catalog
 │   │   ├── auth/             # JWT authentication
@@ -127,9 +136,9 @@ npm test -- --watch                                    # Watch mode
 ## Common Tasks
 
 **New API endpoint:**
-1. Create handler in `internal/api/handlers/{resource}.go`
+1. Create handler in `internal/api/handlers/{domain}/{resource}.go` (pick the domain package; see the tree above)
 2. Add route in `internal/api/router.go` (not server.go — routes live in router.go)
-3. Write test in `{resource}_test.go`
+3. Write test in `{domain}/{resource}_test.go`
 
 **New frontend page:**
 1. Create `src/pages/{PageName}.jsx`

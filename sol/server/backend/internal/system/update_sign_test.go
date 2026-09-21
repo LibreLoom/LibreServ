@@ -19,7 +19,7 @@ import (
 )
 
 func TestPinnedKeyMatchesRepoFile(t *testing.T) {
-	repo := filepath.Join("..", "..", "..", "..", "keys", "libreserv.minisign.pub")
+	repo := filepath.Join("..", "..", "..", "..", "..", "keys", "libreserv.minisign.pub")
 	want, err := os.ReadFile(repo)
 	if err != nil {
 		t.Fatalf("read repo public key: %v", err)

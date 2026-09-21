@@ -10,10 +10,10 @@ BUILD_TAGS ?=
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
-LDVARS := -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$(VERSION) \
-          -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$(GIT_COMMIT)
+LDVARS := -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.Version=$(VERSION) \
+          -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.GitCommit=$(GIT_COMMIT)
 ifneq ($(strip $(BUILD_TIME)),)
-LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$(BUILD_TIME)
+LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system.BuildTime=$(BUILD_TIME)
 endif
 LDFLAGS := -ldflags "$(LDVARS)"
 # CODE QUALITY FIX: correctly handle empty BUILD_TAGS (was -tags "" causing vet to see empty tag)

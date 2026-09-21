@@ -6,7 +6,12 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
+	handlersapps "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/apps"
+	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
+	handlersbackups "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/backups"
+	handlersnetwork "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/network"
+	handlersservices "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/services"
+	handlerssystem "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
@@ -21,36 +26,36 @@ func (s *Server) setupRoutes() {
 	s.router.Use(middleware.RateLimitDefault())
 
 	// Initialize all route handlers with required dependencies
-	healthHandler := handlers.NewHealthHandler(s.db)
-	catalogHandler := handlers.NewCatalogHandler(s.appManager)
-	reposHandler := handlers.NewReposHandler(s.appManager, config.Get())
-	appsHandler := handlers.NewAppsHandler(s.appManager)
+	healthHandler := handlerssystem.NewHealthHandler(s.db)
+	catalogHandler := handlersapps.NewCatalogHandler(s.appManager)
+	reposHandler := handlersapps.NewReposHandler(s.appManager, config.Get())
+	appsHandler := handlersapps.NewAppsHandler(s.appManager)
 	appsHandler.SetAuditLogger(s)
 	appsHandler.SetSecurityEvents(s.securityService)
-	authHandler := handlers.NewAuthHandler(s.authService, s.securityService, s.db)
-	securityHandler := handlers.NewSecurityHandler(s.securityService)
-	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.runtimeClient, s.appManager.GetMetricsCache())
-	backupHandler := handlers.NewBackupHandlers(s.backupService)
-	usersHandler := handlers.NewUsersHandler(s.authService)
+	authHandler := handlersauth.NewAuthHandler(s.authService, s.securityService, s.db)
+	securityHandler := handlerssystem.NewSecurityHandler(s.securityService)
+	monitoringHandler := handlerssystem.NewMonitoringHandlers(s.monitor, s.db, s.runtimeClient, s.appManager.GetMetricsCache())
+	backupHandler := handlersbackups.NewBackupHandlers(s.backupService)
+	usersHandler := handlersauth.NewUsersHandler(s.authService)
 	usersHandler.SetSecurityEvents(s.securityService)
-	apiTokensHandler := handlers.NewAPITokensHandler(s.authService)
+	apiTokensHandler := handlersauth.NewAPITokensHandler(s.authService)
 	apiTokensHandler.SetAuditLogger(s)
-	mfaHandler := handlers.NewMFAHandler(s.authService, mfaEmailSender(s.emailSender))
+	mfaHandler := handlersauth.NewMFAHandler(s.authService, mfaEmailSender(s.emailSender))
 	// Invite link base URL: https://<domain>/invite/<token> (dev falls back to localhost).
 	inviteBase := "http://localhost:8080"
 	if d := config.Get().Network.Caddy.DefaultDomain; d != "" {
 		inviteBase = "https://" + d
 	}
-	inviteHandler := handlers.NewInviteHandler(s.authService, inviteSender(s.emailSender, inviteBase))
+	inviteHandler := handlersauth.NewInviteHandler(s.authService, inviteSender(s.emailSender, inviteBase))
 	// Keep references so SetEmailSender can rewire these when SMTP settings
 	// change at runtime (Connect provisioning writes smtp.* during activation).
 	s.mfaHandler = mfaHandler
 	s.inviteHandler = inviteHandler
 	s.inviteBase = inviteBase
-	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService)
+	settingsHandler := handlerssystem.NewSettingsHandler(s.settingsService, s.securityService)
 	csrfSecret := config.Get().Auth.CSRFSecret
-	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
-	networkProbeHandler := handlers.NewNetworkProbeHandler()
+	csrfHandler := handlersauth.NewCSRFHandler(csrfSecret)
+	networkProbeHandler := handlersnetwork.NewNetworkProbeHandler()
 
 	// ACME manager is supplied by the application bootstrap (cmd/libreserv/main.go)
 	// as a single shared instance so background jobs and HTTP handlers never drift
@@ -67,17 +72,17 @@ func (s *Server) setupRoutes() {
 		s.acmeManager.WithMetrics(caddyMetrics)
 	}
 
-	acmeHandler := handlers.NewACMEHandler(s.db, s.acmeManager, s.caddyManager, s.appManager)
+	acmeHandler := handlersnetwork.NewACMEHandler(s.db, s.acmeManager, s.caddyManager, s.appManager)
 	// Wire in job queue if available
 	if s.jobQueue != nil {
 		acmeHandler = acmeHandler.WithJobQueue(s.jobQueue)
 	}
-	acmeCleanup := handlers.NewACMECleanupHandler(s.caddyManager)
+	acmeCleanup := handlersnetwork.NewACMECleanupHandler(s.caddyManager)
 
 	// Initialize network handler if Caddy is available
-	var networkHandler *handlers.NetworkHandlers
+	var networkHandler *handlersnetwork.NetworkHandlers
 	if s.caddyManager != nil {
-		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
+		networkHandler = handlersnetwork.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
 	}
 
 	// Initialize DNS provider manager. NewServer already creates this before
@@ -88,27 +93,27 @@ func (s *Server) setupRoutes() {
 	}
 
 	// Initialize setup handler with all required dependencies
-	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.runtimeClient, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
+	setupHandler := handlerssystem.NewSetupHandler(s.authService, s.setupService, s.runtimeClient, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
 
 	// Initialize support and system handlers
-	systemHandler := handlers.NewSystemHandler(s.sysChecker)
+	systemHandler := handlerssystem.NewSystemHandler(s.sysChecker)
 	systemHandler.SetAuditLogger(s)
-	auditHandler := handlers.NewAuditHandler(s.audit)
-	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
-	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
-	domainHandler := handlers.NewDomainHandler(s.dnsProviderMgr, s.acmeManager, s.caddyManager)
-	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
-	wifiHandler := handlers.NewWifiHandler(wifi.Auto())
-	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
-	reportHandler := handlers.NewReportHandler(s.reportService)
-	mappingHandler := handlers.NewMappingHandler(s.upnpClient)
-	plansHandler := handlers.NewPlansHandler(s.reportService, s.appManager, s.pathStateStore)
+	auditHandler := handlerssystem.NewAuditHandler(s.audit)
+	factoryResetHandler := handlerssystem.NewFactoryResetHandler(s.db, s.setupService, s.authService)
+	ddnsHandler := handlersnetwork.NewDDNSHandler(s.ddnsService)
+	domainHandler := handlersnetwork.NewDomainHandler(s.dnsProviderMgr, s.acmeManager, s.caddyManager)
+	connectivityHandler := handlersnetwork.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
+	wifiHandler := handlersnetwork.NewWifiHandler(wifi.Auto())
+	tunnelHandler := handlersnetwork.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
+	reportHandler := handlerssystem.NewReportHandler(s.reportService)
+	mappingHandler := handlersnetwork.NewMappingHandler(s.upnpClient)
+	plansHandler := handlersservices.NewPlansHandler(s.reportService, s.appManager, s.pathStateStore)
 
 	// Initialize Connect handler
-	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService, s.caddyManager, s.backupService, s.tunnelService)
+	connectHandler := handlersservices.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService, s.caddyManager, s.backupService, s.tunnelService)
 
 	// Initialize AI agent chat handler
-	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.authService, s.connectClient, s.connectChecker)
+	agentChatHandler := handlersapps.NewAgentChatHandler(s.db, s.authService, s.connectClient, s.connectChecker)
 
 	// Wire the AI model source into settings so the AI support category can list models dynamically
 	settingsHandler.SetModelSource(agentChatHandler.ModelsSource())
@@ -290,8 +295,8 @@ func (s *Server) setupRoutes() {
 				r.Delete("/{index}", reposHandler.RemoveRepo)
 			})
 
-			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
-			logsHandler := handlers.NewLogsHandler(podman.NewRuntimeAdapter(s.runtimeClient))
+			scriptsHandler := handlersapps.NewScriptsHandler(s.appManager)
+			logsHandler := handlersapps.NewLogsHandler(podman.NewRuntimeAdapter(s.runtimeClient))
 
 			// Apps management - installed apps
 			r.Route("/apps", func(r chi.Router) {
@@ -446,7 +451,7 @@ func (s *Server) setupRoutes() {
 
 			// Job Queue management (admin only)
 			if s.jobQueue != nil {
-				jobQueueHandler := handlers.NewJobQueueHandler(s.jobQueue)
+				jobQueueHandler := handlersapps.NewJobQueueHandler(s.jobQueue)
 				r.Route("/jobs", func(r chi.Router) {
 					r.Use(middleware.RequireRole("admin"))
 					r.Get("/", jobQueueHandler.ListJobs)

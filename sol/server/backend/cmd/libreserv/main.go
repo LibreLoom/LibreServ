@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
+	handlersapps "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/apps"
+	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
+	handlerssystem "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
@@ -307,7 +309,7 @@ func main() {
 				slog.Warn("failed to initialize repo set, continuing with local catalog only", "error", err)
 			} else {
 				appManager.SetRepoSet(repoSet)
-				repoSet.SetCatalogRefreshCallback(handlers.ClearIconCache)
+				repoSet.SetCatalogRefreshCallback(handlersapps.ClearIconCache)
 				if err := repoSet.Start(context.Background()); err != nil {
 					slog.Warn("failed to start repo set background pull", "error", err)
 				}
@@ -391,7 +393,7 @@ func main() {
 	sysChecker := system.NewUpdateChecker(cfg.Updates)
 	restartCh := make(chan system.RestartSignal, 1)
 	sysChecker.SetRestartChannel(restartCh)
-	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlers.Version)
+	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlerssystem.Version)
 	scheduler.SetBackupService(backupService)
 	scheduler.Start()
 	defer scheduler.Stop()
@@ -412,11 +414,11 @@ func main() {
 	if err != nil {
 		slog.Warn("failed to initialize OIDC provider", "error", err)
 	}
-	oidcAdminHandler := handlers.NewOIDCHandler(db, appManager, authService, issuerURL, slog.Default())
+	oidcAdminHandler := handlersauth.NewOIDCHandler(db, appManager, authService, issuerURL, slog.Default())
 	// Wire OIDC auto-provisioning for internal-access apps during install.
 	appManager.SetOIDCProvisioner(func(instanceID, appName, redirectPath string) (string, string, string, error) {
 		redirectURIs := []string{fmt.Sprintf("https://%s%s", appName, redirectPath)}
-		cid, secret, err := handlers.ProvisionOIDCClient(db, instanceID, appName, redirectURIs, issuerURL, slog.Default())
+		cid, secret, err := handlersauth.ProvisionOIDCClient(db, instanceID, appName, redirectURIs, issuerURL, slog.Default())
 		return cid, secret, issuerURL, err
 	})
 

@@ -1,0 +1,126 @@
+package system
+
+import (
+	"net/http"
+	"runtime"
+	"time"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+)
+
+// Version information (set at build time)
+var (
+	Version   = "0.0.1-dev"
+	BuildTime = "unknown"
+	GitCommit = "unknown"
+)
+
+// HealthHandler handles health check endpoints
+type HealthHandler struct {
+	db        *database.DB
+	startTime time.Time
+}
+
+// NewHealthHandler creates a new HealthHandler
+func NewHealthHandler(db *database.DB) *HealthHandler {
+	return &HealthHandler{
+		db:        db,
+		startTime: time.Now(),
+	}
+}
+
+// HealthResponse represents the health check response
+type HealthResponse struct {
+	Status        string            `json:"status"`
+	Timestamp     string            `json:"timestamp"`
+	Uptime        string            `json:"uptime"`
+	UptimeSeconds int64             `json:"uptime_seconds"`
+	Checks        map[string]string `json:"checks,omitempty"`
+}
+
+// VersionResponse represents the version info response
+type VersionResponse struct {
+	Version   string `json:"version"`
+	BuildTime string `json:"build_time"`
+	GitCommit string `json:"git_commit"`
+	GoVersion string `json:"go_version"`
+}
+
+// HealthCheck handles GET /health
+// Returns overall system health including all component checks
+func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	checks := make(map[string]string)
+	overallStatus := "healthy"
+
+	// Check database health
+	if err := h.db.HealthCheck(); err != nil {
+		checks["database"] = "unhealthy: " + err.Error()
+		overallStatus = "unhealthy"
+	} else {
+		checks["database"] = "healthy"
+	}
+
+	response := HealthResponse{
+		Status:        overallStatus,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Uptime:        time.Since(h.startTime).Round(time.Second).String(),
+		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
+		Checks:        checks,
+	}
+
+	status := http.StatusOK
+	if overallStatus != "healthy" {
+		status = http.StatusServiceUnavailable
+	}
+
+	JSON(w, status, response)
+}
+
+// ReadinessCheck handles GET /health/ready
+// Returns whether the service is ready to accept traffic
+func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
+	// Check if database is accessible
+	if err := h.db.HealthCheck(); err != nil {
+		JSON(w, http.StatusServiceUnavailable, HealthResponse{
+			Status:    "not ready",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Checks:    map[string]string{"database": err.Error()},
+		})
+		return
+	}
+
+	JSON(w, http.StatusOK, HealthResponse{
+		Status:    "ready",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// LivenessCheck handles GET /health/live
+// Returns whether the service is alive (simple ping)
+func (h *HealthHandler) LivenessCheck(w http.ResponseWriter, r *http.Request) {
+	JSON(w, http.StatusOK, HealthResponse{
+		Status:        "alive",
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Uptime:        time.Since(h.startTime).Round(time.Second).String(),
+		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
+	})
+}
+
+// Version handles GET /api/version
+// Returns version and build information
+func (h *HealthHandler) Version(w http.ResponseWriter, r *http.Request) {
+	JSON(w, http.StatusOK, VersionResponse{
+		Version:   Version,
+		BuildTime: BuildTime,
+		GitCommit: GitCommit,
+		GoVersion: runtime.Version(),
+	})
+}
+
+// JSON and JSONError are aliases to the canonical helpers in internal/api/response
+// to avoid duplication. Deprecated: import response directly.
+var (
+	JSON      = response.JSON
+	JSONError = response.JSONError
+)

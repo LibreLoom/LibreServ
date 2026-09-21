@@ -15,7 +15,9 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
+	handlersauth "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/auth"
+	handlershared "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
+	handlerssystem "gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/system"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
@@ -29,10 +31,10 @@ type testEnv struct {
 	authSvc  *auth.Service
 	setupSvc *setup.Service
 	secSvc   *security.Service
-	setupH   *handlers.SetupHandler
-	authH    *handlers.AuthHandler
-	usersH   *handlers.UsersHandler
-	mfaH     *handlers.MFAHandler
+	setupH   *handlerssystem.SetupHandler
+	authH    *handlersauth.AuthHandler
+	usersH   *handlersauth.UsersHandler
+	mfaH     *handlersauth.MFAHandler
 	ctx      context.Context
 }
 
@@ -66,17 +68,17 @@ func newTestEnv(t *testing.T) *testEnv {
 	notifier := security.NewEmailNotifier()
 	secSvc := security.NewService(db, logger, notifier)
 
-	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil)
+	setupH := handlerssystem.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil)
 	// Keep integration tests offline: point the HIBP breach check at a stub
 	// that never matches, so CompleteSetup doesn't depend on the real API.
 	hibpStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(""))
 	}))
 	t.Cleanup(hibpStub.Close)
-	handlers.SetHIBPRangeURL(hibpStub.URL + "/range/")
-	authH := handlers.NewAuthHandler(authSvc, secSvc, db)
-	usersH := handlers.NewUsersHandler(authSvc)
-	mfaH := handlers.NewMFAHandler(authSvc, nil)
+	handlershared.SetHIBPRangeURL(hibpStub.URL + "/range/")
+	authH := handlersauth.NewAuthHandler(authSvc, secSvc, db)
+	usersH := handlersauth.NewUsersHandler(authSvc)
+	mfaH := handlersauth.NewMFAHandler(authSvc, nil)
 
 	return &testEnv{
 		db:       db,

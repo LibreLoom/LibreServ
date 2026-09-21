@@ -1,7 +1,9 @@
-package handlers
+package handlers_test
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,23 +22,22 @@ import (
 //   - "internal server error" — a raw status phrase, never user-facing.
 //   - err.Error() passed into JSONError — leaks Go internals.
 //
-// Assumption: JSONError calls are single-line in this package (true today).
+// Assumption: JSONError calls are single-line in these packages (true today).
 // Keep them on one line so this line-based scan stays accurate.
 //
 // This file is a _test.go file, so it is excluded from its own scan.
 func TestPlainLanguageErrorMessages(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read handlers package dir: %v", err)
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(name)
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
 		}
 		for i, raw := range strings.Split(string(data), "\n") {
 			line := strings.TrimSpace(raw)
@@ -49,14 +50,18 @@ func TestPlainLanguageErrorMessages(t *testing.T) {
 			low := strings.ToLower(line)
 			switch {
 			case strings.Contains(low, "failed to "):
-				t.Errorf("%s:%d: JSONError uses \"failed to …\" — rewrite as a plain-language \"We couldn't …\" message (AGENTS.md): %s", name, i+1, line)
+				t.Errorf("%s:%d: JSONError uses \"failed to …\" — rewrite as a plain-language \"We couldn't …\" message (AGENTS.md): %s", path, i+1, line)
 			case strings.Contains(low, "unable to "):
-				t.Errorf("%s:%d: JSONError uses \"unable to …\" — rewrite as a plain-language \"We couldn't …\" message (AGENTS.md): %s", name, i+1, line)
+				t.Errorf("%s:%d: JSONError uses \"unable to …\" — rewrite as a plain-language \"We couldn't …\" message (AGENTS.md): %s", path, i+1, line)
 			case strings.Contains(low, "internal server error"):
-				t.Errorf("%s:%d: JSONError leaks a raw status phrase — use a plain-language message (AGENTS.md): %s", name, i+1, line)
+				t.Errorf("%s:%d: JSONError leaks a raw status phrase — use a plain-language message (AGENTS.md): %s", path, i+1, line)
 			case strings.Contains(line, "err.Error()"):
-				t.Errorf("%s:%d: JSONError leaks a Go error via err.Error() — use a plain-language message (AGENTS.md): %s", name, i+1, line)
+				t.Errorf("%s:%d: JSONError leaks a Go error via err.Error() — use a plain-language message (AGENTS.md): %s", path, i+1, line)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk handlers tree: %v", err)
 	}
 }

@@ -49,10 +49,10 @@ func (s *TokenStore) RevokeToken(jti, userID, tokenType, revokedBy, reason strin
 // IsRevoked checks if a token has been revoked by its JTI.
 func (s *TokenStore) IsRevoked(jti, tokenType string) (bool, error) {
 	query := `
-		SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE token_jti = ? AND token_type = ? AND expires_at > datetime('now'))
+		SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE token_jti = ? AND token_type = ? AND expires_at > ?)
 	`
 	var exists bool
-	err := s.db.QueryRow(query, jti, tokenType).Scan(&exists)
+	err := s.db.QueryRow(query, jti, tokenType, time.Now()).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check token revocation: %w", err)
 	}
@@ -68,12 +68,12 @@ func (s *TokenStore) IsRevokedOrUserRevokedAll(jti, userID, tokenType string) (b
 			SELECT 1 FROM revoked_tokens
 			WHERE token_type = ?
 			AND (token_jti = ? OR token_jti = ?)
-			AND expires_at > datetime('now')
+			AND expires_at > ?
 		)
 	`
 	sentinel := "revoke-all-" + tokenType + "-" + userID
 	var exists bool
-	err := s.db.QueryRow(query, tokenType, jti, sentinel).Scan(&exists)
+	err := s.db.QueryRow(query, tokenType, jti, sentinel, time.Now()).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check token revocation: %w", err)
 	}

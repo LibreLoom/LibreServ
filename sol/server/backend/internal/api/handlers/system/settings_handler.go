@@ -1,0 +1,515 @@
+package system
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers/shared"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
+)
+
+type SettingsHandler struct {
+	settingsService *settings.Service
+	securityService *security.Service
+	listModels      func(ctx context.Context) ([]agent.ModelInfo, error)
+
+	testNotificationMu        sync.Mutex
+	testNotificationLastTime  map[string]time.Time
+	testNotificationRateLimit time.Duration
+}
+
+func NewSettingsHandler(settingsService *settings.Service, securityService *security.Service) *SettingsHandler {
+	h := &SettingsHandler{
+		settingsService:           settingsService,
+		securityService:           securityService,
+		testNotificationLastTime:  make(map[string]time.Time),
+		testNotificationRateLimit: time.Minute,
+	}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.testNotificationMu.Lock()
+			cutoff := time.Now().Add(-h.testNotificationRateLimit * 2)
+			for k, t := range h.testNotificationLastTime {
+				if t.Before(cutoff) {
+					delete(h.testNotificationLastTime, k)
+				}
+			}
+			h.testNotificationMu.Unlock()
+		}
+	}()
+
+	return h
+}
+
+func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	if h.settingsService != nil {
+		result, err := h.settingsService.GetSettings(r.Context())
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, "We couldn't load your settings. Please try again.")
+			return
+		}
+		if smtp, ok := result["smtp"].(map[string]interface{}); ok && smtp != nil {
+			smtp["password"] = ""
+		}
+		JSON(w, http.StatusOK, result)
+		return
+	}
+
+	cfg := config.Get()
+	if cfg == nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your settings. Please try again.")
+		return
+	}
+
+	response := map[string]interface{}{
+		"server": map[string]interface{}{
+			"host": cfg.Server.Host,
+			"port": cfg.Server.Port,
+			"mode": cfg.Server.Mode,
+		},
+		"logging": map[string]interface{}{
+			"level": cfg.Logging.Level,
+			"path":  cfg.Logging.Path,
+		},
+	}
+
+	if cfg.Network.Caddy.Mode != "" || cfg.Network.Caddy.AdminAPI != "" {
+		proxyInfo := map[string]interface{}{
+			"type": "caddy",
+		}
+		if cfg.Network.Caddy.Mode != "" {
+			proxyInfo["mode"] = cfg.Network.Caddy.Mode
+		}
+		if cfg.Network.Caddy.DefaultDomain != "" {
+			proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain
+		}
+		proxyInfo["auto_https"] = cfg.Network.Caddy.AutoHTTPS
+		response["proxy"] = proxyInfo
+	}
+
+	JSON(w, http.StatusOK, response)
+}
+
+func (h *SettingsHandler) GetProxy(w http.ResponseWriter, r *http.Request) {
+	// Get proxy settings - used by install wizard to check domain configuration
+	response := map[string]interface{}{}
+
+	// Try to get from settings service first
+	if h.settingsService != nil {
+		result, err := h.settingsService.GetSettings(r.Context())
+		if err == nil {
+			if proxySettings, ok := result["proxy"].(map[string]interface{}); ok {
+				response["proxy"] = proxySettings
+				JSON(w, http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	// Fallback to config
+	cfg := config.Get()
+	if cfg == nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your settings. Please try again.")
+		return
+	}
+
+	proxyInfo := map[string]interface{}{
+		"type": "caddy",
+	}
+	if cfg.Network.Caddy.Mode != "" {
+		proxyInfo["mode"] = cfg.Network.Caddy.Mode
+	}
+	if cfg.Network.Caddy.DefaultDomain != "" {
+		proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain
+	}
+	proxyInfo["auto_https"] = cfg.Network.Caddy.AutoHTTPS
+
+	response["proxy"] = proxyInfo
+	JSON(w, http.StatusOK, response)
+}
+
+func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
+		return
+	}
+
+	if h.settingsService == nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your settings right now. Please try again later.")
+		return
+	}
+
+	if err := h.settingsService.UpdateSettings(r.Context(), updates); err != nil {
+		slog.Error("Failed to update settings", "error", err)
+		JSONError(w, http.StatusBadRequest, "Those settings aren't valid. Please check them and try again.")
+		return
+	}
+
+	result, _ := h.settingsService.GetSettings(r.Context())
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "settings updated",
+		"settings": result,
+	})
+}
+
+func (h *SettingsHandler) GetSecurity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Please log in to view your security settings.")
+		return
+	}
+
+	s, err := h.securityService.GetUserSettings(r.Context(), userID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your security settings. Please try again.")
+		return
+	}
+	JSON(w, http.StatusOK, s)
+}
+
+func (h *SettingsHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Please log in to update your security settings.")
+		return
+	}
+
+	var req securitySettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
+		return
+	}
+
+	validFrequencies := map[string]bool{"instant": true, "normal": true, "digest": true}
+	if !validFrequencies[req.NotificationFrequency] {
+		JSONError(w, http.StatusBadRequest, "Notification frequency must be instant, normal, or digest.")
+		return
+	}
+
+	s := &security.UserSettings{
+		UserID:                 userID,
+		NotificationsEnabled:   req.NotificationsEnabled,
+		NotificationFrequency:  req.NotificationFrequency,
+		NotifyOnLogin:          req.NotifyOnLogin,
+		NotifyOnFailedLogin:    req.NotifyOnFailedLogin,
+		NotifyOnPasswordChange: req.NotifyOnPasswordChange,
+		NotifyOnAdminAction:    req.NotifyOnAdminAction,
+		NotifyOnAppUpdates:     req.NotifyOnAppUpdates,
+		NotifyOnUserManagement: req.NotifyOnUserManagement,
+		NotifyOnHealthAlert:    req.NotifyOnHealthAlert,
+		NotifyOnDiskWarning:    req.NotifyOnDiskWarning,
+		NotifyOnDockerFailure:  req.NotifyOnDockerFailure,
+		NotifyOnDatabaseIssue:  req.NotifyOnDatabaseIssue,
+		Use12HourTime:          req.Use12HourTime,
+	}
+
+	if err := h.securityService.UpdateUserSettings(r.Context(), s); err != nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your settings. Please try again.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"message": "settings updated"})
+}
+
+type securitySettingsRequest struct {
+	NotificationsEnabled   bool   `json:"notifications_enabled"`
+	NotificationFrequency  string `json:"notification_frequency"`
+	NotifyOnLogin          bool   `json:"notify_on_login"`
+	NotifyOnFailedLogin    bool   `json:"notify_on_failed_login"`
+	NotifyOnPasswordChange bool   `json:"notify_on_password_change"`
+	NotifyOnAdminAction    bool   `json:"notify_on_admin_action"`
+	NotifyOnAppUpdates     bool   `json:"notify_on_app_updates"`
+	NotifyOnUserManagement bool   `json:"notify_on_user_management"`
+	NotifyOnHealthAlert    bool   `json:"notify_on_health_alert"`
+	NotifyOnDiskWarning    bool   `json:"notify_on_disk_warning"`
+	NotifyOnDockerFailure  bool   `json:"notify_on_docker_failure"`
+	NotifyOnDatabaseIssue  bool   `json:"notify_on_database_issue"`
+	Use12HourTime          bool   `json:"use_12_hour_time"`
+}
+
+func (h *SettingsHandler) GetNotifications(w http.ResponseWriter, r *http.Request) {
+	result, err := h.settingsService.GetSettings(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your notification settings. Please try again.")
+		return
+	}
+
+	notifications := map[string]interface{}{
+		"smtp":   result["smtp"],
+		"notify": result["notify"],
+	}
+
+	smtp, _ := result["smtp"].(map[string]interface{})
+	if smtp != nil {
+		smtp["password"] = ""
+		smtp["configured"] = smtp["host"] != "" && smtp["host"] != nil
+	}
+
+	JSON(w, http.StatusOK, notifications)
+}
+
+func (h *SettingsHandler) UpdateNotifications(w http.ResponseWriter, r *http.Request) {
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
+		return
+	}
+
+	filtered := map[string]interface{}{}
+	if v, ok := updates["smtp"]; ok {
+		filtered["smtp"] = v
+	}
+	if v, ok := updates["notify"]; ok {
+		filtered["notify"] = v
+	}
+	if len(filtered) == 0 {
+		JSONError(w, http.StatusBadRequest, "Please provide the notification settings you want to update.")
+		return
+	}
+
+	if err := h.settingsService.UpdateSettings(r.Context(), filtered); err != nil {
+		slog.Error("Failed to update notification settings", "error", err)
+		JSONError(w, http.StatusBadRequest, "Those notification settings aren't valid. Please check them and try again.")
+		return
+	}
+
+	result, _ := h.settingsService.GetSettings(r.Context())
+	smtp, _ := result["smtp"].(map[string]interface{})
+	if smtp != nil {
+		smtp["password"] = ""
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "notification settings updated",
+		"smtp":    result["smtp"],
+		"notify":  result["notify"],
+	})
+}
+
+func (h *SettingsHandler) PreviewTemplate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Template string            `json:"template"`
+		Data     map[string]string `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Template == "" {
+		JSONError(w, http.StatusBadRequest, "Please provide an email template to preview.")
+		return
+	}
+	body, err := email.RenderTemplate(req.Template, req.Data)
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't prepare that preview. Please check the template and try again.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"body": body})
+}
+
+func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Please log in to send a test notification.")
+		return
+	}
+
+	h.testNotificationMu.Lock()
+	lastTime, exists := h.testNotificationLastTime[userID]
+	if exists && time.Since(lastTime) < h.testNotificationRateLimit {
+		h.testNotificationMu.Unlock()
+		timeRemaining := h.testNotificationRateLimit - time.Since(lastTime)
+		JSONError(w, http.StatusTooManyRequests,
+			fmt.Sprintf("Rate limit exceeded. Please wait %v before sending another test notification.", timeRemaining.Round(time.Second)))
+		return
+	}
+	h.testNotificationLastTime[userID] = time.Now()
+	h.testNotificationMu.Unlock()
+
+	user := middleware.GetUser(r.Context())
+
+	s, err := h.securityService.GetUserSettings(r.Context(), userID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your notification settings. Please try again.")
+		return
+	}
+
+	if !s.NotificationsEnabled {
+		JSONError(w, http.StatusBadRequest, "notifications are disabled. Please enable them in settings first.")
+		return
+	}
+
+	testEvent := security.Event{
+		Timestamp:     time.Now(),
+		EventType:     security.EventAdminAction,
+		Severity:      security.SeverityInfo,
+		ActorID:       userID,
+		ActorUsername: user.Username,
+		IPAddress:     shared.GetClientIP(r),
+		UserAgent:     r.UserAgent(),
+		Details:       "This is a test notification from your LibreServ security settings",
+	}
+
+	if err := h.securityService.RecordEvent(r.Context(), &testEvent); err != nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the test notification. Please try again.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "Test notification sent successfully",
+		"settings": s,
+	})
+}
+
+func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
+		return
+	}
+
+	// Validate inputs
+	if defaultDomain, ok := updates["default_domain"].(string); ok && defaultDomain != "" {
+		if err := shared.ValidateDomain(defaultDomain); err != nil {
+			JSONError(w, http.StatusBadRequest, "Please enter a valid default domain.")
+			return
+		}
+	}
+
+	if sslEmail, ok := updates["ssl_email"].(string); ok && sslEmail != "" {
+		if err := shared.ValidateEmail(sslEmail); err != nil {
+			JSONError(w, http.StatusBadRequest, "Please enter a valid email address.")
+			return
+		}
+	}
+
+	if mode, ok := updates["mode"].(string); ok && mode != "" {
+		validModes := map[string]bool{"enabled": true, "disabled": true, "noop": true}
+		if !validModes[mode] {
+			JSONError(w, http.StatusBadRequest, "Proxy mode must be enabled, disabled, or noop.")
+			return
+		}
+	}
+
+	if autoHTTPS, ok := updates["auto_https"]; ok {
+		if _, ok := autoHTTPS.(bool); !ok {
+			JSONError(w, http.StatusBadRequest, "The automatic HTTPS setting must be true or false.")
+			return
+		}
+	}
+
+	if h.settingsService == nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your settings right now. Please try again later.")
+		return
+	}
+
+	// Wrap updates in proxy object to match UpdateSettings expectations
+	proxyUpdates := map[string]interface{}{"proxy": updates}
+	if err := h.settingsService.UpdateSettings(r.Context(), proxyUpdates); err != nil {
+		slog.Error("Failed to update proxy settings", "error", err)
+		JSONError(w, http.StatusBadRequest, "Those proxy settings aren't valid. Please check them and try again.")
+		return
+	}
+
+	result, _ := h.settingsService.GetSettings(r.Context())
+	JSON(w, http.StatusOK, result)
+}
+
+// validateDomain validates a domain name format
+func (h *SettingsHandler) SetModelSource(fn func(ctx context.Context) ([]agent.ModelInfo, error)) {
+	h.listModels = fn
+}
+
+func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
+	if h.settingsService == nil {
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your AI support settings right now. Please try again later.")
+		return
+	}
+	result, err := h.settingsService.GetSettings(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load AI support settings. Please try again later.")
+		return
+	}
+	aiSettings, _ := result["ai_support"].(map[string]interface{})
+	if aiSettings == nil {
+		aiSettings = map[string]interface{}{}
+	}
+
+	var availableModels []agent.ModelInfo
+	if h.listModels != nil {
+		if models, err := h.listModels(r.Context()); err == nil && models != nil {
+			availableModels = models
+		}
+	}
+	if availableModels == nil {
+		availableModels = []agent.ModelInfo{}
+	}
+	aiSettings["available_models"] = availableModels
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"ai_support": aiSettings,
+	})
+}
+
+func (h *SettingsHandler) UpdateAISupport(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r.Context())
+	if user == nil || user.Role != "admin" {
+		JSONError(w, http.StatusForbidden, "Only administrators can change AI support settings.")
+		return
+	}
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		JSONError(w, http.StatusBadRequest, "Could not understand the request. Please check the format and try again.")
+		return
+	}
+	if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{"ai_support": updates}); err != nil {
+		slog.Error("failed to update AI support settings", "error", err)
+		JSONError(w, http.StatusInternalServerError, "Could not save AI support settings. Please try again later.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *SettingsHandler) FetchModels(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r.Context())
+	if user == nil || user.Role != "admin" {
+		JSONError(w, http.StatusForbidden, "Only administrators can fetch models.")
+		return
+	}
+	var req struct {
+		BaseURL   string `json:"base_url"`
+		APIKey    string `json:"api_key"`
+		APIFormat string `json:"api_format"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "Could not understand the request. Please check the format and try again.")
+		return
+	}
+	if req.BaseURL == "" || req.APIKey == "" {
+		JSONError(w, http.StatusBadRequest, "Base URL and API key are required.")
+		return
+	}
+	provider := agent.NewProvider(req.BaseURL, req.APIKey)
+	if req.APIFormat == "anthropic" {
+		provider.APIFormat = "anthropic"
+	}
+	models, err := provider.Models(r.Context())
+	if err != nil {
+		slog.Error("failed to fetch models from provider", "error", err, "base_url", req.BaseURL)
+		JSONError(w, http.StatusBadGateway, "Could not fetch models from your provider. Check that the address and key are correct.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"models": models,
+	})
+}
