@@ -294,7 +294,11 @@ fn walk_local_rec(root: &Path, dir: &Path, out: &mut HashMap<String, (PathBuf, u
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name.contains("(conflict from ") {
+        // Conflict copies ("x (conflict from this computer).txt") are ordinary
+        // files here: including them lets the normal arms upload ours to Luna
+        // and download other machines' — skipping them would make their remote
+        // copies look locally-deleted next pass and get deleted.
+        if name.starts_with('.') {
             continue;
         }
         let meta = match std::fs::symlink_metadata(&path) {
@@ -348,25 +352,26 @@ fn sync_once(
                 let local_changed = *size != prev.size || *lm != prev.local_mtime;
                 let remote_changed = re.size != prev.size || re.modified != prev.remote_mtime;
                 if local_changed && remote_changed {
-                    // Conflict: keep both. Never overwrite the canonical remote path.
-                    let conflict_name = conflict_path(path, "this computer");
-                    let _ = std::fs::rename(path, &conflict_name);
+                    // Conflict: keep both versions, in an order where a failure
+                    // never loses a copy — set the local file aside under a
+                    // never-overwriting name, then download the remote version
+                    // to the canonical name (on failure the local file goes
+                    // back where it was). The set-aside copy reaches Luna as an
+                    // ordinary new file: uploaded right away, and retried by
+                    // the normal (local-only, no-ledger) arm until it lands.
+                    let conflict_name = free_conflict_path(path, "this computer");
+                    std::fs::rename(path, &conflict_name).map_err(|_| {
+                        "Couldn't set aside the changed file on this computer.".to_string()
+                    })?;
                     let dest = local_root.join(&rel);
                     let remote_abs = join_remote(&remote.path, &rel);
                     set_current(progress, pair_id, &rel);
-                    luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
-                    // Upload the conflict copy under a new name on Luna (create, not overwrite).
-                    let remote_conflict =
-                        format!("{} (conflict from this computer)", strip_ext_name(&rel));
-                    set_current(progress, pair_id, &remote_conflict);
-                    let _ = luna::upload_file(
-                        base_url,
-                        token,
-                        remote,
-                        &conflict_name,
-                        &format!("{remote_conflict}{}", ext_of(&rel)),
-                        false,
-                    );
+                    if let Err(e) =
+                        luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)
+                    {
+                        let _ = std::fs::rename(&conflict_name, path);
+                        return Err(e);
+                    }
                     let lm = std::fs::metadata(&dest)
                         .map(|m| mtime_secs(&m))
                         .unwrap_or(re.modified);
@@ -379,6 +384,20 @@ fn sync_once(
                         },
                     );
                     bump(progress, pair_id, false, true);
+                    let conflict_rel = conflict_rel(&rel, &conflict_name);
+                    set_current(progress, pair_id, &conflict_rel);
+                    // Best-effort immediate upload; on failure the next pass
+                    // sees the set-aside copy as a new local file and retries
+                    // until it lands. The ledger entry is written then, from
+                    // real remote metadata.
+                    let _ = luna::upload_file(
+                        base_url,
+                        token,
+                        remote,
+                        &conflict_name,
+                        &conflict_rel,
+                        false,
+                    );
                 } else if local_changed {
                     set_current(progress, pair_id, &rel);
                     luna::upload_file(base_url, token, remote, path, &rel, true)?;
@@ -532,20 +551,43 @@ fn conflict_path(path: &Path, from: &str) -> PathBuf {
     path.with_file_name(format!("{stem} (conflict from {from}){ext}"))
 }
 
-fn strip_ext_name(rel: &str) -> String {
-    Path::new(rel)
+/// `conflict_path`, but never an existing file — earlier conflict copies of
+/// the same name must not be clobbered (Windows rename refuses, Unix rename
+/// would silently replace).
+fn free_conflict_path(path: &Path, from: &str) -> PathBuf {
+    let candidate = conflict_path(path, from);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = candidate
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or(rel)
-        .to_string()
-}
-
-fn ext_of(rel: &str) -> String {
-    Path::new(rel)
+        .unwrap_or("file");
+    let ext = candidate
         .extension()
         .and_then(|s| s.to_str())
         .map(|e| format!(".{e}"))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for n in 2.. {
+        let next = candidate.with_file_name(format!("{stem} {n}{ext}"));
+        if !next.exists() {
+            return next;
+        }
+    }
+    unreachable!()
+}
+
+/// Remote-relative path for the conflict copy: same folder as `rel`, with the
+/// conflict marker in the file name.
+fn conflict_rel(rel: &str, conflict_name: &Path) -> String {
+    let file = conflict_name
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("conflict");
+    match rel.rfind('/') {
+        Some(i) => format!("{}/{file}", &rel[..i]),
+        None => file.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -579,6 +621,39 @@ mod tests {
                 .unwrap()
                 .to_string_lossy()
                 .contains("conflict from Luna")
+        );
+    }
+
+    #[test]
+    fn free_conflict_path_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("note.txt");
+        std::fs::write(&p, b"new").unwrap();
+        let first = free_conflict_path(&p, "this computer");
+        assert_eq!(
+            first.file_name().unwrap(),
+            "note (conflict from this computer).txt"
+        );
+        std::fs::write(&first, b"kept").unwrap();
+        let second = free_conflict_path(&p, "this computer");
+        assert_eq!(
+            second.file_name().unwrap(),
+            "note (conflict from this computer) 2.txt"
+        );
+        // The existing copy is untouched — a conflict must never clobber.
+        assert_eq!(std::fs::read(&first).unwrap(), b"kept");
+    }
+
+    #[test]
+    fn conflict_rel_keeps_the_subdirectory() {
+        let name = conflict_path(&PathBuf::from("/local/sub/note.txt"), "this computer");
+        assert_eq!(
+            conflict_rel("sub/note.txt", &name),
+            "sub/note (conflict from this computer).txt"
+        );
+        assert_eq!(
+            conflict_rel("top.txt", &name),
+            "note (conflict from this computer).txt"
         );
     }
 }

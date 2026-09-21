@@ -16,6 +16,7 @@ use adw::prelude::*;
 use gtk::glib;
 
 use luna_desktop::AppState;
+use luna_desktop::instance::{self, InstanceEvent};
 use luna_desktop::tray::{TrayCmd, TrayHandle, spawn_tray};
 
 use auth_failed::AuthFailedView;
@@ -38,12 +39,24 @@ fn load_app_css() {
 struct KeepAlive {
     _hold: gtk::gio::ApplicationHoldGuard,
     _tray: Option<TrayHandle>,
+    _instance: Option<instance::Instance>,
 }
 
 pub fn run() -> glib::ExitCode {
+    luna_desktop::ensure_runtime_env();
+
     let mut args: Vec<String> = std::env::args().collect();
     let background = args.iter().any(|a| a == "--background" || a == "-b");
     args.retain(|a| a != "--background" && a != "-b");
+
+    // Single instance: if Luna is already running (even with its window hidden
+    // or via start-on-boot), ask it to show its window and exit — two copies
+    // would race over the same backups, syncs, and ledgers.
+    let (instance_tx, instance_rx) = std::sync::mpsc::channel::<InstanceEvent>();
+    let instance = match instance::claim(instance_tx) {
+        Ok(i) => i,
+        Err(()) => return glib::ExitCode::SUCCESS,
+    };
 
     let app = adw::Application::builder()
         .application_id("org.libreloom.LunaDesktop")
@@ -52,11 +65,16 @@ pub fn run() -> glib::ExitCode {
     let state = Arc::new(AppState::default());
     let window_slot: Rc<RefCell<Option<adw::ApplicationWindow>>> = Rc::new(RefCell::new(None));
     let keep_alive: Rc<RefCell<Option<KeepAlive>>> = Rc::new(RefCell::new(None));
+    let tray_present = Rc::new(std::cell::Cell::new(false));
+    // Held for the whole process — dropping it releases the single-instance lock.
+    let instance_slot: Rc<RefCell<Option<instance::Instance>>> =
+        Rc::new(RefCell::new(Some(instance)));
 
     app.connect_activate({
         let state = state.clone();
         let window_slot = window_slot.clone();
         let keep_alive = keep_alive.clone();
+        let instance_slot = instance_slot.clone();
         move |app| {
             load_app_css();
             if let Some(win) = window_slot.borrow().as_ref() {
@@ -71,11 +89,20 @@ pub fn run() -> glib::ExitCode {
             let win = build_ui(app, state.clone());
             *window_slot.borrow_mut() = Some(win.clone());
 
-            // Always hide on close so backup/sync keep running.
+            // Closing the window keeps backup/sync running. With a tray the
+            // window hides; without one (no tray host — e.g. a broken Linux
+            // session) closing must not strand the app, so it minimizes.
             win.set_hide_on_close(true);
-            win.connect_close_request(|w| {
-                w.set_visible(false);
-                glib::Propagation::Stop
+            win.connect_close_request({
+                let tray_present = tray_present.clone();
+                move |w| {
+                    if tray_present.get() {
+                        w.set_visible(false);
+                    } else {
+                        w.minimize();
+                    }
+                    glib::Propagation::Stop
+                }
             });
 
             if keep_alive.borrow().is_none() {
@@ -92,15 +119,17 @@ pub fn run() -> glib::ExitCode {
                         app_for_tray.quit();
                     }
                 });
+                tray_present.set(tray.is_some());
                 if tray.is_none() {
                     eprintln!(
-                        "luna-desktop: no system tray host; window close still hides — reopen Luna from your app launcher or use Settings → Quit {}",
+                        "luna-desktop: no system tray host; closing the window minimizes it — use Settings → Quit {} to stop",
                         luna_desktop::product_name()
                     );
                 }
                 *keep_alive.borrow_mut() = Some(KeepAlive {
                     _hold: app.hold(),
                     _tray: tray,
+                    _instance: instance_slot.borrow_mut().take(),
                 });
             }
 
@@ -109,6 +138,27 @@ pub fn run() -> glib::ExitCode {
             }
         }
     });
+
+    // A relaunch of luna-desktop asks the running copy to show its window.
+    {
+        let window_slot = window_slot.clone();
+        let app = app.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
+            while let Ok(ev) = instance_rx.try_recv() {
+                match ev {
+                    InstanceEvent::Show => {
+                        if let Some(w) = window_slot.borrow().as_ref() {
+                            w.set_visible(true);
+                            w.present();
+                        } else {
+                            app.activate();
+                        }
+                    }
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
 
     app.run_with_args(&args)
 }
