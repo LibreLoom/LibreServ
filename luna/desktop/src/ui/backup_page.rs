@@ -191,13 +191,25 @@ fn build_job_row(
         job.name.clone()
     };
     let n = job.sources.len();
-    let subtitle = format!("{} folder{}", n, if n == 1 { "" } else { "s" });
+    let mut subtitle = format!("{} folder{}", n, if n == 1 { "" } else { "s" });
+    if progress.failed > 0 {
+        subtitle += &format!(
+            " · {} couldn't copy yet",
+            if progress.failed == 1 {
+                "1 file".to_string()
+            } else {
+                format!("{} files", progress.failed)
+            }
+        );
+    } else if progress.last_ok_unix > 0 {
+        subtitle += &format!(" · Last copy {}", when_label(progress.last_ok_unix));
+    }
     let row = adw::ActionRow::builder()
         .title(&title)
         .subtitle(&subtitle)
         .build();
     row.set_title_lines(1);
-    row.set_subtitle_lines(1);
+    row.set_subtitle_lines(2);
 
     let (icon_name, tip) = backup_status_icon(job.running || progress.running, progress);
     let icon = gtk::Image::from_icon_name(icon_name);
@@ -253,6 +265,20 @@ fn backup_status_icon(
     active: bool,
     progress: &luna_desktop::backup::BackupProgress,
 ) -> (&'static str, String) {
+    if progress.failed > 0 {
+        return (
+            "dialog-warning-symbolic",
+            format!(
+                "{} couldn't copy yet — {}",
+                if progress.failed == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{} files", progress.failed)
+                },
+                plain_error(&progress.error)
+            ),
+        );
+    }
     if !progress.error.is_empty() {
         return ("dialog-warning-symbolic", plain_error(&progress.error));
     }
@@ -269,6 +295,23 @@ fn backup_status_icon(
         );
     }
     ("content-loading-symbolic", "Waiting to start…".to_string())
+}
+
+/// "14:32" when the copy landed today, "Sep 20" otherwise.
+fn when_label(unix: i64) -> String {
+    let Ok(dt) = glib::DateTime::from_unix_local(unix) else {
+        return String::new();
+    };
+    let Ok(now) = glib::DateTime::now_local() else {
+        return String::new();
+    };
+    let today = dt.format("%Y-%m-%d").ok().map(|d| d.to_string())
+        == now.format("%Y-%m-%d").ok().map(|d| d.to_string());
+    let fmt = if today { "%H:%M" } else { "%b %d" };
+    dt.format(fmt)
+        .ok()
+        .map(|s| s.to_string())
+        .unwrap_or_default()
 }
 
 fn plain_error(raw: &str) -> String {

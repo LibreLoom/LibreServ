@@ -207,7 +207,17 @@ fn build_row(
     refresh: Rc<dyn Fn()>,
 ) -> adw::ActionRow {
     let title = sync_row_title(&pair);
-    let subtitle = human_remote_subtitle(&pair.remote_path);
+    let mut subtitle = human_remote_subtitle(&pair.remote_path);
+    if progress.conflicts > 0 {
+        subtitle += &format!(
+            " · {} — kept both versions",
+            if progress.conflicts == 1 {
+                "1 conflict".to_string()
+            } else {
+                format!("{} conflicts", progress.conflicts)
+            }
+        );
+    }
     let row = adw::ActionRow::builder()
         .title(&title)
         .subtitle(&subtitle)
@@ -271,6 +281,19 @@ fn sync_status_icon(
 ) -> (&'static str, String) {
     if !progress.error.is_empty() {
         return ("dialog-warning-symbolic", plain_error(&progress.error));
+    }
+    if progress.conflicts > 0 {
+        return (
+            "dialog-information-symbolic",
+            format!(
+                "Kept both versions of {} — the copy from this computer has \u{201c}(conflict from this computer)\u{201d} in its name.",
+                if progress.conflicts == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{} files", progress.conflicts)
+                }
+            ),
+        );
     }
     if progress.running && progress.phase == "Syncing" && !progress.current.is_empty() {
         return (

@@ -33,6 +33,10 @@ pub struct BackupProgress {
     pub bytes: u64,
     pub current: String,
     pub error: String,
+    /// Files that could not be copied yet and are waiting to retry.
+    pub failed: u64,
+    /// Unix time of the most recent successfully copied file (0 = none yet).
+    pub last_ok_unix: i64,
     pub running: bool,
 }
 
@@ -164,8 +168,13 @@ pub fn start_job(
     let thread_ledger = ledger.clone();
     let sources_owned = sources.clone();
     std::thread::spawn(move || {
+        let mut queued: Vec<PathBuf> = Vec::new();
+        // Files that could not be copied stay in `queued` and keep retrying —
+        // a file must never be dropped silently just because its first upload
+        // attempt failed.
+        let mut failed: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         for root in &sources_owned {
-            upload_tree(
+            for path in upload_tree(
                 &base_url,
                 &token,
                 &dest_ref,
@@ -176,10 +185,13 @@ pub fn start_job(
                 &thread_progress,
                 &thread_ledger,
                 &ledger_path,
-            );
+            ) {
+                if !queued.contains(&path) {
+                    queued.push(path);
+                }
+            }
         }
         set_phase(&thread_progress, &job_id, "Watching");
-        let mut queued: Vec<PathBuf> = Vec::new();
         let mut consecutive_failures: usize = 0;
         loop {
             if thread_stop.load(Ordering::Relaxed) {
@@ -206,10 +218,10 @@ pub fn start_job(
                     return;
                 }
                 let path = queued[i].clone();
-                let mut handled = false;
+                let mut attempt_failed = false;
                 for root in &sources_owned {
                     if let Ok(rel) = path.strip_prefix(root) {
-                        match upload_one(
+                        attempt_failed = upload_one(
                             &base_url,
                             &token,
                             &dest_ref,
@@ -219,28 +231,21 @@ pub fn start_job(
                             &thread_progress,
                             &thread_ledger,
                             &ledger_path,
-                        ) {
-                            Ok(()) => handled = true,
-                            Err(_) => {
-                                any_failed = true;
-                                handled = false;
-                            }
-                        }
+                        )
+                        .is_err();
                         break;
                     }
                 }
-                if handled || !any_failed {
-                    if handled {
-                        queued.remove(i);
-                        continue;
-                    }
-                }
-                if any_failed {
+                if attempt_failed {
+                    any_failed = true;
+                    failed.insert(path);
                     i += 1;
                 } else {
+                    failed.remove(&path);
                     queued.remove(i);
                 }
             }
+            set_failed(&thread_progress, &job_id, failed.len());
             if any_failed {
                 consecutive_failures += 1;
                 let backoff =
@@ -309,11 +314,30 @@ fn bump(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &str, si
         p.uploaded += 1;
         p.bytes += size;
         p.current.clear();
-        p.error.clear();
         p.phase = "Watching".to_string();
+        p.last_ok_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        // Note: p.error is left alone — another file's failure must stay
+        // visible until the whole queue drains cleanly (set_failed).
     }
 }
 
+fn set_failed(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &str, failed: usize) {
+    if let Ok(mut map) = progress.lock()
+        && let Some(p) = map.get_mut(job_id)
+    {
+        p.failed = failed as u64;
+        if failed == 0 {
+            p.error.clear();
+        }
+    }
+}
+
+/// Initial walk of one source folder. Returns the files that could not be
+/// uploaded so the caller can queue them for retry — no file is dropped
+/// silently.
 fn upload_tree(
     base_url: &str,
     token: &str,
@@ -325,13 +349,14 @@ fn upload_tree(
     progress: &Arc<Mutex<HashMap<String, BackupProgress>>>,
     ledger: &Arc<Mutex<Ledger>>,
     ledger_path: &Path,
-) {
+) -> Vec<PathBuf> {
+    let mut missed = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+        return missed;
     };
     for entry in entries.flatten() {
         if stop.load(Ordering::Relaxed) {
-            return;
+            return missed;
         }
         let path = entry.path();
         let meta = match std::fs::symlink_metadata(&path) {
@@ -342,7 +367,7 @@ fn upload_tree(
             continue;
         }
         if meta.is_dir() {
-            upload_tree(
+            missed.extend(upload_tree(
                 base_url,
                 token,
                 dest,
@@ -353,11 +378,10 @@ fn upload_tree(
                 progress,
                 ledger,
                 ledger_path,
-            );
+            ));
         } else if meta.is_file()
             && let Ok(rel) = path.strip_prefix(root)
-        {
-            let _ = upload_one(
+            && upload_one(
                 base_url,
                 token,
                 dest,
@@ -367,9 +391,13 @@ fn upload_tree(
                 progress,
                 ledger,
                 ledger_path,
-            );
+            )
+            .is_err()
+        {
+            missed.push(path);
         }
     }
+    missed
 }
 
 fn mtime_secs(meta: &std::fs::Metadata) -> i64 {

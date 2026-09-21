@@ -4,7 +4,8 @@
 #
 # Output: desktop/release/Luna-Desktop-Setup-<version>-x86_64.exe
 #
-# Requires: rustup target x86_64-pc-windows-gnu, mingw-w64 gcc, makensis, curl, zstd/tar
+# Requires: rustup target x86_64-pc-windows-gnu, mingw-w64 gcc + windres,
+# makensis, curl, zstd/tar, glib-compile-schemas
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"   # luna/
@@ -27,6 +28,8 @@ need makensis
 need curl
 need pkg-config
 need python3
+need glib-compile-schemas
+need x86_64-w64-mingw32-windres
 
 rustup target add x86_64-pc-windows-gnu >/dev/null
 
@@ -89,11 +92,29 @@ MSYS2_PKGS=(
   mingw-w64-x86_64-openssl
   mingw-w64-x86_64-adwaita-icon-theme
   mingw-w64-x86_64-hicolor-icon-theme
+  # gtk4 hard-imports the gstreamer media stack — without these the app
+  # cannot even launch (B1). Only the linked libs are needed: gst runtime
+  # plugins are dlopen'd on demand and the UI does not play media.
+  mingw-w64-x86_64-gstreamer
+  mingw-w64-x86_64-gst-plugins-base
+  # the -libs split holds libgstd3d12 / libgstplay — the plugins themselves
+  # are dlopen'd at runtime and not needed for launch
+  mingw-w64-x86_64-gst-plugins-bad-libs
+  mingw-w64-x86_64-orc
+  mingw-w64-x86_64-libnice
+  mingw-w64-x86_64-gnutls
+  mingw-w64-x86_64-nettle
+  mingw-w64-x86_64-p11-kit
+  mingw-w64-x86_64-libtasn1
+  mingw-w64-x86_64-libidn2
+  mingw-w64-x86_64-libunistring
 )
 
 ensure_sysroot() {
   if [ -f "$SYSROOT/mingw64/lib/pkgconfig/gtk4.pc" ] \
-    && [ -f "$SYSROOT/mingw64/lib/pkgconfig/libadwaita-1.pc" ]; then
+    && [ -f "$SYSROOT/mingw64/lib/pkgconfig/libadwaita-1.pc" ] \
+    && [ -f "$SYSROOT/mingw64/lib/pkgconfig/gstreamer-1.0.pc" ] \
+    && [ -f "$SYSROOT/mingw64/bin/libgstplay-1.0-0.dll" ]; then
     echo "==> reusing MSYS2 sysroot at $SYSROOT"
     return 0
   fi
@@ -193,13 +214,22 @@ sys_dlls = {
     "dwmapi.dll", "uxtheme.dll", "setupapi.dll", "cfgmgr32.dll", "hid.dll",
     "winspool.drv", "opengl32.dll", "gdiplus.dll", "dnsapi.dll", "nsi.dll",
     "dwrite.dll", "usp10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "dcomp.dll",
-    "shcore.dll", "msimg32.dll", "dbghelp.dll", "version.dll", "winhttp.dll",
+    "d2d1.dll", "dxcore.dll", "shcore.dll", "msimg32.dll", "dbghelp.dll",
+    "version.dll", "winhttp.dll", "wlanapi.dll", "wtsapi32.dll", "psapi.dll",
     "api-ms-win-core-synch-l1-2-0.dll", "api-ms-win-crt-runtime-l1-1-0.dll",
 }
 
 pat = re.compile(r"DLL Name:\s+(\S+)", re.I)
 copied = {"luna-desktop.exe"}
+missing = []
 to_scan = [stage / "luna-desktop.exe"]
+
+# gdk-pixbuf loaders are dlopen'd, so nothing imports them — seed the scan
+# with them anyway so THEIR dependencies (librsvg etc.) get collected.
+loaders_root = bindir.parent / "lib/gdk-pixbuf-2.0"
+if loaders_root.is_dir():
+    for dll in loaders_root.rglob("*.dll"):
+        to_scan.append(dll)
 
 def find_dll(name: str):
     for d in search_dirs:
@@ -218,14 +248,10 @@ while to_scan:
         low = name.lower()
         if low in sys_dlls or low in copied:
             continue
-        # Optional media stack — skip gstreamer (huge; not required for backup/sync UI)
-        if low.startswith("libgst") or "gstreamer" in low:
-            copied.add(low)
-            continue
         src = find_dll(name)
         if src is None:
-            print(f"  skip missing {name}", file=sys.stderr)
-            copied.add(low)
+            missing.append(name)
+            print(f"  MISSING {name} (needed by {pe.name})", file=sys.stderr)
             continue
         dest = stage / src.name
         if not dest.exists():
@@ -245,6 +271,10 @@ for must in ("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll"):
         print(f"  + {src.name} (runtime)")
         copied.add(must.lower())
 
+if missing:
+    print(f"FATAL: unresolved DLL imports: {sorted(set(missing))}", file=sys.stderr)
+    sys.exit(1)
+
 print(f"collected {len(copied)} binaries into {stage}")
 PY
 }
@@ -257,11 +287,15 @@ copy_runtime_data() {
   if [ -d "$m/lib/gdk-pixbuf-2.0" ]; then
     cp -a "$m/lib/gdk-pixbuf-2.0/." "$STAGE/lib/gdk-pixbuf-2.0/"
   fi
-  # glib schemas
+  # glib schemas — must be compiled or the first GSettings-backed widget
+  # (folder picker) crashes the app with "No GSettings schemas are installed".
   mkdir -p "$STAGE/share/glib-2.0/schemas"
   if [ -d "$m/share/glib-2.0/schemas" ]; then
     cp -a "$m/share/glib-2.0/schemas/." "$STAGE/share/glib-2.0/schemas/"
   fi
+  # gschemas.compiled is platform-independent; the host tool produces it fine.
+  glib-compile-schemas "$STAGE/share/glib-2.0/schemas"
+  [ -f "$STAGE/share/glib-2.0/schemas/gschemas.compiled" ] || die "gschemas.compiled was not produced"
   # icons (adwaita + hicolor) — keep size reasonable: scalable + 16/24/32/48
   for theme in Adwaita hicolor; do
     if [ -d "$m/share/icons/$theme" ]; then
@@ -282,19 +316,9 @@ copy_runtime_data() {
 }
 
 write_launcher_and_nsi() {
-  # Wrapper batch so PATH includes install dir (GTK finds DLLs + Gio modules).
-  cat > "$STAGE/Luna Desktop.bat" <<'EOF'
-@echo off
-set "DIR=%~dp0"
-set "PATH=%DIR%;%PATH%"
-set "GTK_EXE_PREFIX=%DIR%"
-set "GSETTINGS_SCHEMA_DIR=%DIR%share\glib-2.0\schemas"
-set "GDK_PIXBUF_MODULEDIR=%DIR%lib\gdk-pixbuf-2.0\2.10.0\loaders"
-set "GDK_PIXBUF_MODULE_FILE=%DIR%lib\gdk-pixbuf-2.0\2.10.0\loaders.cache"
-set "XDG_DATA_DIRS=%DIR%share"
-cd /d "%DIR%"
-start "" "%DIR%luna-desktop.exe" %*
-EOF
+  # No .bat wrapper: luna-desktop.exe sets its own runtime env at startup
+  # (ensure_runtime_env in the app) and carries the icon resource, so
+  # shortcuts can point straight at the exe — no stray console window.
 
   cat > "$OUT_DIR/luna-desktop.nsi" <<EOF
 !include "MUI2.nsh"
@@ -326,8 +350,8 @@ Section "Install"
   File /r "${STAGE}/*.*"
 
   CreateDirectory "\$SMPROGRAMS\\Luna Desktop"
-  CreateShortCut "\$SMPROGRAMS\\Luna Desktop\\Luna Desktop.lnk" "\$INSTDIR\\Luna Desktop.bat" "" "\$INSTDIR\\luna-desktop.exe"
-  CreateShortCut "\$DESKTOP\\Luna Desktop.lnk" "\$INSTDIR\\Luna Desktop.bat" "" "\$INSTDIR\\luna-desktop.exe"
+  CreateShortCut "\$SMPROGRAMS\\Luna Desktop\\Luna Desktop.lnk" "\$INSTDIR\\luna-desktop.exe" "" "\$INSTDIR\\luna-desktop.exe" 0
+  CreateShortCut "\$DESKTOP\\Luna Desktop.lnk" "\$INSTDIR\\luna-desktop.exe" "" "\$INSTDIR\\luna-desktop.exe" 0
 
   WriteUninstaller "\$INSTDIR\\Uninstall.exe"
 
@@ -349,6 +373,79 @@ Section "Uninstall"
   RMDir /r "\$INSTDIR"
 SectionEnd
 EOF
+}
+
+# Fail the build if the staged tree cannot actually launch on a clean box:
+# re-walk the PE import closure of EVERY shipped exe/dll (exe, top-level DLLs,
+# gdk-pixbuf loaders) and require each import to resolve inside the stage or
+# be a known system DLL. Also assert gschemas.compiled exists.
+verify_stage() {
+  echo "==> verifying staged runtime"
+  python3 - "$STAGE" <<'PY'
+import re, subprocess, sys
+from pathlib import Path
+
+stage = Path(sys.argv[1])
+
+sys_dlls = {
+    "advapi32.dll", "kernel32.dll", "ntdll.dll", "user32.dll", "gdi32.dll",
+    "shell32.dll", "ole32.dll", "oleaut32.dll", "comdlg32.dll", "comctl32.dll",
+    "winmm.dll", "ws2_32.dll", "wsock32.dll", "bcrypt.dll", "bcryptprimitives.dll",
+    "crypt32.dll", "secur32.dll", "iphlpapi.dll", "userenv.dll", "msvcrt.dll",
+    "ucrtbase.dll", "sechost.dll", "rpcrt4.dll", "shlwapi.dll", "imm32.dll",
+    "dwmapi.dll", "uxtheme.dll", "setupapi.dll", "cfgmgr32.dll", "hid.dll",
+    "winspool.drv", "opengl32.dll", "gdiplus.dll", "dnsapi.dll", "nsi.dll",
+    "dwrite.dll", "usp10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "dcomp.dll",
+    "d2d1.dll", "dxcore.dll", "shcore.dll", "msimg32.dll", "dbghelp.dll",
+    "version.dll", "winhttp.dll", "wlanapi.dll", "wtsapi32.dll", "psapi.dll",
+    "avicap32.dll", "msvfw32.dll", "ksuser.dll", "powrprof.dll",
+    "api-ms-win-core-synch-l1-2-0.dll", "api-ms-win-crt-runtime-l1-1-0.dll",
+}
+
+pat = re.compile(r"DLL Name:\s+(\S+)", re.I)
+staged = {p.name.lower() for p in stage.rglob("*.dll")}
+staged |= {p.name.lower() for p in stage.rglob("*.exe")}
+
+missing = {}
+for pe in stage.rglob("*"):
+    if pe.suffix.lower() not in (".exe", ".dll"):
+        continue
+    try:
+        out = subprocess.check_output(
+            ["x86_64-w64-mingw32-objdump", "-p", str(pe)], text=True, errors="replace")
+    except subprocess.CalledProcessError:
+        continue
+    for name in pat.findall(out):
+        low = name.lower()
+        if low in sys_dlls or low in staged:
+            continue
+        missing.setdefault(low, []).append(str(pe.relative_to(stage)))
+
+if missing:
+    for dll, users in sorted(missing.items()):
+        print(f"  MISSING {dll}  (imported by {', '.join(sorted(set(users)))})", file=sys.stderr)
+    print("FATAL: staged runtime has unresolved DLL imports", file=sys.stderr)
+    sys.exit(1)
+
+schemas = stage / "share/glib-2.0/schemas/gschemas.compiled"
+if not schemas.is_file():
+    print("FATAL: share/glib-2.0/schemas/gschemas.compiled missing", file=sys.stderr)
+    sys.exit(1)
+
+exe = stage / "luna-desktop.exe"
+hdr = subprocess.check_output(
+    ["x86_64-w64-mingw32-objdump", "-h", str(exe)], text=True, errors="replace")
+if ".rsrc" not in hdr:
+    print("WARN: luna-desktop.exe has no .rsrc section — icon not embedded", file=sys.stderr)
+
+sub = subprocess.check_output(
+    ["x86_64-w64-mingw32-objdump", "-x", str(exe)], text=True, errors="replace")
+if "subsystem" in sub.lower() and not re.search(r"Subsystem\s+.*Windows GUI", sub):
+    m = re.search(r"Subsystem\s+\S+.*", sub)
+    print(f"WARN: unexpected subsystem line: {m.group(0) if m else '?'}", file=sys.stderr)
+
+print(f"stage OK: {len(staged)} PE files, all imports resolved, schemas compiled")
+PY
 }
 
 build_installer() {
@@ -381,6 +478,7 @@ build_exe
 collect_dlls
 copy_runtime_data
 write_launcher_and_nsi
+verify_stage
 build_installer
 
 echo "built $OUT_DIR/$INSTALLER_NAME"
