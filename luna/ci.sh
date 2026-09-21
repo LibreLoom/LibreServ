@@ -71,17 +71,20 @@ if grep -rq 'alpine:latest' os/make-image.sh os/lib/alpine-image.sh os/lib/build
 fi
 
 echo "==> musl static-pie smoke"
-MUSL_TARGET="${MUSL_TARGET:-x86_64-unknown-linux-musl}"
-# shellcheck source=os/lib/musl-link.sh
-. os/lib/musl-link.sh
-unset RUSTFLAGS
-luna_musl_export "$MUSL_TARGET"
-if ! rustup target list --installed | grep -qx "$MUSL_TARGET"; then
-	rustup target add "$MUSL_TARGET"
-fi
-cargo build --release -p lunad --bin lunad --bin luna-console --target "$MUSL_TARGET"
-luna_musl_smoke_lunad "$ROOT/target/${MUSL_TARGET}/release/lunad"
-luna_musl_smoke_console "$ROOT/target/${MUSL_TARGET}/release/luna-console"
+# Isolate musl link flags so host desktop/mobile rustc still builds proc-macros.
+(
+	MUSL_TARGET="${MUSL_TARGET:-x86_64-unknown-linux-musl}"
+	# shellcheck source=os/lib/musl-link.sh
+	. os/lib/musl-link.sh
+	unset RUSTFLAGS
+	luna_musl_export "$MUSL_TARGET"
+	if ! rustup target list --installed | grep -qx "$MUSL_TARGET"; then
+		rustup target add "$MUSL_TARGET"
+	fi
+	cargo build --release -p lunad --bin lunad --bin luna-console --target "$MUSL_TARGET"
+	luna_musl_smoke_lunad "$ROOT/target/${MUSL_TARGET}/release/lunad"
+	luna_musl_smoke_console "$ROOT/target/${MUSL_TARGET}/release/luna-console"
+)
 
 echo "==> desktop (GTK / libadwaita)"
 (

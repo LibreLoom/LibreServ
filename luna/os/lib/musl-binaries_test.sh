@@ -30,6 +30,8 @@ assert_file_has "$OS/lib/musl-link.sh" 'link-arg=-static-pie' "musl-gcc path mus
 assert_file_has "$OS/lib/musl-link.sh" 'link-self-contained=yes' "musl link must use rustc self-contained crt"
 assert_file_has "$OS/lib/musl-link.sh" 'PT_INTERP' "musl link helper must document the INTERP/rcrt1 crash"
 assert_file_has "$OS/lib/musl-link.sh" 'rust-lld' "musl link must prefer rust-lld over musl-gcc"
+assert_file_has "$OS/lib/musl-link.sh" 'CARGO_TARGET_${_env}_RUSTFLAGS' "musl rustc flags must be target-scoped"
+assert_file_lacks "$OS/lib/musl-link.sh" 'export RUSTFLAGS=' "musl helper must not export global RUSTFLAGS"
 assert_file_has "$OS/build-iso.sh" 'os/lib/musl-link.sh' "ISO build must source musl-link.sh"
 assert_file_has "$OS/build-iso.sh" 'luna_musl_export' "ISO build must export static-pie flags"
 assert_file_has "$OS/build-iso.sh" 'luna_musl_smoke_lunad' "ISO build must smoke-test musl lunad"

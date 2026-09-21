@@ -42,10 +42,14 @@ luna_musl_export() {
 		export "CC_${_cc_env}=musl-gcc"
 		export "CARGO_TARGET_${_env}_LINKER=musl-gcc"
 	fi
-	if [ -n "${RUSTFLAGS:-}" ]; then
-		export RUSTFLAGS="${RUSTFLAGS} ${_flags}"
+	# Target-scoped. Global RUSTFLAGS=+crt-static makes rustc refuse
+	# proc-macros on the host gnu target (desktop GTK CI).
+	_tf="CARGO_TARGET_${_env}_RUSTFLAGS"
+	eval "_prev=\${${_tf}:-}"
+	if [ -n "$_prev" ]; then
+		export "${_tf}=${_prev} ${_flags}"
 	else
-		export RUSTFLAGS="${_flags}"
+		export "${_tf}=${_flags}"
 	fi
 }
 

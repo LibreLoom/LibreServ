@@ -18,7 +18,8 @@ fi
 
 # shellcheck source=lib/musl-link.sh
 . "$ROOT/os/lib/musl-link.sh"
-# ISO builds must not inherit a host RUSTFLAGS that adds -static-pie to rust-lld.
+# Drop a host RUSTFLAGS that could add -static-pie to rust-lld.
+# luna_musl_export scopes crt-static to the musl triple only.
 unset RUSTFLAGS
 luna_musl_export "$MUSL_TARGET"
 
