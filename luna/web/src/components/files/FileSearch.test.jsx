@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import FileSearch from "./FileSearch";
+import { ToastProvider } from "../../context/ToastContext";
 
 /** @param {unknown[]} hits @param {{ searchHold?: Promise<void> }} [options] */
 function renderSearch(hits, { searchHold } = {}) {
@@ -45,6 +46,7 @@ function renderSearch(hits, { searchHold } = {}) {
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <AuthProvider>
@@ -52,6 +54,7 @@ function renderSearch(hits, { searchHold } = {}) {
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
+    </ToastProvider>
   );
 }
 

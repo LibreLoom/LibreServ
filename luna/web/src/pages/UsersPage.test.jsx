@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import UsersPage from "./UsersPage";
+import { ToastProvider } from "../context/ToastContext";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -45,6 +46,7 @@ function stubFetch({
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <MemoryRouter>
       <ThemeProvider>
         <QueryClientProvider client={client}>
@@ -53,7 +55,8 @@ function renderPage() {
           </AuthProvider>
         </QueryClientProvider>
       </ThemeProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 

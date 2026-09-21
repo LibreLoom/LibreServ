@@ -36,25 +36,25 @@ See `desktop/README.md` and `mobile/README.md` for env vars and details.
 
 Luna can optionally load EuroOffice (AGPL-3.0) web assets for in-browser
 office editing. Those assets are never committed to this repo — see
-[THIRD_PARTY_EUROOFFICE.md](THIRD_PARTY_EUROOFFICE.md) for the license notice
+[THIRD_PARTY_EUROOFFICE.md](docs/THIRD_PARTY_EUROOFFICE.md) for the license notice
 and source offer, and [docs/eurooffice.md](docs/eurooffice.md) for setup.
 
 ## Luna Connect Mock
 
-For local development and testing without connecting to the real Luna Connect cloud service (`connect.luna.libreloom.org`), Luna includes a complete mock server in `scripts/mock-connect.py` and `scripts/mock-connect.sh`.
+For local development and testing without connecting to the real Luna Connect cloud service (`connect.luna.libreloom.org`), Luna includes a complete mock server in `scripts/mocks/mock-connect.py` and `scripts/mocks/mock-connect.sh`.
 
 ### Quick Start
 
 One-shot for Cloud Agents / local: start mock, unlock backup, set domain `max.luna.servers.libreloom.org`, mint `dev/device-token`:
 ```sh
-bash scripts/seed-mock-connect.sh
+bash scripts/mocks/seed-mock-connect.sh
 # (also run automatically from .cursor/start.sh)
 ```
 
 Start the mock server alone on `http://127.0.0.1:18765`:
 ```sh
 make mock-connect
-# or: bash scripts/mock-connect.sh
+# or: bash scripts/mocks/mock-connect.sh
 # background: make mock-connect ARGS="serve --daemon"
 ```
 

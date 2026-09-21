@@ -2,6 +2,18 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import FileViewer from "./FileViewer.jsx";
 
+vi.mock("../../context/ToastContext.jsx", () => ({
+  ToastProvider: ({ children }) => children,
+  useToast: () => ({
+    toasts: [],
+    addToast: vi.fn(),
+    dismissToast: vi.fn(),
+    pauseToast: vi.fn(),
+    resumeToast: vi.fn(),
+    clearToasts: vi.fn(),
+  }),
+}));
+
 // EuroOfficeHost pulls in auth/theme contexts, sockets, and the DocsAPI
 // script load; the fullscreen chrome tests only need to know the editor
 // subtree exists. The mock also captures props so tests can drive the

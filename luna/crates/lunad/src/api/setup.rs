@@ -74,7 +74,7 @@ async fn preflight(
     let db = state.db.clone();
     let resp = tokio::task::spawn_blocking(move || {
         let conn = db.lock().unwrap();
-        crate::system_health::run_preflight(&data_dir, &conn)
+        crate::system::system_health::run_preflight(&data_dir, &conn)
     })
     .await
     .map_err(|_| {
@@ -115,18 +115,18 @@ async fn fetch_mag(
     Ok(Json(mag_outcome_json(&outcome)))
 }
 
-fn mag_outcome_json(outcome: &crate::factory_mag::MagFetchOutcome) -> Value {
+fn mag_outcome_json(outcome: &crate::system::factory_mag::MagFetchOutcome) -> Value {
     match outcome {
-        crate::factory_mag::MagFetchOutcome::AlreadyValid => {
+        crate::system::factory_mag::MagFetchOutcome::AlreadyValid => {
             json!({ "ok": true, "source": "existing" })
         }
-        crate::factory_mag::MagFetchOutcome::NoMagazine => {
+        crate::system::factory_mag::MagFetchOutcome::NoMagazine => {
             json!({ "ok": false, "source": "none", "attempts": 0 })
         }
-        crate::factory_mag::MagFetchOutcome::Fetched { attempts } => {
+        crate::system::factory_mag::MagFetchOutcome::Fetched { attempts } => {
             json!({ "ok": true, "source": "mag", "attempts": attempts })
         }
-        crate::factory_mag::MagFetchOutcome::ExhaustedRetries { attempts } => {
+        crate::system::factory_mag::MagFetchOutcome::ExhaustedRetries { attempts } => {
             json!({ "ok": false, "source": "mag", "attempts": attempts })
         }
     }

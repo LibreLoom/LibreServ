@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import FilesPage from "./FilesPage";
+import { ToastProvider } from "../context/ToastContext";
 
 function filesPath(url) {
   try {
@@ -116,6 +117,7 @@ function stubFilesApi(byPath) {
 function renderFiles(path = "/drives/d1") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
@@ -123,6 +125,7 @@ function renderFiles(path = "/drives/d1") {
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
+    </ToastProvider>
   );
 }
 

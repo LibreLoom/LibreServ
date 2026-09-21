@@ -13,6 +13,7 @@ import TextLink from "../components/ui/TextLink.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useToast } from "../context/ToastContext";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
@@ -602,6 +603,7 @@ function RecentItemsCard({ items, drives }) {
 }
 
 export default function DashboardPage() {
+  const { addToast } = useToast();
   const queryClient = useQueryClient();
   const greeting = useMemo(() => getGreeting(), []);
   const { user } = useAuth();
@@ -660,6 +662,7 @@ export default function DashboardPage() {
     mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
+      addToast({ type: "success", message: "Drive added." });
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
     },

@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::api::files::parse_range;
 use crate::api::response::json_error;
-use crate::uploads::{self, UploadError};
+use crate::files::uploads::{self, UploadError};
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024 * 1024 * 1024; // 1 TiB
 
@@ -138,7 +138,7 @@ async fn complete(
         let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
         (
             row.drive_id,
-            crate::gallery_indexer::join_rel(&row.path, &row.name),
+            crate::gallery::gallery_indexer::join_rel(&row.path, &row.name),
         )
     };
     let entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())

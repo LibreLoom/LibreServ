@@ -11,6 +11,7 @@ import SettingsCard from "../SettingsCard";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
 import { InfoHint } from "../../ui/Tooltip";
 import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
+import { useToast } from "../../../context/ToastContext";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
 const INPUT_CLASS =
@@ -138,6 +139,7 @@ export default function UpdateSourceCard({ index = 3 }) {
 }
 
 function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
+  const { addToast } = useToast();
   const s = initial || {};
 
   const [baseUrl, setBaseUrl] = useState(s.api_base || "");
@@ -177,6 +179,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
         keys: signingKeysForSave(keyLines, s),
       }),
     onSuccess: (data) => {
+      addToast({ type: "success", message: "Update source saved." });
       onSaved(data);
       onClose();
     },
@@ -194,6 +197,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
       const keys = Array.isArray(data?.keys) ? data.keys : [];
       setKeysText(keys.join("\n"));
       setSaveError(null);
+      addToast({ type: "success", message: "Signing keys loaded." });
     },
     onError: () =>
       setSaveError(

@@ -18,8 +18,8 @@ use tokio::sync::broadcast;
 use crate::AppState;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::collab::{ClientMsg, CollabHub, JoinError, ServerEvent};
 use crate::files::{self, FilesError};
+use crate::office::collab::{ClientMsg, CollabHub, JoinError, ServerEvent};
 
 #[derive(Debug, Deserialize)]
 pub struct CollabQuery {

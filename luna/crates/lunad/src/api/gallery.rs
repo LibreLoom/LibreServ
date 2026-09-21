@@ -843,7 +843,7 @@ async fn serve_thumb_file(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let etag = crate::ram_cache::thumb_etag(meta.len(), mtime_secs);
+    let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
     if let Some(if_none_match) = headers
         .get(axum::http::header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
@@ -912,7 +912,7 @@ async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let etag = crate::ram_cache::thumb_etag(meta.len(), mtime_secs);
+    let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
@@ -2256,7 +2256,7 @@ async fn public_upload(
 mod tests {
     use super::THUMB_CACHE_CONTROL;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -2442,7 +2442,7 @@ mod tests {
     fn album_item_allowed_matches_items_and_contrib() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        crate::drive_db::create(
+        crate::drives::drive_db::create(
             root,
             &luna_core::marker::Marker::new("home", "Home"),
             &luna_core::marker::pick_prefix(root).unwrap(),
@@ -2508,7 +2508,7 @@ mod tests {
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]));
         png.save(mount.join("secret.png")).unwrap();
         let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
-        crate::drive_db::create(
+        crate::drives::drive_db::create(
             &mount,
             &luna_core::marker::Marker::new("d-photos", "Family Photos"),
             &prefix,

@@ -10,8 +10,12 @@ the repo-root `AGENTS.md` — they apply here too.
 ```
 luna/
 ├── crates/
-│   ├── lunad/            # the daemon — HTTP API, drives, files, gallery,
-│   │                     # office docs, updates, backup, connect client
+│   ├── lunad/            # the daemon — src/ is grouped by domain:
+│   │                     #   api/ HTTP handlers; drives/ detect→mount→health;
+│   │                     #   files/ index+WebDAV+uploads; gallery/ photos;
+│   │                     #   office/ EuroOffice; net/ network+connect client;
+│   │                     #   backup/ cloud+protect; system/ updates+recovery;
+│   │                     #   top-level: auth, db, jobs, config plumbing
 │   └── luna-core/        # shared lib (drive/path/scan/marker)
 ├── web/                  # Luna web UI — React/Vite (dev port 3001)
 ├── desktop/              # companion app — Rust + GTK 4/libadwaita
@@ -24,9 +28,8 @@ luna/
 │                         # Device names: *.luna.servers.libreloom.org.
 │                         # Stripe $8/TB/month backups.
 ├── os/                   # Debian live OS: rootfs build, A/B updates, factory ISO
-├── scripts/              # dev/mocking helpers (mock-connect, mock-drive, …)
-├── hardware/             # hardware qualification notes
-├── docs/                 # luna docs (eurooffice, etc.)
+├── scripts/              # dev helpers; mocks/ holds the mock-connect/mock-drive cluster
+├── docs/                 # eurooffice guide, THIRD_PARTY license, HW qualification
 ├── ci.sh                 # luna CI (invoked by ./ci -profile luna)
 └── Makefile              # dev entry points (daemon-dev, desktop-dev, mobile-dev…)
 ```
@@ -66,6 +69,6 @@ live in `connect/deploy/` — note `deploy.sh` resolves repo root three levels u
 
 ## Key Notes
 
-- **Setup is Ethernet-only** — Luna has no setup AP (`crates/lunad/src/hotspot.rs` is a stub that never starts). Never tell users to finish setup on an HDMI/on-device screen — Luna setup is browser-only.
+- **Setup is Ethernet-only** — Luna has no setup AP (`crates/lunad/src/net/hotspot.rs` is a stub that never starts). Never tell users to finish setup on an HDMI/on-device screen — Luna setup is browser-only.
 - **Luna Connect opt-in (`device-token`):** Connect is **off by default**. Luna only polls connect.luna.libreloom.org when `{data_dir}/device-token` exists with a valid Crockford token. No `disable-connect` file — empty opt-out at install is success. **`connect.json`** holds cloud bind state (hostname, tunnel) plus an optional `first_user_secret`, and only matters when a device token is present. Setup is open on LAN (loopback, private IPs, `luna.local` / `.local` hostnames; proxy `X-Forwarded-For` / `CF-Connecting-IP` respected — `is_lan_request` in `crates/lunad/src/api/setup.rs`, UI hints only). **First registration over the public hostname requires the full device token** — `first_user_on_public_host` in `crates/lunad/src/api/auth.rs` matches it case-insensitively against `{data_dir}/device-token` or `first_user_secret` in `connect.json` (with an on-demand `poll_status()` refresh; plain-language refusal when missing or wrong). No 8-char `X-Setup-Token` prefix gate anymore (`setup_access.rs` is deleted); Connect onboarding links to `/setup?token=` to prefill the token. Add/remove tokens in Settings → About → Advanced; External Services UI shows only when `connect_active`. User-facing term is **device token**, not setup code or device code.
 - **Update signing:** lunad verifies release checksums with a minisign public key embedded at build time (`include_str!` → `keys/lsluna.minisign.pub` at repo root) and can also fetch it over HTTP from `raw/branch/main/keys/…`. The `keys/` directory path is load-bearing — do not move it.

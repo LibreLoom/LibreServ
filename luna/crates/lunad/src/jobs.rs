@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::db::{self, JobRow};
 use crate::files::{self, FilesError};
-use crate::gallery_indexer::GalleryIndexer;
+use crate::gallery::gallery_indexer::GalleryIndexer;
 
 const COPY_BUF: usize = 1024 * 1024;
 
@@ -484,12 +484,16 @@ mod tests {
     /// Write a `.luna-<uuid>` marker so the dir behaves like an adopted drive.
     fn adopt(root: &Path, id: &str) {
         let prefix = luna_core::marker::pick_prefix(root).unwrap();
-        crate::drive_db::create(root, &luna_core::marker::Marker::new(id, "t"), &prefix).unwrap();
+        crate::drives::drive_db::create(root, &luna_core::marker::Marker::new(id, "t"), &prefix)
+            .unwrap();
     }
 
     /// The drive's real trash dir name (`.luna-<uuid>-trash`).
     fn trash_dir_name(root: &Path) -> String {
-        format!("{}-trash", crate::drive_db::prefix_for(root).unwrap())
+        format!(
+            "{}-trash",
+            crate::drives::drive_db::prefix_for(root).unwrap()
+        )
     }
 
     fn setup() -> (tempfile::TempDir, Arc<Mutex<Connection>>, String) {
@@ -556,7 +560,10 @@ mod tests {
             std::fs::create_dir_all(format!("{root}/inbox")).unwrap();
             std::fs::write(format!("{root}/note.txt"), b"stay put once").unwrap();
         }
-        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
         let job = manager
             .enqueue("move", "a", "note.txt", "a", "inbox", "user-1")
             .await
@@ -589,7 +596,10 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/ship.txt"), b"cross device").unwrap();
         }
-        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
         let job = manager
             .enqueue("move", "a", "ship.txt", "b", "", "user-1")
             .await
@@ -623,7 +633,10 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/samefs.txt"), b"rename across drives").unwrap();
         }
-        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
         let job = manager
             .enqueue("move", "a", "samefs.txt", "b", "", "user-1")
             .await
@@ -656,7 +669,10 @@ mod tests {
             std::fs::write(format!("{root}/album/day/pic.jpg"), b"jpeg").unwrap();
             std::fs::create_dir_all(format!("{root}/archive")).unwrap();
         }
-        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
         let job = manager
             .enqueue("move", "a", "album", "a", "archive", "user-1")
             .await
@@ -689,7 +705,10 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/note.txt"), b"hello cross-drive").unwrap();
         }
-        let manager = JobManager::new(db.clone(), crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(
+            db.clone(),
+            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        );
         let job = manager
             .enqueue("copy", "a", "note.txt", "b", "", "user-1")
             .await
@@ -722,7 +741,7 @@ mod tests {
             let root2 = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root2}/x.txt"), b"x").unwrap();
         }
-        let manager = JobManager::new(db, crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(db, crate::gallery::gallery_indexer::GalleryIndexer::start());
         assert!(matches!(
             manager
                 .enqueue("copy", "a", "x.txt", "b", "", "user-1")
@@ -739,7 +758,7 @@ mod tests {
             let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
             std::fs::write(format!("{root}/note.txt"), b"hello").unwrap();
         }
-        let manager = JobManager::new(db, crate::gallery_indexer::GalleryIndexer::start());
+        let manager = JobManager::new(db, crate::gallery::gallery_indexer::GalleryIndexer::start());
         let job = manager
             .enqueue("copy", "a", "note.txt", "b", "", "sam")
             .await

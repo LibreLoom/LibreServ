@@ -14,14 +14,14 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
-import PageNotice from "../components/common/PageNotice";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
-import { showPageLevelError } from "../lib/modalScopedError";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
 import PropertiesSheet, { PropertiesButton } from "../components/files/PropertiesSheet";
 import useDriveMove from "../hooks/useDriveMove";
+import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
+import { useToast } from "../context/ToastContext";
 import {
   apiErrorMessage,
   deleteJson,
@@ -40,6 +40,7 @@ function jobBusy(job) {
 }
 
 export default function FilesPage() {
+  const { addToast } = useToast();
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -136,20 +137,29 @@ export default function FilesPage() {
         path: item.path,
         dest: restoreName,
       }),
-    onSuccess: () => { invalidate(); },
+    onSuccess: () => {
+      addToast({ type: "success", message: "File restored." });
+      invalidate();
+    },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
   });
 
   const purgeMutation = useMutation({
     mutationFn: (/** @type {any} */ item) =>
       postJson(`/api/v1/drives/${id}/files/purge`, { path: item.path }),
-    onSuccess: () => { invalidate(); },
+    onSuccess: () => {
+      addToast({ type: "success", message: "Deleted for good." });
+      invalidate();
+    },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (jobId) => deleteJson(`/api/v1/jobs/${jobId}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Job stopped." });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't cancel that job. Try again.")),
   });
 
@@ -168,6 +178,7 @@ export default function FilesPage() {
     && presentDriveCount > 1;
 
   const trashModalOpen = restoreTarget != null || purgeTarget != null;
+  useStrandedErrorToast(actionError, trashModalOpen, () => setActionError(null));
 
   return (
     <Page
@@ -235,9 +246,6 @@ export default function FilesPage() {
         </Card>
       ) : null}
 
-      {showPageLevelError(actionError, trashModalOpen) && (
-        <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
-      )}
 
       {!drives.isLoading && !drive && (
         <EmptyState

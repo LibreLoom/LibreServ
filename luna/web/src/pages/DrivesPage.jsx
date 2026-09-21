@@ -10,9 +10,7 @@ import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
-import PageNotice from "../components/common/PageNotice";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
-import { showPageLevelError } from "../lib/modalScopedError";
 import CollapsibleSection from "../components/common/CollapsibleSection";
 import ValueDisplay from "../components/common/ValueDisplay";
 import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
@@ -23,6 +21,8 @@ import FileSearch from "../components/files/FileSearch";
 import Spinner from "../components/ui/Spinner.jsx";
 import { TermHint } from "../components/ui/Tooltip";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
+import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
@@ -366,6 +366,7 @@ function plainDriveState(state) {
 }
 
 export default function DrivesPage() {
+  const { addToast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -413,7 +414,7 @@ export default function DrivesPage() {
       postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
     onSuccess: () => {
       // InspectModal closes via ModalCard's animated close (not an instant unmount).
-      haptic("success");
+      addToast({ type: "success", message: "Drive added." });
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
@@ -426,7 +427,7 @@ export default function DrivesPage() {
   const eject = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Drive ejected — safe to unplug." });
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
@@ -440,7 +441,7 @@ export default function DrivesPage() {
   const remove = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/remove`, {}),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Drive removed." });
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
@@ -454,6 +455,9 @@ export default function DrivesPage() {
   const adoptError = adopt.isError
     ? apiErrorMessage(adopt.error, "Luna couldn't add this drive. Try again.")
     : null;
+
+  const actionModalOpen = ejectTarget != null || removeTarget != null || inspectFor != null;
+  useStrandedErrorToast(actionError, actionModalOpen, () => setActionError(null));
 
   if (user?.role === "user") {
     const grants = memberAccessRoots(access.data || []);
@@ -497,13 +501,8 @@ export default function DrivesPage() {
     );
   }
 
-  const actionModalOpen = ejectTarget != null || removeTarget != null || inspectFor != null;
-
   return (
     <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
-      {showPageLevelError(actionError, actionModalOpen) && (
-        <PageNotice variant="error" className="mb-4">{actionError}</PageNotice>
-      )}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">

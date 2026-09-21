@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import AccessSheet from "./AccessSheet";
+import { ToastProvider } from "../../context/ToastContext";
 
 /**
  * @param {{
@@ -90,13 +91,15 @@ function renderSheet(props = {}) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
+    <ToastProvider>
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <AuthProvider>
           <AccessSheet driveId="d1" path="photos" onClose={() => {}} {...props} />
         </AuthProvider>
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 
