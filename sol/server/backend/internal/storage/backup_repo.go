@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,7 +46,7 @@ func (s *BackupService) ListRepositories(ctx context.Context) ([]BackupRepositor
 	for rows.Next() {
 		var repo BackupRepository
 		if err := rows.Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
-			log.Printf("failed to scan backup repository row: %v", err)
+			slog.Warn("failed to scan backup repository row", "error", err)
 			continue
 		}
 		repos = append(repos, repo)
@@ -90,7 +91,7 @@ func (s *BackupService) DeleteRepository(ctx context.Context, repoID string) err
 	if err != nil {
 		return fmt.Errorf("failed to delete backup repository: %w", err)
 	}
-	log.Printf("Backup repository deleted: %s", repoID)
+	slog.Info("Backup repository deleted", "repo_id", repoID)
 	return nil
 }
 
@@ -208,7 +209,7 @@ func (s *BackupService) buildRepoConfigFromRepository(repo *BackupRepository) *r
 		if decCreds, err := decryptAESGCM(rawCreds, s.encryptionKey); err == nil {
 			rawCreds = decCreds
 		} else {
-			log.Printf("Warning: failed to decrypt repo credentials for %s: %v", repo.ID, err)
+			slog.Warn("failed to decrypt repo credentials", "repo_id", repo.ID, "error", err)
 		}
 	}
 
@@ -224,7 +225,7 @@ func (s *BackupService) buildRepoConfigFromRepository(repo *BackupRepository) *r
 		if decPass, err := decryptAESGCM(password, s.encryptionKey); err == nil {
 			password = decPass
 		} else {
-			log.Printf("Warning: failed to decrypt repo password for %s: %v", repo.ID, err)
+			slog.Warn("failed to decrypt repo password", "repo_id", repo.ID, "error", err)
 		}
 	}
 
@@ -244,7 +245,7 @@ func (s *BackupService) runPreBackupHook(ctx context.Context, appID, appPath str
 		return nil
 	}
 
-	log.Printf("Running pre-backup hook for app %s", appID)
+	slog.Info("Running pre-backup hook for app", "app_id", appID)
 	cmd := exec.CommandContext(ctx, hookPath)
 	cmd.Dir = appPath
 	cmd.Env = append(os.Environ(),
@@ -263,7 +264,7 @@ func (s *BackupService) runPreBackupHook(ctx context.Context, appID, appPath str
 // failing the caller over, but a leaked file eats disk until someone notices.
 func removeTemp(path string) {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: failed to remove temporary file %s: %v", path, err)
+		slog.Warn("failed to remove temporary file", "path", path, "error", err)
 	}
 }
 
