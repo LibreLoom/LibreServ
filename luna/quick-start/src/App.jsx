@@ -47,7 +47,7 @@ function IndexPanel() {
         <p className="direction">Start on the panel beside this one.</p>
       </div>
       <div className="choice">
-        <p className="choice-label">No Luna Connect account</p>
+        <p className="choice-label">Set up without Luna Connect</p>
         <h3>Set up on your local network</h3>
         <p>Open the Luna Connect panel to see local-only setup and troubleshooting.</p>
       </div>
@@ -82,7 +82,7 @@ function ConnectPanel({ token }) {
 function LocalPanel() {
   return (
     <section className="panel panel-b local-panel">
-      <p className="eyebrow">No Luna Connect account</p>
+      <p className="eyebrow">Set up without Luna Connect</p>
       <h2>Set up on your local network</h2>
       <ol className="steps">
         <li>Plug Luna into power.</li>
