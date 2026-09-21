@@ -563,13 +563,17 @@ build_binaries() {
             exit 1
         fi
         log_info "Rapidinstall ISO compressed: $(du -h "$BUILD_DIR/luna-rapidinstall-x86_64.iso.xz" | cut -f1)"
-        LUNAD_MUSL="luna/target/x86_64-unknown-linux-musl/release/lunad"
-        if [ ! -x "$LUNAD_MUSL" ]; then
-            log_error "missing musl lunad at $LUNAD_MUSL"
+        # The ISO's musl lunad only runs on Luna OS — it segfaults on generic
+        # glibc distros. Ship a glibc binary as the public lunad-linux-amd64.
+        log_info "Building glibc lunad for generic Linux..."
+        (cd luna && cargo build --release -p lunad --target x86_64-unknown-linux-gnu)
+        LUNAD_GLIBC="luna/target/x86_64-unknown-linux-gnu/release/lunad"
+        if [ ! -x "$LUNAD_GLIBC" ]; then
+            log_error "missing glibc lunad at $LUNAD_GLIBC"
             rm -rf "$BUILD_DIR"
             exit 1
         fi
-        cp "$LUNAD_MUSL" "$BUILD_DIR/lunad-linux-amd64"
+        cp "$LUNAD_GLIBC" "$BUILD_DIR/lunad-linux-amd64"
 
         OS_IMG="luna/os/dist/luna-os-x86_64.img"
         if [ ! -f "$OS_IMG" ]; then
@@ -852,7 +856,7 @@ Pre-release ${VERSION_TAG}. Full Luna OS cut: daemon, slot image, factory ISO, D
 
 ## Assets
 
-- \`lunad-linux-amd64\` — musl daemon binary
+- \`lunad-linux-amd64\` — glibc daemon binary (generic Linux; the musl build stays inside the ISO)
 - \`luna-os-x86_64.img\` — A/B slot OS image for OTA
 - \`luna-rapidinstall-x86_64.iso.xz\` — factory USB installer (xz-compressed ISO)
 - \`luna-desktop-x86_64.flatpak\` — Luna Desktop

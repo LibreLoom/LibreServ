@@ -850,7 +850,7 @@ async fn upload(
                         "That file name can't be used. Try renaming it.",
                     )
                 })?;
-                let dir = with_db(&state, |conn| files::dest_dir(conn, &id, &dest_rel))
+                let dir = with_db(&state, |conn| files::dest_dir_create(conn, &id, &dest_rel))
                     .map_err(map_files_err)?;
                 let dest = dir.join(&name);
                 if dest.exists() && !overwrite {

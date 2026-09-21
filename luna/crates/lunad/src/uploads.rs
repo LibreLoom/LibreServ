@@ -151,7 +151,7 @@ pub fn create(
             "invalid file name",
         ))
     })?;
-    let dir = files::dest_dir(conn, drive_id, dest_path)?;
+    let dir = files::dest_dir_create(conn, drive_id, dest_path)?;
     let id = Uuid::new_v4().to_string();
     let temp = temp_for(conn, drive_id, &dir, &id)?;
 
@@ -186,7 +186,7 @@ pub fn get_row(conn: &Connection, id: &str) -> Result<UploadRow, UploadError> {
 }
 
 fn to_upload(conn: &Connection, row: &UploadRow) -> Result<Upload, UploadError> {
-    let dir = files::dest_dir(conn, &row.drive_id, &row.path)?;
+    let dir = files::dest_dir_create(conn, &row.drive_id, &row.path)?;
     let temp = temp_for(conn, &row.drive_id, &dir, &row.id)?;
     Ok(Upload {
         id: row.id.clone(),
@@ -340,7 +340,7 @@ pub fn complete(
     file.sync_all().map_err(UploadError::Io)?;
     drop(file);
 
-    let dir = files::dest_dir(&conn, &upload.drive_id, &upload.path)?;
+    let dir = files::dest_dir_create(&conn, &upload.drive_id, &upload.path)?;
     let mut name = upload.name;
     let dest = dir.join(&name);
     if dest.exists() && !overwrite {
@@ -507,6 +507,24 @@ mod tests {
             complete(&db, &up.id, false, false, None),
             Err(UploadError::SizeMismatch)
         ));
+    }
+
+    #[test]
+    fn upload_into_missing_subfolders_creates_them() {
+        // Regression: a backup/sync subfolder (or a folder dropped on the web
+        // UI) used to be rejected with "Luna can't use that destination." —
+        // files deeper than the destination root were silently dropped.
+        let (dir, db, drive) = setup();
+        let conn = db.lock().unwrap();
+        let up = create(&conn, &drive, "DesktopBackup/subdir", "nested.txt", 5).unwrap();
+        drop(conn);
+        write_chunk(&db, &up.id, 0, b"hello").unwrap();
+        let entry = complete(&db, &up.id, false, false, None).unwrap();
+        assert_eq!(entry.name, "nested.txt");
+        let root = dir.path().join("drive");
+        let file = root.join("DesktopBackup/subdir/nested.txt");
+        assert!(file.is_file());
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "hello");
     }
 
     #[test]
