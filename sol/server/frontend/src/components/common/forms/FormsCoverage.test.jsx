@@ -28,7 +28,7 @@ vi.mock("../Dropdown.jsx", () => ({
     </select>
   ),
 }));
-vi.mock("../../ui/Button.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     children,
     disabled,

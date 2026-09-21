@@ -1,9 +1,9 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { ShieldAlert, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
-import Card from "../cards/Card";
-import Button from "../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function RevocationBanner({ notice, appName, acknowledged, onSeeDetails }) {
   const [expanded, setExpanded] = useState(false);

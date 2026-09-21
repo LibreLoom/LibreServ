@@ -30,6 +30,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react"],
   },
   publicDir: "public",
   build: {
@@ -54,6 +55,10 @@ export default defineConfig({
     host: "0.0.0.0",
     open: false,
     allowedHosts: true,
+    fs: {
+      // Repo root: serves the symlinked @libreloom/ui package (shared/ui/)
+      allow: ["../.."],
+    },
     // Keep the browser Host header (changeOrigin: false). lunad's CSRF guard
     // compares Origin to Host; rewriting Host to :8090 makes every Vite-dev
     // POST look cross-site and returns 403 "Cross-site request blocked."
@@ -85,5 +90,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.js"],
     globals: true,
+    include: ["src/**/*.test.{js,jsx}"],
   },
 });

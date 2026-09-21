@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Globe, Mail, Shield, DatabaseBackup, LifeBuoy, Sparkles, ArrowRight, ArrowLeft, Key, ExternalLink } from "lucide-react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
-import Button from "../ui/Button";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "../cards/ModalCard";
-import ShakeTarget from "../ui/ShakeTarget";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const CONNECT_URL = "https://connect.serv.libreloom.org/onboarding";
 

@@ -1,7 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import ModalCard from "../../cards/ModalCard";
-import Button from "../../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export function ActionConfirmModal({ action, onConfirm, onCancel, isConfirming }) {
   return (

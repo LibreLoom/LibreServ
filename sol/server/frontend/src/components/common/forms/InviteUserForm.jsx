@@ -5,8 +5,8 @@ import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
-import Button from "../../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * Send an invitation email so someone can create their own account. The

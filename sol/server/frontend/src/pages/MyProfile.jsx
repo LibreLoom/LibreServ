@@ -2,16 +2,16 @@ import { useState } from "react";
 import { Save, ArrowRight } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import FormInput from "../components/common/forms/FormInput";
-import Button from "../components/ui/Button";
-import Pill from "../components/common/Pill";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import ApiTokensCard from "../components/profile/ApiTokensCard";
 import MfaCard from "../components/profile/MfaCard";
-import PasswordStrengthChecklist from "../components/common/PasswordStrengthChecklist";
-import { passwordPolicyError, PASSWORD_POLICY_HINT } from "../lib/passwordPolicy";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
+import { passwordPolicyError, PASSWORD_POLICY_HINT } from "@libreloom/ui/lib/passwordPolicy.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * Self-service account page for non-admin users. They can view their profile,

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import Page from "../components/ui/Page";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
 import InstallWizard from "../components/app/wizard/InstallWizard";
 
 export default function AppInstallPage() {

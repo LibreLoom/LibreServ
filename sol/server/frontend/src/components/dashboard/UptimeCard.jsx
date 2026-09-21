@@ -1,4 +1,4 @@
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 
 /**
  * UptimeCard — dashboard metric showing how long the device has been running.

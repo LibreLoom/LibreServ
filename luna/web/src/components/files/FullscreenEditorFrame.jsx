@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { MoreHorizontal, Save, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
-import PageNotice from "../common/PageNotice.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { cn } from "@/lib/utils";
-import { haptic } from "../../utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
 /** Under this age the save indicator reads "Saved just now". */

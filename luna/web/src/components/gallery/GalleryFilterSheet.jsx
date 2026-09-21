@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
-import { InfoHint, TermHint } from "../ui/Tooltip.jsx";
+import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import GeozoneMap from "./GeozoneMap.jsx";
 import { getJson } from "../../lib/api";
 

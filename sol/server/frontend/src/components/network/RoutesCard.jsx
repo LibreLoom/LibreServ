@@ -6,12 +6,12 @@ import {
   Trash2,
   HelpCircle,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import PropTypes from "prop-types";
-import Card from "../cards/Card";
-import Toggle from "../common/Toggle";
-import Pill from "../common/Pill";
-import Button from "../ui/Button";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 function formatBackend(backend) {
   if (!backend) return "N/A";

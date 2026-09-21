@@ -17,7 +17,7 @@ const {
 vi.mock("../../../hooks/useAuth.jsx", () => ({
   useAuth: () => ({ request: requestMock }),
 }));
-vi.mock("../../../utils/clipboard.js", () => ({
+vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
   copyWithFeedback: copyMock,
 }));
 vi.mock("../../../context/ToastContext.jsx", () => ({
@@ -27,7 +27,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
   const original = /** @type {Record<string, any>} */ (await importOriginal());
   return { ...original, useNavigate: () => navigateMock };
 });
-vi.mock("../../ui/Button.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     children,
     disabled,
@@ -47,7 +47,7 @@ vi.mock("../../ui/Button.jsx", () => ({
 vi.mock("../../ui/TypewriterLoader.jsx", () => ({
   default: ({ message }) => <div>{message}</div>,
 }));
-vi.mock("../../cards/Card.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children }) => <section>{children}</section>,
 }));
 vi.mock("../../common/AppIcon.jsx", () => ({

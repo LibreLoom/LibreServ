@@ -12,12 +12,12 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import Button from "../ui/Button.jsx";
-import Card from "../cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import EmptyState from "../common/EmptyState.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { haptic } from "../../utils/haptics.js";
-import { useSmoothResize } from "../../hooks/useSmoothResize";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import MapAreaDraw from "./MapAreaDraw.jsx";
 
 function FitBounds({ points }) {

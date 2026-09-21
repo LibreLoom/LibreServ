@@ -45,7 +45,7 @@ vi.mock("../context/ToastContext", () => ({
   useToast: () => ({ addToast: testState.addToast }),
 }));
 
-vi.mock("../components/ui/Page", () => ({
+vi.mock("@libreloom/ui/components/ui/Page.jsx", () => ({
   default: ({ children, leftContent, rightContent, title }) => (
     <main id="main-content" tabIndex={-1}>
       {title && (
@@ -59,7 +59,7 @@ vi.mock("../components/ui/Page", () => ({
     </main>
   ),
 }));
-vi.mock("../components/cards/Card", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, title }) => (
     <section>
       {title && <h2>{title}</h2>}
@@ -67,7 +67,7 @@ vi.mock("../components/cards/Card", () => ({
     </section>
   ),
 }));
-vi.mock("../components/cards/HeaderCard", () => ({
+vi.mock("@libreloom/ui/components/cards/HeaderCard.jsx", () => ({
   default: ({ leftContent, rightContent, title }) => (
     <header>
       {leftContent}
@@ -85,7 +85,7 @@ vi.mock("../components/cards/MetricCard", () => ({
     </div>
   ),
 }));
-vi.mock("../components/ui/Button", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     asChild,
     children,
@@ -108,10 +108,10 @@ vi.mock("../components/ui/Button", () => ({
       </button>
     ),
 }));
-vi.mock("../components/common/Pill", () => ({
+vi.mock("@libreloom/ui/components/common/Pill.jsx", () => ({
   default: ({ children }) => <span>{children}</span>,
 }));
-vi.mock("../components/common/ValueDisplay", () => ({
+vi.mock("@libreloom/ui/components/common/ValueDisplay.jsx", () => ({
   default: ({ label, value }) => (
     <div>
       <span>{label}</span>
@@ -130,7 +130,7 @@ vi.mock("../components/common/EmptyState", () => ({
     </div>
   ),
 }));
-vi.mock("../components/common/Table", () => ({
+vi.mock("@libreloom/ui/components/common/Table.jsx", () => ({
   default: ({ columns, data, onRowClick, rowKey }) => (
     <div>
       {data.map((row, rowIndex) => (
@@ -181,7 +181,7 @@ vi.mock("../components/common/forms/FormInput", () => ({
     </label>
   ),
 }));
-vi.mock("../components/common/Alert", () => ({
+vi.mock("@libreloom/ui/components/common/Alert.jsx", () => ({
   default: ({ message }) => <div role="alert">{message}</div>,
 }));
 vi.mock("../components/profile/MfaCard", () => ({

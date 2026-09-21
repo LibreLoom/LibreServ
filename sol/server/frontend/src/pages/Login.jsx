@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import PropTypes from "prop-types";
@@ -6,12 +6,12 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
 import { login as loginQuips } from "../assets/greetings";
 import api from "../lib/api";
-import Card from "../components/cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../components/cards/ModalCard";
-import StepTransition from "../components/common/StepTransition";
-import Button from "../components/ui/Button";
+import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import FormInput from "../components/common/forms/FormInput";
-import Alert from "../components/common/Alert";
+import Alert from "@libreloom/ui/components/common/Alert.jsx";
 import MfaChallenge from "../components/auth/MfaChallenge";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
 

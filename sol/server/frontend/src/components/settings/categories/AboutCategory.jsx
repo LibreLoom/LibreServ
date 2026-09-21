@@ -1,15 +1,15 @@
 import { useState, useEffect } from "react";
 import { Heart, Coffee, Globe, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import SettingsCard from "../SettingsCard";
 import FactoryResetCard from "./FactoryResetCard";
-import Button from "../../ui/Button";
-import CollapsibleSection from "../../common/CollapsibleSection";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "../../cards/ModalCard";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
 import { labelFor } from "../../../lib/healthChecks";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const inputClass =
   "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary outline-none focus:border-accent";

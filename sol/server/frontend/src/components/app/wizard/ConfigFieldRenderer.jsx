@@ -1,12 +1,12 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { memo } from "react";
 import PropTypes from "prop-types";
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import Dropdown from "../../common/Dropdown";
-import AnimatedCheckbox from "../../ui/AnimatedCheckbox";
-import FieldLabel from "../../common/forms/FieldLabel";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
+import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /** @param {{ field: any, value: any, onChange: any, disabled?: any, surface?: "primary"|"secondary" }} _ */
 function ConfigFieldRenderer({ field, value, onChange, disabled, surface = "secondary" }) {

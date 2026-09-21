@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useId } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Home, SearchX } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 import { objectnotfound as quips } from "../assets/greetings";
 
-import Card from "../components/cards/Card";
-import HeaderCard from "../components/cards/HeaderCard";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import HeaderCard from "@libreloom/ui/components/cards/HeaderCard.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 /* ======================================================================
    Helpers

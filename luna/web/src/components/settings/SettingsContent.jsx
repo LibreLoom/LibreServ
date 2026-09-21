@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import AppearanceCategory from "./categories/AppearanceCategory.jsx";
 import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";

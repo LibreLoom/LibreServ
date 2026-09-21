@@ -1,7 +1,7 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import PropTypes from 'prop-types';
 import { getRemediations } from '../../lib/preflight-errors';
-import Callout from '../common/Callout';
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
 
 /**
  * Displays remediation guidance for failed preflight checks.

@@ -17,17 +17,17 @@ import {
   X,
 } from "lucide-react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
-import Card from "../cards/Card.jsx";
-import Button from "../ui/Button.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import TextLink from "../ui/TextLink.jsx";
-import AnimatedCheckbox from "../ui/AnimatedCheckbox.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import EmptyState from "../common/EmptyState.jsx";
 import Dropdown from "../common/Dropdown.jsx";
 import SegmentedControl from "../common/SegmentedControl.jsx";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { getJson } from "../../lib/api.js";
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
 import {

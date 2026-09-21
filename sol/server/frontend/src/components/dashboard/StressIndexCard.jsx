@@ -1,8 +1,8 @@
-import { cn } from "@/lib/utils";
-import Card from "../cards/Card";
-import CollapsibleSection from "../common/CollapsibleSection";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import PillGauge from "../ui/PillGauge";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /** Stress level → semantic variant + plain-language label. */
 function stressLevel(pct) {

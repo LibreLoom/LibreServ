@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "./ModalCard";
-import Callout from "../common/Callout";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice";
-import Button from "../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { haptic } from "../../utils/haptics.js";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 // Maps the modal's semantic variant to the canonical Button variant.
 // "warning" keeps its yellow fill via a className override since Button has

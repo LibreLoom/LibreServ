@@ -1,9 +1,9 @@
 import { Activity, CheckCircle2, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import SettingsCard from "../SettingsCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
 import { displayLabel } from "../../../lib/healthChecks.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SystemChecksCard({ index = 1 }) {
   const { data, isLoading, error } = useSystemHealthCheck();

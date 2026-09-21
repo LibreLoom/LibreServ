@@ -2,11 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { ChevronDown, Plus } from "lucide-react";
-import Button from "../ui/Button.jsx";
-import { cn } from "@/lib/utils";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { createKindsFor, groupedCreateKinds } from "../../lib/createKinds.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { haptic } from "../../utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * One New button that opens a growing list of create kinds.

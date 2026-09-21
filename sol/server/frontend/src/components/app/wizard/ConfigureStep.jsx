@@ -1,9 +1,9 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ConfigFieldRenderer from "./ConfigFieldRenderer";
-import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { Info, ChevronDown, ChevronUp } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
   const contentRef = useRef(null);

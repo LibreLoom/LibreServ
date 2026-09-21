@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { KeyRound, Trash2, Plus, Loader2 } from "lucide-react";
-import Card from "../cards/Card";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
-import CopyableValue from "../ui/CopyableValue";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function formatDate(iso) {
   if (!iso) return "never";

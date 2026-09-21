@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, HardDrive } from "lucide-react";
 import PropTypes from "prop-types";
-import Button from "../ui/Button.jsx";
-import { cn } from "@/lib/utils";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { hasLunaPaths, LUNA_DRIVE_MIME, LUNA_PATHS_MIME, SPRING_LOAD_MS } from "../../lib/dnd.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { haptic } from "../../utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * Hover delay before the menu opens itself under an in-flight file drag —

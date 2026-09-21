@@ -1,8 +1,8 @@
 import { FileCode, RefreshCw } from "lucide-react";
-import Card from "../cards/Card";
-import CollapsibleSection from "../common/CollapsibleSection";
-import Button from "../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function DebugCard({ content, onReload }) {
   const isEmpty = !content || content.trim().length === 0;

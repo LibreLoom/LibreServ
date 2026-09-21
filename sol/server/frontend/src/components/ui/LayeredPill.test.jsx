@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Mail } from "lucide-react";
-import LayeredPill from "./LayeredPill.jsx";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import LayeredCard from "./LayeredCard.jsx";
 
 describe.each([

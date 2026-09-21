@@ -2,11 +2,11 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import Card from "./Card";
-import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
-import { haptic } from "../../utils/haptics";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /** @type {import('react').Context<(() => void) | null>} */
 const ModalCloseContext = createContext(null);

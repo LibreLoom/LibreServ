@@ -30,15 +30,15 @@ import {
 } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
-import IconCircle from "../ui/IconCircle.jsx";
-import PageNotice from "../common/PageNotice.jsx";
-import Pill from "../common/Pill.jsx";
-import { TermHint, Tooltip } from "../ui/Tooltip.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { apiErrorMessage, getJson } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { downloadHref, fmtSize, parentPath, pathBasename } from "../../lib/paths.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const TYPE_LABELS = {
   image: "Image",

@@ -1,6 +1,6 @@
 import PropTypes from "prop-types";
 import { Download, RotateCcw, X } from "lucide-react";
-import Button from "../../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 /**
  * Shared card for office-open failures — identical chrome whether the

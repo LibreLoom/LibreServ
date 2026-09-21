@@ -41,7 +41,7 @@ vi.mock("../components/dashboard/UptimeCard", () => ({
   default: ({ value }) => <div data-testid="uptime-card"><span>{value}</span></div>,
 }));
 
-vi.mock("../components/cards/HeaderCard", () => ({
+vi.mock("@libreloom/ui/components/cards/HeaderCard.jsx", () => ({
   default: ({ title, leftContent, rightContent }) => (
     <div data-testid="header-card">
       <div data-testid="header-title">{title}</div>

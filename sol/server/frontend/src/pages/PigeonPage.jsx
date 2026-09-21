@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
-import Card from "../components/cards/Card";
-import CardButton from "../components/ui/CardButton";
-import Page from "../components/ui/Page";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
 import pigeonImg from "../assets/pigeon.jpg";
 
 export default function PigeonPage() {

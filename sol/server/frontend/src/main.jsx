@@ -5,7 +5,7 @@ import "./index.css";
 import App from "./App.jsx";
 import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "./context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupGlobalErrorHandlers } from "./utils/errorReporting";

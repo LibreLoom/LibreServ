@@ -1,8 +1,8 @@
 import { AlertCircle, AlertTriangle, Info } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import PropTypes from "prop-types";
-import Callout from "./Callout";
-import Button from "../ui/Button";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 const TONE_MAP = { error: "error", warning: "warning", info: "info" };
 const ICON_MAP = { error: AlertCircle, warning: AlertTriangle, info: Info };

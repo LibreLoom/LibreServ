@@ -15,14 +15,14 @@ import {
   Wrench,
   CircleHelp,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import api from "../lib/api";
-import Page from "../components/ui/Page.jsx";
-import PageNotice from "../components/common/PageNotice.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "../components/settings/SettingsCard.jsx";
 import SettingsRow from "../components/settings/SettingsRow.jsx";
-import Button from "../components/ui/Button.jsx";
-import CollapsibleSection from "../components/common/CollapsibleSection.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal.jsx";
 import { useAuth } from "../hooks/useAuth";
 import { getNetworkReport } from "../lib/network-api";

@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@libreloom/ui": "file:../../../shared/ui",
     "@tailwindcss/vite": "^4.3.2",
     "@tanstack/react-query": "^5.102.8",
     "agentation": "^3.0.2",

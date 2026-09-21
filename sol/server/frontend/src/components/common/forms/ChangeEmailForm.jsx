@@ -1,10 +1,10 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Mail } from "lucide-react";
-import Button from "../../ui/Button";
-import ShakeTarget from "../../ui/ShakeTarget";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();

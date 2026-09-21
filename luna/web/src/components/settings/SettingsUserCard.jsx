@@ -1,8 +1,8 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { Link } from "react-router-dom";
 import { User, Shield, ChevronRight } from "lucide-react";
-import { InfoHint } from "../ui/Tooltip";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SettingsUserCard({ user }) {
   if (!user) return null;

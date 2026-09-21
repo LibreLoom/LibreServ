@@ -38,7 +38,7 @@ vi.mock("../../../../hooks/useAuth", () => ({
   }),
 }));
 
-vi.mock("../../../../components/cards/Card", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children }) => <>{children}</>,
 }));
 

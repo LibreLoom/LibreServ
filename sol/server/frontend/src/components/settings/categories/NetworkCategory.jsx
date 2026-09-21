@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, Shield, Radio, Layers, PlugZap } from "lucide-react";
 import PropTypes from "prop-types";
@@ -8,9 +8,9 @@ import SettingsRow from "../SettingsRow.jsx";
 import RoutesCard from "../../network/RoutesCard";
 import DebugCard from "../../network/DebugCard";
 import RouteModal from "../RouteModal";
-import ValueDisplay from "../../common/ValueDisplay";
-import CollapsibleSection from "../../common/CollapsibleSection";
-import Button from "../../ui/Button";
+import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import {
@@ -23,7 +23,7 @@ import {
   getNetworkReport,
   getNetworkPlans,
 } from "../../../lib/network-api";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // ─── Reachability — the one big status the page leads with ──────────────────
 

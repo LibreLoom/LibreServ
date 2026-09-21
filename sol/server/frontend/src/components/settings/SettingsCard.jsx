@@ -1,5 +1,5 @@
 import { memo } from "react";
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 
 // Fast stagger: 25ms per card keeps the cascade visible without feeling sluggish.
 const STAGGER_DELAY_MS = 25;

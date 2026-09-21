@@ -1,15 +1,15 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import Card from "../components/cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import MetricCard from "../components/cards/MetricCard";
-import Button from "../components/ui/Button";
-import Pill from "../components/common/Pill";
-import ValueDisplay from "../components/common/ValueDisplay";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import StateOverlay from "../components/cards/StateOverlay";
-import Page from "../components/ui/Page";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
 import api from "../lib/api";
 import { User, Shield, KeyRound, Pencil, Trash2 } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
@@ -18,7 +18,7 @@ import SetPasswordForm from "../components/common/forms/SetPasswordForm";
 import MfaCard from "../components/profile/MfaCard";
 import { useAuth } from "../hooks/useAuth";
 import { useTimeFormat } from "../hooks/useTimeFormat";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // Whole days between a timestamp and now. null when the timestamp is missing.
 // ponytail: tiny local helper — only this page needs relative-day math right now;

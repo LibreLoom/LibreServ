@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**
  * Markdown element → themed element. Mono headings (Simplex Mono identity),

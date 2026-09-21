@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";

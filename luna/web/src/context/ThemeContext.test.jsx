@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
-import { ThemeProvider } from "./ThemeContext";
-import { useTheme } from "../hooks/useTheme";
+import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
+import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 
 function Probe({ onReady }) {
   const theme = useTheme();

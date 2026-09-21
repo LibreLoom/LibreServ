@@ -2,8 +2,8 @@ import { memo } from "react";
 import { AlertTriangle, Globe, ArrowRight, Check } from "lucide-react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
-import Button from "../../ui/Button";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function NoDomainWarningStep({ app, onBack, onContinue }) {
   const navigate = useNavigate();

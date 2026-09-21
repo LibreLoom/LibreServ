@@ -14,18 +14,18 @@ import {
   Strikethrough,
   Table,
 } from "lucide-react";
-import Button from "../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "../common/Dropdown.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard.jsx";
-import ShakeTarget from "../ui/ShakeTarget.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import MarkdownPreview from "./MarkdownPreview.jsx";
-import { ActionTooltipGroup, Tooltip } from "../ui/Tooltip.jsx";
+import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useFileEditor, runMarkdownAction } from "./useFileEditor.js";
 import { insertMarkdownTable } from "./markdownTables.js";
 import { TableImportDialog } from "./MarkdownTableEditor.jsx";
 import { contentHref, joinPath, parentPath } from "../../lib/paths.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**
  * Toolbar actions — each inserts or toggles Markdown syntax at the cursor.

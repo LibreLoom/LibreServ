@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useCallback } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useAuth } from "../hooks/useAuth";
 import { useInvalidateApps } from "../hooks/useApps";
 import { useAppDetail } from "../hooks/useAppDetail";
@@ -10,11 +10,11 @@ import { useAppActions } from "../hooks/useAppActions";
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useCatalogFeatures } from "../hooks/useCatalogFeatures";
-import HeaderCard from "../components/cards/HeaderCard";
-import Card from "../components/cards/Card";
+import HeaderCard from "@libreloom/ui/components/cards/HeaderCard.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import MetricCard from "../components/cards/MetricCard";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import AppIcon from "../components/common/AppIcon";
@@ -41,7 +41,7 @@ import {
   Settings,
   Terminal,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import StatusPill from "../components/common/StatusPill";
 import SegmentedControl from "../components/common/SegmentedControl";
 import { ActionCard } from "../components/app/actions/ActionCard";

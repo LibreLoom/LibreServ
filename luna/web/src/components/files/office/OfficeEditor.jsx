@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import PageNotice from "../../common/PageNotice.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { downloadHref, pathBasename } from "../../../lib/paths.js";
 import EuroOfficeHost from "./EuroOfficeHost.jsx";
 import OfficeIssueCard from "./OfficeIssueCard.jsx";

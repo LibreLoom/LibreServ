@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { AlertTriangle, CheckCircle, XCircle, ChevronDown } from "lucide-react";
-import Pill from "./Pill.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { displayLabel } from "../../lib/healthChecks.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * SystemHealthPill — failed health checks as a compact dashboard header pill,

@@ -36,7 +36,7 @@ vi.mock("../../../hooks/useTimeFormat.jsx", () => ({
 vi.mock("../../../hooks/useSystemHealthCheck.jsx", () => ({
   useSystemHealthCheck: () => healthState,
 }));
-vi.mock("../../../utils/haptics.js", () => ({
+vi.mock("@libreloom/ui/utils/haptics.js", () => ({
   haptic: hapticMock,
   setHapticsEnabled: setHapticsEnabledMock,
   useHapticsEnabled: () => true,
@@ -69,7 +69,7 @@ vi.mock("../SettingsRow.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../../common/Toggle.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Toggle.jsx", () => ({
   default: ({ checked, onChange, label }) => (
     <button type="button" aria-pressed={checked} onClick={() => onChange(!checked)}>
       {label}
@@ -139,7 +139,7 @@ vi.mock("../../common/Dropdown.jsx", () => ({
     </select>
   ),
 }));
-vi.mock("../../common/Table.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Table.jsx", () => ({
   default: ({ columns, data, rowKey }) => (
     <table>
       <tbody>
@@ -156,7 +156,7 @@ vi.mock("../../common/Table.jsx", () => ({
     </table>
   ),
 }));
-vi.mock("../../ui/Button.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     "aria-label": ariaLabel,
     asChild,
@@ -210,7 +210,7 @@ vi.mock("../../cards/ConfirmModal.jsx", () => ({
       </div>
     ) : null,
 }));
-vi.mock("../../common/CollapsibleSection.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/CollapsibleSection.jsx", () => ({
   default: ({ children, title }) => (
     <div>
       <span>{title}</span>
@@ -218,7 +218,7 @@ vi.mock("../../common/CollapsibleSection.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../../common/Callout.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Callout.jsx", () => ({
   default: ({ action, children, title }) => (
     <div>
       {title}

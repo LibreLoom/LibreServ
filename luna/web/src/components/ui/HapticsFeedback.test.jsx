@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import CardButton from "./CardButton.jsx";
-import { InfoHint } from "./Tooltip.jsx";
-import CollapsibleSection from "../common/CollapsibleSection.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import TextLink from "./TextLink.jsx";
-import LayeredPill from "./LayeredPill.jsx";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import ConfirmModal from "../cards/ConfirmModal.jsx";
-import * as haptics from "../../utils/haptics.js";
+import * as haptics from "@libreloom/ui/utils/haptics.js";
 
 describe("UI Haptic Feedback Integration", () => {
   let hapticSpy;
@@ -110,7 +110,7 @@ describe("UI Haptic Feedback Integration", () => {
   });
 
   it("Button emits variant-specific haptic patterns and respects haptic prop", async () => {
-    const { default: Button } = await import("./Button.jsx");
+    const { default: Button } = await import("@libreloom/ui/components/ui/Button.jsx");
     const { rerender } = render(<Button>Standard</Button>);
     fireEvent.click(screen.getByRole("button", { name: "Standard" }));
     expect(hapticSpy).toHaveBeenCalledWith("medium");
@@ -181,7 +181,7 @@ describe("UI Haptic Feedback Integration", () => {
   });
 
   it("Callout emits light haptic when dismissed", async () => {
-    const { default: Callout } = await import("../common/Callout.jsx");
+    const { default: Callout } = await import("@libreloom/ui/components/common/Callout.jsx");
     const onDismiss = vi.fn();
     render(
       <Callout title="Heads up" onDismiss={onDismiss}>

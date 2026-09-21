@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
-import Pill from "./Pill";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { statusConfig } from "../../data/statusConfig";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // Map a runtime status string to the same token-based variant the rest of the
 // status-color system uses (bg-X/20 border-X/30 text-X). Replaces the separate

@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 
 import ConfirmModal from "../../cards/ConfirmModal";
-import Button from "../../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SettingsCard from "../SettingsCard";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";

@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Download, File as FileIcon, Folder, Lock, UploadCloud, X } from "lucide-react";
-import Card from "../components/cards/Card";
-import Button from "../components/ui/Button";
-import ShakeTarget from "../components/ui/ShakeTarget";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import EmptyState from "../components/common/EmptyState";
-import PageNotice from "../components/common/PageNotice";
-import { cn } from "@/lib/utils";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { apiErrorMessage, deleteJson, postJson, putBinaryProgress } from "../lib/api";
 import { filesFromDataTransfer } from "../lib/collectUploadFiles";
-import { haptic } from "../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const UPLOAD_PARALLEL = 2;

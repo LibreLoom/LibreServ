@@ -69,7 +69,7 @@ Our users are **not technical**. The product goal is "99% of users shouldn't nee
 **If a term needs a definition, define it:**
 
 - In the sentence: `Plug Luna into your router or modem with the included RJ45 (ethernet) cable.`
-- With **InfoHint** (`ⓘ`, longer aside next to a label) or **TermHint** (dotted underline on one word) from `src/components/ui/Tooltip.jsx`. Duplicate that file in Luna web and LibreServ web — keep them in sync.
+- With **InfoHint** (`ⓘ`, longer aside next to a label) or **TermHint** (dotted underline on one word) from `Tooltip` in `@libreloom/ui` (`shared/ui/components/ui/Tooltip.jsx`).
 
 Rules that still hold:
 
@@ -118,7 +118,7 @@ Do not append manual version query strings to static asset URLs in production bu
 - Test runner: **Vitest** (not Jest), uses `@testing-library/react` + jsdom
 - Import order: React → Third-party → Local (include `.jsx` extension in imports)
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
-- The same component set exists in `sol/server/frontend` and `luna/web` — fixes to shared components (`PageNotice`, `Table`, `Tooltip`, `HeaderCard`, `Page`, Dropdown, settings categories) must land in **both** copies. (A shared package is on the roadmap; until then, sync by hand.)
+- Shared leaf components live in **`shared/ui`** (`@libreloom/ui`, a `file:` dep of both product webs). Edit shared files there — never fork them back into an app. Components that remain app-local (`Dropdown`, `SegmentedControl`, `EmptyState`, settings categories, page-level components) still exist per-app; keep cross-app copies in sync until they migrate.
 
 #### Form field focus (non-negotiable)
 
@@ -196,7 +196,7 @@ Before ANY UI work:
 
 #### Haptics & Tactile Feedback (non-negotiable)
 
-The entire UI must be felt, not just seen. Every interactive surface, card, modal, gesture (long-press, swipe, drag/drop, FAB corner snap), navigation link, and state outcome (shake error, copy success, mutation success) must emit consistent, intentional, and tasteful tactile haptic feedback using Luna's PWM-modulated vibration engine (`luna/web/src/utils/haptics.js`).
+The entire UI must be felt, not just seen. Every interactive surface, card, modal, gesture (long-press, swipe, drag/drop, FAB corner snap), navigation link, and state outcome (shake error, copy success, mutation success) must emit consistent, intentional, and tasteful tactile haptic feedback using Luna's PWM-modulated vibration engine (`shared/ui/utils/haptics.js`).
 
 **Semantic presets (use explicitly):**
 - `selection`: Segmented controls, tabs, nav links (`NavLink`), table rows (`onRowClick`), checkboxes, dropdown items, filter toggles, photo thumbnails, year/month scrubbers.

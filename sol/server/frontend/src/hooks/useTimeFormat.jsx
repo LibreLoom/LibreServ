@@ -1,5 +1,5 @@
 import { useContext, useCallback } from "react";
-import { ThemeContext } from "../context/ThemeContext.jsx";
+import { ThemeContext } from"@libreloom/ui/context/ThemeContext.jsx";
 import { formatTime, formatDateWithTime, formatDateLong } from "../lib/time-utils.js";
 
 export function useTimeFormat() {

@@ -113,8 +113,8 @@ fi
 echo "Fetching x2t.wasm $X2T_VERSION …"
 tmp_zip="$(mktemp)"; tmp_sum="$(mktemp)"
 trap 'rm -f "$tmp_zip" "$tmp_sum"; cleanup' EXIT
-curl -fsSL "$X2T_URL" -o "$tmp_zip"
-curl -fsSL "$X2T_URL.sha512" -o "$tmp_sum"
+curl -fsSL --proto '=https' --tlsv1.2 "$X2T_URL" -o "$tmp_zip"
+curl -fsSL --proto '=https' --tlsv1.2 "$X2T_URL.sha512" -o "$tmp_sum"
 expected="$(awk "{print \$1}" "$tmp_sum")"
 actual="$(sha512sum "$tmp_zip" | awk "{print \$1}")"
 if [[ "$expected" != "$actual" ]]; then

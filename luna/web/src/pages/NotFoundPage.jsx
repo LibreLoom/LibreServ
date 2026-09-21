@@ -4,10 +4,10 @@ import { ArrowLeft, Home, MoonStar } from "lucide-react";
 
 import { notfound as quips } from "../assets/greetings";
 
-import Card from "../components/cards/Card";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
-import IconCircle from "../components/ui/IconCircle";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import {
   normalizePathname,
   pickStableQuip,

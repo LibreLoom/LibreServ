@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { Sparkles, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
-import Toggle from "../common/Toggle.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Dropdown from "../common/Dropdown.jsx";
-import Button from "../ui/Button.jsx";
-import ShakeTarget from "../ui/ShakeTarget.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import { updateAISettings } from "../../lib/settings-api.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const FORMAT_OPTIONS = [
   { value: "openai", label: "OpenAI (Chat Completions)" },

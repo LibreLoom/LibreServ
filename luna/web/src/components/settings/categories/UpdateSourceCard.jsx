@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch } from "lucide-react";
-import Button from "../../ui/Button";
-import CollapsibleSection from "../../common/CollapsibleSection";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "../../cards/ModalCard";
-import PageNotice from "../../common/PageNotice";
-import ShakeTarget from "../../ui/ShakeTarget";
-import Pill from "../../common/Pill";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SettingsCard from "../SettingsCard";
 import ConnectSetupCodeForm from "../ConnectSetupCodeForm.jsx";
-import { InfoHint } from "../../ui/Tooltip";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson, putJson, postJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "../../../context/ToastContext";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const INPUT_CLASS =
   "w-full min-w-0 rounded-pill bg-primary text-secondary px-4 py-2 font-mono";

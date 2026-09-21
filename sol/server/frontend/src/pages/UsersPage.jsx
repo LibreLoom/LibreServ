@@ -1,19 +1,19 @@
 import { useState, useEffect } from "react";
 import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import Card from "../components/cards/Card";
-import Page from "../components/ui/Page";
-import Button from "../components/ui/Button";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "../components/cards/ConfirmModal";
-import Table from "../components/common/Table";
-import Pill from "../components/common/Pill";
+import Table from "@libreloom/ui/components/common/Table.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import EmptyState from "../components/common/EmptyState";
 import StateOverlay from "../components/cards/StateOverlay";
 import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useAuth } from "../hooks/useAuth";
 import MyProfile from "./MyProfile";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * @param {any} dateString

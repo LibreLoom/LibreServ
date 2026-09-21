@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, HardDrive, History, PlugZap, TriangleAlert } from "lucide-react";
-import { cn } from "@/lib/utils";
-import Page from "../components/ui/Page.jsx";
-import Card from "../components/cards/Card.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../components/cards/ModalCard.jsx";
-import Button from "../components/ui/Button.jsx";
-import Pill from "../components/common/Pill.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
 import TextLink from "../components/ui/TextLink.jsx";
-import { TermHint } from "../components/ui/Tooltip.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext";
@@ -30,7 +30,7 @@ import {
 import useConnectActive from "../hooks/useConnectActive.js";
 import InspectModal from "../components/files/InspectModal.jsx";
 import { isMockUnknownDrive, mockInspectResult, withDevMockDetected } from "../lib/devMockDrives.js";
-import { haptic } from "../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 const STATE_PILLS = {
   as_is: "success",

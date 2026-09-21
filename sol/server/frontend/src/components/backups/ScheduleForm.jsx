@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
-import FieldLabel from "../common/forms/FieldLabel";
+import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
 import CheckboxOptionGroup from "../common/CheckboxOptionGroup";
-import Button from "../ui/Button";
-import Callout from "../common/Callout";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import { Save } from "lucide-react";
 
 const DAY_OPTIONS = [

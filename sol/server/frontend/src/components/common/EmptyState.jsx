@@ -1,6 +1,6 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import PropTypes from "prop-types";
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 
 /**
  * EmptyState — centered empty copy inside a Card (never on bare page bg).

@@ -1,8 +1,8 @@
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
-import { haptic } from "../../utils/haptics";
-import { Tooltip } from "../ui/Tooltip.jsx";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SegmentedControl({
   options,

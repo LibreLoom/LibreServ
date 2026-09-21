@@ -718,7 +718,6 @@ pub fn dest_dir_create(
 /// before we got here (it rejects those instead of returning NotFound).
 fn ensure_dir(root: &Path, rel: &str) -> Result<PathBuf, FilesError> {
     let mut prefix = String::new();
-    let mut current = root.to_path_buf();
     for part in rel.split('/').filter(|s| !s.is_empty()) {
         if !prefix.is_empty() {
             prefix.push('/');
@@ -735,13 +734,33 @@ fn ensure_dir(root: &Path, rel: &str) -> Result<PathBuf, FilesError> {
                 )));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&p).map_err(FilesError::Io)?;
+                match std::fs::create_dir(&p) {
+                    Ok(()) => {}
+                    // A concurrent upload created it first — fine, as long as
+                    // what exists now is a real directory.
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(FilesError::Io(e)),
+                }
+                // Re-check after create: a swapped-in symlink between the
+                // resolve and the mkdir must not hand the caller a path that
+                // left the drive.
+                match std::fs::symlink_metadata(&p) {
+                    Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {}
+                    _ => {
+                        return Err(FilesError::Io(std::io::Error::new(
+                            std::io::ErrorKind::NotADirectory,
+                            "not a directory",
+                        )));
+                    }
+                }
             }
             Err(e) => return Err(FilesError::Io(e)),
         }
-        current = p;
     }
-    Ok(current)
+    // Final whole-path check before the caller writes into the result: if any
+    // component was swapped for a symlink during the walk, canonicalizing the
+    // full path lands outside the drive root and we refuse it.
+    resolve_child(root, rel).map_err(FilesError::Path)
 }
 
 /// MIME types safe to render inline at the Luna origin. Everything else is

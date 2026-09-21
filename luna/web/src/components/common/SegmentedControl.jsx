@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
-import { haptic } from "../../utils/haptics";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
  * @typedef {Record<string, any> & {

@@ -3,19 +3,19 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Users } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard";
-import Button from "../ui/Button";
-import CopyableValue from "../ui/CopyableValue";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Dropdown from "../common/Dropdown";
-import PageNotice from "../common/PageNotice";
-import ShakeTarget from "../ui/ShakeTarget";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import CreateShareModal from "./CreateShareModal";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext.jsx";
-import { TermHint, Tooltip } from "../ui/Tooltip";
+import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { deleteJson, getJson, patchJson, postJson, apiErrorMessage } from "../../lib/api";
 import { dedupeIdenticalGrants, pathKey } from "../../lib/shareTree.js";
-import { haptic } from "../../utils/haptics.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const PERMISSION_OPTIONS = [
   { value: "read", label: "Read" },

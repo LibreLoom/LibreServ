@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ThemeContext, ThemeProvider } from "./ThemeContext.jsx";
+import { ThemeContext, ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 
 let mediaHandler;
 let mediaMatches;

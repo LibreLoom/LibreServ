@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Rectangle, useMap } from "react-leaflet";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * @param {[number, number, number, number]|null|undefined} bbox west,south,east,north

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { encodePairing } from "../../lib/pairing.js";
 
 /**

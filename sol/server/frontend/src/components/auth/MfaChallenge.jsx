@@ -10,15 +10,15 @@ import {
   LifeBuoy,
   RotateCw,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import PropTypes from "prop-types";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import OtpInput from "../ui/OtpInput";
-import LayeredPill from "../ui/LayeredPill";
-import IconCircle from "../ui/IconCircle";
-import StepTransition from "../common/StepTransition";
-import { useSmoothResize } from "../../hooks/useSmoothResize";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
+import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
+import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
+import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import { bufToB64url, prepareRequestOptions } from "../../utils/webauthn";

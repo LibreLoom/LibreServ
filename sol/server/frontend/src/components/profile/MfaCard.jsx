@@ -10,28 +10,28 @@ import {
   Mail,
   Pencil,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import useMfaAvailability from "../../hooks/useMfaAvailability";
-import Card from "../cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "../cards/ModalCard";
-import Button from "../ui/Button";
-import ShakeTarget from "../ui/ShakeTarget";
-import LayeredPill from "../ui/LayeredPill";
-import Alert from "../common/Alert";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
+import Alert from "@libreloom/ui/components/common/Alert.jsx";
 import OtpInput from "../ui/OtpInput";
 import FormInput from "../common/forms/FormInput";
-import CollapsibleSection from "../common/CollapsibleSection";
-import { useSmoothResize } from "../../hooks/useSmoothResize";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
+import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import {
   prepareCreationOptions,
   bufToB64url,
   plainWebAuthnError,
 } from "../../utils/webauthn";
 import { TYPE_META, ORDER, inputClass } from "./mfa-shared";
-import { copyToClipboard, canUseClipboard } from "../../utils/clipboard";
+import { copyToClipboard, canUseClipboard } from "@libreloom/ui/utils/clipboard.js";
 
 /**
  * @param {{ onMethodEnabled?: () => void, onComplete?: () => void, embedded?: boolean } | undefined} [props]

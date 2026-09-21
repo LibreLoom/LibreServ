@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { cn } from "@/lib/utils";
-import Spinner from "../ui/Spinner.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 
 /** Minimum preview height while a photo is loading (px). */
 const LOADING_MIN_HEIGHT = 192;

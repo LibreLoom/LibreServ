@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
-import Card from "../components/cards/Card";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ClickableCard from "../components/cards/ClickableCard";
-import Page from "../components/ui/Page";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
 import TypewriterLoader from "../components/ui/TypewriterLoader";
 
 export default function LorePage() {
@@ -14,7 +14,7 @@ export default function LorePage() {
   useEffect(() => {
     // Load markdown content lazily so the main bundle stays lean.
     // @ts-ignore - dynamic import for lore markdown
-    import("../../../../.lore/lore.md?raw")
+    import("../../../../../.lore/lore.md?raw")
       .then((module) => {
         setLoreContent(module.default);
         setLoading(false);

@@ -1,8 +1,8 @@
 import { Component } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react";
 import PropTypes from "prop-types";
-import Button from "../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 function generateErrorId() {
   const bytes = new Uint8Array(5);

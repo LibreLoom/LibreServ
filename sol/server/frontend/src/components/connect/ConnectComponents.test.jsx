@@ -28,7 +28,7 @@ vi.mock("../../lib/settings-api.js", () => ({
 vi.mock("../../lib/notifications-api.js", () => ({
   updateNotifications: updateNotificationsMock,
 }));
-vi.mock("../../utils/clipboard.js", () => ({
+vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
   canUseClipboard: () => clipboardState.ok,
   copyWithFeedback: copyMock,
 }));
@@ -50,7 +50,7 @@ vi.mock("../cards/ModalCard.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../cards/Card.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, headerActions, title }) => (
     <section>
       <h2>{title}</h2>
@@ -59,7 +59,7 @@ vi.mock("../cards/Card.jsx", () => ({
     </section>
   ),
 }));
-vi.mock("../common/Toggle.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Toggle.jsx", () => ({
   default: ({ checked, label, onChange }) => (
     <button type="button" aria-pressed={checked} onClick={() => onChange(!checked)}>
       {label}
@@ -81,7 +81,7 @@ vi.mock("../common/Dropdown.jsx", () => ({
     </select>
   ),
 }));
-vi.mock("../ui/Button.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     children,
     disabled,
@@ -101,10 +101,10 @@ vi.mock("../ui/Button.jsx", () => ({
     </button>
   ),
 }));
-vi.mock("../common/Callout.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Callout.jsx", () => ({
   default: ({ children }) => <div>{children}</div>,
 }));
-vi.mock("../ui/Tooltip.jsx", () => ({
+vi.mock("@libreloom/ui/components/ui/Tooltip.jsx", () => ({
   InfoHint: ({ content }) => <span>{content}</span>,
   TermHint: ({ children }) => <span>{children}</span>,
 }));

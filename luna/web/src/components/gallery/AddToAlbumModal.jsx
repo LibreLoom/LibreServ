@@ -3,11 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Minus, Search } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
-import Spinner from "../ui/Spinner.jsx";
-import { cn } from "@/lib/utils";
-import { haptic } from "../../utils/haptics.js";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { getJson } from "../../lib/api";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 

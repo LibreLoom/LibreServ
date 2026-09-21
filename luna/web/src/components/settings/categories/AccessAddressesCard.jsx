@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { MapPin } from "lucide-react";
-import CopyableValue from "../../ui/CopyableValue";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import SettingsCard from "../SettingsCard";
 import { getJson } from "../../../lib/api";
 

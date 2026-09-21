@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiErrorMessage, postJson } from "../lib/api";
 import { useToast } from "../context/ToastContext.jsx";
-import { haptic } from "../utils/haptics";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * Move files or folders through Luna's job queue — within one drive or

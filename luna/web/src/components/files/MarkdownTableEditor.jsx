@@ -37,10 +37,10 @@ import {
   Minus,
   Strikethrough,
 } from "lucide-react";
-import Button from "../ui/Button.jsx";
-import { Tooltip } from "../ui/Tooltip.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import Dropdown from "../common/Dropdown.jsx";
-import Toggle from "../common/Toggle.jsx";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard.jsx";
 import ConfirmModal from "../cards/ConfirmModal.jsx";
 import { applyMarkdownAction } from "../../lib/markdown.js";
@@ -54,8 +54,8 @@ import {
   TABLE_CLIPBOARD_MIME,
   validateTableRows,
 } from "./markdownTableModel.js";
-import { ICON_SIZE } from "@/lib/ui-tokens";
-import { cn } from "@/lib/utils";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import "./markdownTables.css";
 
 const MIN_COL_PX = 120;

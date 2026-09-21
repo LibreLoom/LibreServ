@@ -1,8 +1,8 @@
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
-import ShakeTarget from "../ui/ShakeTarget.jsx";
-import PageNotice from "../common/PageNotice.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 
 /**
  * Name prompt for creating a folder or file in the current folder.

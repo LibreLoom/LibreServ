@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import ModalCard from "../cards/ModalCard";
-import Button from "../ui/Button";
-import CopyableValue from "../ui/CopyableValue";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Dropdown from "../common/Dropdown";
-import PageNotice from "../common/PageNotice";
-import ShakeTarget from "../ui/ShakeTarget";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { postJson, apiErrorMessage } from "../../lib/api";
-import { haptic } from "../../utils/haptics";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
 const LINK_ERROR = "Couldn't create that link. Check that the file or folder is still on this drive, then try again.";

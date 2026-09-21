@@ -4,16 +4,16 @@ import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
-import Button from "../../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ModalErrorNotice from "../ModalErrorNotice";
-import { InfoHint } from "../../ui/Tooltip";
-import { haptic } from "../../../utils/haptics.js";
-import PasswordStrengthChecklist from "../PasswordStrengthChecklist";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
+import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import {
   PASSWORD_FIELD_PLACEHOLDER,
   meetsPasswordPolicy,
   passwordPolicyError,
-} from "../../../lib/passwordPolicy";
+} from "@libreloom/ui/lib/passwordPolicy.js";
 import {
   USERNAME_POLICY_HINT,
   isValidUsername,

@@ -97,7 +97,7 @@ vi.mock("../lib/connect-api", () => ({
   getConnectStatus: testState.connectStatus,
 }));
 
-vi.mock("../components/ui/Page", () => ({
+vi.mock("@libreloom/ui/components/ui/Page.jsx", () => ({
   default: ({ children, leftContent, rightContent, title }) => (
     <main>
       <header>
@@ -109,10 +109,10 @@ vi.mock("../components/ui/Page", () => ({
     </main>
   ),
 }));
-vi.mock("../components/cards/Card", () => ({
+vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children }) => <section>{children}</section>,
 }));
-vi.mock("../components/cards/HeaderCard", () => ({
+vi.mock("@libreloom/ui/components/cards/HeaderCard.jsx", () => ({
   default: ({ title }) => <header>{title}</header>,
 }));
 vi.mock("../components/cards/MetricCard", () => ({
@@ -124,7 +124,7 @@ vi.mock("../components/cards/MetricCard", () => ({
     </div>
   ),
 }));
-vi.mock("../components/ui/Button", () => ({
+vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   default: ({
     asChild,
     children,
@@ -253,7 +253,7 @@ vi.mock("./ObjectNotFound", () => ({
   default: ({ objectName }) => <div>Missing app: {objectName}</div>,
 }));
 
-vi.mock("../components/common/PageNotice", () => ({
+vi.mock("@libreloom/ui/components/common/PageNotice.jsx", () => ({
   default: ({ children }) => <aside>{children}</aside>,
 }));
 vi.mock("../components/settings/SettingsCard", () => ({
@@ -274,7 +274,7 @@ vi.mock("../components/settings/SettingsRow", () => ({
     </div>
   ),
 }));
-vi.mock("../components/common/CollapsibleSection", () => ({
+vi.mock("@libreloom/ui/components/common/CollapsibleSection.jsx", () => ({
   default: ({ children, title }) => (
     <section>
       <h3>{title}</h3>

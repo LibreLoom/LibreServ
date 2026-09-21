@@ -12,10 +12,10 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import SegmentedControl from "../common/SegmentedControl";
-import Button from "../ui/Button.jsx";
-import { haptic } from "../../utils/haptics.js";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 function useIsDesktop() {
   const read = () => {

@@ -10,9 +10,9 @@ import {
   Info,
   ExternalLink,
 } from "lucide-react";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";

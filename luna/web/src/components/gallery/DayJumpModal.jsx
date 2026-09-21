@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard.jsx";
 import { dayKey } from "./PhotoTimeline.jsx";
-import { haptic } from "../../utils/haptics.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
  * Local-TZ unix day bounds for gallery `from`/`to` and deep links.

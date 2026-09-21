@@ -1,7 +1,7 @@
 import { Laptop, Smartphone } from "lucide-react";
 import { Link } from "react-router-dom";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 /** Official app downloads. No other public URLs exist in this repo yet. */
 export const MOBILE_APP_DOWNLOAD_URL = "https://luna.libreloom.org/downloads/mobile";

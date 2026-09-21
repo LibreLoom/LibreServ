@@ -1,17 +1,17 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState } from "react";
 import { Mail, Bell } from "lucide-react";
-import Toggle from "../../common/Toggle";
+import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
-import Alert from "../../common/Alert";
+import Alert from "@libreloom/ui/components/common/Alert.jsx";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow.jsx";
-import Button from "../../ui/Button";
-import { InfoHint } from "../../ui/Tooltip";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "../../../context/ToastContext";
 import api from "../../../lib/api";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const FREQUENCY_OPTIONS = [
   {

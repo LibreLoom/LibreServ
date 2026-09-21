@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import Button from "../components/ui/Button";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import FormInput from "../components/common/forms/FormInput";
-import Alert from "../components/common/Alert";
+import Alert from "@libreloom/ui/components/common/Alert.jsx";
 import { useToast } from "../context/ToastContext";
 import { passwordreset as resetQuips } from "../assets/greetings";
 import api from "../lib/api";
