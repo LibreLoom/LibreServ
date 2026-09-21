@@ -19,7 +19,7 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
     DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, HICON, HMENU, HWND_MESSAGE,
-    IMAGE_ICON, LR_DEFAULTSIZE, LR_LOADFROMFILE, LoadImageW, MF_STRING, MSG, PostMessageW,
+    IMAGE_ICON, LR_DEFAULTSIZE, LoadImageW, MF_STRING, MSG, PostMessageW,
     PostQuitMessage, RegisterClassW, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
     TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND,
     WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
@@ -78,12 +78,6 @@ pub fn spawn(tx: Sender<TrayCmd>) -> Option<WinTray> {
             None
         }
     }
-}
-
-fn exe_wide() -> Vec<u16> {
-    std::env::current_exe()
-        .map(|p| p.as_os_str().encode_wide().chain(Some(0)).collect())
-        .unwrap_or_default()
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -220,22 +214,25 @@ fn run(ready: Sender<usize>) {
             return;
         }
 
-        // Prefer the app's own icon embedded in the exe; fall back to the
-        // generic application icon.
-        let hicon: HICON = {
-            let exe = exe_wide();
+        // Prefer the app's own icon: build.rs embeds it as resource ID 1.
+        // Fall back to the predefined system application icon (null module) —
+        // a shared icon that must not be DestroyIcon'd.
+        let (hicon, own_icon): (HICON, bool) = {
             let h = LoadImageW(
-                null_mut(),
-                exe.as_ptr(),
+                hinst,
+                1usize as _,
                 IMAGE_ICON,
                 0,
                 0,
-                LR_LOADFROMFILE | LR_DEFAULTSIZE,
+                LR_DEFAULTSIZE,
             );
             if !h.is_null() {
-                h
+                (h, true)
             } else {
-                LoadImageW(hinst, IDI_APPLICATION, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE)
+                (
+                    LoadImageW(null_mut(), IDI_APPLICATION, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE),
+                    false,
+                )
             }
         };
         if hicon.is_null() {
@@ -247,7 +244,9 @@ fn run(ready: Sender<usize>) {
         let mut data = icon_data(hwnd, hicon);
         if Shell_NotifyIconW(NIM_ADD, &mut data) == 0 {
             let _ = ready.send(0);
-            DestroyIcon(hicon);
+            if own_icon {
+                DestroyIcon(hicon);
+            }
             DestroyWindow(hwnd);
             return;
         }
@@ -259,6 +258,8 @@ fn run(ready: Sender<usize>) {
             DispatchMessageW(&msg);
         }
 
-        DestroyIcon(hicon);
+        if own_icon {
+            DestroyIcon(hicon);
+        }
     }
 }

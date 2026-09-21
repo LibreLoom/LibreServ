@@ -1049,14 +1049,20 @@ fn grant_covers_canonical(root: &str, grant_rel: &str, request_rel: &str) -> boo
     let request_canon = match resolve_child(root, request_rel) {
         Ok(p) => p,
         Err(luna_core::path::PathError::NotFound(_)) => {
-            // Upload/create: jail the parent that must already exist.
-            let parent = std::path::Path::new(request_rel)
-                .parent()
-                .and_then(|p| p.to_str())
-                .unwrap_or("");
-            match resolve_child(root, parent) {
-                Ok(p) => p,
-                Err(_) => return false,
+            // Upload/create: the request may span several missing folders, so
+            // resolve the nearest existing ancestor — everything below it is
+            // created fresh and cannot be a pre-existing symlink escape.
+            let mut rel = request_rel;
+            loop {
+                rel = std::path::Path::new(rel)
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or_default();
+                match resolve_child(root, rel) {
+                    Ok(p) => break p,
+                    Err(luna_core::path::PathError::NotFound(_)) if !rel.is_empty() => continue,
+                    Err(_) => return false,
+                }
             }
         }
         Err(_) => return false,

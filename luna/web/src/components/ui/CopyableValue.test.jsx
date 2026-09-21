@@ -75,5 +75,20 @@ describe("CopyableValue", () => {
       ).toBeTruthy();
       expect(screen.getByLabelText("Value to copy")).toHaveValue("secret-token");
     });
+
+    it("clears the fallback after a successful retry", async () => {
+      const user = userEvent.setup();
+      installClipboardMock(true);
+      clipboardMock.writeText.mockRejectedValueOnce(new Error("denied"));
+      render(<CopyableValue value="secret-token" copyLabel="Copy address" />);
+      const btn = screen.getByRole("button", { name: "Copy address" });
+      await user.click(btn);
+      expect(
+        await screen.findByText(/Copy didn't work in this browser/i),
+      ).toBeTruthy();
+      await user.click(btn);
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+      expect(screen.queryByText(/Copy didn't work in this browser/i)).toBeNull();
+    });
   });
 });

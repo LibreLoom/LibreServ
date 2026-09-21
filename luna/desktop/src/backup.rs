@@ -218,6 +218,16 @@ pub fn start_job(
                     return;
                 }
                 let path = queued[i].clone();
+                // Deleted between queueing and retry: nothing left to back up.
+                // (Other metadata errors still go through upload_one so a real
+                // read failure stays reported instead of vanishing quietly.)
+                if let Err(e) = std::fs::symlink_metadata(&path)
+                    && e.kind() == std::io::ErrorKind::NotFound
+                {
+                    failed.remove(&path);
+                    queued.remove(i);
+                    continue;
+                }
                 let mut attempt_failed = false;
                 for root in &sources_owned {
                     if let Ok(rel) = path.strip_prefix(root) {
