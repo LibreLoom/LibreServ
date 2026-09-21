@@ -87,7 +87,8 @@ function LocalPanel() {
       <ol className="steps">
         <li>Plug Luna into power.</li>
         <li>Connect Luna to your router or modem with the included RJ45 (ethernet) cable.</li>
-        <li>On a phone or computer using the same network, open the address shown on Luna&apos;s screen. You can also try <strong>luna.local</strong>.</li>
+        <li>Wait a few minutes for Luna to start. On a phone or computer using the same network, open <strong>luna.local</strong>.</li>
+        <li>If that does not open, connect a screen to a video port on the back of Luna. On your phone or computer, open the address shown on the screen.</li>
         <li>Create the first Admin account. An Admin can manage people, settings, drives, and every file on Luna.</li>
         <li>Name Luna, finish setup, then plug in a USB drive. Luna shows what is on it before changing anything.</li>
       </ol>

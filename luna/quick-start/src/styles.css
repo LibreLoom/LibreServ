@@ -290,6 +290,10 @@ input {
   color: var(--accent);
 }
 
+.local-panel .small-note {
+  margin-top: 0.16in;
+}
+
 .help-block {
   margin-top: 0.11in;
   border-top: 0.75pt solid var(--accent);
