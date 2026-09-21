@@ -19,10 +19,10 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
     DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, HICON, HMENU, HWND_MESSAGE,
-    IMAGE_ICON, LR_DEFAULTSIZE, LoadImageW, MF_STRING, MSG, PostMessageW,
-    PostQuitMessage, RegisterClassW, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
-    TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND,
-    WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
+    IMAGE_ICON, LR_DEFAULTSIZE, LoadImageW, MF_STRING, MSG, PostMessageW, PostQuitMessage,
+    RegisterClassW, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RIGHTBUTTON,
+    TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND, WM_LBUTTONDBLCLK, WM_LBUTTONUP,
+    WM_NULL, WM_RBUTTONUP, WNDCLASSW,
 };
 
 use crate::tray::TrayCmd;
@@ -218,19 +218,19 @@ fn run(ready: Sender<usize>) {
         // Fall back to the predefined system application icon (null module) —
         // a shared icon that must not be DestroyIcon'd.
         let (hicon, own_icon): (HICON, bool) = {
-            let h = LoadImageW(
-                hinst,
-                1usize as _,
-                IMAGE_ICON,
-                0,
-                0,
-                LR_DEFAULTSIZE,
-            );
+            let h = LoadImageW(hinst, 1usize as _, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
             if !h.is_null() {
                 (h, true)
             } else {
                 (
-                    LoadImageW(null_mut(), IDI_APPLICATION, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE),
+                    LoadImageW(
+                        null_mut(),
+                        IDI_APPLICATION,
+                        IMAGE_ICON,
+                        0,
+                        0,
+                        LR_DEFAULTSIZE,
+                    ),
                     false,
                 )
             }
