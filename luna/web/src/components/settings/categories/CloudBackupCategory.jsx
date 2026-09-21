@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Cloud } from "lucide-react";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson } from "../../../lib/api";
 

@@ -6,11 +6,11 @@ import ErrorDisplay from "../components/common/ErrorDisplay";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import SettingsSidebar from "../components/settings/SettingsSidebar";
+import SettingsSidebar from "@libreloom/ui/components/settings/SettingsSidebar.jsx";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import {
   getSecuritySettings,
   updateSecuritySettings,
@@ -337,6 +337,10 @@ export default function SettingsPage() {
         <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0 overflow-y-auto pb-24">
           <SettingsSidebar
             user={user}
+            categories={visibleCategories(isAdmin)}
+            memberHint="Some settings require an administrator."
+            userHref={(u) => `/users/${u.id}`}
+            deviceName="this server"
             activeCategory={activeCategory}
             onCategoryChange={handleCategoryChange}
           />
@@ -389,6 +393,10 @@ export default function SettingsPage() {
             </h1>
             <SettingsSidebar
               user={user}
+              categories={visibleCategories(isAdmin)}
+              memberHint="Some settings require an administrator."
+              userHref={(u) => `/users/${u.id}`}
+              deviceName="this server"
               activeCategory={activeCategory}
               onCategoryChange={handleCategoryChange}
             />

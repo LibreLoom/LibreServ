@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Shield } from "lucide-react";
-import Dropdown from "../Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

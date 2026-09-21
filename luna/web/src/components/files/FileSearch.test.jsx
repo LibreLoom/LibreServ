@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import FileSearch from "./FileSearch";
-import { ToastProvider } from "../../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 /** @param {unknown[]} hits @param {{ searchHold?: Promise<void> }} [options] */
 function renderSearch(hits, { searchHold } = {}) {

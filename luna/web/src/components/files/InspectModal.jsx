@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { File as FileIcon, Folder, Info, TriangleAlert } from "lucide-react";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";

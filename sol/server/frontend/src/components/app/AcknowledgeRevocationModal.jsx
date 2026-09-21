@@ -2,7 +2,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useCallback } from "react";
 import { ShieldAlert, AlertTriangle } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
-import ModalCard from "../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

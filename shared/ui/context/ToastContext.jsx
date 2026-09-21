@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
-import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { haptic } from "../utils/haptics.js";
 
 const ToastContext = createContext(null);
 

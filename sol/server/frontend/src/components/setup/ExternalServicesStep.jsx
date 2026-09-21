@@ -3,7 +3,7 @@ import { Globe, Mail, Shield, DatabaseBackup, LifeBuoy, Sparkles, ArrowRight, Ar
 import PropTypes from "prop-types";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import ModalCard from "../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccessCategory from "./AccessCategory.jsx";
-import { ToastProvider } from "../../../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function stubFetch(tokens = []) {
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {

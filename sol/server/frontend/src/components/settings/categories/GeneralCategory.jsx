@@ -1,6 +1,6 @@
 import { Clock } from "lucide-react";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SystemUpdatesCard from "./SystemUpdatesCard";
 import RepoStatusCard from "./RepoStatusCard";
 

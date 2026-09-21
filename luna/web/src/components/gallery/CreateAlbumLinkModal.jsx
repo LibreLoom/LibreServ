@@ -1,15 +1,15 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation } from "@tanstack/react-query";
-import ModalCard from "../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
-import Dropdown from "../common/Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import { apiErrorMessage, postJson } from "../../lib/api";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { useToast } from "../../context/ToastContext.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 const LINK_ERROR = "Couldn't create that link. Try again.";
 

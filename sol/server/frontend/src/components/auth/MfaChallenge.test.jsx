@@ -24,7 +24,7 @@ vi.mock("../../hooks/useAuth", () => ({
     mfaRecover: mockRecover,
   }),
 }));
-vi.mock("../../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: mockAddToast }),
 }));
 

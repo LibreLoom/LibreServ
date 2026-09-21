@@ -17,13 +17,14 @@ describe("error reporting utilities", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(crypto, "getRandomValues").mockImplementation((arr) => {
-      for (let i = 0; i < arr.length; i++) arr[i] = (i + 1) * 17;
+      const values = /** @type {any} */ (arr);
+      for (let i = 0; i < values.length; i++) values[i] = (i + 1) * 17;
       return arr;
     });
   });
 
   afterEach(() => {
-    delete window.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__;
+    delete (/** @type {any} */ (window)).__REACT_ERROR_OVERLAY_GLOBAL_HOOK__;
     vi.restoreAllMocks();
   });
 
@@ -98,7 +99,7 @@ describe("error reporting utilities", () => {
   });
 
   it("parses JSON or returns a chosen default", () => {
-    expect(safeJsonParse('{\"enabled\":true}')).toEqual({ enabled: true });
+    expect(safeJsonParse('{"enabled":true}')).toEqual({ enabled: true });
     expect(safeJsonParse("not-json", { enabled: false })).toEqual({
       enabled: false,
     });
@@ -125,7 +126,7 @@ describe("error reporting utilities", () => {
   });
 
   it("installs browser and React global error handlers", () => {
-    window.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__ = {};
+    (/** @type {any} */ (window)).__REACT_ERROR_OVERLAY_GLOBAL_HOOK__ = {};
     setupGlobalErrorHandlers();
 
     const rejection = new Event("unhandledrejection");

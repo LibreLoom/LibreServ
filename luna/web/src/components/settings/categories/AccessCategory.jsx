@@ -6,15 +6,15 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ActionTooltipGroup } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
-import SettingsCard from "../SettingsCard";
-import SettingsRow from "../SettingsRow";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import PairingQrModal from "../PairingQrModal.jsx";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 function formatWhen(unix) {
   if (!unix) return "Never";

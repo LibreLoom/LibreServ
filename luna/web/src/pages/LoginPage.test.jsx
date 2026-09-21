@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
-import { ToastProvider } from "../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {

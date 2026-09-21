@@ -10,7 +10,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import SegmentedControl from "../common/SegmentedControl.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import MapAreaDraw, { bboxToBounds, boundsToBbox } from "./MapAreaDraw.jsx";
 

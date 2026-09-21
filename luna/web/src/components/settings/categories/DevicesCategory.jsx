@@ -1,6 +1,6 @@
 import { Laptop, Smartphone } from "lucide-react";
 import { Link } from "react-router-dom";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 
 /** Official app downloads. No other public URLs exist in this repo yet. */

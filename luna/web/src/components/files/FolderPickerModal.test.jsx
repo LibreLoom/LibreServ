@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FolderPickerModal from "./FolderPickerModal.jsx";
-import { ToastProvider } from "../../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 describe("FolderPickerModal", () => {
   beforeEach(() => {

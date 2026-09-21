@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Database, Check, Plus, Trash2, AlertTriangle } from "lucide-react";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { getConnectWarning } from "./connect-utils.js";

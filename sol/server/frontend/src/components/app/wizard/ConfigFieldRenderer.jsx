@@ -3,7 +3,7 @@ import { memo } from "react";
 import PropTypes from "prop-types";
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
-import Dropdown from "../../common/Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
 import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

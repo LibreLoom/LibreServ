@@ -1,5 +1,5 @@
 import { useState } from "react";
-import ModalCard from "../../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import ConfigFieldRenderer from "../wizard/ConfigFieldRenderer";

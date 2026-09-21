@@ -41,7 +41,7 @@ vi.mock("../lib/notifications-api.js", () => ({
   updateNotifications: vi.fn(),
 }));
 
-vi.mock("../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({
     addToast: vi.fn(),
     dismissToast: vi.fn(),
@@ -50,7 +50,7 @@ vi.mock("../context/ToastContext", () => ({
   }),
 }));
 
-vi.mock("../components/settings/SettingsSidebar", () => ({
+vi.mock("@libreloom/ui/components/settings/SettingsSidebar.jsx", () => ({
   default: ({ onCategoryChange }) => (
     <nav data-testid="settings-sidebar">
       <button onClick={() => onCategoryChange("general")}>General</button>

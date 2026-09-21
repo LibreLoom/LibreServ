@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { Code, Download, Eye, FileOutput, Maximize2, X } from "lucide-react";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import SegmentedControl from "../common/SegmentedControl.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
@@ -21,7 +21,7 @@ import { contentHref, downloadHref, joinPath, parentPath, pathBasename } from ".
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { useToast } from "../../context/ToastContext.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 /** Match `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;

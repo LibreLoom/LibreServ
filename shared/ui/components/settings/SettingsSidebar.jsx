@@ -1,21 +1,39 @@
-import { cn } from "@libreloom/ui/lib/utils.js";
+import { cn } from "../../lib/utils.js";
 import { ChevronRight, Lock } from "lucide-react";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
-import SettingsUserCard from "./SettingsUserCard";
-import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
-import { visibleCategories } from "./settingsCategories";
-import useConnectActive from "../../hooks/useConnectActive";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import Card from "../../components/cards/Card.jsx";
+import SettingsUserCard from "./SettingsUserCard.jsx";
+import CardButton from "../../components/ui/CardButton.jsx";
+import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
+/**
+ * Settings category rail: user card on top, category list below.
+ *
+ * Category lists are product-specific — each app computes its own (e.g.
+ * `visibleCategories(isAdmin, connectActive)` from its settingsCategories.js)
+ * and passes the result in.
+ *
+ * @param {{
+ *   user: object|null,
+ *   categories: { id: string, label: string, icon?: import("react").ComponentType<any> }[],
+ *   activeCategory: string,
+ *   onCategoryChange: (id: string) => void,
+ *   memberHint?: string,
+ *   userHref?: string|((user: object) => string|null),
+ *   deviceName?: string,
+ *   className?: string,
+ * }} props
+ */
 export default function SettingsSidebar({
   user,
+  categories,
   activeCategory,
   onCategoryChange,
+  memberHint,
+  userHref,
+  deviceName,
   className = "",
 }) {
   const isAdmin = user?.role === "admin";
-  const connectActive = useConnectActive();
-  const categories = visibleCategories(isAdmin, connectActive);
   return (
     <Card
       as="nav"
@@ -24,7 +42,7 @@ export default function SettingsSidebar({
       className={cn("flex flex-col gap-2", className)}
       aria-label="Settings categories"
     >
-      <SettingsUserCard user={user} />
+      <SettingsUserCard user={user} href={userHref} deviceName={deviceName} />
 
       <div className="mt-4 border-t border-primary/10 pt-4">
         <div className="px-3 mb-3 text-xs font-medium text-primary uppercase tracking-wider">
@@ -63,10 +81,10 @@ export default function SettingsSidebar({
           })}
         </ul>
 
-        {!isAdmin && (
+        {!isAdmin && memberHint && (
           <p className="px-3 mt-3 flex items-center gap-1.5 text-xs text-primary">
             <Lock size={ICON_SIZE.xs} aria-hidden="true" className="shrink-0" />
-            You're signed in as a Member. Ask an Admin to change External Services or About.
+            {memberHint}
           </p>
         )}
       </div>

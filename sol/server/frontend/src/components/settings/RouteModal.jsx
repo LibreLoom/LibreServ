@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Globe, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
-import ModalCard from "../cards/ModalCard";
-import Dropdown from "../common/Dropdown";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";

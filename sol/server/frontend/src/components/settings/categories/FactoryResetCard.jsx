@@ -3,11 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 
-import ConfirmModal from "../../cards/ConfirmModal";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { useAuth } from "../../../hooks/useAuth";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 /** @param {{ index?: number, settings?: any, className?: string }} _ */
 function FactoryResetCard({ index = 2, className = "" }) {

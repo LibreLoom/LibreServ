@@ -8,7 +8,7 @@ import {
   Sparkles,
   LifeBuoy,
 } from "lucide-react";
-import SettingsCard from "../SettingsCard.jsx";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";

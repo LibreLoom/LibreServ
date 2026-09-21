@@ -5,7 +5,7 @@ import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { getJson } from "../../../lib/api";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 

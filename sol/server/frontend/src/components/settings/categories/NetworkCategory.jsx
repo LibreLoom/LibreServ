@@ -2,9 +2,9 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, Shield, Radio, Layers, PlugZap } from "lucide-react";
 import PropTypes from "prop-types";
-import ConfirmModal from "../../cards/ConfirmModal";
-import SettingsCard from "../SettingsCard";
-import SettingsRow from "../SettingsRow.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import RoutesCard from "../../network/RoutesCard";
 import DebugCard from "../../network/DebugCard";
 import RouteModal from "../RouteModal";
@@ -12,7 +12,7 @@ import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useAuth } from "../../../hooks/useAuth";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import {
   getCaddyStatus,
   listRoutes,

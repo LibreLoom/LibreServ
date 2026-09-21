@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- exports date helpers used by GalleryPage and tests */
 import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { dayKey } from "./PhotoTimeline.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 

@@ -583,7 +583,7 @@ PreflightStep.propTypes = {
 };
 
 // ─── STEP: Account creation ───────────────────────────────────────────────────
-/** @param {{ id: any, label: any, hint?: any, children: any }} _ */
+/** @param {{ id: any, label: any, hint?: any, children: any, error?: any, shake?: any, loading?: boolean }} _ */
 function FormField({ id, label, hint, children, error, shake, loading = false }) {
   const { labelError, containerRef } = useLabelErrorState(error, shake, { loading });
   return (

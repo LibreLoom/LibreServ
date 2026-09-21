@@ -1,6 +1,6 @@
 import { Heart, Coffee } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import SystemUpdatesCard from "./SystemUpdatesCard.jsx";

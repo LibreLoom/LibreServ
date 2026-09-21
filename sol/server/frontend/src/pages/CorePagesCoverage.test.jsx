@@ -41,7 +41,7 @@ vi.mock("../hooks/useTimeFormat", () => ({
     use12HourTime: false,
   }),
 }));
-vi.mock("../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: testState.addToast }),
 }));
 
@@ -122,7 +122,7 @@ vi.mock("@libreloom/ui/components/common/ValueDisplay.jsx", () => ({
 vi.mock("../components/cards/StateOverlay", () => ({
   default: ({ children, message }) => <div>{message || children}</div>,
 }));
-vi.mock("../components/common/EmptyState", () => ({
+vi.mock("@libreloom/ui/components/common/EmptyState.jsx", () => ({
   default: ({ description, title }) => (
     <div>
       <h2>{title}</h2>
@@ -148,7 +148,7 @@ vi.mock("@libreloom/ui/components/common/Table.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../components/cards/ConfirmModal", () => ({
+vi.mock("@libreloom/ui/components/cards/ConfirmModal.jsx", () => ({
   default: ({ confirmLabel = "Confirm", message, onClose, onConfirm, open, title }) =>
     open ? (
       <div role="dialog" aria-label={title}>
@@ -162,7 +162,7 @@ vi.mock("../components/cards/ConfirmModal", () => ({
       </div>
     ) : null,
 }));
-vi.mock("../components/cards/ModalCard", () => ({
+vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ children, onClose, title }) => (
     <div role="dialog" aria-label={title}>
       <button type="button" onClick={onClose}>
@@ -407,7 +407,7 @@ describe("MyProfile", () => {
     await user.click(screen.getByRole("button", { name: "Change Password" }));
     expect(screen.getByText("Current password is required")).toBeVisible();
     expect(
-      screen.getByText("Password must be at least 12 characters"),
+      screen.getByText("Enter a password."),
     ).toBeVisible();
 
     await user.type(screen.getByLabelText("Current Password"), "wrong");

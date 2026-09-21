@@ -1,13 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import { Database, RefreshCw, CheckCircle, AlertCircle, Loader2, Plus, Trash2, Package } from "lucide-react";
 import { useAuth } from "../../../hooks/useAuth";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import api from "../../../lib/api";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import ModalCard from "../../cards/ModalCard";
-import ConfirmModal from "../../cards/ConfirmModal";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const inputClasses =

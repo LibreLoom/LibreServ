@@ -11,7 +11,7 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
   ),
 }));
 
-vi.mock("../Dropdown.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({
   default: ({ options, value, onChange, "aria-label": ariaLabel }) => (
     <select
       aria-label={ariaLabel || "Role"}

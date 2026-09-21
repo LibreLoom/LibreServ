@@ -86,7 +86,7 @@ vi.mock("../hooks/useTimeFormat", () => ({
     formatDateTime: (value) => `formatted:${value}`,
   }),
 }));
-vi.mock("../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: testState.addToast }),
 }));
 vi.mock("../lib/api", () => ({ default: testState.api }));
@@ -145,7 +145,7 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
       </button>
     ),
 }));
-vi.mock("../components/cards/ModalCard", () => ({
+vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ children, onClose, title }) => (
     <div role="dialog" aria-label={title}>
       <button type="button" onClick={onClose}>
@@ -164,7 +164,7 @@ vi.mock("../components/common/AppIcon", () => ({
 vi.mock("../components/common/StatusPill", () => ({
   default: ({ status }) => <span>status:{status}</span>,
 }));
-vi.mock("../components/common/SegmentedControl", () => ({
+vi.mock("@libreloom/ui/components/common/SegmentedControl.jsx", () => ({
   default: ({ onChange, options }) => (
     <div>
       {options.map((option) => (
@@ -256,7 +256,7 @@ vi.mock("./ObjectNotFound", () => ({
 vi.mock("@libreloom/ui/components/common/PageNotice.jsx", () => ({
   default: ({ children }) => <aside>{children}</aside>,
 }));
-vi.mock("../components/settings/SettingsCard", () => ({
+vi.mock("@libreloom/ui/components/settings/SettingsCard.jsx", () => ({
   default: ({ children, headerActions, title }) => (
     <section>
       <h2>{title}</h2>
@@ -265,7 +265,7 @@ vi.mock("../components/settings/SettingsCard", () => ({
     </section>
   ),
 }));
-vi.mock("../components/settings/SettingsRow", () => ({
+vi.mock("@libreloom/ui/components/settings/SettingsRow.jsx", () => ({
   default: ({ children, description, label }) => (
     <div>
       <span>{label}</span>
@@ -282,7 +282,7 @@ vi.mock("@libreloom/ui/components/common/CollapsibleSection.jsx", () => ({
     </section>
   ),
 }));
-vi.mock("../components/cards/ConfirmModal", () => ({
+vi.mock("@libreloom/ui/components/cards/ConfirmModal.jsx", () => ({
   default: ({ confirmLabel = "Confirm", onClose, onConfirm, open, title }) =>
     open ? (
       <div role="dialog" aria-label={title}>

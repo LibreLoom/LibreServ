@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import PageNotice from "../../components/common/PageNotice.jsx";
 
 /**
  * PageNotice wrapper for modal bodies — keeps error copy inside the dialog.

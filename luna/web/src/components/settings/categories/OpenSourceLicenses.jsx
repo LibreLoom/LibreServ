@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, ScrollText } from "lucide-react";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
-import ModalCard from "../../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { OPEN_SOURCE_LICENSES } from "../../../lib/openSourceLicenses.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import FormInput from "../components/common/forms/FormInput";
 import Alert from "@libreloom/ui/components/common/Alert.jsx";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { passwordreset as resetQuips } from "../assets/greetings";
 import api from "../lib/api";
 

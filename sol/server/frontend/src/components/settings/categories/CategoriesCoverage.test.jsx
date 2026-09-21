@@ -1,3 +1,4 @@
+// color-scan: ignore-file — test fixtures assert literal theme hex values
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +28,7 @@ const {
 vi.mock("../../../hooks/useAuth.jsx", () => ({
   useAuth: () => ({ request: requestMock, logout: logoutMock }),
 }));
-vi.mock("../../../context/ToastContext.jsx", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: addToastMock }),
 }));
 vi.mock("../../../hooks/useTimeFormat.jsx", () => ({
@@ -42,16 +43,16 @@ vi.mock("@libreloom/ui/utils/haptics.js", () => ({
   useHapticsEnabled: () => true,
 }));
 vi.mock("../../../lib/connect-api.js", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {object} */ (await importOriginal());
   return { ...original, getConnectUsage: getConnectUsageMock };
 });
 vi.mock("../../../lib/api.js", () => ({ default: apiMock }));
 vi.mock("react-router-dom", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {object} */ (await importOriginal());
   return { ...original, useNavigate: () => navigateMock };
 });
 
-vi.mock("../SettingsCard.jsx", () => ({
+vi.mock("@libreloom/ui/components/settings/SettingsCard.jsx", () => ({
   default: ({ title, headerActions, children }) => (
     <section>
       <h2>{title}</h2>
@@ -60,7 +61,7 @@ vi.mock("../SettingsCard.jsx", () => ({
     </section>
   ),
 }));
-vi.mock("../SettingsRow.jsx", () => ({
+vi.mock("@libreloom/ui/components/settings/SettingsRow.jsx", () => ({
   default: ({ label, description, children }) => (
     <div>
       <span>{label}</span>
@@ -76,7 +77,7 @@ vi.mock("@libreloom/ui/components/common/Toggle.jsx", () => ({
     </button>
   ),
 }));
-vi.mock("../../common/SegmentedControl.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/SegmentedControl.jsx", () => ({
   default: ({ options, value, onChange }) => (
     <div>
       {options.map((option) => (
@@ -124,7 +125,7 @@ vi.mock("../../common/RadioOptionGroup.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../../common/Dropdown.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({
   default: ({ options, value, onChange }) => (
     <select
       aria-label="Activity range"
@@ -164,7 +165,7 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
     disabled,
     loading,
     onClick,
-    type = "button",
+    type = /** @type {"button"|"reset"|"submit"} */ ("button"),
   }) =>
     asChild ? (
       children
@@ -182,7 +183,7 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
 vi.mock("../../ui/TypewriterLoader.jsx", () => ({
   default: () => <div>Loading activity</div>,
 }));
-vi.mock("../../cards/ModalCard.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ children, onClose, title }) => (
     <div role="dialog" aria-label={title}>
       <button type="button" onClick={onClose}>Close modal</button>
@@ -190,7 +191,7 @@ vi.mock("../../cards/ModalCard.jsx", () => ({
     </div>
   ),
 }));
-vi.mock("../../cards/ConfirmModal.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/ConfirmModal.jsx", () => ({
   default: ({
     children,
     confirmLabel = "Confirm",
@@ -435,6 +436,9 @@ describe("settings category coverage", () => {
         repos={[]}
         onActivateConnect={onActivateConnect}
         onDeactivateConnect={onDeactivateConnect}
+      
+        onRefreshConnectStatus={vi.fn()}
+        onOpenPlanPage={vi.fn()}
       />,
     );
 
@@ -475,6 +479,11 @@ describe("settings category coverage", () => {
         connectStatus={{ connected: true, services: {} }}
         settings={{}}
         repos={[]}
+      
+        onActivateConnect={vi.fn()}
+        onDeactivateConnect={vi.fn()}
+        onRefreshConnectStatus={vi.fn()}
+        onOpenPlanPage={vi.fn()}
       />,
     );
 
@@ -503,6 +512,7 @@ describe("settings category coverage", () => {
         }}
         onSettingsChange={onSettingsChange}
         onSecuritySettingsChange={onSecuritySettingsChange}
+      
       />,
     );
 
@@ -543,6 +553,9 @@ describe("settings category coverage", () => {
       <NotificationsCategory
         settings={{ smtp: { configured: true }, notify: { enabled: false } }}
         securitySettings={{}}
+      
+        onSecuritySettingsChange={vi.fn()}
+        onSettingsChange={vi.fn()}
       />,
     );
 

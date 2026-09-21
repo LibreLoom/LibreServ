@@ -29,7 +29,7 @@ import {
   Undo2,
 } from "lucide-react";
 import PropTypes from "prop-types";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";

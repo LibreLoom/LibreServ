@@ -147,7 +147,7 @@ export function makeSafe(fn, defaultValue = null) {
  * Assert that a condition is true, otherwise throw an error
  * 
  * @param {*} condition - Condition to check
- * @param {string} message - Error message if condition is falsy
+ * @param {string} [message] - Error message if condition is falsy
  * @throws {Error} If condition is falsy
  */
 export function assert(condition, message) {

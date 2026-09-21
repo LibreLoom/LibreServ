@@ -1,6 +1,6 @@
 import { Activity, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
-import SettingsCard from "../SettingsCard.jsx";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
 import { displayLabel } from "../../../lib/healthChecks.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

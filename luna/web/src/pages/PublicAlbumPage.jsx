@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { Download, Image as ImageIcon, Upload } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import EmptyState from "../components/common/EmptyState";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import PhotoLightbox, {
@@ -12,7 +12,7 @@ import PhotoLightbox, {
   resolveDownloadSrc,
 } from "../components/gallery/PhotoLightbox.jsx";
 import { apiErrorMessage, getJson, postForm } from "../lib/api";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 
 /**

@@ -5,11 +5,11 @@ import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import Alert from "@libreloom/ui/components/common/Alert.jsx";
-import SettingsCard from "../SettingsCard";
-import SettingsRow from "../SettingsRow.jsx";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import api from "../../../lib/api";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 

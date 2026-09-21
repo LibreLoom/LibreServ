@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { login as loginQuips } from "../assets/greetings";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";

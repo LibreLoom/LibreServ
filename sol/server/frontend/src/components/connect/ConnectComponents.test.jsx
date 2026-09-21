@@ -33,13 +33,13 @@ vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
   copyWithFeedback: copyMock,
 }));
 vi.mock("react-router-dom", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = /** @type {object} */ (await importOriginal());
   return {
     ...original,
     Link: ({ children, to }) => <a href={to}>{children}</a>,
   };
 });
-vi.mock("../cards/ModalCard.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ children, onClose, title }) => (
     <div role="dialog" aria-label={typeof title === "string" ? title : "Email"}>
       <button type="button" onClick={onClose}>Close modal</button>
@@ -63,7 +63,7 @@ vi.mock("@libreloom/ui/components/common/Toggle.jsx", () => ({
     </button>
   ),
 }));
-vi.mock("../common/Dropdown.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({
   default: ({ options, value, onChange, placeholder }) => (
     <select
       aria-label={placeholder || "Choose option"}
@@ -85,11 +85,12 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
     loading,
     onClick,
     title,
-    type = "button",
+    tooltip,
+    type = /** @type {"button"|"reset"|"submit"} */ ("button"),
   }) => (
     <button
       type={type}
-      aria-label={title}
+      aria-label={title || (typeof tooltip === "string" ? tooltip : undefined)}
       disabled={disabled || loading}
       onClick={onClick}
     >
@@ -165,7 +166,9 @@ describe("connect component coverage", () => {
     render(
       <ConnectStatusCard
         connected={false}
+        services={{}}
         onActivate={onActivate}
+        onDeactivate={vi.fn()}
         onOpenPlanPage={onOpenPlanPage}
       />,
     );
@@ -209,7 +212,7 @@ describe("connect component coverage", () => {
         }}
         onDeactivate={onDeactivate}
         onOpenPlanPage={onOpenPlanPage}
-      />,
+       onActivate={vi.fn()} />,
     );
 
     expect(screen.getByText("Connect One")).toBeVisible();
@@ -231,7 +234,7 @@ describe("connect component coverage", () => {
         connectStatus={{ connected: true, services: {} }}
         csrfToken="csrf"
         onSaved={onSaved}
-      />,
+       onClose={vi.fn()} />,
     );
 
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -295,7 +298,7 @@ describe("connect component coverage", () => {
           connected: true,
           services: { smtp: { state: "connected" } },
         }}
-      />,
+       onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
     expect(screen.getByText("Email handled by LibreServ Connect")).toBeVisible();
@@ -313,7 +316,7 @@ describe("connect component coverage", () => {
         connectStatus={{ connected: true, services: {} }}
         csrfToken="csrf"
         onSaved={onSaved}
-      />,
+       onClose={vi.fn()} />,
     );
 
     await user.type(screen.getByPlaceholderText("yourdomain.com"), "example.test");
@@ -337,7 +340,7 @@ describe("connect component coverage", () => {
         open
         service={{ state: "connected" }}
         connectStatus={{ connected: false }}
-      />,
+       onClose={vi.fn()} onSaved={vi.fn()} />,
     );
     expect(screen.getByText("Connect not connected")).toBeVisible();
   });
@@ -351,7 +354,7 @@ describe("connect component coverage", () => {
         service={{ state: "byo" }}
         connectStatus={{ connected: true, services: {} }}
         csrfToken="csrf"
-      />,
+       onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
     await user.type(
@@ -391,7 +394,7 @@ describe("connect component coverage", () => {
           ],
         }}
         csrfToken="csrf"
-      />,
+       onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
     await user.type(screen.getByPlaceholderText("sk-..."), "api-key");
@@ -449,7 +452,7 @@ describe("connect component coverage", () => {
         }}
         repos={[]}
         csrfToken="csrf"
-      />,
+       onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
     expect(await screen.findByText("Notes storage")).toBeVisible();
@@ -483,7 +486,7 @@ describe("connect component coverage", () => {
             repo_path: "fallback",
           },
         ]}
-      />,
+       onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
     expect(await screen.findByText("Fallback storage")).toBeVisible();

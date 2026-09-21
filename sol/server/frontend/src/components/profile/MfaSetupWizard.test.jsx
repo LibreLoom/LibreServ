@@ -24,7 +24,7 @@ const {
 vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => ({ request: mockRequest, me: mockMe.value, refreshAuth: mockRefresh }),
 }));
-vi.mock("../../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: mockAddToast }),
 }));
 vi.mock("../../hooks/useMfaAvailability", () => ({
@@ -59,8 +59,8 @@ describe("MfaSetupWizard", () => {
   it("waits for availability before showing any method option", () => {
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured={false} />);
     expect(screen.getByText(/Checking what's available/i)).toBeInTheDocument();
-    expect(screen.queryByTitle(/Add Email code/i)).toBeNull();
-    expect(screen.queryByTitle(/Add Authenticator app/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Email code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Authenticator app/i })).toBeNull();
     expect(screen.queryByText(/No two-factor methods are available/i)).toBeNull();
   });
 
@@ -74,11 +74,11 @@ describe("MfaSetupWizard", () => {
     };
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured />);
     await waitFor(() =>
-      expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Add Authenticator app" })).toBeInTheDocument(),
     );
-    expect(screen.queryByTitle(/Add Email code/i)).toBeNull();
-    expect(screen.queryByTitle(/Add Passkey/i)).toBeNull();
-    expect(screen.queryByTitle(/Add Security key/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Email code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Passkey/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Security key/i })).toBeNull();
   });
 
   it("shows all configured method options once availability loads", async () => {
@@ -91,11 +91,11 @@ describe("MfaSetupWizard", () => {
     };
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured />);
     await waitFor(() =>
-      expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Add Authenticator app" })).toBeInTheDocument(),
     );
-    expect(screen.getByTitle("Add Email code")).toBeInTheDocument();
-    expect(screen.getByTitle("Add Passkey")).toBeInTheDocument();
-    expect(screen.getByTitle("Add Security key")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Email code" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Passkey" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Security key" })).toBeInTheDocument();
   });
 
   it("hides email option in setup when SMTP was skipped, even if backend config has SMTP", async () => {
@@ -108,10 +108,10 @@ describe("MfaSetupWizard", () => {
     };
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured={false} />);
     await waitFor(() =>
-      expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Add Authenticator app" })).toBeInTheDocument(),
     );
-    expect(screen.queryByTitle(/Add Email code/i)).toBeNull();
-    expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add Email code/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add Authenticator app" })).toBeInTheDocument();
   });
 
   it("shows a retry button instead of defaulting to all methods on error", async () => {
@@ -124,7 +124,7 @@ describe("MfaSetupWizard", () => {
     );
     const retry = screen.getByRole("button", { name: /Try again/i });
     expect(retry).toBeInTheDocument();
-    expect(screen.queryByTitle(/Add Email code/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Email code/i })).toBeNull();
     retry.click();
     expect(mockRefresh).toHaveBeenCalled();
   });
@@ -151,10 +151,10 @@ describe("MfaSetupWizard", () => {
 
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured />);
     await waitFor(() =>
-      expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Add Authenticator app" })).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByTitle("Add Authenticator app"));
+    fireEvent.click(screen.getByRole("button", { name: "Add Authenticator app" }));
     // Should see setup phase now (TOTP QR code)
     await waitFor(() =>
       expect(screen.getByText(/Scan this with your authenticator app/i)).toBeInTheDocument(),
@@ -172,7 +172,7 @@ describe("MfaSetupWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /I've saved my codes/i }));
     // Should complete the wizard since backup codes were acknowledged
     await waitFor(() =>
-      expect(screen.queryByTitle("Add Authenticator app")).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: "Add Authenticator app" })).not.toBeInTheDocument(),
     );
   });
 
@@ -207,7 +207,7 @@ describe("MfaSetupWizard", () => {
     mockRequest.mockResolvedValueOnce(json({})); // POST /auth/mfa/email/setup (auto-send)
 
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured />);
-    fireEvent.click(await screen.findByTitle("Add Email code"));
+    fireEvent.click(await screen.findByRole("button", { name: "Add Email code" }));
 
     // Pill shows where the code went.
     expect(await screen.findByText(/Code sent to max@plaiskill.net/i)).toBeInTheDocument();

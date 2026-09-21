@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Globe, Check, AlertTriangle } from "lucide-react";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
-import Dropdown from "../common/Dropdown.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { getConnectWarning } from "./connect-utils.js";

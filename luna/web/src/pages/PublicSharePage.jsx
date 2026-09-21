@@ -4,7 +4,7 @@ import { Download, File as FileIcon, Folder, Lock, UploadCloud, X } from "lucide
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import EmptyState from "../components/common/EmptyState";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { apiErrorMessage, deleteJson, postJson, putBinaryProgress } from "../lib/api";

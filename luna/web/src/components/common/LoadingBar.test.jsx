@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
-import LoadingBar from "./LoadingBar";
+import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 
 function NavProbe() {
   const navigate = useNavigate();

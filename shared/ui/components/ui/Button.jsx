@@ -188,11 +188,15 @@ export default function Button({
   // asChild: style the child element (e.g. a router Link or anchor) as a
   // Button. Button-only attributes (type, disabled) don't apply to links.
   const nativeTitle = tooltip ? undefined : title;
+  const isIconOnly = size === "icon" || size === "iconSm";
   const sharedProps = {
     ref,
     "data-slot": "button",
     "data-surface": surface,
     "aria-pressed": active || undefined,
+    // Icon-only buttons have no text content, so the tooltip doubles as the
+    // accessible name. Callers can still override via an explicit aria-label.
+    "aria-label": isIconOnly && typeof tooltip === "string" ? tooltip : undefined,
     className: buttonClass,
     onClick: handleClick,
     title: nativeTitle,
@@ -218,7 +222,7 @@ export default function Button({
   }
 
   const spinnerSize = size === "sm" || size === "iconSm" ? "sm" : size === "lg" ? "lg" : "md";
-  const iconOnly = size === "icon" || size === "iconSm";
+  const iconOnly = isIconOnly;
 
   const buttonEl = (
     <button

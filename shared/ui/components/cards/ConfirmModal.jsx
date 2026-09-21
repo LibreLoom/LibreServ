@@ -1,9 +1,11 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "./ModalCard";
-import Callout from "@libreloom/ui/components/common/Callout.jsx";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import Callout from "../../components/common/Callout.jsx";
+import ModalErrorNotice from "../common/ModalErrorNotice";
+import Button from "../../components/ui/Button.jsx";
+import { ICON_SIZE } from "../../lib/ui-tokens.js";
+import { haptic } from "../../utils/haptics.js";
 
 // Maps the modal's semantic variant to the canonical Button variant.
 // "warning" keeps its yellow fill via a className override since Button has
@@ -35,7 +37,9 @@ const BANNER_TONE = {
  * @property {import('react').ElementType} [confirmIcon]
  * @property {boolean} [loading]
  * @property {boolean} [disabledConfirm]
+ * @property {string|null} [error]
  * @property {import('react').RefObject} [initialFocusRef]
+ * @property {string} [overlayClassName] Passed to ModalCard (e.g. stack above lightbox).
  */
 
 /** @param {ConfirmModalProps} props */
@@ -52,7 +56,9 @@ export default function ConfirmModal({
   confirmIcon: ConfirmIcon,
   loading = false,
   disabledConfirm = false,
+  error = null,
   initialFocusRef,
+  overlayClassName,
 }) {
   // Freeze copy while exiting so parents can clear the subject (userToDelete, etc.)
   // without blanking the modal mid-animation.
@@ -64,6 +70,7 @@ export default function ConfirmModal({
     variant,
     confirmLabel,
     ConfirmIcon,
+    error,
   });
   if (open) {
     snapRef.current = {
@@ -74,9 +81,16 @@ export default function ConfirmModal({
       variant,
       confirmLabel,
       ConfirmIcon,
+      error,
     };
   }
   const snap = snapRef.current;
+
+  useEffect(() => {
+    if (open && (variant === "danger" || variant === "danger-undoable" || variant === "warning")) {
+      haptic("warning");
+    }
+  }, [open, variant]);
 
   const iconColor =
     snap.variant === "danger" || snap.variant === "danger-undoable"
@@ -101,6 +115,8 @@ export default function ConfirmModal({
       onClose={onClose}
       size="sm"
       initialFocusRef={initialFocusRef}
+      overlayClassName={overlayClassName}
+      openHaptic={false}
     >
       {({ close }) => (
         <>
@@ -127,6 +143,8 @@ export default function ConfirmModal({
               </Callout>
             </div>
           )}
+
+          <ModalErrorNotice error={snap.error} className="mt-4" />
 
           <div className="flex gap-3 mt-6">
             <Button
@@ -170,5 +188,7 @@ ConfirmModal.propTypes = {
   confirmIcon: PropTypes.elementType,
   loading: PropTypes.bool,
   disabledConfirm: PropTypes.bool,
+  error: PropTypes.string,
   initialFocusRef: PropTypes.object,
+  overlayClassName: PropTypes.string,
 };

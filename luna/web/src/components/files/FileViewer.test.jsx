@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import FileViewer from "./FileViewer.jsx";
 
-vi.mock("../../context/ToastContext.jsx", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   ToastProvider: ({ children }) => children,
   useToast: () => ({
     toasts: [],

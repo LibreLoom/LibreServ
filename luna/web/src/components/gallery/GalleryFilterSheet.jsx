@@ -1,9 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by GalleryPage */
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Dropdown from "../common/Dropdown.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import GeozoneMap from "./GeozoneMap.jsx";
 import { getJson } from "../../lib/api";

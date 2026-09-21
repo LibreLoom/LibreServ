@@ -11,7 +11,7 @@ const { mockRequest, mockAddToast, mockMe, mockAvailability } = vi.hoisted(() =>
 vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => ({ me: mockMe(), request: mockRequest }),
 }));
-vi.mock("../../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: mockAddToast }),
 }));
 vi.mock("../../hooks/useMfaAvailability", () => ({

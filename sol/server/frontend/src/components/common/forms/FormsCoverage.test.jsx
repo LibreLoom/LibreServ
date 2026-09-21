@@ -10,10 +10,10 @@ const { addToastMock, requestMock } = vi.hoisted(() => ({
 vi.mock("../../../hooks/useAuth.jsx", () => ({
   useAuth: () => ({ request: requestMock }),
 }));
-vi.mock("../../../context/ToastContext.jsx", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({ addToast: addToastMock }),
 }));
-vi.mock("../Dropdown.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({
   default: ({ options, value, onChange }) => (
     <select
       aria-label="Role"
@@ -34,7 +34,7 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
     disabled,
     loading,
     onClick,
-    type = "button",
+    type = /** @type {"button"|"reset"|"submit"} */ ("button"),
   }) => (
     <button
       type={type}
@@ -107,7 +107,7 @@ describe("account form coverage", () => {
 
   it("maps create-user conflicts to the matching field", async () => {
     const user = userEvent.setup();
-    const conflict = new Error("email already exists");
+    const conflict = /** @type {any} */ (new Error("email already exists"));
     conflict.cause = { status: 409 };
     requestMock.mockRejectedValue(conflict);
     render(<AddUserForm />);
@@ -141,7 +141,7 @@ describe("account form coverage", () => {
     );
     expect(onSuccess).toHaveBeenCalled();
 
-    const badRequest = new Error("Email provider is missing");
+    const badRequest = /** @type {any} */ (new Error("Email provider is missing"));
     badRequest.cause = { status: 400 };
     requestMock.mockRejectedValue(badRequest);
     rerender(<InviteUserForm />);

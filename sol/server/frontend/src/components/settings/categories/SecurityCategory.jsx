@@ -12,13 +12,13 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
-import Dropdown from "../../common/Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Table from "@libreloom/ui/components/common/Table.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import TypewriterLoader from "../../ui/TypewriterLoader";
-import SettingsCard from "../SettingsCard";
-import { useToast } from "../../../context/ToastContext";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import {
   getSecurityEvents,
   getEventTypeDisplayName,

@@ -4,7 +4,7 @@ import { BookOpen, Code, Download, Pencil } from "lucide-react";
 import MarkdownEditor from "./MarkdownEditor.jsx";
 import PlainTextSurface from "./PlainTextSurface.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import SegmentedControl from "../common/SegmentedControl.jsx";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";

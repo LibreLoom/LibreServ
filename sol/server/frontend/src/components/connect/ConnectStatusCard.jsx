@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { Plug, PlugZap, ExternalLink, LogOut, CircleHelp } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";

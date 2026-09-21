@@ -5,15 +5,15 @@ import { ChevronRight, HardDrive, History, PlugZap, TriangleAlert } from "lucide
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "../components/cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import EmptyState from "../components/common/EmptyState.jsx";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import TextLink from "../components/ui/TextLink.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";

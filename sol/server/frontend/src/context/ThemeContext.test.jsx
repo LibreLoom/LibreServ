@@ -1,3 +1,4 @@
+// color-scan: ignore-file — test fixtures assert literal theme hex values
 import { useContext } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +22,7 @@ describe("ThemeProvider", () => {
     mediaHandler = undefined;
     mediaMatches = false;
     removeMediaListener = vi.fn();
-    window.matchMedia = vi.fn(() => ({
+    window.matchMedia = /** @type {any} */ (vi.fn(() => ({
       get matches() {
         return mediaMatches;
       },
@@ -29,7 +30,7 @@ describe("ThemeProvider", () => {
         mediaHandler = handler;
       }),
       removeEventListener: removeMediaListener,
-    }));
+    })));
     vi.stubGlobal(
       "requestAnimationFrame",
       vi.fn((callback) => {

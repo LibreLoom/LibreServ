@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
-import SegmentedControl from "../common/SegmentedControl";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 

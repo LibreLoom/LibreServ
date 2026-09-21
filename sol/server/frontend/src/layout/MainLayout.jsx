@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from "react-router-dom";
 import Navbar from "../components/ui/Navbar";
-import LoadingBar from "../components/common/LoadingBar";
+import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 
 export default function MainLayout() {
   const location = useLocation();

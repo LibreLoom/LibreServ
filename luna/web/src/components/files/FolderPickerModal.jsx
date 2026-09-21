@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Dropdown from "../common/Dropdown.jsx";
-import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
+import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import FileBrowser from "./FileBrowser.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
 import NewItemMenu from "./NewItemMenu.jsx";
@@ -13,7 +13,7 @@ import { apiErrorMessage, postJson } from "../../lib/api.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { joinPath } from "../../lib/paths.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { useToast } from "../../context/ToastContext.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 /**
  * Pick a destination folder on a drive — replaces typed path fields.

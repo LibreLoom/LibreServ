@@ -13,10 +13,10 @@ import {
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
-import { useToast } from "../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useMfaAvailability from "../../hooks/useMfaAvailability";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";

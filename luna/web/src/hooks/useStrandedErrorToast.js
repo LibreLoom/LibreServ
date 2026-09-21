@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useToast } from "../context/ToastContext.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 /**
  * Route a shared "action error" string to the right surface.

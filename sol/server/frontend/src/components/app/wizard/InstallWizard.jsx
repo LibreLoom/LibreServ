@@ -10,7 +10,7 @@ import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import EmptyState from "../../common/EmptyState";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
 /**

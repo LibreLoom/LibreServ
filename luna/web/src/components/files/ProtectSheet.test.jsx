@@ -9,7 +9,7 @@ import ProtectSheet, {
   cloudFolderPath,
   matchesCloudSource,
 } from "./ProtectSheet";
-import { ToastProvider } from "../../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function stubProtectApi({
   drives = [],

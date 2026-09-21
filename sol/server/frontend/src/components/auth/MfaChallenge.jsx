@@ -20,7 +20,7 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { useAuth } from "../../hooks/useAuth";
-import { useToast } from "../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { bufToB64url, prepareRequestOptions } from "../../utils/webauthn";
 
 const MFA_STEPS = ["selection", "entry", "webauthn", "recovery"];

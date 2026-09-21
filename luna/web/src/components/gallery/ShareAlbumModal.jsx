@@ -2,7 +2,7 @@ import { useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import AlbumMembersPanel from "./AlbumMembersPanel.jsx";
 import CreateAlbumLinkModal from "./CreateAlbumLinkModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -11,7 +11,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { apiErrorMessage, deleteJson, getJson } from "../../lib/api";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { useToast } from "../../context/ToastContext.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**

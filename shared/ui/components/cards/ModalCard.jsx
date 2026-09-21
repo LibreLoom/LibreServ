@@ -2,11 +2,11 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { cn } from "@libreloom/ui/lib/utils.js";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
-import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
-import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "../../lib/utils.js";
+import Card from "../../components/cards/Card.jsx";
+import { useAnimatedHeight } from "../../hooks/useAnimatedHeight.jsx";
+import { haptic } from "../../utils/haptics.js";
+import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /** @type {import('react').Context<(() => void) | null>} */
 const ModalCloseContext = createContext(null);
@@ -25,6 +25,12 @@ export const EXIT_ANIMATION_MS = 300;
 
 /** Card `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
 export const POP_IN_ANIMATION_MS = 300;
+
+/** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
+export const NESTED_OVERLAY_CLASS = "z-[90]";
+
+/** Present overlays, last entry is topmost for Escape / Tab / overflow. */
+const overlayStack = [];
 
 function prefersReducedMotion() {
   return typeof window !== "undefined"
@@ -48,6 +54,10 @@ function prefersReducedMotion() {
  * @property {string} [className]
  * @property {import('react').RefObject} [initialFocusRef]
  * @property {boolean} [loading] Show a skeleton body until content is ready.
+ * @property {string} [overlayClassName] Extra classes on the fixed overlay (e.g. raise
+ *   z-index above PhotoLightbox's z-[80] or another ModalCard with `NESTED_OVERLAY_CLASS`
+ *   / `z-[90]`). Default overlay is `z-50`.
+ * @property {"selection"|"light"|"medium"|"heavy"|"rigid"|"soft"|"success"|"warning"|"error"|"nudge"|false} [openHaptic]
  */
 
 /** @param {ModalCardProps} props */
@@ -63,6 +73,8 @@ export default function ModalCard({
   className = "",
   initialFocusRef,
   loading = false,
+  overlayClassName = "",
+  openHaptic = "medium",
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [present, setPresent] = useState(open);
@@ -71,6 +83,7 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const prevOpenRef = useRef(false);
   // Rebind when the portal remounts after exit — a mount-only observer would
   // miss the second open and leave height:auto (content jumps instead of easing).
   // isAnimating: keep overflow clipped while height eases to new content.
@@ -121,29 +134,37 @@ export default function ModalCard({
   }, [finishExit]);
 
   const handleClose = useCallback(() => {
+    haptic("light");
     beginExit(true);
   }, [beginExit]);
 
   useEffect(() => {
     if (open) {
+      if (!prevOpenRef.current && openHaptic) {
+        haptic(openHaptic);
+      }
+      prevOpenRef.current = true;
       clearExitTimer();
       isClosingRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setIsClosing(false);
       setScrollReady(prefersReducedMotion());
       setPresent(true);
       return;
     }
+    prevOpenRef.current = false;
     if (present && !isClosingRef.current) {
       beginExit(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, openHaptic]);
 
   useEffect(() => () => clearExitTimer(), [clearExitTimer]);
 
   useEffect(() => {
     if (!present || scrollReady || isClosing) return undefined;
     if (prefersReducedMotion()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync when motion is off
       setScrollReady(true);
       return undefined;
     }
@@ -167,6 +188,9 @@ export default function ModalCard({
   useEffect(() => {
     if (!present) return undefined;
 
+    const overlayId = titleId;
+    overlayStack.push(overlayId);
+
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
@@ -175,9 +199,15 @@ export default function ModalCard({
       closeButtonRef.current?.focus();
     }
 
+    const isTopOverlay = () => overlayStack[overlayStack.length - 1] === overlayId;
+
     const handleKeyDown = (event) => {
+      if (!isTopOverlay()) return;
+
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
         handleClose();
       }
 
@@ -201,7 +231,11 @@ export default function ModalCard({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      const idx = overlayStack.lastIndexOf(overlayId);
+      if (idx !== -1) overlayStack.splice(idx, 1);
+      if (overlayStack.length === 0) {
+        document.body.style.overflow = "";
+      }
       document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus?.();
     };
@@ -240,7 +274,8 @@ export default function ModalCard({
       className={cn(
         "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
         mobileFsClasses,
-        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95"
+        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95",
+        overlayClassName,
       )}
       onClick={handleClose}
     >

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
-import { ToastProvider } from "../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
 

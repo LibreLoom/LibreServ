@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Mail, Check, AlertTriangle } from "lucide-react";
-import ModalCard from "../cards/ModalCard.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -124,6 +124,11 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                     className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
+                {errors.host && (
+                  <p className="text-error text-xs mt-1 px-5 animate-fade-in-up">
+                    {errors.host}
+                  </p>
+                )}
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Port</label>
@@ -136,6 +141,11 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
                     className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
                   />
                 </ShakeTarget>
+                {errors.port && (
+                  <p className="text-error text-xs mt-1 px-5 animate-fade-in-up">
+                    {errors.port}
+                  </p>
+                )}
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-xs text-accent font-medium mb-1.5 px-4">Username</label>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import SegmentedControl from "./SegmentedControl.jsx";
-import * as haptics from "@libreloom/ui/utils/haptics.js";
+import * as haptics from "../../utils/haptics.js";
 
 describe("SegmentedControl", () => {
   let hapticSpy;

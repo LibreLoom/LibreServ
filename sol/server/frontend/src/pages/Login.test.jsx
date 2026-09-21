@@ -8,7 +8,7 @@ vi.mock("../assets/greetings", () => ({
   login: ["Stay productive!"],
 }));
 
-vi.mock("../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({
     addToast: vi.fn(),
     dismissToast: vi.fn(),

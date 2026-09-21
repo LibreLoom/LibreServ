@@ -1,13 +1,24 @@
-import { cn } from "@libreloom/ui/lib/utils.js";
+import { cn } from "../../lib/utils.js";
 import { Link } from "react-router-dom";
 import { User, Shield, ChevronRight } from "lucide-react";
-import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { InfoHint } from "../../components/ui/Tooltip.jsx";
+import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
-export default function SettingsUserCard({ user }) {
+/**
+ * Signed-in user summary at the top of the settings sidebar.
+ *
+ * @param {{ user: object|null, href?: string|((user: object) => string|null), deviceName?: string }} props
+ *   href — link target for the card. Pass a string or a function of `user`
+ *   (e.g. link admins only: `u => u.role === "admin" ? "/settings/users" : null`).
+ *   Omit or return null to render a plain div.
+ *   deviceName — product noun used in the role hints ("this Luna", "this server").
+ */
+export default function SettingsUserCard({ user, href, deviceName = "this device" }) {
   if (!user) return null;
 
   const isAdmin = user.role === "admin";
+  const to = typeof href === "function" ? href(user) : href;
+
   const body = (
     <>
       <div className="h-12 w-12 rounded-full bg-primary text-secondary flex items-center justify-center flex-shrink-0">
@@ -22,7 +33,7 @@ export default function SettingsUserCard({ user }) {
               <span>Admin</span>
               <InfoHint
                 label="What Admin means"
-                content="An Admin can add users, change settings, manage drives, and see everything on this Luna."
+                content={`An Admin can add users, change settings, and manage everything on ${deviceName}.`}
               />
             </span>
           ) : (
@@ -30,13 +41,13 @@ export default function SettingsUserCard({ user }) {
               <span>Member</span>
               <InfoHint
                 label="What Member means"
-                content="A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings."
+                content={`A Member can use what's shared with them but cannot manage users or change ${deviceName} settings.`}
               />
             </span>
           )}
         </div>
       </div>
-      {isAdmin && (
+      {to && (
         <ChevronRight
           size={ICON_SIZE.lg}
           className="text-accent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0"
@@ -50,13 +61,9 @@ export default function SettingsUserCard({ user }) {
     "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline",
   );
 
-  if (isAdmin) {
+  if (to) {
     return (
-      <Link
-        data-slot="settings-user-card"
-        to="/settings/users"
-        className={classes}
-      >
+      <Link data-slot="settings-user-card" to={to} className={classes}>
         {body}
       </Link>
     );

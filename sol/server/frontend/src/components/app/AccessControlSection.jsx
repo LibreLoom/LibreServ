@@ -14,10 +14,10 @@ import {
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
-import Dropdown from "../common/Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import api from "../../lib/api";
-import { useToast } from "../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 /**
  * AccessControlSection — manages who can reach an app.

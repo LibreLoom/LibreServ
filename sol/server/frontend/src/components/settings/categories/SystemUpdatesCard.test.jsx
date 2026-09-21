@@ -19,7 +19,7 @@ vi.mock("../../../hooks/useAuth", () => ({
   useAuth: () => ({ request: mockRequest }),
 }));
 
-vi.mock("../../../context/ToastContext", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => ({
     addToast: vi.fn(),
     dismissToast: vi.fn(),
@@ -36,7 +36,8 @@ describe("SystemUpdatesCard", () => {
 
   it("uses the Button comet spinner while checking for updates", async () => {
     const user = userEvent.setup();
-    let resolveCheck;
+    /** @type {(value: any) => void} */
+    let resolveCheck = () => {};
     renderWithProviders(<SystemUpdatesCard />);
 
     const idle = await screen.findByRole("button", { name: /Check for Updates/i });

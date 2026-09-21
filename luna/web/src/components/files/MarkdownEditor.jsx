@@ -15,8 +15,8 @@ import {
   Table,
 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Dropdown from "../common/Dropdown.jsx";
-import ModalCard, { NESTED_OVERLAY_CLASS } from "../cards/ModalCard.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import MarkdownPreview from "./MarkdownPreview.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";

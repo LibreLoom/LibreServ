@@ -6,10 +6,10 @@ import App from "./App.jsx";
 import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
-import { ToastProvider } from "./context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupGlobalErrorHandlers } from "./utils/errorReporting";
-import Toaster from "./components/common/Toaster";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 setupGlobalErrorHandlers();
 
 const queryClient = new QueryClient({

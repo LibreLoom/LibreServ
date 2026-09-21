@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import ModalCard, { useModalClose, EXIT_ANIMATION_MS, POP_IN_ANIMATION_MS } from "./ModalCard";
-import { HEIGHT_SETTLE_MS } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
+import { HEIGHT_SETTLE_MS } from "../../hooks/useAnimatedHeight.jsx";
 
 afterEach(() => {
   vi.useRealTimers();

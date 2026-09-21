@@ -65,6 +65,7 @@ beforeEach(() => {
 
 describe("network API", () => {
   it("reads status, connectivity, mappings, DDNS, reports, and plans", async () => {
+    /** @type {[() => Promise<any>, string][]} */
     const calls = [
       [getCaddyStatus, "/network/status"],
       [getConnectivityStatus, "/network/connectivity"],

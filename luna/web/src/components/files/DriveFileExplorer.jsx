@@ -12,13 +12,13 @@ import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import useCanProtect from "../../hooks/useCanProtect.js";
 import useDriveMove from "../../hooks/useDriveMove.js";
 import useStrandedErrorToast from "../../hooks/useStrandedErrorToast.js";
-import { useToast } from "../../context/ToastContext.jsx";
-import ModalCard from "../cards/ModalCard.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import ModalErrorNotice from "../common/ModalErrorNotice.jsx";
+import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import {

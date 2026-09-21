@@ -1,5 +1,5 @@
 import { memo } from "react";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Card from "../../components/cards/Card.jsx";
 
 // Fast stagger: 25ms per card keeps the cascade visible without feeling sluggish.
 const STAGGER_DELAY_MS = 25;
@@ -19,14 +19,13 @@ const BASE_DELAY_MS = 30;
 
 /**
  * Standardized settings card with staggered fly-in-from-bottom animation.
- * Drop-in replacement for Card in settings pages.
  *
  * @param {{ index?: number, [key: string]: any }} _
  */
 function SettingsCard({ index = 0, ...props }) {
   const delay = Math.min(
     BASE_DELAY_MS + index * STAGGER_DELAY_MS,
-    MAX_STAGGER_DELAY_MS
+    MAX_STAGGER_DELAY_MS,
   );
 
   return (

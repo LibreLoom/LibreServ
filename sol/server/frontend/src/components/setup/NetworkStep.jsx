@@ -5,7 +5,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import api from "../../lib/api";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import ModalCard from "../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

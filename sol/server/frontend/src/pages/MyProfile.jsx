@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Save, ArrowRight } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import FormInput from "../components/common/forms/FormInput";

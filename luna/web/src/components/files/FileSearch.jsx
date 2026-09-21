@@ -14,10 +14,10 @@ import {
   X,
 } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "../cards/ModalCard";
-import EmptyState from "../common/EmptyState";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import ModalErrorNotice from "../common/ModalErrorNotice";
+import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -25,7 +25,7 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import AccessSheet, { AccessButton } from "./AccessSheet";
 import FolderPickerModal from "./FolderPickerModal";
-import { useToast } from "../../context/ToastContext.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
 import { downloadHref as fileDownloadHref, parentPath, searchResultHref } from "../../lib/paths";
 import { cn } from "@libreloom/ui/lib/utils.js";

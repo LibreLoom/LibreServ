@@ -6,7 +6,7 @@ import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import TextLink from "./TextLink.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
-import ConfirmModal from "../cards/ConfirmModal.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import * as haptics from "@libreloom/ui/utils/haptics.js";
 
 describe("UI Haptic Feedback Integration", () => {
@@ -142,7 +142,7 @@ describe("UI Haptic Feedback Integration", () => {
   });
 
   it("ModalCard emits medium haptic on presentation and supports openHaptic suppression", async () => {
-    const { default: ModalCard } = await import("../cards/ModalCard.jsx");
+    const { default: ModalCard } = await import("@libreloom/ui/components/cards/ModalCard.jsx");
     const { rerender } = render(
       <ModalCard open={false} title="Test Modal">
         <p>Modal content</p>
@@ -167,7 +167,7 @@ describe("UI Haptic Feedback Integration", () => {
   });
 
   it("Dropdown emits light haptic when toggling open", async () => {
-    const { default: Dropdown } = await import("../common/Dropdown.jsx");
+    const { default: Dropdown } = await import("@libreloom/ui/components/common/Dropdown.jsx");
     render(
       <Dropdown
         options={[{ value: "1", label: "One" }]}
@@ -195,7 +195,7 @@ describe("UI Haptic Feedback Integration", () => {
   });
 
   it("ModalCard close button emits light haptic when clicked", async () => {
-    const { default: ModalCard } = await import("../cards/ModalCard.jsx");
+    const { default: ModalCard } = await import("@libreloom/ui/components/cards/ModalCard.jsx");
     const onClose = vi.fn();
     render(
       <ModalCard open={true} onClose={onClose} title="Dismissable Modal">

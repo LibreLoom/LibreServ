@@ -24,7 +24,7 @@ vi.mock("../../lib/api.js", () => ({ default: apiMock }));
 vi.mock("../../hooks/useAuth.jsx", () => ({
   useAuth: () => ({ request: authRequestMock }),
 }));
-vi.mock("../../context/ToastContext.jsx", () => ({
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   useToast: () => toastMock,
 }));
 vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
@@ -41,7 +41,7 @@ vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
     </section>
   ),
 }));
-vi.mock("../cards/ModalCard.jsx", () => ({
+vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ children, footer, onClose, title }) => (
     <div role="dialog" aria-label={typeof title === "string" ? title : "Modal"}>
       <button type="button" onClick={onClose}>Close modal</button>
@@ -62,7 +62,7 @@ vi.mock("@libreloom/ui/components/common/Toggle.jsx", () => ({
     </button>
   ),
 }));
-vi.mock("../common/Dropdown.jsx", () => ({
+vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({
   default: ({ options, placeholder, value, onChange }) => (
     <select
       aria-label={placeholder}
@@ -87,7 +87,7 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
     loading,
     onClick,
     title,
-    type = "button",
+    type = /** @type {"button"|"reset"|"submit"} */ ("button"),
   }) => (
     <button
       type={type}
@@ -173,7 +173,7 @@ beforeEach(() => {
   toastMock.error.mockReset();
   toastMock.success.mockReset();
   clipboardState.ok = true;
-  window.matchMedia = vi.fn(() => ({ matches: true }));
+  window.matchMedia = /** @type {any} */ (vi.fn(() => ({ matches: true })));
 });
 
 describe("app component coverage", () => {
@@ -306,7 +306,7 @@ describe("app component coverage", () => {
     URL.createObjectURL = vi.fn(() => "blob:logs");
     URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    render(<LogsViewer app={{ id: "app-1", name: "Notes" }} />);
+    render(<LogsViewer app={{ id: "app-1", name: "Notes" }} onClose={vi.fn()} />);
 
     const stream = eventSources[0];
     expect(stream.url).toContain("/apps/app-1/logs/stream");
@@ -363,6 +363,7 @@ describe("app component coverage", () => {
       <ReconfigureModal
         app={{ id: "app-1", app_id: "notes", name: "Notes", config: {} }}
         request={authRequestMock}
+        onClose={vi.fn()}
         onSuccess={onSuccess}
       />,
     );
@@ -428,6 +429,7 @@ describe("app component coverage", () => {
       <RevocationBanner
         notice={{ severity: "malicious", reason: "Security problem" }}
         appName="Notes"
+        acknowledged={false}
         onSeeDetails={onSeeDetails}
       />,
     );
@@ -446,6 +448,7 @@ describe("app component coverage", () => {
           acknowledged_at: "2026-08-01T00:00:00Z",
         }}
         appName="Notes"
+        onSeeDetails={onSeeDetails}
       />,
     );
     expect(screen.getByText(/Recalled version \(you acknowledged/)).toBeVisible();
@@ -467,6 +470,7 @@ describe("app component coverage", () => {
           action={action}
           onConfirm={onConfirm}
           onCancel={() => {}}
+          isConfirming={false}
         />
       </>,
     );

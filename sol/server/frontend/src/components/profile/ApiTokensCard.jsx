@@ -5,7 +5,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import { useAuth } from "../../hooks/useAuth";
-import { useToast } from "../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function formatDate(iso) {

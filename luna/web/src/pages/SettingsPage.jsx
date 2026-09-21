@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import SettingsSidebar from "../components/settings/SettingsSidebar";
+import SettingsSidebar from "@libreloom/ui/components/settings/SettingsSidebar.jsx";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
@@ -92,6 +92,10 @@ export default function SettingsPage() {
           <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0 overflow-y-auto pb-24">
             <SettingsSidebar
               user={user}
+              categories={visibleCategories(isAdmin, connectActive)}
+              memberHint="You're signed in as a Member. Ask an Admin to change External Services or About."
+              userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
+              deviceName="this Luna"
               activeCategory={activeCategory}
               onCategoryChange={selectCategory}
             />
@@ -109,6 +113,10 @@ export default function SettingsPage() {
               </h1>
               <SettingsSidebar
                 user={user}
+                categories={visibleCategories(isAdmin, connectActive)}
+                memberHint="You're signed in as a Member. Ask an Admin to change External Services or About."
+                userHref={(u) => (u.role === "admin" ? "/settings/users" : null)}
+                deviceName="this Luna"
                 activeCategory={activeCategory}
                 onCategoryChange={selectCategory}
               />

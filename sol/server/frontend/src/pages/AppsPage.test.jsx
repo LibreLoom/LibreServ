@@ -32,7 +32,7 @@ vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, className }) => <div className={className} data-testid="card">{children}</div>,
 }));
 
-vi.mock("../components/common/Dropdown", () => ({
+vi.mock("@libreloom/ui/components/common/Dropdown.jsx", () => ({
   default: ({ value, onChange, options }) => (
     <select data-testid="category-dropdown" value={value} onChange={(e) => onChange(e.target.value)}>
       {options.map((opt) => (

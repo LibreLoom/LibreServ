@@ -3,7 +3,7 @@ import { useAuth } from "../../../hooks/useAuth";
 import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
 import FormInput from "./FormInput";
-import Dropdown from "../Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import {

@@ -17,14 +17,14 @@ import { Link } from "react-router-dom";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import EmptyState from "../components/common/EmptyState";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import ModalErrorNotice from "../components/common/ModalErrorNotice";
+import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { showPageLevelError } from "../lib/modalScopedError";
-import ModalCard from "../components/cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
 import GalleryFilterSheet, {
   EMPTY_FILTERS,
@@ -33,7 +33,7 @@ import GalleryFilterSheet, {
   filterChipList,
   readSavedFilters,
 } from "../components/gallery/GalleryFilterSheet.jsx";
-import ConfirmModal from "../components/cards/ConfirmModal";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import CreateShareModal from "../components/files/CreateShareModal";
 import PhotoTimeline, { dayKey } from "../components/gallery/PhotoTimeline.jsx";
 import PhotoLightbox, {
@@ -49,7 +49,7 @@ import DayJumpModal, {
 import PlacesMap from "../components/gallery/PlacesMap.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import Dropdown from "../components/common/Dropdown.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { downloadHref } from "../lib/paths.js";
 import { useAuth } from "../context/AuthContext";

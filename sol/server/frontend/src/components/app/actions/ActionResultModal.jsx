@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
 import { copyWithFeedback } from "@libreloom/ui/utils/clipboard.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
-import ModalCard from "../../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 

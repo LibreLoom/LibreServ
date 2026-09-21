@@ -15,7 +15,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import MetricCard from "../components/cards/MetricCard";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import ModalCard from "../components/cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ObjectNotFound from "./ObjectNotFound";
 import AppIcon from "../components/common/AppIcon";
 import StateOverlay from "../components/cards/StateOverlay";
@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import StatusPill from "../components/common/StatusPill";
-import SegmentedControl from "../components/common/SegmentedControl";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
@@ -53,7 +53,7 @@ import RevocationBanner from "../components/app/RevocationBanner";
 import AcknowledgeRevocationModal from "../components/app/AcknowledgeRevocationModal";
 import ReconfigureModal from "../components/app/ReconfigureModal";
 import { useQueryClient } from "@tanstack/react-query";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");

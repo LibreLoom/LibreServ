@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { ICON_SIZE, PLACEHOLDER_TEXT } from "@libreloom/ui/lib/ui-tokens.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "../cards/ModalCard";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 

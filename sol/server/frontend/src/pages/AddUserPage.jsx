@@ -3,11 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { UserPlus, Mail } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import SegmentedControl from "../components/common/SegmentedControl";
+import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import AddUserForm from "../components/common/forms/AddUserForm";
 import InviteUserForm from "../components/common/forms/InviteUserForm";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
-import { useToast } from "../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 export default function AddUserPage() {
   const navigate = useNavigate();

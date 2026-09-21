@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../../context/AuthContext";
 import AboutCategory from "./AboutCategory";
-import { ToastProvider } from "../../../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 const SHIPPED_KEY = "RWBUILTIN";
 const SOURCE_RESPONSE = {

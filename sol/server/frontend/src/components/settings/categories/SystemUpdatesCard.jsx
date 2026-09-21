@@ -2,12 +2,12 @@ import { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../hooks/useAuth";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { Download, CheckCircle, AlertCircle, RefreshCw, Info, ExternalLink } from "lucide-react";
-import SettingsCard from "../SettingsCard";
+import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import ConfirmModal from "../../cards/ConfirmModal";
-import ModalCard from "../../cards/ModalCard";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 export default function SystemUpdatesCard({ index = 0 }) {

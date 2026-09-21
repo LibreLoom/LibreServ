@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import UsersPage from "./UsersPage";
-import { ToastProvider } from "../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {

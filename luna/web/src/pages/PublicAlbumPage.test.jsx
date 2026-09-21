@@ -20,7 +20,7 @@ vi.mock("../components/gallery/PhotoLightbox.jsx", () => ({
 }));
 
 import { getJson } from "../lib/api";
-import { ToastProvider } from "../context/ToastContext";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 function renderPage() {
   const client = new QueryClient({

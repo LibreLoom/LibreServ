@@ -2,9 +2,9 @@ import { useState, useCallback } from "react";
 import { Mail } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth";
-import { useToast } from "../../../context/ToastContext";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import FormInput from "./FormInput";
-import Dropdown from "../Dropdown";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 

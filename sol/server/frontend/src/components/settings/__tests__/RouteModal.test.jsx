@@ -13,7 +13,7 @@ vi.mock("../../../hooks/useAuth", () => ({
   useAuth: () => ({ request: mockRequest }),
 }));
 
-vi.mock("../../../components/cards/ModalCard", () => ({
+vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
   default: ({ title, children }) => (
     <div role="dialog" aria-label={typeof title === "string" ? title : "modal"}>
       {children}

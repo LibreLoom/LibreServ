@@ -2,8 +2,8 @@ import { CheckCircle2, XCircle, Info, X, ChevronDown } from "lucide-react";
 import PropTypes from "prop-types";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useToast } from "../../context/ToastContext";
-import { cn } from "@libreloom/ui/lib/utils.js";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "../../lib/utils.js";
+import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 const TYPE_CONFIG = {
   success: { icon: CheckCircle2, ring: "stroke-success", track: "stroke-success/25" },
