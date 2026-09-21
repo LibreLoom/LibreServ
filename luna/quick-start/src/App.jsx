@@ -49,7 +49,7 @@ function IndexPanel() {
       <div className="choice">
         <p className="choice-label">Set up without Luna Connect</p>
         <h3>Set up on your local network</h3>
-        <p>Open the Luna Connect panel to see local-only setup and troubleshooting.</p>
+        <p>Lift the flap on the right to see local-only setup and troubleshooting.</p>
       </div>
     </section>
   );
