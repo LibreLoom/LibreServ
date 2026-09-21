@@ -94,12 +94,12 @@ cp "$WORK/efi/EFI/BOOT/BOOTX64.EFI" "$ROOT/EFI/BOOT/BOOTX64.EFI"
 cat >"$ROOT/boot/grub/grub.cfg" <<EOF
 set timeout=2
 set default=0
-insmod all_video
-insmod gfxterm
 insmod iso9660
 insmod part_gpt
 insmod part_msdos
-terminal_output gfxterm
+# Plain VGA text console: gfxterm without a font file in the ISO renders
+# nothing on firmware whose GOP handling differs from QEMU's.
+terminal_output console
 # UEFI hybrid boots often start with \$root on the small ESP FAT (efi.img),
 # which has no /live/. Find the ISO9660 volume that holds the live kernel.
 search --no-floppy --set=root --file /live/vmlinuz
