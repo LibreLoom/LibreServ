@@ -8,11 +8,62 @@ pub fn product_name() -> &'static str {
 pub mod autostart;
 pub mod backup;
 pub mod dest;
+pub mod instance;
 pub mod luna;
 pub mod luna_url;
 pub mod session;
 pub mod sync;
 pub mod tray;
+#[cfg(windows)]
+pub mod tray_win;
+
+/// Point the bundled GTK runtime at itself.
+///
+/// The Windows install ships its GTK stack next to the exe (DLLs in the
+/// install dir, pixbuf loaders under `lib/gdk-pixbuf-2.0`, compiled schemas
+/// under `share/glib-2.0/schemas`). GTK's own discovery only works when it was
+/// installed into the same prefix it was built for — which an NSIS
+/// install-anywhere layout is not — so the app sets the variables itself, at
+/// startup, before GTK initializes. Anything already set wins (dev boxes keep
+/// their own runtime). No-op off Windows.
+#[cfg(windows)]
+pub fn ensure_runtime_env() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Some(dir) = exe.parent() else { return };
+    let dir = dir.to_path_buf();
+
+    let set = |key: &str, val: std::path::PathBuf| {
+        if std::env::var_os(key).is_none() {
+            unsafe { std::env::set_var(key, &val) };
+        }
+    };
+    set(
+        "GSETTINGS_SCHEMA_DIR",
+        dir.join("share").join("glib-2.0").join("schemas"),
+    );
+    let pixbuf = dir.join("lib").join("gdk-pixbuf-2.0").join("2.10.0");
+    set("GDK_PIXBUF_MODULEDIR", pixbuf.join("loaders"));
+    set(
+        "GDK_PIXBUF_MODULE_FILE",
+        pixbuf.join("loaders").join("loaders.cache"),
+    );
+    // Bundled Adwaita/hicolor icon themes under share/icons.
+    set("XDG_DATA_DIRS", dir.join("share"));
+    // The loaders are DLLs in `lib/…` whose own dependencies live next to the
+    // exe — Windows only searches the app dir and PATH, so prepend the dir.
+    let mut path = dir.as_os_str().to_owned();
+    if let Some(existing) = std::env::var_os("PATH") {
+        path.push(";");
+        path.push(existing);
+    }
+    unsafe { std::env::set_var("PATH", path) };
+}
+
+/// No-op off Windows — GTK finds its runtime from the system install.
+#[cfg(not(windows))]
+pub fn ensure_runtime_env() {}
 
 pub use luna_url::{LUNA_ADDRESS_PLACEHOLDER, normalize_luna_base_url};
 

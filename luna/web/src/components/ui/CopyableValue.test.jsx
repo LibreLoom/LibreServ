@@ -62,4 +62,33 @@ describe("CopyableValue", () => {
       expect(clipboardMock.writeText).not.toHaveBeenCalled();
     });
   });
+
+  describe("clipboard write rejected", () => {
+    it("shows the manual-copy fallback instead of failing silently", async () => {
+      const user = userEvent.setup();
+      installClipboardMock(true);
+      clipboardMock.writeText.mockRejectedValue(new Error("denied"));
+      render(<CopyableValue value="secret-token" copyLabel="Copy address" />);
+      await user.click(screen.getByRole("button", { name: "Copy address" }));
+      expect(
+        await screen.findByText(/Copy didn't work in this browser/i),
+      ).toBeTruthy();
+      expect(screen.getByLabelText("Value to copy")).toHaveValue("secret-token");
+    });
+
+    it("clears the fallback after a successful retry", async () => {
+      const user = userEvent.setup();
+      installClipboardMock(true);
+      clipboardMock.writeText.mockRejectedValueOnce(new Error("denied"));
+      render(<CopyableValue value="secret-token" copyLabel="Copy address" />);
+      const btn = screen.getByRole("button", { name: "Copy address" });
+      await user.click(btn);
+      expect(
+        await screen.findByText(/Copy didn't work in this browser/i),
+      ).toBeTruthy();
+      await user.click(btn);
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+      expect(screen.queryByText(/Copy didn't work in this browser/i)).toBeNull();
+    });
+  });
 });

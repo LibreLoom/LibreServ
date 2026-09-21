@@ -852,7 +852,7 @@ async fn upload(
                         "That file name can't be used. Try renaming it.",
                     )
                 })?;
-                let dir = with_db(&state, |conn| files::dest_dir(conn, &id, &dest_rel))
+                let dir = with_db(&state, |conn| files::dest_dir_create(conn, &id, &dest_rel))
                     .map_err(map_files_err)?;
                 let dest = dir.join(&name);
                 if dest.exists() && !overwrite {
@@ -1810,5 +1810,81 @@ mod http_tests {
         http.extensions_mut().insert(ConnectInfo(CLIENT));
         let res = call(&app, http).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn scoped_upload_to_multi_level_missing_dirs_is_allowed() {
+        // Regression: a write grant used to be refused whenever more than one
+        // destination level was missing — the access check only resolved the
+        // request's immediate parent, so `family/a/b` 403'd for a folder grant
+        // on `family` even though the create path would have made both.
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+        }
+
+        // Chunked-upload create (POST /api/v1/uploads).
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/uploads",
+                r#"{"drive_id":"photos","path":"family/a/b","name":"n.txt","size":3}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        // Multipart upload (POST /api/v1/drives/{id}/files/upload).
+        let boundary = "----luna";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\nfamily/x/y\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"m.txt\"\r\nContent-Type: text/plain\r\n\r\nhi\r\n--{boundary}--\r\n"
+        );
+        let mut http = HttpReq::builder()
+            .method(Method::POST)
+            .uri("/api/v1/drives/photos/files/upload?path=family/x/y")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
+            .body(Body::from(body))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), 200);
+        // Small uploads land in the RAM dirty cache and flush on a blocking
+        // task — poll briefly for the durable file.
+        let dest = mount.path().join("family/x/y/m.txt");
+        for _ in 0..100 {
+            if dest.is_file() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(dest.is_file());
+
+        // Outside the grant still refuses, even for missing paths.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/uploads",
+                r#"{"drive_id":"photos","path":"secret/a/b","name":"n.txt","size":3}"#,
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert!(!mount.path().join("secret/a").exists());
     }
 }

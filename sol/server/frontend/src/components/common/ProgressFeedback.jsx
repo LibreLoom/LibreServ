@@ -4,6 +4,7 @@ import { CheckCircle, XCircle, ChevronDown, Copy, Check, Loader2 } from "lucide-
 import { useScriptStream } from "../../hooks/useScriptStream";
 import { getFriendlyMessages } from "../../utils/outputPatterns";
 import { copyWithFeedback } from "@libreloom/ui/utils/clipboard.js";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function getFullOutput(lines) {
@@ -27,6 +28,7 @@ export function ProgressFeedback({
   patternMap,
 }) {
   const { lines, status, exitCode, error, connect } = useScriptStream();
+  const { addToast } = useToast();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const outputRef = useRef(null);
@@ -55,7 +57,13 @@ export function ProgressFeedback({
 
   const handleCopy = async () => {
     const output = getFullOutput(lines);
-    await copyWithFeedback(output, setCopied);
+    await copyWithFeedback(output, setCopied, {
+      onError: () =>
+        addToast({
+          type: "error",
+          message: "Couldn't copy — select the text and copy it.",
+        }),
+    });
   };
 
   const friendlyMessages = getFriendlyMessages(lines, patternMap);
