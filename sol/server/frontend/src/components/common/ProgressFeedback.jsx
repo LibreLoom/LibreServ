@@ -5,7 +5,7 @@ import { useScriptStream } from "../../hooks/useScriptStream";
 import { getFriendlyMessages } from "../../utils/outputPatterns";
 import { copyWithFeedback } from "@libreloom/ui/utils/clipboard.js";
 import { useToast } from "../../context/ToastContext";
-import { ICON_SIZE } from "@/lib/ui-tokens";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 function getFullOutput(lines) {
   return lines
