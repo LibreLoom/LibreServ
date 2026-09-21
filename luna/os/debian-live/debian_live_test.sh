@@ -87,7 +87,8 @@ assert_file_has "$OSROOT/lib/console.sh" 'stty -icanon' "rapidinstall must enabl
 assert_file_lacks "$OSROOT/rapidinstall.sh" 'read -r -n' "rapidinstall must not use bash-only read -n"
 assert_file_lacks "$OSROOT/rapidinstall.sh" 'read -r -t' "rapidinstall must not use bash-only read -t"
 assert_file_lacks "$OSROOT/lib/console.sh" 'chvt 1' "console helper must not chvt away from the kernel console"
-assert_file_has "$OSROOT/../crates/lunad/src/console.rs" 'help_text' "installed Luna must print connection help on console every boot"
+grep -rq 'help_text' "$OSROOT/../crates/lunad/src/" \
+	|| { echo "FAIL installed Luna must print connection help on console every boot" >&2; fail=$((fail + 1)); }
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'search_fs_uuid' "installed GRUB must search root by UUID"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'EFI/BOOT/grub/grub.cfg' "UEFI GRUB must chain from ESP"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"

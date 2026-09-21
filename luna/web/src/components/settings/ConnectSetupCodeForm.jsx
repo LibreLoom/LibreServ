@@ -5,6 +5,7 @@ import Button from "../ui/Button";
 import ShakeTarget from "../ui/ShakeTarget";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { haptic } from "../../utils/haptics.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
 const LUNA_CONNECT_HOST = "connect.luna.libreloom.org";
@@ -14,6 +15,7 @@ const LUNA_CONNECT_HOST = "connect.luna.libreloom.org";
  * Used in Settings → About → Advanced (device token modal).
  */
 export default function ConnectSetupCodeForm({ surface = "secondary" }) {
+  const { addToast } = useToast();
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [error, setError] = useState(null);
@@ -26,7 +28,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const saveCode = useMutation({
     mutationFn: () => postJson("/api/v1/connect/device-token", { token: code.trim() }),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Device token saved." });
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       queryClient.invalidateQueries({ queryKey: ["auth-status"] });
       setError(null);
@@ -42,7 +44,7 @@ export default function ConnectSetupCodeForm({ surface = "secondary" }) {
   const removeToken = useMutation({
     mutationFn: () => deleteJson("/api/v1/connect/device-token"),
     onSuccess: () => {
-      haptic("medium");
+      addToast({ type: "success", message: "Device token removed." });
       queryClient.invalidateQueries({ queryKey: ["connect-status"] });
       queryClient.invalidateQueries({ queryKey: ["auth-status"] });
       setError(null);

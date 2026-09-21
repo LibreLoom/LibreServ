@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { dashboard as greetingMessages } from "../assets/greetings.jsx";
 import DashboardPage from "./DashboardPage";
+import { ToastProvider } from "../context/ToastContext";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -127,13 +128,15 @@ function renderPage() {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
+    <ToastProvider>
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <AuthProvider>
           <DashboardPage />
         </AuthProvider>
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 
@@ -475,7 +478,7 @@ describe("DashboardPage", () => {
     );
     stubFetch();
     renderPage();
-    expect(await screen.findByText("Recent files")).toBeInTheDocument();
+    expect(await screen.findByText("Recents")).toBeInTheDocument();
     expect(screen.getByText("note.md")).toBeInTheDocument();
     expect(screen.getByText("Family photos · Documents")).toBeInTheDocument();
     expect(screen.getByText("Office")).toBeInTheDocument();
@@ -490,11 +493,11 @@ describe("DashboardPage", () => {
     expect(opens[2]).toHaveAttribute("href", "/drives/d1");
   });
 
-  it("hides the Recent files card when there is nothing to resume", async () => {
+  it("hides the Recents card when there is nothing to resume", async () => {
     stubFetch();
     renderPage();
     await screen.findByText(/On this network/i);
-    expect(screen.queryByText("Recent files")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
   });
 
   it("shows a member's own recents, not another user's", async () => {
@@ -507,7 +510,7 @@ describe("DashboardPage", () => {
     stubFetch({ username: "jamie", role: "user" });
     renderPage();
     await screen.findByText(/On this network/i);
-    expect(screen.queryByText("Recent files")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recents")).not.toBeInTheDocument();
     expect(screen.queryByText("secret.md")).not.toBeInTheDocument();
   });
 });

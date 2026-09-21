@@ -1,0 +1,42 @@
+# The bot overlay on the dsh-headless bundle.
+# Keep real plugins. Exa is keyless web search (same as the host web profile).
+# There is no review job type. The agent may call fj to set PR review state
+# when the Owner asks. Keep real plugins (Exa).
+#
+# No dsh plugin auto-POSTs /pulls/.../reviews (searched dsh-headless, dsh-base,
+# dsh-home settings/skills, @deepseek-ai plugins). Template PR reviews are
+# the agent curling the API / following nightly. Do not add a github/forgejo
+# review plugin. cook.sh sweeps bodies that start with
+# "Automated review by The bot" during the cook.
+
+- insert:
+    - id: mcp-exa
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: exa
+        transport: streamable-http
+        url: https://mcp.exa.ai/mcp
+        toolCallTimeoutMs: 60000
+        reconnect:
+          enabled: true
+          initialDelayMs: 1000
+          maxDelayMs: 30000
+          maxAttempts: 10
+
+# The bot memory-guard: prune tool-result content at append time to bound
+# session-log memory growth. Uses STOCK tool-result-pruner thresholds
+# (8192/4096/1024) so model input and prefix-cache keys are byte-identical to
+# stock dsh — memory fix only, no behavior change. Heap watchdog + V8 backstop.
+# Source: infra/agents/common/plugins/dsh-memory-guard (installed into the image's
+# global dsh tree; cook.sh links it into this profile's node_modules).
+- insert:
+    - id: memory-guard
+      name: dsh-memory-guard
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+        heapLimitMb: 2048
+        intervalMs: 2000
+        abortGraceMs: 2000
+        verbose: false

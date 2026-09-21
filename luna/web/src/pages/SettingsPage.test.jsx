@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import SettingsPage from "./SettingsPage";
+import { ToastProvider } from "../context/ToastContext";
 
 function stubFetch(role = "admin", connectActive = false) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -58,6 +59,7 @@ function stubFetch(role = "admin", connectActive = false) {
 function renderPage(initialPath = "/settings") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <ToastProvider>
     <MemoryRouter initialEntries={[initialPath]}>
       <ThemeProvider>
         <QueryClientProvider client={client}>
@@ -66,7 +68,8 @@ function renderPage(initialPath = "/settings") {
           </AuthProvider>
         </QueryClientProvider>
       </ThemeProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   );
 }
 

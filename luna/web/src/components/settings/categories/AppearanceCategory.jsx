@@ -49,8 +49,8 @@ function ColorInput({ label, value, onChange, description }) {
   };
 
   return (
-    <div className="flex items-center justify-between py-2">
-      <div className="flex-1 min-w-0 pr-4">
+    <div className="rounded-large-element border-2 border-primary/10 p-3 space-y-2.5">
+      <div className="min-w-0">
         <div className="font-medium text-primary text-sm">{label}</div>
         {description && (
           <div className="text-xs text-accent mt-0.5">{description}</div>
@@ -65,7 +65,7 @@ function ColorInput({ label, value, onChange, description }) {
           // rounded input alone leaves the corners poking out. Round the swatch
           // itself (and drop its default padding/border) to match.
           className={cn(
-            "w-8 h-8 p-0 rounded-full cursor-pointer border border-primary/20 bg-transparent appearance-none overflow-hidden",
+            "w-8 h-8 p-0 rounded-full cursor-pointer border border-primary/20 bg-transparent appearance-none overflow-hidden shrink-0",
             "[&::-webkit-color-swatch-wrapper]:p-0",
             "[&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-full",
             "[&::-moz-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-full",
@@ -77,7 +77,7 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000"
-          className={cn("w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 text-primary outline-none focus:border-accent", isValid && "border-primary/20", !isValid && "border-error")}
+          className={cn("flex-1 min-w-0 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 text-primary outline-none focus:border-accent", isValid && "border-primary/20", !isValid && "border-error")}
           aria-label={`${label} hex value`}
         />
       </div>
@@ -85,7 +85,10 @@ function ColorInput({ label, value, onChange, description }) {
   );
 }
 
-function ColorPreset({ colors, label, currentColors, onSelect }) {
+function ColorPreset({ colors, previewColors, label, currentColors, onSelect }) {
+  // What the mini preview paints — differs from `colors` only in dark mode
+  // without separate dark colors, where the app auto-inverts primary/secondary.
+  const preview = previewColors || colors;
   const isMatch =
     currentColors?.primary === colors.primary &&
     currentColors?.secondary === colors.secondary &&
@@ -116,32 +119,32 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
       <div
         className="w-full rounded-large-element px-2.5 py-2 border motion-safe:transition-transform motion-safe:duration-200 group-hover:scale-[1.02]"
         style={{
-          backgroundColor: colors.primary,
-          borderColor: `${colors.secondary}33`,
+          backgroundColor: preview.primary,
+          borderColor: `${preview.secondary}33`,
         }}
         aria-hidden="true"
       >
         <div className="flex items-center gap-1.5 mb-1.5">
           <div
             className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: colors.secondary }}
+            style={{ backgroundColor: preview.secondary }}
           />
           <div
             className="h-1.5 rounded-full flex-1 opacity-40"
-            style={{ backgroundColor: colors.secondary }}
+            style={{ backgroundColor: preview.secondary }}
           />
         </div>
         <div
           className="h-1 rounded-full mb-1 opacity-30"
-          style={{ backgroundColor: colors.secondary }}
+          style={{ backgroundColor: preview.secondary }}
         />
         <div
           className="h-1 rounded-full mb-1.5 w-3/4 opacity-30"
-          style={{ backgroundColor: colors.secondary }}
+          style={{ backgroundColor: preview.secondary }}
         />
         <div
           className="w-8 h-3 rounded-pill"
-          style={{ backgroundColor: colors.accent }}
+          style={{ backgroundColor: preview.accent }}
         />
       </div>
 
@@ -232,6 +235,15 @@ export default function AppearanceCategory() {
 
   const darkMode = resolvedTheme === "dark";
 
+  // In dark mode with separate dark colors, presets edit the dark palette;
+  // otherwise they edit the base palette (which dark mode auto-inverts).
+  const editingDarkPalette = darkMode && useSeparateDarkColors;
+
+  const presetPreview = (c) =>
+    darkMode && !useSeparateDarkColors
+      ? { primary: c.secondary, secondary: c.primary, accent: c.accent }
+      : c;
+
   const handleColorChange = (key, value) => {
     setColors({ ...colors, [key]: value });
   };
@@ -241,7 +253,11 @@ export default function AppearanceCategory() {
   };
 
   const handlePresetSelect = (presetColors) => {
-    setColors(presetColors);
+    if (editingDarkPalette) {
+      setDarkColors(presetColors);
+    } else {
+      setColors(presetColors);
+    }
     setShowCustomColors(true);
   };
 
@@ -293,35 +309,38 @@ export default function AppearanceCategory() {
                     key={preset.label}
                     label={preset.label}
                     colors={preset.colors}
-                    currentColors={colors}
+                    previewColors={presetPreview(preset.colors)}
+                    currentColors={editingDarkPalette ? darkColors : colors}
                     onSelect={handlePresetSelect}
                   />
                 ))}
               </div>
             </div>
 
-            <div className="space-y-2 pt-4 border-t border-primary/10 pb-4">
+            <div className="pt-4 border-t border-primary/10 pb-4">
               <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
                 {darkMode ? "Dark Mode Colors" : "Light Mode Colors"}
               </div>
-              <ColorInput
-                label="Primary"
-                description="Main background color"
-                value={colors?.primary || "#ffffff"}
-                onChange={(v) => handleColorChange("primary", v)}
-              />
-              <ColorInput
-                label="Secondary"
-                description="Main text and elements"
-                value={colors?.secondary || "#000000"}
-                onChange={(v) => handleColorChange("secondary", v)}
-              />
-              <ColorInput
-                label="Accent"
-                description="Highlights and emphasis"
-                value={colors?.accent || "#767676"}
-                onChange={(v) => handleColorChange("accent", v)}
-              />
+              <div className="grid gap-2.5 sm:grid-cols-3">
+                <ColorInput
+                  label="Primary"
+                  description="Main background color"
+                  value={colors?.primary || "#ffffff"}
+                  onChange={(v) => handleColorChange("primary", v)}
+                />
+                <ColorInput
+                  label="Secondary"
+                  description="Main text and elements"
+                  value={colors?.secondary || "#000000"}
+                  onChange={(v) => handleColorChange("secondary", v)}
+                />
+                <ColorInput
+                  label="Accent"
+                  description="Highlights and emphasis"
+                  value={colors?.accent || "#767676"}
+                  onChange={(v) => handleColorChange("accent", v)}
+                />
+              </div>
             </div>
 
             <div className="mt-4">
@@ -340,24 +359,26 @@ export default function AppearanceCategory() {
                   <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
                     {darkMode ? "Dark Mode Colors (Active)" : "Dark Mode Colors"}
                   </div>
-                  <ColorInput
-                    label="Primary (Dark)"
-                    description="Background in dark mode"
-                    value={darkColors?.primary || "#000000"}
-                    onChange={(v) => handleDarkColorChange("primary", v)}
-                  />
-                  <ColorInput
-                    label="Secondary (Dark)"
-                    description="Text in dark mode"
-                    value={darkColors?.secondary || "#ffffff"}
-                    onChange={(v) => handleDarkColorChange("secondary", v)}
-                  />
-                  <ColorInput
-                    label="Accent (Dark)"
-                    description="Highlights in dark mode"
-                    value={darkColors?.accent || "#767676"}
-                    onChange={(v) => handleDarkColorChange("accent", v)}
-                  />
+                  <div className="grid gap-2.5 sm:grid-cols-3">
+                    <ColorInput
+                      label="Primary (Dark)"
+                      description="Background in dark mode"
+                      value={darkColors?.primary || "#000000"}
+                      onChange={(v) => handleDarkColorChange("primary", v)}
+                    />
+                    <ColorInput
+                      label="Secondary (Dark)"
+                      description="Text in dark mode"
+                      value={darkColors?.secondary || "#ffffff"}
+                      onChange={(v) => handleDarkColorChange("secondary", v)}
+                    />
+                    <ColorInput
+                      label="Accent (Dark)"
+                      description="Highlights in dark mode"
+                      value={darkColors?.accent || "#767676"}
+                      onChange={(v) => handleDarkColorChange("accent", v)}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

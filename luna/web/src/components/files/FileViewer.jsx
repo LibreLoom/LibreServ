@@ -21,6 +21,7 @@ import { contentHref, downloadHref, joinPath, parentPath, pathBasename } from ".
 import { ICON_SIZE } from "@/lib/ui-tokens";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 /** Match `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
@@ -95,6 +96,7 @@ function useOverlayPresence(active) {
  * }} props
  */
 export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath, open = true, canWrite = true }) {
+  const { addToast } = useToast();
   const name = pathBasename(path) || path;
   const kind = openableKind(name);
   // Office-adjacent files get a conversion hint; ones we can convert in the
@@ -246,7 +248,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           "Couldn't create the converted copy — this folder already has too many files with that name. Rename or remove one, then try again.",
         );
       }
-      haptic("success");
+      addToast({ type: "success", message: "Converted — the new file is open." });
       onSaved?.();
       onOpenPath?.(targetPath);
     } catch (err) {

@@ -16,8 +16,10 @@ import Button from "../../ui/Button";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
+import { useToast } from "../../../context/ToastContext";
 
 export default function SystemUpdatesCard({ index = 0 }) {
+  const { addToast } = useToast();
   const queryClient = useQueryClient();
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
@@ -33,11 +35,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
     mutationFn: () => getJson("/api/v1/system/updates?force=true"),
     onSuccess: (data) => {
       queryClient.setQueryData(["system-updates"], data);
-      setCheckMessage(
-        data.update_available
+      addToast({
+        type: data.update_available ? "success" : "info",
+        message: data.update_available
           ? `Version ${data.latest_version} is ready to install.`
           : "You're running the latest Luna software.",
-      );
+      });
     },
     onError: (err) => {
       setCheckMessage(apiErrorMessage(err));

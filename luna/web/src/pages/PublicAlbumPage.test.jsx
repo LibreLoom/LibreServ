@@ -20,19 +20,22 @@ vi.mock("../components/gallery/PhotoLightbox.jsx", () => ({
 }));
 
 import { getJson } from "../lib/api";
+import { ToastProvider } from "../context/ToastContext";
 
 function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
+    <ToastProvider>
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/a/tok123"]}>
         <Routes>
           <Route path="/a/:token" element={<PublicAlbumPage />} />
         </Routes>
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
+    </ToastProvider>,
   );
 }
 

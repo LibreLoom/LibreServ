@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
 
-use lunad::{AppState, api, config::Config, db, drives::DriveManager, mount::CommandMounter};
+use lunad::{
+    AppState, api, config::Config, db, drives::DriveManager, drives::mount::CommandMounter,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,11 +40,14 @@ async fn main() -> anyhow::Result<()> {
     // Password recovery runs once, here, before the network is up: Connect has
     // not been restored and the HTTP listener has not bound, so no peer can
     // reach lunad while a recovery stick is being honoured.
-    lunad::recovery_drive::scan_at_boot(&cfg.data_dir, &conn, &detected, &drive_manager);
+    lunad::system::recovery_drive::scan_at_boot(&cfg.data_dir, &conn, &detected, &drive_manager);
 
     let connect = std::sync::Arc::new(
-        lunad::connect::ConnectService::new(&cfg.data_dir, std::env::var("LUNA_CONNECT_URL").ok())
-            .with_local_port(cfg.port),
+        lunad::net::connect::ConnectService::new(
+            &cfg.data_dir,
+            std::env::var("LUNA_CONNECT_URL").ok(),
+        )
+        .with_local_port(cfg.port),
     );
     connect.restore_tunnel_from_disk();
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect);
@@ -57,11 +62,11 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
             let root = std::path::Path::new(&drive.mount_point);
-            if lunad::drive_db::find_db_file(root).is_none() {
+            if lunad::drives::drive_db::find_db_file(root).is_none() {
                 continue;
             }
-            if let Ok(dconn) = lunad::drive_db::open(root) {
-                let _ = lunad::drive_db::migrate_from_central(&db, &drive.id, &dconn);
+            if let Ok(dconn) = lunad::drives::drive_db::open(root) {
+                let _ = lunad::drives::drive_db::migrate_from_central(&db, &drive.id, &dconn);
             }
         }
     }
@@ -91,8 +96,8 @@ async fn main() -> anyhow::Result<()> {
         .spawn({
             let wake = connect_poll_wake.clone();
             move || {
-                lunad::dhcp::request_on_wired(std::path::Path::new("/sys/class/net"));
-                lunad::dhcp::watch_link_up(
+                lunad::net::dhcp::request_on_wired(std::path::Path::new("/sys/class/net"));
+                lunad::net::dhcp::watch_link_up(
                     std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     Some(wake),
                 );
@@ -181,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     if let Ok(conn) = db.lock() {
-                        let preflight = lunad::system_health::run_preflight(&data_dir, &conn);
+                        let preflight = lunad::system::system_health::run_preflight(&data_dir, &conn);
                         let mut preflight_errors: Vec<_> = preflight
                             .checks
                             .into_iter()
@@ -207,7 +212,7 @@ async fn main() -> anyhow::Result<()> {
                     // Keep problem list short enough for a small HDMI screen.
                     problems.truncate(6);
 
-                    let snap = lunad::console::ConsoleSnapshot {
+                    let snap = lunad::system::console::ConsoleSnapshot {
                         ipv4: net.ipv4.clone(),
                         cable_in: net.ethernet_connected,
                         has_default_route: net.has_default_route,
@@ -218,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
                     // Always rewrite so luna-console's mtime liveness check stays
                     // honest when status text is unchanged (e.g. Connect hostname
                     // already shown).
-                    let _ = lunad::console::write_issue(&data_dir, &snap);
+                    let _ = lunad::system::console::write_issue(&data_dir, &snap);
                     std::thread::sleep(std::time::Duration::from_secs(2));
                 }
             })
@@ -283,7 +288,7 @@ async fn main() -> anyhow::Result<()> {
             ticker.tick().await;
             let db = protect_db.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                let _ = lunad::protect::sync_all(&db);
+                let _ = lunad::backup::protect::sync_all(&db);
             })
             .await;
         }
@@ -301,7 +306,7 @@ async fn main() -> anyhow::Result<()> {
             let connect = backup_state.connect.clone();
             let db = backup_state.db.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                lunad::cloud_backup::tick(&connect, last, now, &db);
+                lunad::backup::cloud_backup::tick(&connect, last, now, &db);
             })
             .await;
         }
@@ -312,7 +317,7 @@ async fn main() -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10 * 60));
         loop {
             ticker.tick().await;
-            let hour = lunad::scrub::local_hour_now();
+            let hour = lunad::drives::scrub::local_hour_now();
             let now = lunad::db::now_unix();
             let last_run = scrub_state
                 .db
@@ -330,7 +335,13 @@ async fn main() -> anyhow::Result<()> {
             let running = scrub_state
                 .scrub_running
                 .load(std::sync::atomic::Ordering::SeqCst);
-            if !lunad::scrub::should_run_periodic(running, hour, last_run, last_activity, now) {
+            if !lunad::drives::scrub::should_run_periodic(
+                running,
+                hour,
+                last_run,
+                last_activity,
+                now,
+            ) {
                 continue;
             }
             if scrub_state
@@ -342,7 +353,7 @@ async fn main() -> anyhow::Result<()> {
             let db = scrub_state.db.clone();
             let flag = scrub_state.scrub_running.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                let _ = lunad::scrub::scrub_all_drives_unlocked(&db);
+                let _ = lunad::drives::scrub::scrub_all_drives_unlocked(&db);
                 if let Ok(conn) = db.lock() {
                     let _ = lunad::db::set_meta(&conn, "last_periodic_scrub_at", &now.to_string());
                     let _ = lunad::db::wal_checkpoint_passive(&conn);
@@ -369,7 +380,7 @@ async fn main() -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
-            let hour = lunad::scrub::local_hour_now();
+            let hour = lunad::drives::scrub::local_hour_now();
             let now = lunad::db::now_unix();
             let last_run = trim_state
                 .db
@@ -380,13 +391,14 @@ async fn main() -> anyhow::Result<()> {
             let last_activity = trim_state
                 .last_io_activity
                 .load(std::sync::atomic::Ordering::Relaxed);
-            if !lunad::fstrim::should_run_fstrim(false, hour, last_run, last_activity, now) {
+            if !lunad::drives::fstrim::should_run_fstrim(false, hour, last_run, last_activity, now)
+            {
                 continue;
             }
             let db = trim_state.db.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 if let Ok(conn) = db.lock() {
-                    let _ = lunad::fstrim::fstrim_all_drives(&conn);
+                    let _ = lunad::drives::fstrim::fstrim_all_drives(&conn);
                     let _ = lunad::db::set_meta(&conn, "last_fstrim_at", &now.to_string());
                 }
             })
@@ -436,7 +448,7 @@ async fn main() -> anyhow::Result<()> {
     let eurooffice_dir = cfg.data_dir.join("eurooffice");
     let mut app = axum::Router::new()
         .merge(protected_api)
-        .merge(lunad::dav::router());
+        .merge(lunad::files::dav::router());
     if eurooffice_dir.is_dir() {
         tracing::info!(dir = %eurooffice_dir.display(), "serving EuroOffice assets");
         // One wildcard route handles the whole /eurooffice tree: versioned
@@ -466,7 +478,7 @@ async fn main() -> anyhow::Result<()> {
     let app =
         app.with_state(state)
             .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
-                lunad::staticweb::handle(uri.path())
+                lunad::system::staticweb::handle(uri.path())
             }));
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;

@@ -1,0 +1,38 @@
+# F-Droid build metadata for Luna Mobile (net.plainskill.luna).
+#
+# Submit this file as metadata/net.plainskill.luna.yml in a merge request to
+# https://gitlab.com/fdroid/fdroiddata and keep it in sync with the repo.
+#
+# Builds are keyed off the repo's existing luna-v* release tags: F-Droid's
+# checkupdates reads versionCode from app/build.gradle.kts at each matching
+# tag and auto-adds a build (commit = the tag) when it increases. For every
+# release that ships the app, bump BOTH versionName and versionCode in
+# app/build.gradle.kts — plain literals, F-Droid parses them statically.
+#
+# If the project later adopts reproducible builds (deterministic APK output),
+# add AllowedAPKSigningKeys so F-Droid can ship the upstream-signed APK and
+# both channels share one signature.
+
+Categories:
+  - Internet
+License: AGPL-3.0-or-later
+AuthorName: LibreLoom
+SourceCode: https://gt.plainskill.net/LibreLoom/LibreServ
+IssueTracker: https://gt.plainskill.net/LibreLoom/LibreServ/issues
+Changelog: https://gt.plainskill.net/LibreLoom/LibreServ/releases
+
+RepoType: git
+Repo: https://gt.plainskill.net/LibreLoom/LibreServ.git
+
+Builds:
+  - versionName: 0.1.5
+    versionCode: 6
+    commit: luna-v0.0.34
+    subdir: luna/mobile
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^luna-v[0-9.]+$
+CurrentVersion: 0.1.5
+CurrentVersionCode: 6

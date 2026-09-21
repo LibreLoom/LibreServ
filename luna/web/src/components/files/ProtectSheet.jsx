@@ -11,6 +11,7 @@ import ShakeTarget from "../ui/ShakeTarget";
 import { InfoHint, Tooltip } from "../ui/Tooltip";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { useToast } from "../../context/ToastContext.jsx";
 import { haptic } from "../../utils/haptics.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 
@@ -65,6 +66,7 @@ export function ProtectButton({ label, onClick }) {
  */
 export default function ProtectSheet({ driveId, path = "", onClose, open = true }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [error, setError] = useState(null);
   const [targetDrive, setTargetDrive] = useState("");
   const [pendingCloudIntent, setPendingCloudIntent] = useState(null);
@@ -109,7 +111,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         target_drive_id: targetDrive,
       }),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Protection added." });
       queryClient.invalidateQueries({ queryKey: ["protections"] });
       setError(null);
       setTargetDrive("");
@@ -122,7 +124,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const runProtect = useMutation({
     mutationFn: (id) => postJson(`/api/v1/protections/${id}/run`, {}),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Protection started — Luna is copying files." });
     },
     onError: (err) => {
       haptic("error");
@@ -132,7 +134,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const stopProtect = useMutation({
     mutationFn: (id) => deleteJson(`/api/v1/protections/${id}`),
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Protection removed." });
       queryClient.invalidateQueries({ queryKey: ["protections"] });
     },
     onError: (err) => {
@@ -148,7 +150,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       return res;
     },
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Cloud backup saved." });
       setError(null);
     },
     onError: (err) => {

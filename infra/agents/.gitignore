@@ -1,0 +1,7 @@
+# dsh writes session state, config, and a plugin symlink into the shared
+# home at cook time. loop.sh writes .last-run-day next to the bot dir on
+# host runs.
+.last-run-day
+common/dsh-home/.config/
+common/dsh-home/sessions/
+common/dsh-home/profiles/headless/node_modules/

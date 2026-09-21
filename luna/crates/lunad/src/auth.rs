@@ -1498,7 +1498,7 @@ mod guard_tests {
     use super::*;
     use crate::api;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Method, Request as HttpReq};
@@ -1513,7 +1513,7 @@ mod guard_tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let connect = std::sync::Arc::new(crate::connect::ConnectService::new(
+        let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
             dir.path(),
             Some("http://127.0.0.1:1".into()),
         ));
@@ -1904,7 +1904,7 @@ mod guard_tests {
     async fn first_account_on_public_hostname_needs_setup_secret() {
         let (dir, _) = test_app();
         let connect =
-            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+            crate::net::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         connect
             .apply_claimed(&serde_json::json!({

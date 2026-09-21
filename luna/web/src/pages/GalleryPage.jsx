@@ -21,6 +21,8 @@ import EmptyState from "../components/common/EmptyState";
 import Card from "../components/cards/Card";
 import PageNotice from "../components/common/PageNotice";
 import ModalErrorNotice from "../components/common/ModalErrorNotice";
+import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
+import { useToast } from "../context/ToastContext";
 import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "../components/cards/ModalCard";
 import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
@@ -234,7 +236,7 @@ export default function GalleryPage() {
   const [segment, setSegment] = useState(initialHash.segment || DEFAULT_SEGMENT);
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const [error, setError] = useState(null);
-  const [undoNotice, setUndoNotice] = useState(/** @type {string|null} */ (null));
+  const { addToast } = useToast();
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -608,6 +610,7 @@ export default function GalleryPage() {
     mutationFn: () => postJson("/api/v1/gallery/rescan", {}),
     onSuccess: () => {
       setError(null);
+      addToast({ type: "info", message: "Luna is rescanning your photos." });
       queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
@@ -736,8 +739,12 @@ export default function GalleryPage() {
         });
       }
     },
-    onSuccess: () => {
+    onSuccess: (_d, items) => {
       selection.exit();
+      addToast({
+        type: "success",
+        message: items.length === 1 ? "Moved to Archive." : `Moved ${items.length} items to Archive.`,
+      });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -753,7 +760,11 @@ export default function GalleryPage() {
     onSuccess: () => {
       setTrashPhoto(null);
       setLightbox(null);
-      setUndoNotice("Moved to Trash. You can restore it from Files → Trash.");
+      addToast({
+        type: "success",
+        message: "Moved to Trash.",
+        description: "You can restore it from Files → Trash.",
+      });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -771,11 +782,11 @@ export default function GalleryPage() {
     onSuccess: (_d, items) => {
       setTrashBulk(null);
       selection.exit();
-      setUndoNotice(
-        items.length === 1
-          ? "Moved to Trash. You can restore it from Files → Trash."
-          : `Moved ${items.length} items to Trash. You can restore them from Files → Trash.`,
-      );
+      addToast({
+        type: "success",
+        message: items.length === 1 ? "Moved to Trash." : `Moved ${items.length} items to Trash.`,
+        description: "You can restore them from Files → Trash.",
+      });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -793,7 +804,7 @@ export default function GalleryPage() {
       return album;
     },
     onSuccess: (album) => {
-      haptic("success");
+      addToast({ type: "success", message: "Album created." });
       setNewAlbumOpen(false);
       setNewAlbumName("");
       setNewAlbumSeed(null);
@@ -821,9 +832,8 @@ export default function GalleryPage() {
       });
     },
     onSuccess: () => {
-      haptic("success");
+      addToast({ type: "success", message: "Album cover set." });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-      setUndoNotice("Album cover updated.");
     },
     onError: (err) => {
       haptic("error");
@@ -836,7 +846,7 @@ export default function GalleryPage() {
     mutationFn: ({ album, name }) =>
       patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { name }),
     onSuccess: (_d, { album, name }) => {
-      haptic("success");
+      addToast({ type: "success", message: "Album renamed." });
       setRenameAlbum(null);
       setAlbumView((cur) =>
         cur && cur.id === album.id ? { ...cur, name } : cur,
@@ -853,8 +863,8 @@ export default function GalleryPage() {
     /** @param {{ album: object, locked: boolean }} args */
     mutationFn: ({ album, locked }) =>
       patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { locked }),
-    onSuccess: () => {
-      haptic("success");
+    onSuccess: (_d, { locked }) => {
+      addToast({ type: "success", message: locked ? "Album locked." : "Album unlocked." });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },
     onError: (err) => {
@@ -868,7 +878,7 @@ export default function GalleryPage() {
     mutationFn: (album) =>
       deleteJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`),
     onSuccess: (_data, album) => {
-      haptic("success");
+      addToast({ type: "success", message: "Album deleted." });
       setTrashAlbum(null);
       setAlbumView((current) =>
         current && current.id === album.id && current.home_drive_id === album.home_drive_id
@@ -903,6 +913,7 @@ export default function GalleryPage() {
       }
     },
     onSuccess: (_data, vars) => {
+      addToast({ type: "success", message: "Albums updated." });
       if (vars.close) vars.close();
       else setAlbumPick(null);
       selection.exit();
@@ -926,8 +937,14 @@ export default function GalleryPage() {
         );
       }
     },
-    onSuccess: () => {
+    onSuccess: (_d, items) => {
       selection.exit();
+      addToast({
+        type: "success",
+        message: items.length === 1
+          ? "Removed from the album."
+          : `Removed ${items.length} photos from the album.`,
+      });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
     },
@@ -946,8 +963,12 @@ export default function GalleryPage() {
         }
       }
     },
-    onSuccess: () => {
+    onSuccess: (_d, items) => {
       selection.exit();
+      addToast({
+        type: "success",
+        message: items.length === 1 ? "Added to Favorites." : `Added ${items.length} photos to Favorites.`,
+      });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -971,7 +992,11 @@ export default function GalleryPage() {
         );
       }
     },
-    onSuccess: () => {
+    onSuccess: (_d, files) => {
+      addToast({
+        type: "success",
+        message: files.length === 1 ? "Photo uploaded." : `${files.length} photos uploaded.`,
+      });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
       queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
       void rescan.mutate();
@@ -1136,6 +1161,7 @@ export default function GalleryPage() {
     || lightbox != null
     || filtersOpen
     || shortcutsOpen;
+  useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
   const detailChrome =
     dayFilter ||
@@ -1249,22 +1275,9 @@ export default function GalleryPage() {
           </Button>
         </div>
       )}
-      {showPageLevelError(error || galleryLoadError, actionModalOpen) && (
+      {showPageLevelError(galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
-          {error || galleryLoadError}
-        </PageNotice>
-      )}
-      {undoNotice && (
-        <PageNotice variant="info" className="mb-4">
-          <span className="flex flex-wrap items-center gap-2">
-            {undoNotice}
-            <Button variant="outline" size="sm" surface="primary" asChild>
-              <Link to="/drives">Open Files</Link>
-            </Button>
-            <Button variant="ghost" size="sm" surface="primary" onClick={() => setUndoNotice(null)}>
-              Dismiss
-            </Button>
-          </span>
+          {galleryLoadError}
         </PageNotice>
       )}
 

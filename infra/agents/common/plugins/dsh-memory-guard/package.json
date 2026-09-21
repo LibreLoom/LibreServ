@@ -1,0 +1,12 @@
+{
+  "name": "dsh-memory-guard",
+  "description": "dsh cordis plugin: prune tool-result content at append time (stock 8192/4096/1024 thresholds) and abort the session gracefully if heap passes heapLimitMb",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}

@@ -54,10 +54,10 @@ build-daemon: ensure-web-dist
 	cargo build -p lunad
 
 mock-drive:
-	bash scripts/mock-drive.sh $(ARGS)
+	bash scripts/mocks/mock-drive.sh $(ARGS)
 
 mock-connect:
-	bash scripts/mock-connect.sh $(ARGS)
+	bash scripts/mocks/mock-connect.sh $(ARGS)
 
 # EuroOffice dev pack (AGPL, never committed): extracts web-apps/sdkjs +
 # core-fonts into $(DATA_DIR)/eurooffice, generates the font metrics sdkjs

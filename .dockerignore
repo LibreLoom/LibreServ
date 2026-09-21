@@ -2,8 +2,5 @@
 *
 
 # But not these
-!server
-!connect
-!companion
+!sol
 !.lore
-!entrypoint.sh

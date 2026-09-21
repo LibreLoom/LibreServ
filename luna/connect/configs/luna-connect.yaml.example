@@ -1,0 +1,70 @@
+server:
+  address: "0.0.0.0"
+  port: 8092
+  base_url: "https://connect.luna.libreloom.org"
+  public_zone: "luna.servers.libreloom.org"
+  # Optional static Bearer for ops/automation. Prefer admin login sessions.
+  admin_token: ""
+  # Shared between blue/green instances. openssl rand -hex 32
+  at_rest_key: ""
+  web_dir: "web/dist"
+
+auth:
+  # Gates POST /admin/seed when set (send as X-Seed-Token). Empty = loopback only.
+  admin_seed_token: ""
+  # Staff admin session length (hours). Default 168 (7 days).
+  session_ttl_hours: 168
+
+# Production paths: /etc/luna/connect/luna-connect-a.yaml and luna-connect-b.yaml
+# Env overrides: LUNACONNECT_DATABASE_DRIVER, LUNACONNECT_DATABASE_URL, LUNACONNECT_DATABASE_PATH
+database:
+  # driver: "sqlite"   # default; omit for dev. Production at scale: driver: "postgres"
+  path: "dev/luna-connect.db"   # SQLite only — remove or comment when driver is postgres
+  # url: "postgres://luna_connect:CHANGE_ME@127.0.0.1:5432/luna_connect?sslmode=disable"  # required when driver: postgres
+
+data_dir: "dev/data"
+
+# Remote Luna addresses (*.luna.servers.libreloom.org) — Cloudflare Tunnel + DNS.
+# Prefer Admin → Connections to manage these at runtime (database overlays this section).
+# Yaml/env fallback when no enabled Cloudflare provider is saved in the database.
+# Create an API token at cloudflare.com → Profile → API Tokens with Cloudflare Tunnel
+# Edit + DNS Edit on the public zone.
+cloudflare:
+  account_id: ""
+  api_token: ""
+  zone_id: ""
+
+stripe:
+  # Production paid routes require Stripe. Empty keys refuse card and backup unlock.
+  # Local/dev unlock only with LUNACONNECT_DEV=1 and enabled: false.
+  # Prefer Admin → Connections to manage these at runtime (database overlays this section).
+  #
+  # B2-style billing (LibreLoom retail rates):
+  #   Storage = month average GB (we sample hourly; report average with meter aggregation Last).
+  #   Egress overage = max(0, download_GB − 3×avg_storage_GB) at $0.01/GB (second meter, Last).
+  # Dashboard → Billing → Meters:
+  #   1) luna_backup_gb     aggregation Last  → price $0.008/GB-mo
+  #   2) luna_backup_egress_gb aggregation Last → price $0.01/GB overage only
+  enabled: false
+  secret_key: ""
+  publishable_key: ""
+  webhook_secret: ""
+  meter_event_name: "luna_backup_gb"
+  price_id: ""
+  egress_meter_event_name: "luna_backup_egress_gb"
+  egress_price_id: ""
+
+# Resend (email) and Backblaze B2 credentials are managed in Admin → Connections
+# (stored in the database). There is no yaml section for them.
+
+backup:
+  # auto = Backblaze B2 when Admin → Connections has an enabled B2 provider; else local disk.
+  # Force with "b2" or "local". One Luna (device) gets one private B2 bucket.
+  driver: "auto"
+  max_object_bytes: 1073741824
+  max_account_bytes: 2000000000000
+
+# Server-only transactional mail (billing warnings). The website never talks to Resend.
+mail:
+  resend_api_key: ""
+  from: "Luna Connect <noreply@connect.luna.libreloom.org>"

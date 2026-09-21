@@ -9,6 +9,7 @@ import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@/lib/ui-tokens";
 import { cn } from "@/lib/utils";
 import { haptic } from "../../utils/haptics.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 /** Under this age the save indicator reads "Saved just now". */
 const RECENT_SAVE_MS = 90_000;
@@ -82,6 +83,7 @@ export default function FullscreenEditorFrame({
   onClose,
   children,
 }) {
+  const { addToast } = useToast();
   // Save chrome: the child editor registers a save thunk once a writable
   // session is up and reports dirty/saved via onSaveStateChange.
   const [saveReady, setSaveReady] = useState(false);
@@ -268,7 +270,7 @@ export default function FullscreenEditorFrame({
     // The user may have cancelled the modal while the save was in flight —
     // respect that and keep editing instead of closing underneath them.
     if (!confirmCloseRef.current) return;
-    haptic("success");
+    addToast({ type: "success", message: "Changes saved." });
     setConfirmClose(false);
     onClose();
   }

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiErrorMessage, postJson } from "../lib/api";
+import { useToast } from "../context/ToastContext.jsx";
 import { haptic } from "../utils/haptics";
 
 /**
@@ -19,6 +20,7 @@ import { haptic } from "../utils/haptics";
  * @param {{ driveId: string, onError?: (message: string) => void }} options
  */
 export default function useDriveMove({ driveId, onError }) {
+  const { addToast } = useToast();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (
@@ -38,7 +40,11 @@ export default function useDriveMove({ driveId, onError }) {
       }
     },
     onSuccess: (_data, vars) => {
-      haptic("success");
+      const n = vars.paths?.length || 0;
+      addToast({
+        type: "success",
+        message: n === 1 ? "Luna is moving that file." : `Luna is moving ${n} items.`,
+      });
       const fromDrive = vars.fromDriveId || driveId;
       queryClient.invalidateQueries({ queryKey: ["files", fromDrive] });
       queryClient.invalidateQueries({ queryKey: ["trash", fromDrive] });

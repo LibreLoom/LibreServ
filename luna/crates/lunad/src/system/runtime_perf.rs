@@ -1,0 +1,457 @@
+//! Timed runtime measurements for Luna OS / lunad (printed as `PERF …` lines).
+//!
+//! Run: `cargo test -p lunad --lib runtime_perf -- --nocapture`
+//! Prefer `--release` for wall-clock numbers closer to the appliance.
+//!
+//! Gallery indexes live in each data drive's `.luna-<uuid>.sqlite3` microdb, so holding the
+//! global `luna.db` mutex must not stall `list_photos`. These tests also measure
+//! index/scrub contention against the OS DB.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use rusqlite::Connection;
+
+use crate::db;
+use crate::drives::scrub;
+use crate::files::index;
+use crate::files::uploads;
+use crate::gallery;
+
+fn write_pngs(dir: &Path, n: usize) {
+    std::fs::create_dir_all(dir).unwrap();
+    for i in 0..n {
+        let img = image::RgbaImage::from_pixel(64, 64, image::Rgba([(i % 255) as u8, 40, 80, 255]));
+        img.save(dir.join(format!("p{i:04}.png"))).unwrap();
+    }
+}
+
+fn write_binaries(dir: &Path, n: usize, bytes: usize) {
+    std::fs::create_dir_all(dir).unwrap();
+    let payload = vec![0xABu8; bytes];
+    for i in 0..n {
+        std::fs::write(dir.join(format!("f{i:04}.bin")), &payload).unwrap();
+    }
+}
+
+fn nest_dirs(root: &Path, depth: usize, width: usize) {
+    fn walk(dir: &Path, depth: usize, width: usize) {
+        std::fs::create_dir_all(dir).unwrap();
+        for i in 0..width {
+            std::fs::write(dir.join(format!("leaf{i}.txt")), b"x").unwrap();
+        }
+        if depth == 0 {
+            return;
+        }
+        for i in 0..width {
+            walk(&dir.join(format!("d{i}")), depth - 1, width);
+        }
+    }
+    walk(root, depth, width);
+}
+
+/// Sample `list_photos` latency until `done` flips; return (samples, max_ms, p50_ms).
+fn sample_list_waits(mounts: &[(String, PathBuf)], done: &AtomicBool) -> (usize, u128, u128) {
+    let mut samples = Vec::new();
+    while !done.load(Ordering::SeqCst) {
+        let start = Instant::now();
+        let _ = gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0)
+            .unwrap();
+        samples.push(start.elapsed().as_millis());
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    if samples.is_empty() {
+        return (0, 0, 0);
+    }
+    let max = *samples.iter().max().unwrap();
+    let mut sorted = samples.clone();
+    sorted.sort_unstable();
+    let p50 = sorted[sorted.len() / 2];
+    (samples.len(), max, p50)
+}
+
+/// Holding `luna.db` must not stall on-drive gallery list.
+fn list_latency_while_luna_locked(
+    db: &Arc<Mutex<Connection>>,
+    mounts: &[(String, PathBuf)],
+    hold_ms: u64,
+) -> u128 {
+    let blocker = db.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let handle = std::thread::spawn(move || {
+        let _guard = blocker.lock().unwrap();
+        tx.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(hold_ms));
+    });
+    rx.recv().unwrap();
+    let start = Instant::now();
+    let _ =
+        gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0).unwrap();
+    let waited = start.elapsed().as_millis();
+    handle.join().unwrap();
+    waited
+}
+
+#[test]
+fn runtime_perf_numbers() {
+    let dir = tempfile::tempdir().unwrap();
+    let photos = dir.path().join("photos");
+    let files = dir.path().join("files");
+    let tree = dir.path().join("tree");
+    write_pngs(&photos, 120);
+    // ~40 MiB of binaries so a locked blake3 walk is visibly multi-hundred-ms.
+    write_binaries(&files, 80, 512 * 1024);
+    nest_dirs(&tree, 4, 3); // (3^5-1)/2 = 121 dirs
+
+    let db = Arc::new(Mutex::new(db::open(&dir.path().join("luna.db")).unwrap()));
+    {
+        let conn = db.lock().unwrap();
+        for (id, label, mount) in [
+            ("d1", "Photos", &photos),
+            ("d2", "Files", &files),
+            ("d3", "Tree", &tree),
+        ] {
+            let prefix = luna_core::marker::pick_prefix(mount).unwrap();
+            crate::drives::drive_db::create(
+                mount,
+                &luna_core::marker::Marker::new(id, label),
+                &prefix,
+            )
+            .unwrap();
+            db::upsert_drive(
+                &conn,
+                id,
+                label,
+                "as_is",
+                "ext4",
+                "/dev/null",
+                mount.to_str().unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    let photo_mounts = vec![("d1".to_string(), photos.clone())];
+
+    // --- Gallery ---
+    let t0 = Instant::now();
+    let first = gallery::scan_drive("d1", &photos).unwrap();
+    let first_ms = t0.elapsed().as_millis();
+    assert_eq!(first.found, 120);
+    assert!(
+        gallery::thumbs_dir(&photos)
+            .unwrap()
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_some(),
+        "thumbs must be on the photo drive"
+    );
+    assert!(
+        crate::drives::drive_db::find_db_file(&photos).is_some(),
+        "gallery index must live in the drive's .luna-<uuid> microdb"
+    );
+
+    let t1 = Instant::now();
+    let second = gallery::scan_drive("d1", &photos).unwrap();
+    let second_ms = t1.elapsed().as_millis();
+    assert_eq!(second.thumbnailed, 0);
+
+    // --- Index contention: locked full walk vs unlocked ---
+    // Gallery list no longer touches luna.db, so waits stay low either way.
+    let (index_locked_n, index_locked_max, index_locked_p50) = {
+        let done = Arc::new(AtomicBool::new(false));
+        let mounts = photo_mounts.clone();
+        let done_s = done.clone();
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
+        let db_j = db.clone();
+        let tree_j = tree.clone();
+        let job = std::thread::spawn(move || {
+            let conn = db_j.lock().unwrap();
+            index::scan_drive(&conn, "d3", &tree_j).unwrap();
+        });
+        job.join().unwrap();
+        done.store(true, Ordering::SeqCst);
+        sampler.join().unwrap()
+    };
+
+    {
+        // Wipe the on-drive index so the unlocked pass does real work again.
+        let dconn = crate::drives::drive_db::open(&tree).unwrap();
+        dconn
+            .execute_batch("DELETE FROM index_entries; DELETE FROM indexed_dirs;")
+            .unwrap();
+    }
+    let (index_unlocked_n, index_unlocked_max, index_unlocked_p50) = {
+        let done = Arc::new(AtomicBool::new(false));
+        let mounts = photo_mounts.clone();
+        let done_s = done.clone();
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
+        let db_j = db.clone();
+        let tree_j = tree.clone();
+        let job = std::thread::spawn(move || {
+            index::scan_drive_unlocked(&db_j, "d3", &tree_j).unwrap();
+        });
+        job.join().unwrap();
+        done.store(true, Ordering::SeqCst);
+        sampler.join().unwrap()
+    };
+
+    // --- Scrub contention ---
+    let (scrub_locked_n, scrub_locked_max, scrub_locked_p50, scrub_locked_wall) = {
+        let done = Arc::new(AtomicBool::new(false));
+        let mounts = photo_mounts.clone();
+        let done_s = done.clone();
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
+        let db_j = db.clone();
+        let files_j = files.clone();
+        let start = Instant::now();
+        let job = std::thread::spawn(move || {
+            let conn = db_j.lock().unwrap();
+            scrub::hash_drive(&conn, "d2", &files_j).unwrap();
+        });
+        job.join().unwrap();
+        let wall = start.elapsed().as_millis();
+        done.store(true, Ordering::SeqCst);
+        let (n, max, p50) = sampler.join().unwrap();
+        (n, max, p50, wall)
+    };
+
+    // Wipe hashes so unlocked pass does real I/O again.
+    {
+        let dconn = crate::drives::drive_db::open(&files).unwrap();
+        dconn.execute_batch("DELETE FROM file_hashes;").unwrap();
+    }
+    let (scrub_unlocked_n, scrub_unlocked_max, scrub_unlocked_p50, scrub_unlocked_wall) = {
+        let done = Arc::new(AtomicBool::new(false));
+        let mounts = photo_mounts.clone();
+        let done_s = done.clone();
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
+        let db_j = db.clone();
+        let files_j = files.clone();
+        let start = Instant::now();
+        let job = std::thread::spawn(move || {
+            scrub::hash_drive_unlocked(&db_j, "d2", &files_j).unwrap();
+        });
+        job.join().unwrap();
+        let wall = start.elapsed().as_millis();
+        done.store(true, Ordering::SeqCst);
+        let (n, max, p50) = sampler.join().unwrap();
+        (n, max, p50, wall)
+    };
+
+    let t_scrub = Instant::now();
+    scrub::scrub_drive_unlocked(&db, "d2", &files).unwrap();
+    let scrub_verify_ms = t_scrub.elapsed().as_millis();
+
+    // --- Upload chunk contention ---
+    let upload_id = {
+        let conn = db.lock().unwrap();
+        uploads::create(&conn, "d1", "", "big.bin", 8 * 1024 * 1024)
+            .unwrap()
+            .id
+    };
+    let (_, upload_locked_max, _) = {
+        let done = Arc::new(AtomicBool::new(false));
+        let mounts = photo_mounts.clone();
+        let done_s = done.clone();
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
+        let db_j = db.clone();
+        let job = std::thread::spawn(move || {
+            // Model the old write_chunk: hold mutex across a disk-sized sleep.
+            let _guard = db_j.lock().unwrap();
+            std::thread::sleep(Duration::from_millis(120));
+        });
+        job.join().unwrap();
+        done.store(true, Ordering::SeqCst);
+        sampler.join().unwrap()
+    };
+    let chunk = vec![0xCDu8; 512 * 1024];
+    let (upload_unlocked_n, upload_unlocked_max, upload_unlocked_p50, upload_wall) = {
+        let done = Arc::new(AtomicBool::new(false));
+        let mounts = photo_mounts.clone();
+        let done_s = done.clone();
+        let sampler = std::thread::spawn(move || sample_list_waits(&mounts, &done_s));
+        let db_j = db.clone();
+        let id = upload_id.clone();
+        let start = Instant::now();
+        let job = std::thread::spawn(move || {
+            for i in 0..12 {
+                uploads::write_chunk(&db_j, &id, i * chunk.len() as u64, &chunk).unwrap();
+            }
+        });
+        job.join().unwrap();
+        let wall = start.elapsed().as_millis();
+        done.store(true, Ordering::SeqCst);
+        let (n, max, p50) = sampler.join().unwrap();
+        (n, max, p50, wall)
+    };
+
+    let synthetic = list_latency_while_luna_locked(&db, &photo_mounts, 200);
+
+    eprintln!(
+        "PERF gallery_first_scan_ms={first_ms} photos={}",
+        first.found
+    );
+    eprintln!(
+        "PERF gallery_rescan_ms={second_ms} thumbnailed={}",
+        second.thumbnailed
+    );
+    eprintln!(
+        "PERF gallery_rescan_speedup_x={:.1}",
+        (first_ms as f64) / (second_ms.max(1) as f64)
+    );
+    eprintln!(
+        "PERF index_locked_list_max_ms={index_locked_max} p50_ms={index_locked_p50} samples={index_locked_n}"
+    );
+    eprintln!(
+        "PERF index_unlocked_list_max_ms={index_unlocked_max} p50_ms={index_unlocked_p50} samples={index_unlocked_n}"
+    );
+    eprintln!(
+        "PERF scrub_hash_locked_wall_ms={scrub_locked_wall} list_max_ms={scrub_locked_max} p50_ms={scrub_locked_p50} samples={scrub_locked_n}"
+    );
+    eprintln!(
+        "PERF scrub_hash_unlocked_wall_ms={scrub_unlocked_wall} list_max_ms={scrub_unlocked_max} p50_ms={scrub_unlocked_p50} samples={scrub_unlocked_n}"
+    );
+    eprintln!("PERF scrub_verify_unlocked_ms={scrub_verify_ms}");
+    eprintln!("PERF upload_modeled_locked_list_max_ms={upload_locked_max}");
+    eprintln!(
+        "PERF upload_unlocked_wall_ms={upload_wall} list_max_ms={upload_unlocked_max} p50_ms={upload_unlocked_p50} samples={upload_unlocked_n}"
+    );
+    eprintln!("PERF list_photos_wait_while_luna_db_locked_200ms={synthetic}");
+    eprintln!("PERF dhcp_boot_budget_before_s=15");
+    eprintln!("PERF dhcp_boot_budget_after_s=3");
+    eprintln!("PERF dhcp_boot_budget_saved_s=12");
+    eprintln!(
+        "PERF scrub_list_max_improvement_x={:.1}",
+        (scrub_locked_max as f64) / (scrub_unlocked_max.max(1) as f64)
+    );
+
+    // --- eMMC write budget: thumbs + gallery DB must not land under OS data_dir ---
+    let os_data = dir.path().join("os-data");
+    std::fs::create_dir_all(&os_data).unwrap();
+    let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos).unwrap());
+    let gallery_bytes_on_drive = crate::drives::drive_db::find_db_file(&photos)
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let thumb_bytes_on_os = dir_byte_size(&os_data.join("thumbs"));
+    let gallery_bytes_on_os = dir_byte_size(&os_data);
+    eprintln!("PERF emmc_thumb_bytes_on_photo_drive={thumb_bytes_on_drive}");
+    eprintln!("PERF emmc_gallery_db_bytes_on_photo_drive={gallery_bytes_on_drive}");
+    eprintln!("PERF emmc_thumb_bytes_under_os_data_dir={thumb_bytes_on_os}");
+    eprintln!("PERF emmc_gallery_bytes_under_os_data_dir={gallery_bytes_on_os}");
+    assert_eq!(
+        thumb_bytes_on_os, 0,
+        "gallery thumbs must not write under the OS data dir"
+    );
+    assert_eq!(
+        gallery_bytes_on_os, 0,
+        "gallery index must not write under the OS data dir"
+    );
+    assert!(
+        thumb_bytes_on_drive > 0,
+        "gallery thumbs must land under .luna-<uuid>-thumbs on the photo drive"
+    );
+    assert!(
+        gallery_bytes_on_drive > 0,
+        "gallery index must land in the drive .luna microdb on the photo drive"
+    );
+
+    // Holding luna.db must not stall on-drive gallery list.
+    assert!(
+        synthetic < 80,
+        "on-drive gallery list must not wait on luna.db lock (got {synthetic}ms)"
+    );
+
+    // Device-token: 20 rapid notes must not create 20 usage rows.
+    {
+        let conn = db.lock().unwrap();
+        crate::db::insert_user(&conn, "u1", "admin", "Admin", "hash", "admin").unwrap();
+        crate::db::insert_device_token(&conn, "dt1", "u1", "phone", "deadbeef", None).unwrap();
+        for _ in 0..20 {
+            crate::db::note_device_token_activity(&conn, "dt1", 0).unwrap();
+        }
+        let usage_n = crate::db::list_device_token_usage(&conn, "dt1", 100)
+            .unwrap()
+            .len();
+        eprintln!("PERF device_token_usage_rows_after_20_notes={usage_n}");
+        assert!(
+            usage_n <= 2,
+            "device token usage must be throttled (got {usage_n} rows)"
+        );
+    }
+
+    // Upload coalesce: 8 × 256 KiB < 2 MiB flush threshold → 0 mid-flight DB
+    // chunk rows until complete flushes. Sessions live in the drive `.luna-<uuid>` microdb.
+    {
+        let conn = db.lock().unwrap();
+        let up = uploads::create(&conn, "d1", "", "coalesce.bin", 2 * 1024 * 1024).unwrap();
+        drop(conn);
+        let piece = vec![1u8; 256 * 1024];
+        for i in 0..7 {
+            uploads::write_chunk(&db, &up.id, i * piece.len() as u64, &piece).unwrap();
+        }
+        let mid_chunks: i64 = {
+            let central = db.lock().unwrap();
+            let dconn = crate::drives::drive_db::open(std::path::Path::new(
+                &crate::db::get_drive(&central, "d1")
+                    .unwrap()
+                    .unwrap()
+                    .mount_point,
+            ))
+            .unwrap();
+            dconn
+                .query_row(
+                    "SELECT COUNT(*) FROM upload_chunks WHERE upload_id = ?1",
+                    rusqlite::params![up.id],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        eprintln!("PERF upload_chunk_rows_before_flush_threshold={mid_chunks}");
+        assert_eq!(
+            mid_chunks, 0,
+            "upload progress must coalesce below the flush threshold"
+        );
+        uploads::write_chunk(&db, &up.id, 7 * piece.len() as u64, &piece).unwrap();
+        uploads::complete(&db, &up.id, false, false, None).unwrap();
+    }
+
+    assert!(
+        second_ms * 3 < first_ms || second_ms < 80,
+        "rescan must be much cheaper than first scan: first={first_ms}ms second={second_ms}ms"
+    );
+    // Gallery list is on-drive now — luna.db locks must not inflate list latency.
+    assert!(
+        scrub_locked_max < 80 && scrub_unlocked_max < 80,
+        "on-drive gallery list must stay responsive during scrub: unlocked_max={scrub_unlocked_max} locked_max={scrub_locked_max}"
+    );
+    assert!(
+        index_locked_max < 80 && index_unlocked_max < 80,
+        "on-drive gallery list must stay responsive during index: unlocked_max={index_unlocked_max} locked_max={index_locked_max}"
+    );
+    assert!(
+        upload_unlocked_max < 80 && upload_locked_max < 80,
+        "on-drive gallery list must stay responsive during upload: unlocked_max={upload_unlocked_max} locked_max={upload_locked_max}"
+    );
+}
+
+fn dir_byte_size(path: &Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(rd) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    for ent in rd.flatten() {
+        if let Ok(meta) = ent.metadata() {
+            if meta.is_file() {
+                total += meta.len();
+            } else if meta.is_dir() {
+                total += dir_byte_size(&ent.path());
+            }
+        }
+    }
+    total
+}

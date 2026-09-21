@@ -42,7 +42,7 @@ Editor assets (web-apps, sdkjs, fonts, dictionaries) extracted from
 ghcr.io/euro-office/documentserver. x2t.wasm OOXML converter from
 github.com/cryptpad/onlyoffice-x2t-wasm (AGPL-3.0). Corresponding source:
 github.com/ONLYOFFICE/DocumentServer and the linked repos — see
-luna/THIRD_PARTY_EUROOFFICE.md.
+luna/docs/THIRD_PARTY_EUROOFFICE.md.
 EOF
 
 API="$DEST/web-apps/apps/api/documents/api.js"
@@ -113,8 +113,8 @@ fi
 echo "Fetching x2t.wasm $X2T_VERSION …"
 tmp_zip="$(mktemp)"; tmp_sum="$(mktemp)"
 trap 'rm -f "$tmp_zip" "$tmp_sum"; cleanup' EXIT
-curl -fsSL "$X2T_URL" -o "$tmp_zip"
-curl -fsSL "$X2T_URL.sha512" -o "$tmp_sum"
+curl -fsSL --proto '=https' --tlsv1.2 "$X2T_URL" -o "$tmp_zip"
+curl -fsSL --proto '=https' --tlsv1.2 "$X2T_URL.sha512" -o "$tmp_sum"
 expected="$(awk "{print \$1}" "$tmp_sum")"
 actual="$(sha512sum "$tmp_zip" | awk "{print \$1}")"
 if [[ "$expected" != "$actual" ]]; then
@@ -148,4 +148,4 @@ echo "OK: $DEST/x2t/x2t.wasm (browser-side converter)"
 echo "Restart lunad so it serves /eurooffice (ServeDir is wired at boot)."
 echo "Reminder: this pack is AGPL-3.0. Do not commit it (the default luna/dev"
 echo "data dir is gitignored). If you redistribute it, see"
-echo "luna/THIRD_PARTY_EUROOFFICE.md."
+echo "luna/docs/THIRD_PARTY_EUROOFFICE.md."

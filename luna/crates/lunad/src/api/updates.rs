@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::updates::{UpdateError, UpdateSettings};
+use crate::system::updates::{UpdateError, UpdateSettings};
 
 #[derive(Deserialize, Default)]
 struct CheckQuery {
@@ -109,7 +109,8 @@ async fn get_source(
     require_admin(&user)?;
     let svc = state.updates.clone();
     let effective = svc.settings();
-    let stored = crate::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
+    let stored =
+        crate::system::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
     Ok(Json(json!({
         "api_base": effective.api_base,
         "owner": effective.owner,
@@ -117,7 +118,7 @@ async fn get_source(
         "keys": stored.keys,
         "effective_keys": effective.keys,
         "default_keys": svc.using_default_keys(),
-        "defaults": crate::updates::default_settings(),
+        "defaults": crate::system::updates::default_settings(),
     })))
 }
 
@@ -135,7 +136,7 @@ async fn save_source(
         repo: body.repo.unwrap_or_default(),
         keys: body.keys.unwrap_or_default(),
     };
-    let keys = match crate::updates::validate_settings(&settings) {
+    let keys = match crate::system::updates::validate_settings(&settings) {
         Ok(keys) => keys,
         Err(message) => return Err(json_error(StatusCode::BAD_REQUEST, message)),
     };
@@ -146,7 +147,7 @@ async fn save_source(
         repo: settings.repo.trim().to_string(),
         keys,
     };
-    let defaults = crate::updates::default_settings();
+    let defaults = crate::system::updates::default_settings();
     // An empty key list means "keep the built-in key", so compare the
     // effective keys against the defaults when deciding to store nothing.
     let effective_keys = if stored.keys.is_empty() {
@@ -169,7 +170,7 @@ async fn save_source(
     let db = state.db.clone();
     let to_save = to_store.clone();
     tokio::task::spawn_blocking(move || {
-        crate::updates::save_settings(&db.lock().unwrap(), &to_save)
+        crate::system::updates::save_settings(&db.lock().unwrap(), &to_save)
     })
     .await
     .map_err(|_| {
@@ -197,7 +198,8 @@ async fn save_source(
         effective.keys,
     );
     let back = state.updates.settings();
-    let stored = crate::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
+    let stored =
+        crate::system::updates::load_settings(&state.db.lock().unwrap()).unwrap_or_default();
     Ok(Json(json!({
         "ok": true,
         "api_base": back.api_base,
@@ -206,7 +208,7 @@ async fn save_source(
         "keys": stored.keys,
         "effective_keys": back.keys,
         "default_keys": state.updates.using_default_keys(),
-        "defaults": crate::updates::default_settings(),
+        "defaults": crate::system::updates::default_settings(),
     })))
 }
 
@@ -271,8 +273,8 @@ mod tests {
     use super::*;
     use crate::db;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
-    use crate::updates::{HttpGet, Installer, UpdateError, UpdateService};
+    use crate::drives::mount::shared_mock;
+    use crate::system::updates::{HttpGet, Installer, UpdateError, UpdateService};
     use axum::body::Body;
     use axum::http::Request;
     use std::collections::HashMap;
@@ -417,7 +419,7 @@ mod tests {
 
         // The settings are persisted in the DB (config round-trip), so a
         // restart keeps them.
-        let stored = crate::updates::load_settings(&state.db.lock().unwrap()).unwrap();
+        let stored = crate::system::updates::load_settings(&state.db.lock().unwrap()).unwrap();
         assert_eq!(stored.api_base, "https://staging.forgejo.test/api/v1");
         assert_eq!(stored.keys, vec![key]);
     }
@@ -509,10 +511,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(crate::updates::load_settings(&state.db.lock().unwrap()).is_some());
+        assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_some());
 
         // …then restore this binary's defaults: the stored row goes away.
-        let d = crate::updates::default_settings();
+        let d = crate::system::updates::default_settings();
         let body = format!(
             r#"{{"api_base":"{}","owner":"{}","repo":"{}"}}"#,
             d.api_base, d.owner, d.repo
@@ -530,7 +532,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(crate::updates::load_settings(&state.db.lock().unwrap()).is_none());
+        assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_none());
     }
 
     #[tokio::test]

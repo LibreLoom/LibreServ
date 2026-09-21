@@ -14,7 +14,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use lunad::console::{STALE_NOTE_LINE1, STALE_NOTE_LINE2, is_issue_stale};
+use lunad::system::console::{STALE_NOTE_LINE1, STALE_NOTE_LINE2, is_issue_stale};
 
 const DEFAULT_TTY: &str = "/dev/tty1";
 const DEFAULT_ISSUE: &str = "/var/lib/luna/issue";
@@ -250,7 +250,7 @@ fn exec_login(login_bin: &str, username: &str, orig: &libc::termios) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lunad::console::STALE_SECS;
+    use lunad::system::console::STALE_SECS;
 
     #[test]
     fn compose_omits_stale_note_when_fresh() {

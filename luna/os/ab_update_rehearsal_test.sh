@@ -43,14 +43,24 @@ assert_file_has "$OS/build-iso.sh" 'make-image.sh' "ISO build must produce the s
 assert_file_has "$OS/iso/stage-debian-live.sh" 'luna-os-' "ISO stage must copy the slot image when present"
 assert_file_has "$OS/rapidinstall.sh" 'partition_data' "factory must peel token onto LUNA_DATA"
 
-assert_file_has "$ROOT/crates/lunad/src/updates.rs" 'luna-os-x86_64.img' "updater must know the OS asset name"
-assert_file_has "$ROOT/crates/lunad/src/updates.rs" 'os-image.sha256' "updater must compare installed OS hash"
-assert_file_has "$ROOT/crates/lunad/src/updates.rs" 'DataDirInstaller' "daemon OTA must target LUNA_DATA"
-assert_file_has "$ROOT/crates/lunad/src/updates.rs" 'install_os_image' "updater must apply OS slot images"
-assert_file_has "$ROOT/crates/lunad/src/updates.rs" 'reboot_required' "apply must signal reboot when OS changes"
+# The updater code may be split across domain modules — scan the crate.
+LUNAD_SRC="$ROOT/crates/lunad/src"
+assert_tree_has() {
+	_pat="$1"
+	_msg="$2"
+	if ! grep -rq "$_pat" "$LUNAD_SRC"; then
+		echo "FAIL $_msg (missing '$_pat' under $LUNAD_SRC)" >&2
+		fail=$((fail + 1))
+	fi
+}
+assert_tree_has 'luna-os-x86_64.img' "updater must know the OS asset name"
+assert_tree_has 'os-image.sha256' "updater must compare installed OS hash"
+assert_tree_has 'DataDirInstaller' "daemon OTA must target LUNA_DATA"
+assert_tree_has 'install_os_image' "updater must apply OS slot images"
+assert_tree_has 'reboot_required' "apply must signal reboot when OS changes"
 
 assert_file_has "$ROOT/../release.sh" 'luna-os-x86_64.img' "release.sh must publish the slot image on OS cuts"
-assert_file_has "$ROOT/../docs/RELEASE.md" 'luna-os-x86_64.img' "RELEASE.md must document the slot image"
+assert_file_has "$ROOT/../infra/docs/RELEASE.md" 'luna-os-x86_64.img' "RELEASE.md must document the slot image"
 
 # UI must stay undifferentiated (no Software vs System split).
 if grep -E 'System update|OS update|system update' \

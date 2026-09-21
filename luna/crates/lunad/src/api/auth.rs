@@ -231,11 +231,11 @@ fn first_user_on_public_host(
         );
     }
 
-    let norm_offered = crate::connect::normalize_setup_code(offered);
+    let norm_offered = crate::net::connect::normalize_setup_code(offered);
 
     // 1. Check against first_user_secret if set by Connect
     if let Some(want) = state.connect.first_user_secret() {
-        let norm_want = crate::connect::normalize_setup_code(&want);
+        let norm_want = crate::net::connect::normalize_setup_code(&want);
         if offered.eq_ignore_ascii_case(want.trim())
             || (!norm_offered.is_empty() && norm_offered == norm_want)
         {
@@ -245,7 +245,7 @@ fn first_user_on_public_host(
 
     // 2. Check against the device token on disk
     if let Ok(device_code) = state.connect.device_code() {
-        let norm_code = crate::connect::normalize_setup_code(&device_code);
+        let norm_code = crate::net::connect::normalize_setup_code(&device_code);
         if offered.eq_ignore_ascii_case(device_code.trim())
             || (!norm_offered.is_empty() && norm_offered == norm_code)
         {
@@ -256,7 +256,7 @@ fn first_user_on_public_host(
     // 3. In case Connect just updated, attempt a refresh poll
     let _ = state.connect.poll_status();
     if let Some(want) = state.connect.first_user_secret() {
-        let norm_want = crate::connect::normalize_setup_code(&want);
+        let norm_want = crate::net::connect::normalize_setup_code(&want);
         if offered.eq_ignore_ascii_case(want.trim())
             || (!norm_offered.is_empty() && norm_offered == norm_want)
         {

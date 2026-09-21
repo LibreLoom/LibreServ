@@ -112,25 +112,13 @@ accessibility from first principles for fun.
 quiet if that crate already runs it. If you came here looking for a grand Rust
 style treatise: there isn't one. Do what the neighboring files do and leave.
 
-### The plain-language rule
-
-LibreServ's users are not reading this document. They are trying to get
-something done and the UI just said a sentence only a systems person would love.
-
-User-facing strings — API errors, labels, help text — get written for a person
-who does not know the acronyms. Tell them what to **do**, not just the name of
-the wreckage.
-
-Full rule is in [`AGENTS.md`](AGENTS.md). It applies to API errors shown to
-users, not only the frontend. If a human can see it, write like a human.
-
 ---
 
 ## Where things live
 
-- [GOALS.md](GOALS.md) — what we are building and what is still unchecked.
+- [GOALS.md](sol/GOALS.md) — what we are building and what is still unchecked.
 - [AGENTS.md](AGENTS.md) — architecture, conventions, how the stack runs.
-- [docs/RELEASE.md](docs/RELEASE.md) — how we cut signed `v*` / `luna-v*` releases.
+- [infra/docs/RELEASE.md](infra/docs/RELEASE.md) — how we cut signed `v*` / `luna-v*` releases.
 - [SECURITY.md](SECURITY.md) — how to report a hole instead of casually opening one.
 - [Issues](https://gt.plainskill.net/LibreLoom/LibreServ/issues) on Forgejo —
   bugs, features, questions, and the occasional "is this on purpose."
@@ -139,4 +127,4 @@ users, not only the frontend. If a human can see it, write like a human.
 
 Most of this file has been through a machine. This sentence hasn't.
 If something here starts sounding like a policy wiki again, a human should
-fix it. Just kidding. This one was through a machine too.
+fix it. 

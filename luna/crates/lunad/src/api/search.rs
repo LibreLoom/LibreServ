@@ -47,7 +47,7 @@ async fn search(
             "Luna's index is busy. Try again.",
         )
     })?;
-    let rows = crate::index::search(&conn, q).map_err(|_| {
+    let rows = crate::files::index::search(&conn, q).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna's index is busy. Try again.",
@@ -60,7 +60,9 @@ async fn search(
         } else {
             format!("{}/{}", hit.parent, hit.name)
         };
-        if crate::files::is_internal_temp(&full) || crate::protect::is_protected_store(&full) {
+        if crate::files::is_internal_temp(&full)
+            || crate::backup::protect::is_protected_store(&full)
+        {
             continue;
         }
         if crate::auth::can_access(&user, &conn, &hit.drive_id, &full, false) {
@@ -101,7 +103,8 @@ async fn reindex(
         };
         let mut dirs = 0u64;
         for (id, mount) in mounts {
-            if let Ok(n) = crate::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
+            if let Ok(n) =
+                crate::files::index::scan_drive_unlocked(&db, &id, std::path::Path::new(&mount))
             {
                 dirs += n;
             }
@@ -163,7 +166,7 @@ async fn start_scrub(
     let db = state.db.clone();
     let flag = state.scrub_running.clone();
     tokio::task::spawn_blocking(move || {
-        let _ = crate::scrub::scrub_all_drives_unlocked(&db);
+        let _ = crate::drives::scrub::scrub_all_drives_unlocked(&db);
         flag.store(false, std::sync::atomic::Ordering::SeqCst);
     });
     Ok(Json(
@@ -219,7 +222,7 @@ async fn factory_reset(
     // Luna.
     let drives = crate::db::list_drives(&conn).unwrap_or_default();
     for drive in drives {
-        crate::dav::drop_cached_handler(&state, &drive.id);
+        crate::files::dav::drop_cached_handler(&state, &drive.id);
         if !drive.mount_point.is_empty() {
             let _ = luna_core::marker::remove_marker(
                 std::path::Path::new(&drive.mount_point),
@@ -251,7 +254,7 @@ async fn factory_reset(
 mod tests {
     use crate::api;
     use crate::drives::DriveManager;
-    use crate::mount::shared_mock;
+    use crate::drives::mount::shared_mock;
     use axum::body::Body;
     use axum::extract::ConnectInfo;
     use axum::http::{Method, Request as HttpReq};
@@ -265,7 +268,7 @@ mod tests {
     fn test_app(dir: &std::path::Path) -> axum::Router {
         let conn = crate::db::open(&dir.join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir));
-        let connect = std::sync::Arc::new(crate::connect::ConnectService::new(
+        let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
             dir,
             Some("http://127.0.0.1:1".into()),
         ));
@@ -327,7 +330,7 @@ mod tests {
     async fn factory_reset_requires_confirm_and_tears_down_connect() {
         let dir = tempfile::tempdir().unwrap();
         let connect =
-            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+            crate::net::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         connect
             .apply_claimed(&serde_json::json!({

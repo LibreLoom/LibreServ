@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android") version "1.9.22"
 }
 
+// Release signing is opt-in via environment so F-Droid's source builds and
+// local dev produce an unsigned APK (F-Droid signs with its own key).
+// release.sh sets these when cutting a release; see luna/mobile/README.md.
+val releaseKeystore = System.getenv("LUNA_ANDROID_KEYSTORE")?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "net.plainskill.luna"
     compileSdk = 34
@@ -11,12 +16,28 @@ android {
         applicationId = "net.plainskill.luna"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.1.5"
+        // Keep these as plain literals: F-Droid's checkupdates parses this
+        // file statically at each luna-android-v* tag.
+        versionCode = 7
+        versionName = "0.1.6"
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("LUNA_ANDROID_STORE_PASSWORD")
+                keyAlias = System.getenv("LUNA_ANDROID_KEY_ALIAS") ?: "luna"
+                keyPassword = System.getenv("LUNA_ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

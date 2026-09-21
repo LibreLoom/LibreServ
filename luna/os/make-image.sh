@@ -28,8 +28,10 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IM
     truncate -s ${SIZE_MB}M /out/luna-os-x86_64.img
     # e2fsprogs ≥1.47.4 requires a UUID for hash_seed (bare integers are rejected).
     mkfs.ext4 -F -L LUNA_A -E hash_seed=00000000-0000-4000-8000-000000000042 -d /rootfs /out/luna-os-x86_64.img
+    # e2fsck must match the e2fsprogs that created the image; host tools may be
+    # older and reject newer ext4 features (e.g. Ubuntu 22.04's 1.46.5).
+    e2fsck -fy /out/luna-os-x86_64.img >/dev/null
 "
-e2fsck -fy "$IMAGE" >/dev/null
 SHA="$(sha256sum "$IMAGE" | awk '{print $1}')"
 printf '%s\n' "$SHA" >"$OUT/luna-os-x86_64.img.sha256"
 printf 'built %s (%s MiB, ext4 slot image, sha256 %s)\n' "$IMAGE" "$SIZE_MB" "$SHA"

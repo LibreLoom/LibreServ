@@ -23,7 +23,7 @@ as_root() {
 }
 
 # ── 1. Go toolchain ──────────────────────────────────────────────────────────
-# The repo requires Go 1.26 (see server/backend/go.mod). The default image ships
+# The repo requires Go 1.26 (see sol/server/backend/go.mod). The default image ships
 # an older Go, so install 1.26 to /usr/local/go and expose it on PATH via
 # /usr/local/bin (which precedes /usr/bin) so every future shell picks it up.
 install_go() {
@@ -140,7 +140,7 @@ install_rust
 
 # ── 5. Backend (Go) ──────────────────────────────────────────────────────────
 echo ">> Preparing backend"
-cd "${REPO_ROOT}/server/backend"
+cd "${REPO_ROOT}/sol/server/backend"
 # The server refuses to run without a config file; seed it from the example on
 # first setup and leave any existing local config untouched.
 if [ ! -f configs/libreserv.yaml ]; then
@@ -154,9 +154,9 @@ make restic-fetch || echo ">> restic fetch skipped (backups will use the tar fal
 
 # ── 6. Frontend (Node) ───────────────────────────────────────────────────────
 echo ">> Preparing frontend"
-cd "${REPO_ROOT}/server/frontend"
+cd "${REPO_ROOT}/sol/server/frontend"
 npm ci
-# Build once so server/backend/OS/dist exists (the backend can serve the built
+# Build once so sol/server/backend/OS/dist exists (the backend can serve the built
 # UI directly, and the embedfront release build expects it). Day-to-day dev uses
 # the Vite dev server from the `terminals` config.
 npm run build

@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use crate::AppState;
-use crate::office_docs::{HubError, OfficeDocHub, Participant};
+use crate::office::office_docs::{HubError, OfficeDocHub, Participant};
 
 const PING_INTERVAL: Duration = Duration::from_secs(25);
 const PONG_TIMEOUT: Duration = Duration::from_secs(20);
@@ -130,7 +130,7 @@ pub async fn fonts_dispatch(
     match ServeDir::new(dir).oneshot(req).await {
         Ok(res) if res.status() != StatusCode::NOT_FOUND => res.into_response(),
         Ok(_) => {
-            let res = crate::staticweb::handle(&orig_path);
+            let res = crate::system::staticweb::handle(&orig_path);
             let is_spa_index = res
                 .headers()
                 .get(axum::http::header::CONTENT_TYPE)
@@ -535,7 +535,7 @@ async fn handle_message(
             // bare `cursor` field.
             let mut m = json!({
                 "cursor": msg.get("cursor").cloned().unwrap_or(Value::Null),
-                "time": crate::office_docs::now_ms(),
+                "time": crate::office::office_docs::now_ms(),
             });
             if let Some(p) = &client.participant {
                 m["user"] = json!(p.id);
@@ -552,7 +552,7 @@ async fn handle_message(
             let mut m = json!({
                 "docid": key,
                 "message": msg.get("message").cloned().unwrap_or(Value::Null),
-                "time": crate::office_docs::now_ms(),
+                "time": crate::office::office_docs::now_ms(),
             });
             if let Some(p) = &client.participant {
                 m["user"] = json!(p.id);
@@ -632,7 +632,7 @@ async fn connect_state(state: &AppState, key: &str) -> Option<Value> {
     let users = participants_json(state, key).await;
     Some(json!({
         "type": "connectState",
-        "participantsTimestamp": crate::office_docs::now_ms(),
+        "participantsTimestamp": crate::office::office_docs::now_ms(),
         "participants": users,
         "waitAuth": false,
     }))
