@@ -91,8 +91,19 @@ class Handler(BaseHTTPRequestHandler):
 def _run(path: str) -> None:
     print(f"[intake] cook start {path}", flush=True)
     try:
-        rc = subprocess.run([COOK, path], check=False).returncode
+        # ALWAYS exec the trampoline through bash, never as [COOK, path].
+        # A direct exec requires the exec bit on /opt/atlas-bot/cook.sh, and that
+        # bit is fragile: git records the file as mode 100644, build.sh's `cp -a`
+        # copies that into the image, and nothing restores it. Every spawn then
+        # raises PermissionError *inside this thread*, which still deletes the
+        # event in `finally` below — so the webhook is accepted (202), no reply is
+        # ever posted, and the bot looks alive while answering nothing. That is
+        # exactly how atlas-bot went mute on 2026-09-20. bash does not need the
+        # exec bit, so this survives the mode being wrong.
+        rc = subprocess.run(["/bin/bash", COOK, path], check=False).returncode
         print(f"[intake] cook exit {rc}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - a spawn failure must never be silent
+        print(f"[intake] cook SPAWN FAILED: {type(exc).__name__}: {exc}", flush=True)
     finally:
         try:
             os.remove(path)
