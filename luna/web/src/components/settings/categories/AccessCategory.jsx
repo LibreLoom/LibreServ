@@ -10,6 +10,7 @@ import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
 import PairingQrModal from "../PairingQrModal.jsx";
 import { getJson, postJson, deleteJson, apiErrorMessage } from "../../../lib/api";
+import PageNotice from "../../common/PageNotice";
 import ShakeTarget from "../../ui/ShakeTarget";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
@@ -184,9 +185,8 @@ export default function AccessCategory() {
       setTokenError(null);
     },
     onError: (err) => {
-      const msg = apiErrorMessage(err);
-      setError(msg);
-      setTokenError(msg);
+      // The create form is open — it owns this error; don't strand it.
+      setTokenError(apiErrorMessage(err));
     },
   });
 
@@ -258,6 +258,7 @@ export default function AccessCategory() {
               onChange={(e) => setExpiresInDays(e.target.value)}
             />
           </ShakeTarget>
+          {tokenError && <PageNotice variant="error">{tokenError}</PageNotice>}
           <Button
             variant="primary"
             loading={createToken.isPending}

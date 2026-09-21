@@ -457,6 +457,7 @@ export default function DriveFileExplorer({
 
     const touched = new Set(batch.map((item) => (item.destPath ? `${item.destPath}/x` : "x")));
     let hadError = false;
+    let completed = 0;
 
     await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
       const row = uploadsRef.current.find((u) => u.id === item.id) || item;
@@ -466,6 +467,7 @@ export default function DriveFileExplorer({
         } else {
           await uploadChunked(row, item.file, item.destPath, item.leafName);
         }
+        completed += 1;
         removeUpload(item.id);
       } catch (err) {
         removeUpload(item.id);
@@ -478,10 +480,10 @@ export default function DriveFileExplorer({
     });
 
     invalidate([...touched]);
-    if (!hadError && batch.length > 0) {
+    if (!hadError && completed > 0) {
       addToast({
         type: "success",
-        message: batch.length === 1 ? "1 file uploaded." : `${batch.length} files uploaded.`,
+        message: completed === 1 ? "1 file uploaded." : `${completed} files uploaded.`,
       });
     }
   }

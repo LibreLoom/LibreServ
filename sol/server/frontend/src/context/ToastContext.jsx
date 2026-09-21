@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import { haptic } from "../utils/haptics";
 
@@ -16,6 +16,28 @@ let toastIdCounter = 0;
 export function ToastProvider({ children, maxToasts = 5 }) {
   const [toasts, setToasts] = useState([]);
   const timersRef = useRef(new Map());
+  // Exit-animation timeouts live outside timersRef so the unmount sweep can
+  // clear them too — a remount must not leave stale setState calls firing.
+  const exitTimersRef = useRef(new Set());
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    const exitTimers = exitTimersRef.current;
+    return () => {
+      timers.forEach((info) => info.timer && clearTimeout(info.timer));
+      timers.clear();
+      exitTimers.forEach(clearTimeout);
+      exitTimers.clear();
+    };
+  }, []);
+
+  const queueRemoval = useCallback((id) => {
+    const timer = setTimeout(() => {
+      exitTimersRef.current.delete(timer);
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 420);
+    exitTimersRef.current.add(timer);
+  }, []);
 
   const dismissToast = useCallback((id) => {
     const timers = timersRef.current;
@@ -26,10 +48,8 @@ export function ToastProvider({ children, maxToasts = 5 }) {
     setToasts((prev) =>
       prev.map((t) => (t.id === id ? { ...t, exiting: true } : t))
     );
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 420);
-  }, []);
+    queueRemoval(id);
+  }, [queueRemoval]);
 
   const pauseToast = useCallback((id) => {
     const timers = timersRef.current;
@@ -89,9 +109,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
               clearTimeout(timersRef.current.get(victim.id).timer);
               timersRef.current.delete(victim.id);
             }
-            setTimeout(() => {
-              setToasts((cur) => cur.filter((t) => t.id !== victim.id));
-            }, 420);
+            queueRemoval(victim.id);
           }
         }
         return newToasts;
@@ -106,7 +124,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
 
       return id;
     },
-    [maxToasts, dismissToast]
+    [maxToasts, dismissToast, queueRemoval]
   );
 
   const clearToasts = useCallback(() => {

@@ -100,7 +100,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             className="min-w-0 overflow-hidden motion-safe:transition-[max-height] motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.2,0,0,1)]"
             style={{ maxHeight: expanded ? (fullHeight ? `${fullHeight}px` : "none") : COLLAPSED_H }}
           >
-            <p ref={msgRef} className="font-mono text-sm font-medium text-primary leading-snug">
+            <p ref={msgRef} className="font-mono text-sm text-primary leading-snug">
               {toast.message}
             </p>
           </div>
