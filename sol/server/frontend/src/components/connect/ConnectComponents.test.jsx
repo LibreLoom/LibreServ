@@ -32,6 +32,9 @@ vi.mock("@libreloom/ui/utils/clipboard.js", () => ({
   canUseClipboard: () => clipboardState.ok,
   copyWithFeedback: copyMock,
 }));
+vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
+  useToast: () => ({ addToast: vi.fn() }),
+}));
 vi.mock("react-router-dom", async (importOriginal) => {
   const original = /** @type {object} */ (await importOriginal());
   return {
@@ -516,6 +519,7 @@ describe("connect component coverage", () => {
     expect(copyMock).toHaveBeenCalledWith(
       "recovery-secret",
       expect.any(Function),
+      expect.objectContaining({ onError: expect.any(Function) }),
     );
     await user.click(screen.getByRole("button", { name: "Download key file" }));
     expect(URL.createObjectURL).toHaveBeenCalled();

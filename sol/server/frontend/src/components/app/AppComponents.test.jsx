@@ -517,6 +517,7 @@ describe("app component coverage", () => {
     expect(copyWithFeedbackMock).toHaveBeenCalledWith(
       "done",
       expect.any(Function),
+      expect.objectContaining({ onError: expect.any(Function) }),
     );
   });
 
