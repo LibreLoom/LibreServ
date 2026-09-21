@@ -136,10 +136,10 @@ LUNA_PROC_MOUNTS="$_mnt_dir/mounts3"
 export LUNA_PROC_MOUNTS
 assert_false _flash_guards /dev/sda "$_tmp/missing.tar"
 # A present archive gets past every data guard; whether _flash_guards then
-# succeeds depends only on whether this environment has GRUB.
+# succeeds depends only on whether this environment has grub-install
+# (same probe the guard itself uses — modules on disk are not enough).
 printf 'fake archive\n' >"$_tmp/archive.tar.gz"
-[ -f /usr/lib/grub/x86_64-efi/ext2.mod ] && have_grub=1 || have_grub=0
-if [ "$have_grub" -eq 1 ]; then
+if command -v grub-install >/dev/null 2>&1; then
 	assert_true _flash_guards /dev/sda "$_tmp/archive.tar.gz"
 else
 	# No GRUB in this environment: the last guard vetoes with 1.
