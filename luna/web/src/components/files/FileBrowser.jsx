@@ -29,6 +29,33 @@ import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { getJson } from "../../lib/api.js";
+
+const UNPLUGGED_DRIVE_MESSAGE =
+  "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
+
+/** Listing failed because the on-drive database is gone, not because the drive left. */
+function isMissingDriveDb(error) {
+  if (!error) return false;
+  if ("code" in error && error.code === "missing_drive_db") return true;
+  return String(error.message || "")
+    .toLowerCase()
+    .includes("database for this drive is missing");
+}
+
+function folderListingError(error) {
+  const message = String(error?.message || "");
+  if (isMissingDriveDb(error)) {
+    return (
+      message ||
+      "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again."
+    );
+  }
+  const unplugged =
+    message.toLowerCase().includes("drive") ||
+    (error && "status" in error && error.status === 404);
+  if (unplugged) return UNPLUGGED_DRIVE_MESSAGE;
+  return message || "Luna couldn't open this folder. Try again.";
+}
 import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
 import {
   LUNA_DRIVE_MIME,
@@ -922,7 +949,10 @@ export default function FileBrowser({
       {showBreadcrumbs && (
         <div
           ref={folderChromeRef}
-          className="relative mb-3 overflow-x-hidden"
+          // Do not use overflow-x-hidden here. CSS couples the axes, so a
+          // hidden X makes Y compute to auto and clips the card's left edge.
+          // The measure probe is already clipped in its own 0×0 box.
+          className="relative mb-3"
           data-slot={
             folderChromeSplit
               ? "file-browser-folder-chrome-split"
@@ -1201,12 +1231,7 @@ export default function FileBrowser({
 
       {listing.isError && (
         <p className="text-error text-sm mb-3" role="alert">
-          {String(
-            listing.error?.message?.toLowerCase().includes("drive") ||
-            (listing.error && "status" in listing.error && listing.error.status === 404)
-              ? "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
-              : (listing.error?.message || "Luna couldn't open this folder. Try again.")
-          )}
+          {folderListingError(listing.error)}
         </p>
       )}
 

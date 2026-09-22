@@ -322,7 +322,9 @@ export default function PhotoInfoPanel({ photo, open, onClose, photos, onSelectP
     >
       <div
         className={cn(
-          "h-full w-[22.5rem] py-3 pr-3 origin-right will-change-transform",
+          // The aside clips at this exact width. Pad every side so the card's
+          // ring, which paints outside the card, is not cut off on the left.
+          "h-full w-[22.5rem] p-3 origin-right will-change-transform",
           "motion-safe:transition-[transform,opacity] motion-safe:duration-200 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
           open ? "translate-x-0 scale-100 opacity-100" : "translate-x-3 scale-[0.98] opacity-0",
         )}

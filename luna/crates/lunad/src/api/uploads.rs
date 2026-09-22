@@ -241,6 +241,10 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
             StatusCode::NOT_FOUND,
             "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
         ),
+        UploadError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            crate::files::MISSING_DRIVE_DB_MSG,
+        ),
         UploadError::Files(crate::files::FilesError::Path(_)) => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that destination.")
         }

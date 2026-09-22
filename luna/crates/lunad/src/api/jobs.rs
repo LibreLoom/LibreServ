@@ -163,6 +163,10 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::NOT_FOUND,
             "Luna doesn't know one of these drives. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
         ),
+        JobError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            crate::files::MISSING_DRIVE_DB_MSG,
+        ),
         JobError::Files(crate::files::FilesError::Path(_)) => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that path.")
         }

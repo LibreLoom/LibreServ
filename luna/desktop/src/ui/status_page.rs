@@ -279,6 +279,9 @@ fn count_files(n: u64) -> String {
 
 fn plain_status_error(raw: &str) -> String {
     let t = raw.trim();
+    if t.contains("database for this drive is missing") {
+        return t.to_string();
+    }
     if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
         "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".to_string()
     } else if t == "unauthorized" {

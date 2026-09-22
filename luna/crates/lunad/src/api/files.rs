@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::files::{self, FileEntry, FilesError};
 
 // A destination folder path never needs to come close to this.
@@ -1162,6 +1162,12 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             StatusCode::NOT_FOUND,
             "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
         ),
+        // The drive is adopted and mounted. Only its on-drive database is gone.
+        FilesError::MissingDriveDb => json_error_code(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "missing_drive_db",
+            files::MISSING_DRIVE_DB_MSG,
+        ),
         FilesError::Path(
             luna_core::path::PathError::Absolute | luna_core::path::PathError::Escape,
         ) => json_error(StatusCode::BAD_REQUEST, "Luna can't open that path."),
@@ -1567,6 +1573,83 @@ mod http_tests {
         let res = call(&app, http).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         assert!(!mount.path().join("family/a/a/x.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn list_without_drive_database_names_the_missing_database() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("photo.jpg"), b"jpeg").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "photos",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.path().to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager, dir.path());
+        let app = api::router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&res);
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri("/api/v1/drives/photos/files")
+            .header("cookie", cookie_header(&session, &csrf))
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["code"], "missing_drive_db");
+        let message = value["error"].as_str().unwrap();
+        assert!(
+            message.contains("database for this drive is missing"),
+            "{message}"
+        );
+        assert!(
+            message.contains("On the Drives page, remove this drive, then add it again."),
+            "{message}"
+        );
+        assert!(
+            !message.to_ascii_lowercase().contains("unplug"),
+            "{message}"
+        );
     }
 
     #[cfg(unix)]

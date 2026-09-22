@@ -319,6 +319,9 @@ fn plain_error(raw: &str) -> String {
     if t.is_empty() {
         return "Something went wrong with this backup. Try editing it and saving again.".into();
     }
+    if t.contains("database for this drive is missing") {
+        return t.to_string();
+    }
     if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
         return "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into();
     }

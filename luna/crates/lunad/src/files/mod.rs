@@ -98,12 +98,18 @@ pub struct TrashEntry {
 /// prefix never leaks into the web API contract.
 pub const TRASH_API_ALIAS: &str = ".luna-trash";
 
+/// Shown when the drive row exists and the mount is there, but the
+/// `.luna-<uuid>.sqlite3` microdb is gone. This is not an unplug.
+pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.";
+
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
         "Luna doesn't know this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
     )]
     UnknownDrive,
+    #[error("{}", MISSING_DRIVE_DB_MSG)]
+    MissingDriveDb,
     #[error("{0}")]
     Path(luna_core::path::PathError),
     #[error("{0}")]
@@ -126,7 +132,19 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
 }
 
 pub(crate) fn open_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
-    crate::drives::drive_db::open(std::path::Path::new(&drive.mount_point)).map_err(FilesError::Db)
+    crate::drives::drive_db::open(std::path::Path::new(&drive.mount_point))
+        .map_err(files_error_from_drive_db)
+}
+
+/// A missing adoption microdb is its own failure. Other database problems
+/// stay [`FilesError::Db`].
+fn files_error_from_drive_db(err: anyhow::Error) -> FilesError {
+    let text = err.to_string();
+    if text.contains("no .luna-") && text.contains("marker") {
+        FilesError::MissingDriveDb
+    } else {
+        FilesError::Db(err)
+    }
 }
 
 /// List one directory. Directories first, then case-insensitive by name.
@@ -1101,7 +1119,7 @@ fn write_trash_meta(
     entry_name: &str,
     original_path: &str,
 ) -> Result<(), FilesError> {
-    let conn = crate::drives::drive_db::open(drive_root).map_err(FilesError::Db)?;
+    let conn = crate::drives::drive_db::open(drive_root).map_err(files_error_from_drive_db)?;
     conn.execute(
         "INSERT OR REPLACE INTO trash_meta (entry_name, original_path) VALUES (?1, ?2)",
         rusqlite::params![entry_name, original_path],
