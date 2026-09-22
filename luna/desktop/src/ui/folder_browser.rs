@@ -222,12 +222,21 @@ impl FolderBrowser {
                             }
                             Err(e) => {
                                 folder_list.set_visible(true);
+                                let missing_db = e.contains("database for this drive is missing");
                                 let row = adw::ActionRow::builder()
-                                    .title("Luna can't find this drive.")
-                                    .subtitle("Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.")
+                                    .title(if missing_db {
+                                        "Luna's database for this drive is missing."
+                                    } else {
+                                        "Luna can't find this drive."
+                                    })
+                                    .subtitle(if missing_db {
+                                        "The drive is still plugged in. On the Drives page, remove this drive, then add it again."
+                                    } else {
+                                        "Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
+                                    })
                                     .build();
                                 row.set_title_lines(1);
-                                row.set_subtitle_lines(2);
+                                row.set_subtitle_lines(if missing_db { 3 } else { 2 });
                                 let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
                                 icon.set_icon_size(gtk::IconSize::Normal);
                                 row.add_prefix(&icon);

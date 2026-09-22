@@ -233,23 +233,50 @@ pub fn list_files(
     path: &str,
 ) -> Result<Vec<FileEntry>, String> {
     let enc = urlencoding_path(path);
-    let mut resp = auth_get(
-        base_url,
-        token,
-        &format!("/api/v1/drives/{drive_id}/files?path={enc}"),
-    )?;
-    if resp.status() == 401 {
+    // Keep 4xx/5xx bodies. The default agent turns those into StatusCode
+    // errors and drops the JSON, so a missing drive database would read as
+    // a generic connection failure instead of the remove-and-add message.
+    let mut resp = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build(),
+    )
+    .get(&format!(
+        "{}/api/v1/drives/{drive_id}/files?path={enc}",
+        base_url.trim_end_matches('/')
+    ))
+    .header("Authorization", &format!("Bearer {token}"))
+    .call()
+    .map_err(|e| plain_connect_error(&e))?;
+    let status = resp.status().as_u16();
+    if status == 401 {
         return Err("unauthorized".into());
     }
-    if resp.status() == 403 {
-        return Err("You don't have permission to view this folder.".into());
-    }
-    if resp.status() == 404 {
-        return Err(
-            "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into(),
-        );
-    }
-    if !resp.status().is_success() {
+    if !(200..300).contains(&status) {
+        let parsed: Option<serde_json::Value> = resp.body_mut().read_json().ok();
+        if parsed
+            .as_ref()
+            .and_then(|v| v.get("code"))
+            .and_then(|c| c.as_str())
+            == Some("missing_drive_db")
+        {
+            let msg = parsed
+                .as_ref()
+                .and_then(|v| v.get("error"))
+                .and_then(|e| e.as_str())
+                .unwrap_or(
+                    "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.",
+                );
+            return Err(msg.to_string());
+        }
+        if status == 403 {
+            return Err("You don't have permission to view this folder.".into());
+        }
+        if status == 404 {
+            return Err(
+                "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into(),
+            );
+        }
         return Err("Luna couldn't open that folder. Try again.".into());
     }
     let values: Vec<serde_json::Value> = resp
@@ -590,6 +617,11 @@ mod tests {
                     (200, r#"[{"id":"a","label":"Photos Drive","state":"as_is","fs_type":"ext4","device":"sda","mount_point":"/x"}]"#.to_string())
                 } else if req.contains("/files/mkdir") {
                     (200, r#"{"ok":true}"#.to_string())
+                } else if req.contains("missing-db") {
+                    (
+                        500,
+                        r#"{"error":"Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.","code":"missing_drive_db"}"#.to_string(),
+                    )
                 } else if req.contains("/files") {
                     (
                         200,
@@ -663,6 +695,20 @@ mod tests {
         assert_eq!(id, "u1");
         let drives = list_drives(&base, "device-tok-456").unwrap();
         assert_eq!(drives[0].label, "Photos Drive");
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(handle);
+    }
+
+    #[test]
+    fn list_files_reports_a_missing_drive_database() {
+        let (base, handle, stop) = spawn_server();
+        let err = list_files(&base, "device-tok-456", "a", "missing-db").unwrap_err();
+        assert!(err.contains("database for this drive is missing"), "{err}");
+        assert!(
+            err.contains("On the Drives page, remove this drive, then add it again."),
+            "{err}"
+        );
+        assert!(!err.to_ascii_lowercase().contains("unplug"), "{err}");
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
     }

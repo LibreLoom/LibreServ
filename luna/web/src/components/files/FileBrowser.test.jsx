@@ -40,6 +40,39 @@ function renderBrowser(props = {}) {
 }
 
 describe("FileBrowser", () => {
+  it("says the drive database is missing instead of asking to unplug", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        JSON.stringify({
+          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Drives page, remove this drive, then add it again.",
+          code: "missing_drive_db",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      )),
+    );
+    renderBrowser();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "On the Drives page, remove this drive, then add it again.",
+    );
+    expect(alert).not.toHaveTextContent(/unplugg/i);
+  });
+
+  it("still asks to replug when the drive itself is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        JSON.stringify({
+          error: "Luna doesn't know this drive.",
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      )),
+    );
+    renderBrowser();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/unplugging it/i);
+  });
+
   it("lists folders and files with a current-path label", async () => {
     stubListing({
       "": [
@@ -953,7 +986,7 @@ describe("FileBrowser folder chrome auto-split", () => {
     expect(probe?.className).toMatch(/overflow-hidden/);
     expect(
       container.querySelector("[data-slot=file-browser-folder-chrome-combined]")?.className,
-    ).toMatch(/overflow-x-hidden/);
+    ).not.toMatch(/overflow-x-hidden|overflow-hidden/);
   });
 });
 

@@ -547,6 +547,10 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             StatusCode::NOT_FOUND,
             "Luna doesn't know this drive. Make sure it is plugged in.",
         ),
+        FilesError::MissingDriveDb => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            files::MISSING_DRIVE_DB_MSG,
+        ),
         FilesError::Path(_) => json_error(StatusCode::NOT_FOUND, "Luna can't find that file."),
         FilesError::Io(_) | FilesError::Db(_) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
