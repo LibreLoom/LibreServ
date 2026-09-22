@@ -152,7 +152,15 @@ go mod download
 # falls back to a tar-based backup path when restic is absent.
 make restic-fetch || echo ">> restic fetch skipped (backups will use the tar fallback)"
 
-# ── 6. Frontend (Node) ───────────────────────────────────────────────────────
+# ── 6. Shared UI + frontends (Node) ──────────────────────────────────────────
+# Product web apps depend on @libreloom/ui via a file: symlink. Vite realpaths
+# that link into shared/ui, so peer imports (class-variance-authority and the
+# rest) resolve from shared/ui/node_modules. luna/ci.sh installs this package
+# before the Luna web build for the same reason.
+echo ">> Preparing shared UI"
+cd "${REPO_ROOT}/shared/ui"
+npm ci
+
 echo ">> Preparing frontend"
 cd "${REPO_ROOT}/sol/server/frontend"
 npm ci
