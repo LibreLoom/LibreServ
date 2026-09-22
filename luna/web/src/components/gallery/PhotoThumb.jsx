@@ -88,6 +88,10 @@ export default function PhotoThumb({
       return;
     }
     haptic("medium");
+    // A pointer click focuses this cell. Closing the viewer with Escape
+    // then paints the keyboard focus ring on it. Only a keyboard open
+    // should leave focus here.
+    if (e.detail > 0) e.currentTarget.blur();
     onOpen?.(photo);
   }
 
@@ -112,7 +116,7 @@ export default function PhotoThumb({
       }}
       style={animationStyle}
       aria-pressed={selectMode ? selected : undefined}
-      className={`group relative block w-full aspect-square overflow-hidden bg-secondary text-primary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`group relative block w-full aspect-square overflow-hidden bg-secondary text-primary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${
         selected ? "ring-2 ring-accent" : ""
       }`}
       aria-label={photo.name}
