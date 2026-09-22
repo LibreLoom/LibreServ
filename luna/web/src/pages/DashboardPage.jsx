@@ -917,9 +917,11 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         className={[
-                          "w-full text-left rounded-large-element bg-primary text-secondary p-4",
-                          "motion-safe:transition-all hover:bg-accent/10",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
+                          "group w-full text-left rounded-large-element bg-primary text-secondary p-4",
+                          "border-2 border-transparent",
+                          "motion-safe:transition-[color,background-color,border-color]",
+                          "hover:bg-secondary hover:text-primary hover:border-primary",
+                          "focus-visible:outline-none focus-visible:border-primary",
                         ].join(" ")}
                         onClick={() => {
                           haptic("selection");
@@ -933,18 +935,18 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-3">
                           <HardDrive
                             size={18}
-                            className="text-accent shrink-0"
+                            className="shrink-0 text-accent group-hover:text-primary"
                             aria-hidden="true"
                           />
                           <div className="min-w-0 flex-1">
-                            <div className="font-mono text-sm font-medium truncate">
+                            <div className="font-mono text-sm truncate">
                               {drive.model || drive.name}
                             </div>
                             {meta ? (
-                              <div className="text-xs text-accent mt-0.5">{meta}</div>
+                              <div className="mt-0.5 text-xs text-accent group-hover:text-primary">{meta}</div>
                             ) : null}
                           </div>
-                          <span className="text-xs text-accent shrink-0">
+                          <span className="shrink-0 text-xs text-accent group-hover:text-primary">
                             Tap to review →
                           </span>
                         </div>
