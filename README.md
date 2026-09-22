@@ -1,8 +1,6 @@
 # LibreServ Monorepo
 
-Source for the LibreLoom self-hosted products. If you just want the products,
-go to [serv.libreloom.org](https://serv.libreloom.org) — this repo is for people
-building, testing, and releasing the code.
+This place is all code. If you're just interested in the product, and not the code, visit [the website instead](https://serv.libreloom.org).
 
 Two products plus shared glue live here:
 
