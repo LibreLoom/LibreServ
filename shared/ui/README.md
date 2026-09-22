@@ -22,7 +22,9 @@ Mirrors the app `src/` tree:
 - Components use theme tokens (`bg-primary`, `text-secondary`, …) — apps
   provide them via their own `index.css`. Never hardcode colors.
 - Everything ships as raw `.jsx` source; each app's Vite/Tailwind/tsc
-  compiles and checks it. Peer deps come from the consuming app.
+  compiles and checks it. Vite realpaths the `file:` link into `shared/ui`, so
+  this package needs its peer imports installed (`npm ci` in `shared/ui/`
+  before an app build, as `luna/ci.sh` and `.cursor/install.sh` do).
 - Tests live beside the component (`*.test.jsx`) and run in this package's
   own vitest suite: `cd shared/ui && npm test`. Typecheck: `npm run typecheck`.
 
