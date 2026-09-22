@@ -18,10 +18,10 @@ for this document’s signing model.
 | Tag / title | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` |
 | Default CI | `./ci run -profile libreserv` | `./ci run -profile luna` |
 | Assets | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` | `lunad-linux-amd64`, optional `lunad-linux-arm64`, OS cut: `luna-os-x86_64.img` + `luna-rapidinstall-x86_64.iso.xz`, `luna-desktop-x86_64.flatpak`, `Luna-Desktop-Setup-*-x86_64.exe`, `luna-android.apk`, `SHA256SUMS.txt`, `SHA256SUMS.txt.minisig` |
-| Public key | [`keys/libreserv.minisign.pub`](../keys/libreserv.minisign.pub) | [`keys/lsluna.minisign.pub`](../keys/lsluna.minisign.pub) |
+| Public key | [`keys/libreserv.minisign.pub`](../../keys/libreserv.minisign.pub) | [`keys/lsluna.minisign.pub`](../../keys/lsluna.minisign.pub) |
 | Secret env | `LIBRESERV_RELEASE_MINISIG_PK` + `_PW` | `LSLUNA_RELEASE_MINISIG_PK` + `_PW` |
 | Local secret | `~/.minisign/libreserv.key` | `~/.minisign/lsluna.key` |
-| Consumers | `install.sh`, in-app updater | lunad OTA (Settings → Software updates) |
+| Consumers | `sol/install.sh`, in-app updater | lunad OTA (Settings → Software updates) |
 
 The Forgejo **tag** and **release title** are the same string. Never prefix
 titles with "Release" or "Luna".
@@ -31,7 +31,7 @@ titles with "Release" or "Luna".
 **product** secret, then verifies against the product public key and **refuses
 to publish unsigned checksums**.
 
-See [`keys/README.md`](../keys/README.md) for key ownership (Luna =
+See [`keys/README.md`](../../keys/README.md) for key ownership (Luna =
 `7AA9417DBF891F5E`, LibreServ = `48EB64CB69EA36CD`), Cursor secret names, and
 how to recreate a public file from a password-protected secret.
 
@@ -81,7 +81,7 @@ tags. Luna's updater only consumes **stable `luna-v*`** tags.
 - Go 1.26+ and Node.js 20+ (LibreServ cuts)
 - Podman (CI; also required for Luna ISO builds)
 - `minisign` in PATH, and the **product** secret that matches the committed pub
-  (see [`keys/README.md`](../keys/README.md))
+  (see [`keys/README.md`](../../keys/README.md))
 - `FORGEJO_TOKEN` for non-interactive cuts
 
 ## Release script flow
@@ -133,7 +133,7 @@ After creation, verify:
 Users install via:
 
 ```bash
-curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install.sh | sudo sh
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/sol/install.sh | sudo sh
 ```
 
 Prefer a copy of `install.sh` you already trust, or clone the repo — the first
@@ -245,7 +245,7 @@ uploads use the streaming path in `release.sh`.
 ### Signature does not match product pub
 
 Wrong secret for the product (LibreServ vs Luna). Confirm env vars and
-`keys/<product>.minisign.pub`. See [`keys/README.md`](../keys/README.md).
+`keys/<product>.minisign.pub`. See [`keys/README.md`](../../keys/README.md).
 
 ## Post-release
 

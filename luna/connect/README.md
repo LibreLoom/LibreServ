@@ -39,8 +39,8 @@ Production must do one of:
 
 Without that Cloudflare dashboard change, devices cannot pull tunnel tokens even
 with a correct Luna code fix. Reproduce locally with
-`luna/scripts/mock-connect-cf-challenge.py` and
-`luna/scripts/repro-cf-challenge-403.sh`.
+`luna/scripts/mocks/mock-connect-cf-challenge.py` and
+`luna/scripts/mocks/repro-cf-challenge-403.sh`.
 
 ## Device tokens
  

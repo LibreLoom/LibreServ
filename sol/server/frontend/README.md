@@ -1,10 +1,10 @@
 # LibreServ Frontend (React + Vite)
 
-This is the web UI for LibreServ. It is a Vite/React app with ESLint enabled. The backend serves static assets from `server/backend/OS/dist/` (ignored in git).
+This is the web UI for LibreServ. It is a Vite/React app with ESLint enabled. The backend serves static assets from `sol/server/backend/OS/dist/` (ignored in git).
 
 ## Quick start
 ```bash
-cd server/frontend
+cd sol/server/frontend
 npm install
 npm run dev     # start dev server with HMR
 npm run build   # produce production assets
@@ -35,4 +35,4 @@ Use only with a clear reason; CI treats missing reasons as errors.
 - Node.js 20+ and npm
 
 ## Notes
-- Keep `dist` out of git; the backend README documents the deployment flow.
+- Keep `dist` out of git; `sol/AGENTS.md` documents the build and deploy flow.
