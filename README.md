@@ -6,7 +6,7 @@ Two products plus shared glue live here:
 
 | Path | What it is | Stack |
 |------|------------|-------|
-| `sol/` | **LibreServ Sol** — the home server | Go 1.26 (chi/v5) API, React 19 + Vite 7 + Tailwind 4, SQLite, Podman |
+| `sol/` | **LibreServ Sol** — the home server (development currently stalled) | Go 1.26 (chi/v5) API, React 19 + Vite 7 + Tailwind 4, SQLite, Podman |
 | `sol/connect/` | **LibreServ Connect** — cloud companion (independent Go module) | Go 1.26, chi/v5, SQLite, Stripe |
 | `luna/` | **LibreServ Luna** — the file box | Rust `lunad` + `luna-core`, React/Vite web, GTK 4 desktop, native Android app, Debian OS image |
 | `luna/connect/` | **Luna Connect** — cloud companion (independent Go module) | Go 1.26, SQLite, Stripe |
