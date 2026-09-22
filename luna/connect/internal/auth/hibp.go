@@ -16,6 +16,17 @@ import (
 // BreachedPasswordMessage matches LibreServ's rejectBreachedPassword copy.
 const BreachedPasswordMessage = "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."
 
+// errHIBPRedirect refuses HTTP redirects on the HIBP range client. Following a
+// 302 would send the password hash prefix to an unexpected host.
+var errHIBPRedirect = fmt.Errorf("hibp client does not follow redirects")
+
+var hibpHTTPClient = &http.Client{
+	Timeout: 5 * time.Second,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return errHIBPRedirect
+	},
+}
+
 var (
 	hibpMu       sync.Mutex
 	hibpRangeURL = "https://api.pwnedpasswords.com/range/"
@@ -53,7 +64,7 @@ func CheckBreachedPassword(pw string) (bool, error) {
 	}
 	req.Header.Set("User-Agent", "LunaConnect")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hibpHTTPClient.Do(req)
 	if err != nil {
 		return false, err
 	}
