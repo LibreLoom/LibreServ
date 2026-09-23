@@ -199,12 +199,16 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               const appCheckRes = await request(`/apps/${instanceId}`);
 
               if (appCheckRes.ok) {
-                console.warn(`App exists but status endpoint returns 404: ${errorMessage}, continuing to poll...`);
+                if (/** @type {any} */ (import.meta).env?.DEV) {
+                  console.warn(`App exists but status endpoint returns 404: ${errorMessage}, continuing to poll...`);
+                }
                 consecutive404Count.current = 2;
                 return;
               }
             } catch (checkErr) {
-              console.warn("Failed to check app existence:", checkErr);
+              if (/** @type {any} */ (import.meta).env?.DEV) {
+                console.warn("Failed to check app existence:", checkErr);
+              }
             }
 
             hasCompleted.current = true;
@@ -212,7 +216,9 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             return;
           }
 
-          console.warn(`App status 404 (attempt ${consecutive404Count.current}/3): ${errorMessage}, continuing to poll...`);
+          if (/** @type {any} */ (import.meta).env?.DEV) {
+            console.warn(`App status 404 (attempt ${consecutive404Count.current}/3): ${errorMessage}, continuing to poll...`);
+          }
           return;
         } else {
           consecutive404Count.current = 0;
