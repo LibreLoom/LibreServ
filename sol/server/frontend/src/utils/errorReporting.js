@@ -26,7 +26,7 @@ export function reportError(error, context = {}) {
   };
 
   if (/** @type {any} */ (import.meta).env?.DEV) {
-    console.group(`🐛 Error Report [${errorId}]`);
+    console.group(`Error Report [${errorId}]`);
     console.error('Error:', error);
     console.log('Context:', enrichedContext);
     console.groupEnd();
