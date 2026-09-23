@@ -92,8 +92,15 @@ features locally, the mock cluster lives in `luna/scripts/mocks/`:
 ### Cloud companions (Connect)
 
 ```bash
-cd sol/connect          # or luna/connect
+# LibreServ Connect
+cd sol/connect
 cp configs/connect.yaml.example configs/connect.yaml
+make test
+make run
+
+# Luna Connect
+cd luna/connect
+cp configs/luna-connect.yaml.example configs/luna-connect.yaml
 make test
 make run
 ```
