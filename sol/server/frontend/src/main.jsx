@@ -8,7 +8,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { setupGlobalErrorHandlers } from "./utils/errorReporting";
+import { setupGlobalErrorHandlers } from "./utils/errorReporting.js";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 setupGlobalErrorHandlers();
 
