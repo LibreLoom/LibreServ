@@ -747,7 +747,7 @@ build_binaries() {
     # AMD64 restic
     log_info "Downloading restic ${RESTIC_VERSION} for linux/amd64..."
     mkdir -p OS/bin
-    if ! curl -fSL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_amd64.bz2" \
+    if ! curl -fSL --proto '=https' --tlsv1.2 "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_amd64.bz2" \
         | bzip2 -d > OS/bin/restic; then
         log_error "Failed to download restic for amd64"
         cd ../..
@@ -782,7 +782,7 @@ build_binaries() {
 
     # Download ARM64 restic for embedding
     log_info "Downloading restic ${RESTIC_VERSION} for linux/arm64..."
-    if ! curl -fSL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_arm64.bz2" \
+    if ! curl -fSL --proto '=https' --tlsv1.2 "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_arm64.bz2" \
         | bzip2 -d > OS/bin/restic; then
         log_error "Failed to download restic for arm64"
         cd ../..

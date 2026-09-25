@@ -300,7 +300,7 @@ prompt_version() {
 get_latest_release() {
     log_info "Fetching latest release information..."
     local response
-    response=$(curl -sf "${FORGEJO_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=50&sort=created&direction=desc") || {
+    response=$(curl -sf --proto '=https' --tlsv1.2 "${FORGEJO_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=50&sort=created&direction=desc") || {
         log_error "Failed to fetch releases from Forgejo API"
         exit 1
     }
@@ -363,19 +363,19 @@ download_binary() {
     }
 
     log_info "Downloading ${BINARY_NAME}..."
-    if ! curl -fsSL "${DOWNLOAD_URL}" -o "${tmp_bin}"; then
+    if ! curl -fsSL --proto '=https' --tlsv1.2 "${DOWNLOAD_URL}" -o "${tmp_bin}"; then
         log_error "Failed to download binary from ${DOWNLOAD_URL}"
         cleanup_download_temps
         return 1
     fi
 
     log_info "Downloading checksums..."
-    if ! curl -fsSL "${CHECKSUM_URL}" -o "${tmp_sums}"; then
+    if ! curl -fsSL --proto '=https' --tlsv1.2 "${CHECKSUM_URL}" -o "${tmp_sums}"; then
         log_error "Could not download checksums. This install needs SHA256SUMS.txt from the release."
         cleanup_download_temps
         return 1
     fi
-    if ! curl -fsSL "${SIG_URL}" -o "${tmp_sig}"; then
+    if ! curl -fsSL --proto '=https' --tlsv1.2 "${SIG_URL}" -o "${tmp_sig}"; then
         log_error "Could not download the checksum signature. That file proves the download is from us, not whoever owns the download host."
         cleanup_download_temps
         return 1
