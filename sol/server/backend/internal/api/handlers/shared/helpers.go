@@ -27,6 +27,18 @@ const (
 // DefaultHIBPRangeURL is the Have I Been Pwned k-anonymity range endpoint.
 const DefaultHIBPRangeURL = "https://api.pwnedpasswords.com/range/"
 
+// errHIBPRedirect refuses HTTP redirects on the HIBP range client. Following a
+// 302 would send the password hash prefix to an unexpected host.
+var errHIBPRedirect = fmt.Errorf("hibp client does not follow redirects")
+
+// hibpHTTPClient is dedicated to HIBP range lookups (not http.DefaultClient).
+var hibpHTTPClient = &http.Client{
+	Timeout: 5 * time.Second,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return errHIBPRedirect
+	},
+}
+
 // hibpRangeURL is a var so tests can point the breach check at a local server.
 var hibpRangeURL = DefaultHIBPRangeURL
 
@@ -131,7 +143,7 @@ func CheckBreachedPassword(pw string) (bool, error) {
 	}
 	req.Header.Set("User-Agent", "LibreServ")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hibpHTTPClient.Do(req)
 	if err != nil {
 		return false, err
 	}
