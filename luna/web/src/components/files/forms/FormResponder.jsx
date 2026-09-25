@@ -6,7 +6,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { apiErrorMessage } from "../../../lib/api.js";
+import { apiErrorMessage, withCsrfHeaders } from "../../../lib/api.js";
 import { newEditToken } from "../../../lib/formDocument.js";
 import {
   FILE_ACCEPT,
@@ -287,10 +287,10 @@ export default function FormResponder({
     setSubmitError("");
     const tokenToUse = allowEdits ? editToken || newEditToken() : "";
     try {
-      const headers = {
+      const headers = withCsrfHeaders("POST", {
         "Content-Type": "application/json",
         Accept: "application/json",
-      };
+      });
       if (sharePassword) headers["X-Share-Password"] = sharePassword;
       const payload = { answers: answersToSend() };
       if (allowEdits) {
@@ -679,7 +679,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
     try {
       const body = new FormData();
       body.append("file", file);
-      const headers = {};
+      const headers = withCsrfHeaders("POST");
       if (sharePassword) headers["X-Share-Password"] = sharePassword;
       const res = await fetch(`/s/${encodeURIComponent(token)}/respond-file`, {
         method: "POST",
