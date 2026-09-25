@@ -12,6 +12,19 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
+// errMailHTTPRedirect refuses HTTP redirects. The Resend client carries an API
+// key; following a 302 can send credentials or land on an unexpected host.
+var errMailHTTPRedirect = fmt.Errorf("mail HTTP client does not follow redirects")
+
+func defaultHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return errMailHTTPRedirect
+		},
+	}
+}
+
 // Sender is server-only transactional mail (billing warnings). The web app
 // never talks to Resend.
 type Sender interface {
@@ -34,7 +47,7 @@ func New() *Client {
 		APIKey:  strings.TrimSpace(config.C.Mail.ResendAPIKey),
 		From:    from,
 		BaseURL: strings.TrimSpace(config.C.Mail.BaseURL),
-		HTTP:    &http.Client{Timeout: 15 * time.Second},
+		HTTP:    defaultHTTPClient(),
 	}
 }
 

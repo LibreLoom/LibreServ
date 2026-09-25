@@ -3,7 +3,6 @@ package providers
 import (
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // Tunnel is the Cloudflare tunnel surface Name/Unregister use.
@@ -25,7 +24,7 @@ type TunnelCredentials struct {
 }
 
 func NewTunnelClient() *TunnelClient {
-	return &TunnelClient{HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return &TunnelClient{HTTP: defaultHTTPClient()}
 }
 
 func (c *TunnelClient) api() string {

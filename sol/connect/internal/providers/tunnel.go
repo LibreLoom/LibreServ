@@ -3,7 +3,6 @@ package providers
 import (
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // TunnelClient talks to the Cloudflare Tunnel API.
@@ -17,7 +16,7 @@ type TunnelClient struct {
 // NewTunnelClient creates a tunnel client with the given HTTP client or a default 15s timeout.
 func NewTunnelClient(httpClient *http.Client) *TunnelClient {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return &TunnelClient{httpClient: httpClient}
 }

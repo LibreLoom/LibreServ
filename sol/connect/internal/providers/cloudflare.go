@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // CloudflareClient talks to the Cloudflare DNS API.
@@ -16,7 +15,7 @@ type CloudflareClient struct {
 // NewCloudflareClient creates a Cloudflare client with the given HTTP client or a default 15s timeout client.
 func NewCloudflareClient(httpClient *http.Client) *CloudflareClient {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return &CloudflareClient{httpClient: httpClient}
 }
