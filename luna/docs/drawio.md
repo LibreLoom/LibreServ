@@ -40,10 +40,11 @@ it's plain XML, loaded into the editor and written back on save.
    landed). Inserts are not safe to apply twice, so a reconnect skips patches
    this client sent and sequence numbers it already applied. View-only
    sessions join the room and apply patches, but they do not send any.
-   The fullscreen frame shows the same presence line as EuroOffice
-   (`Live · Sam`, `Live · only you`, plus ` · view only` when this session
-   cannot edit). While the editor is still opening the line is
-   `Opening this diagram…`.
+   Who is here is computed with the same presence line EuroOffice already
+   reports (`Live · Sam`, `Live · only you`, plus ` · view only` when this
+   session cannot edit; `Opening this diagram…` while the editor is still
+   opening). That line is not drawn in the frame — presence chrome is
+   still waiting on its own design.
 6. **Saving:** Luna debounces dirty state the same way as the text editor
    and EuroOffice (~2s idle, never more than 15s stale, 5s retry backoff).
    Before uploading, this editor asks the room for the save election

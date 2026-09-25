@@ -5,7 +5,6 @@ import { MoreHorizontal, Save, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -67,7 +66,6 @@ function useIsMdUp() {
  *   isClosing?: boolean,
  *   canWrite?: boolean,
  *   editorKind?: string,
- *   presence?: string,
  *   onClose: () => void,
  *   children: (api: {
  *     onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
@@ -82,7 +80,6 @@ export default function FullscreenEditorFrame({
   isClosing = false,
   canWrite = true,
   editorKind = "office",
-  presence = "",
   onClose,
   children,
 }) {
@@ -466,19 +463,6 @@ export default function FullscreenEditorFrame({
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-col items-center gap-2 pt-2">
-                    {presence ? (
-                      <Tooltip content={presence} surface="secondary">
-                        <span
-                          role="status"
-                          aria-live="polite"
-                          data-slot="editor-presence"
-                          className="flex h-8 w-8 items-center justify-center rounded-pill bg-primary text-secondary"
-                        >
-                          <span className="h-2 w-2 rounded-pill bg-accent" aria-hidden="true" />
-                          <span className="sr-only">{presence}</span>
-                        </span>
-                      </Tooltip>
-                    ) : null}
                     {canWrite ? (
                       /* Dirty state reads on the button itself: inverted
                          primary fill when there are changes to save, muted
@@ -533,16 +517,6 @@ export default function FullscreenEditorFrame({
                   >
                     {name}
                   </span>
-                  {presence ? (
-                    <span
-                      role="status"
-                      aria-live="polite"
-                      data-slot="editor-presence"
-                      className="max-w-[40%] shrink-0 truncate font-mono text-xs text-primary"
-                    >
-                      {presence}
-                    </span>
-                  ) : null}
                   <span ref={menuTriggerRef} className="inline-flex">
                     <Button
                       ref={closeRef}
@@ -694,7 +668,6 @@ FullscreenEditorFrame.propTypes = {
   isClosing: PropTypes.bool,
   canWrite: PropTypes.bool,
   editorKind: PropTypes.string,
-  presence: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   children: PropTypes.func.isRequired,
 };

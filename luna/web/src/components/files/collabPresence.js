@@ -1,7 +1,7 @@
 /**
  * Presence line shared by EuroOffice and the diagram editor.
- * FileViewer renders it in the fullscreen chrome so both editors read
- * the same way: who else is here, and whether this session can edit.
+ * Both editors report the same string (who else is here, and whether
+ * this session can edit). The fullscreen frame does not draw it yet.
  *
  * @param {"loading"|"ready"|"error"} status
  * @param {{ peer_id: number, username: string }[]} peers
@@ -18,7 +18,6 @@ export function collabPresenceLabel(
   selfPeerId = null,
   loadingLabel = "Starting EuroOffice…",
 ) {
-  if (status === "error") return "";
   const self = String(selfName || "").toLowerCase();
   const others = (peers || [])
     .filter((p) =>

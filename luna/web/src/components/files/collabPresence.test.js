@@ -17,12 +17,12 @@ describe("collabPresenceLabel", () => {
     ).toBe("Live · only you");
   });
 
-  it("uses the loading label until the editor is up, and hides it on errors", () => {
+  it("uses the loading label until the editor is up", () => {
     expect(collabPresenceLabel("loading", [], true, "", null, "Opening this diagram…")).toBe(
       "Opening this diagram…",
     );
     expect(collabPresenceLabel("loading", [], true)).toBe("Starting EuroOffice…");
-    expect(collabPresenceLabel("error", peers, true, "Ada", 1)).toBe("");
+    expect(collabPresenceLabel("error", peers, true, "Ada", 1)).toBe("Live · Sam");
   });
 
   it("marks a session that cannot edit", () => {

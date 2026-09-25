@@ -547,7 +547,9 @@ export default function EuroOfficeHost({
             onError: (event) => {
               // The sdk's data is often an object/code, not a string — log the
               // raw event so a real failure is diagnosable from the console.
-              console.warn("EuroOffice onError", event);
+              if (/** @type {any} */ (import.meta).env?.DEV) {
+                console.warn("EuroOffice onError", event);
+              }
               const code = event?.data?.errorCode;
               // -26 (LoadingFontError): the editor died because one font fetch
               // failed three times. A single dropped request shouldn't kill a
