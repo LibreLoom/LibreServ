@@ -6,7 +6,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+// errProviderHTTPRedirect refuses HTTP redirects. Provider clients carry API
+// tokens; following a 302 can send credentials or land on an unexpected host.
+var errProviderHTTPRedirect = fmt.Errorf("provider HTTP client does not follow redirects")
+
+// defaultHTTPClient is the nil-fallback client for provider constructors.
+// Timeout matches the previous 15s default; CheckRedirect refuses all redirects.
+func defaultHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return errProviderHTTPRedirect
+		},
+	}
+}
 
 func doJSON(client *http.Client, method, url string, headers map[string]string, body, v any) error {
 	var bodyReader io.Reader

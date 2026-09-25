@@ -3,7 +3,6 @@ package providers
 import (
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // ResendClient talks to the Resend API for transactional email.
@@ -15,7 +14,7 @@ type ResendClient struct {
 // NewResendClient creates a Resend client with the given HTTP client or a default 15s timeout.
 func NewResendClient(httpClient *http.Client) *ResendClient {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return &ResendClient{httpClient: httpClient}
 }

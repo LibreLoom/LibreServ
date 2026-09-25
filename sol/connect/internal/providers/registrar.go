@@ -18,7 +18,7 @@ type RegistrarClient struct {
 // NewRegistrarClient creates a registrar client with the given HTTP client or a default 15s timeout.
 func NewRegistrarClient(httpClient *http.Client) *RegistrarClient {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return &RegistrarClient{httpClient: httpClient}
 }

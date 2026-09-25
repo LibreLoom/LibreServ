@@ -3,7 +3,6 @@ package providers
 import (
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // DNS is the Cloudflare DNS surface Name/Unregister use.
@@ -19,7 +18,7 @@ type DNSClient struct {
 }
 
 func NewDNSClient() *DNSClient {
-	return &DNSClient{HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return &DNSClient{HTTP: defaultHTTPClient()}
 }
 
 func (c *DNSClient) api() string {

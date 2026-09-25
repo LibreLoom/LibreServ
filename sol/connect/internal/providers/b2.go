@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // B2Credentials holds the values needed for restic to back up to Backblaze B2.
@@ -26,7 +25,7 @@ type B2Client struct {
 // NewB2Client creates a B2 client with the given HTTP client or a default 15s timeout client.
 func NewB2Client(httpClient *http.Client) *B2Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return &B2Client{httpClient: httpClient}
 }

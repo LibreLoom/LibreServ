@@ -3,7 +3,6 @@ package providers
 import (
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // ResendSMTP holds the values a device needs to send mail through Resend.
@@ -23,7 +22,7 @@ type ResendClient struct {
 // NewResendClient creates a Resend client with the given HTTP client or a default 15s timeout client.
 func NewResendClient(httpClient *http.Client) *ResendClient {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = defaultHTTPClient()
 	}
 	return &ResendClient{httpClient: httpClient}
 }
