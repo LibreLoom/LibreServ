@@ -1,6 +1,32 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+
+// Drive editing opens the collab hub. This stand-in welcomes a single peer
+// so the form seeds from the file without a real WebSocket.
+vi.mock("../office/collabSocket.js", () => ({
+  CollabSocket: class {
+    constructor() {
+      this.onMessage = null;
+      this.onStatus = null;
+      this._closed = false;
+      this._attempts = 0;
+    }
+    connect() {
+      this.onStatus?.("open");
+      this.onMessage?.({
+        type: "welcome",
+        peer_id: 1,
+        peers: [{ peer_id: 1, username: "Max", color: "var(--accent)" }],
+      });
+    }
+    close() { this._closed = true; }
+    sendOp() {}
+    sendPresence() {}
+    sendSaved() {}
+  },
+}));
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import FormBuilder from "./FormBuilder.jsx";
 import { driveSource, FileSourceProvider, shareSource } from "../../../lib/fileSource.jsx";
 
@@ -31,16 +57,18 @@ function mountBuilder({ source = driveSource, canWrite = true } = {}) {
   const reg = { save: /** @type {null | (() => Promise<unknown>)} */ (null) };
   render(
     <QueryClientProvider client={qc}>
-      <FileSourceProvider source={source}>
-        <FormBuilder
-          driveId="d1"
-          path="rsvp.lunaform"
-          name="rsvp.lunaform"
-          canWrite={canWrite}
-          onRegisterSave={(f) => { reg.save = f; }}
-          onSaveStateChange={() => {}}
-        />
-      </FileSourceProvider>
+      <ToastProvider>
+        <FileSourceProvider source={source}>
+          <FormBuilder
+            driveId="d1"
+            path="rsvp.lunaform"
+            name="rsvp.lunaform"
+            canWrite={canWrite}
+            onRegisterSave={(f) => { reg.save = f; }}
+            onSaveStateChange={() => {}}
+          />
+        </FileSourceProvider>
+      </ToastProvider>
     </QueryClientProvider>,
   );
   return reg;

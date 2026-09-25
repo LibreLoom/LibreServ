@@ -138,6 +138,11 @@ pub enum ServerEvent {
     Evict {
         reason: String,
     },
+    /// A new answer landed on a form in this room. Ephemeral — not replayed
+    /// from the backlog. Editors refresh their responses list.
+    FormResponse {
+        count: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -208,6 +213,15 @@ impl CollabHub {
         };
         let _ = room.tx.send(ServerEvent::PeerJoin { peer });
         Ok((peer_id, rx, welcome))
+    }
+
+    /// Fan an event out to whoever is in the room. Missing rooms are a no-op
+    /// (nobody is editing). Not stored in the catchup backlog.
+    pub async fn broadcast(&self, room_key: &str, event: ServerEvent) {
+        let hub = self.inner.lock().await;
+        if let Some(room) = hub.rooms.get(room_key) {
+            let _ = room.tx.send(event);
+        }
     }
 
     pub async fn leave(&self, room_key: &str, peer_id: u64) {

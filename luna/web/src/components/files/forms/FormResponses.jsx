@@ -4,9 +4,10 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { formatAnswer, summarizeAnswers, typeInfo } from "./questionTypes.js";
-import { responsesToCsv } from "../../../lib/formDocument.js";
-import { pathBasename } from "../../../lib/paths.js";
+import { formatAnswer, isAllowedUploadName, summarizeAnswers, typeInfo } from "./questionTypes.js";
+import { responsesToCsv, uploadsDirPath } from "../../../lib/formDocument.js";
+import { useFileSource } from "../../../lib/fileSource.jsx";
+import { joinPath, pathBasename } from "../../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -19,6 +20,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
  * label rename never orphans data.
  *
  * @param {{
+ *   driveId?: string,
  *   formPath: string,
  *   questions: object[],
  *   responses: object[],
@@ -28,6 +30,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
  * }} props
  */
 export default function FormResponses({
+  driveId = "",
   formPath,
   questions,
   responses,
@@ -35,6 +38,11 @@ export default function FormResponses({
   error = null,
   onRefresh,
 }) {
+  const source = useFileSource();
+  function fileHref(name) {
+    if (!driveId || typeof name !== "string" || !isAllowedUploadName(name)) return "";
+    return source.contentHref(driveId, joinPath(uploadsDirPath(formPath), name));
+  }
   // Columns: current questions in order, then any answered ids that no
   // longer have a question (deleted ones keep their data visible).
   const knownIds = new Set(questions.map((q) => q.id));
@@ -136,29 +144,31 @@ export default function FormResponses({
               return (
                 <div
                   key={question.id}
-                  className="rounded-large-element bg-primary text-secondary p-4 space-y-2"
+                  className="rounded-large-element bg-secondary text-primary p-4 space-y-2"
                 >
                   <div className="flex items-center gap-2">
                     <InfoIcon size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
-                    <p className="min-w-0 flex-1 truncate text-sm text-secondary">
+                    <p className="min-w-0 flex-1 truncate text-sm text-primary">
                       {question.label || "Untitled question"}
                     </p>
                     <span className="font-mono text-xs text-accent">
                       {summary.answered} answered
                     </span>
                   </div>
-                  {summary.kind === "bars" ? (
+                  {summary.kind === "number" ? (
+                    <p className="text-sm text-primary">Total {summary.total}</p>
+                  ) : summary.kind === "bars" ? (
                     <div className="space-y-1.5">
                       {summary.rows.map((row) => (
                         <div key={row.label} className="flex items-center gap-2 text-sm">
-                          <span className="w-32 shrink-0 truncate text-secondary">{row.label}</span>
-                          <div className="h-2 min-w-0 flex-1 rounded-pill bg-secondary/20 overflow-hidden">
+                          <span className="w-32 shrink-0 truncate text-primary">{row.label}</span>
+                          <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-pill bg-primary">
                             <div
                               className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-300"
                               style={{ width: `${Math.round((row.count / max) * 100)}%` }}
                             />
                           </div>
-                          <span className="w-8 shrink-0 text-right font-mono text-xs text-secondary">
+                          <span className="w-8 shrink-0 text-right font-mono text-xs font-normal text-primary">
                             {row.count}
                           </span>
                         </div>
@@ -167,8 +177,12 @@ export default function FormResponses({
                   ) : (
                     <ul className="m-0 list-none space-y-1 p-0">
                       {summary.items.slice(0, 8).map((item, i) => (
-                        <li key={i} className="truncate text-sm text-secondary">
-                          {item}
+                        <li key={i} className="truncate text-sm text-primary">
+                          {question.type === "file" && fileHref(item) ? (
+                            <a href={fileHref(item)} className="text-primary underline" target="_blank" rel="noreferrer">
+                              {item}
+                            </a>
+                          ) : item}
                         </li>
                       ))}
                       {summary.items.length > 8 && (
@@ -184,17 +198,17 @@ export default function FormResponses({
           </div>
 
           {/* Individual answers */}
-          <div className="overflow-x-auto rounded-large-element bg-primary text-secondary">
+          <div className="overflow-x-auto rounded-large-element bg-secondary text-primary">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-secondary/15">
-                  <th className="whitespace-nowrap px-3 py-2 font-mono text-xs uppercase tracking-widest text-secondary">
+                <tr className="border-b border-primary/20">
+                  <th className="whitespace-nowrap px-3 py-2 font-mono text-xs font-normal uppercase tracking-widest text-primary">
                     Submitted
                   </th>
                   {columns.map((col) => (
                     <th
                       key={col.id}
-                      className="whitespace-nowrap px-3 py-2 font-mono text-xs uppercase tracking-widest text-secondary"
+                      className="whitespace-nowrap px-3 py-2 font-mono text-xs font-normal uppercase tracking-widest text-primary"
                     >
                       {col.label}
                     </th>
@@ -203,15 +217,19 @@ export default function FormResponses({
               </thead>
               <tbody>
                 {responses.map((rec) => (
-                  <tr key={rec.id} className="border-b border-secondary/10 last:border-b-0">
-                    <td className="whitespace-nowrap px-3 py-2 text-secondary">
+                  <tr key={rec.id} className="border-b border-primary/20 last:border-b-0">
+                    <td className="whitespace-nowrap px-3 py-2 text-primary">
                       {Number(rec.at)
                         ? new Date(Number(rec.at) * 1000).toLocaleString()
                         : ""}
                     </td>
                     {columns.map((col) => (
-                      <td key={col.id} className="max-w-64 truncate px-3 py-2 text-secondary">
-                        {formatAnswer(col.question, rec.answers?.[col.id])}
+                      <td key={col.id} className="max-w-64 truncate px-3 py-2 text-primary">
+                        <AnswerCell
+                          question={col.question}
+                          value={rec.answers?.[col.id]}
+                          href={col.question?.type === "file" ? fileHref(rec.answers?.[col.id]) : ""}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -225,7 +243,27 @@ export default function FormResponses({
   );
 }
 
+function AnswerCell({ question, value, href }) {
+  const text = formatAnswer(question, value);
+  if (!text) return null;
+  if (href) {
+    return (
+      <a href={href} className="text-primary underline" target="_blank" rel="noreferrer">
+        {text}
+      </a>
+    );
+  }
+  return text;
+}
+
+AnswerCell.propTypes = {
+  question: PropTypes.object,
+  value: PropTypes.any,
+  href: PropTypes.string,
+};
+
 FormResponses.propTypes = {
+  driveId: PropTypes.string,
   formPath: PropTypes.string.isRequired,
   questions: PropTypes.array.isRequired,
   responses: PropTypes.array.isRequired,

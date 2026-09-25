@@ -1,26 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle2, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Send } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { apiErrorMessage } from "../../../lib/api.js";
+import { apiErrorMessage, withCsrfHeaders } from "../../../lib/api.js";
 import { newEditToken } from "../../../lib/formDocument.js";
-import { answerOptions, formatAnswer, isAnswered, typeInfo } from "./questionTypes.js";
+import {
+  FILE_ACCEPT,
+  MAX_UPLOAD_BYTES,
+  answerOptions,
+  formatAnswer,
+  isAllowedUploadName,
+  isAnswered,
+  isEmailAddress,
+  visibleQuestions,
+} from "./questionTypes.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // a year
-const SWIPE_PX = 60;
-const AUTO_ADVANCE_MS = 280;
-
-// Screens: -2 = completed landing, -1 = intro, 0..n-1 = one question each,
-// n = review, n+1 = done.
-const COMPLETED = -2;
-const INTRO = -1;
 
 function cookieName(kind, token) {
   return `lunaform_${kind}_${token}`;
@@ -104,242 +107,201 @@ function responsePreview(entry, questions) {
 }
 
 /**
- * The unauthenticated responder flow for a `respond` share link — one
- * question per screen, Typeform-style: Enter/click/swipe forward, back to
- * revisit, review before send, then a thank-you card with a copyable edit
- * link when the form allows changes.
+ * The page someone fills in. It is the same page the editor is looking at:
+ * title, description, every question that applies, then send. Skip rules
+ * hide questions as answers change. There is no separate review step.
  *
- * "One answer per person" and the returning-edit flow are device-cookie
- * reminders, not locks — they gate the friendly path only.
+ * "One answer per person" is a reminder stored in this browser, not a lock.
  *
  * @param {{
  *   token: string,
  *   form: { title?: string, description?: string, questions?: object[], settings?: object },
  *   sharePassword?: string,
+ *   accepting?: boolean,
+ *   full?: boolean,
+ *   closedMessage?: string,
  * }} props
  */
-export default function FormResponder({ token, form, sharePassword = "" }) {
+export default function FormResponder({
+  token,
+  form,
+  sharePassword = "",
+  accepting = true,
+  full = false,
+  closedMessage = "",
+}) {
   const [searchParams] = useSearchParams();
   const questions = useMemo(
     () => (Array.isArray(form?.questions) ? form.questions : []),
     [form],
   );
   const settings = form?.settings || {};
-  const collecting = settings.collecting !== false;
   const allowEdits = settings.allowEdits !== false;
   const limitOne = settings.responseLimit === "one";
+  const thankYou = typeof settings.thankYou === "string" && settings.thankYou.trim()
+    ? settings.thankYou.trim()
+    : "Sent — thank you";
 
-  const [step, setStep] = useState(INTRO);
-  const [answers, setAnswers] = useState({});
+  const [answers, setAnswers] = useState(/** @type {Record<string, unknown>} */ ({}));
   const [editToken, setEditToken] = useState("");
   const [responseId, setResponseId] = useState("");
   const [isEdit, setIsEdit] = useState(false);
-  const [alreadyDone, setAlreadyDone] = useState(false);
-  const [checkingEdit, setCheckingEdit] = useState(false);
+  const urlEdit = (searchParams.get("edit") || "").trim();
+  const storedNow = readStoredResponses(token);
+  const remembered = readCookie(cookieName("done", token)) === "1" || storedNow.length > 0;
+  const [alreadyDone, setAlreadyDone] = useState(!urlEdit && limitOne && remembered);
+  const [checkingEdit, setCheckingEdit] = useState(Boolean(urlEdit));
   const [editNotice, setEditNotice] = useState("");
-  const [fieldError, setFieldError] = useState("");
-  const [shakeKey, setShakeKey] = useState(0);
+  const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  // Edit mode is one scrollable page of every question — not the stepped
-  // first-run flow — so changes are quick to find.
-  const [editing, setEditing] = useState(false);
-  const [editErrors, setEditErrors] = useState({});
-  // Every response this device has sent — drives the completed landing and
-  // the which-one picker. Each carries its own edit secret.
-  const [storedResponses, setStoredResponses] = useState(/** @type {object[]} */ ([]));
+  const [filling, setFilling] = useState(!urlEdit && !(limitOne && remembered) && storedNow.length === 0);
+  const [done, setDone] = useState(!urlEdit && !(limitOne && remembered) && storedNow.length > 0);
+  /** True only for the screen right after a send — a return visit uses the older headings. */
+  const [justSent, setJustSent] = useState(false);
   const [picking, setPicking] = useState(false);
-  const touchYRef = useRef(/** @type {number | null} */ (null));
-  const autoAdvanceRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
+  const [storedResponses, setStoredResponses] = useState(storedNow);
 
-  const done = step === questions.length + 1;
-  const review = step === questions.length;
+  const shown = useMemo(
+    () => visibleQuestions(questions, answers),
+    [questions, answers],
+  );
 
-  useEffect(() => () => {
-    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
-  }, []);
-
-  // Boot: an ?edit= link wins, then stored answers land on the completed
-  // screen, else the done cookie still flags the one-answer gate. All state
-  // writes happen inside the async boundary — none synchronously in the
-  // effect body.
   useEffect(() => {
-    if (!collecting) return undefined;
+    if (!urlEdit) return undefined;
     let cancelled = false;
-    (async () => {
-      const urlEdit = (searchParams.get("edit") || "").trim();
-      const stored = readStoredResponses(token);
-      setStoredResponses(stored);
-
-      if (urlEdit && allowEdits) {
-        // Fetch the earlier answers so they can be changed.
-        setCheckingEdit(true);
-        setEditToken(urlEdit);
-        const headers = { Accept: "application/json" };
-        if (sharePassword) headers["X-Share-Password"] = sharePassword;
-        try {
-          const res = await fetch(
-            `/s/${encodeURIComponent(token)}/respond?edit_token=${encodeURIComponent(urlEdit)}`,
-            { headers },
+    const headers = { Accept: "application/json" };
+    if (sharePassword) headers["X-Share-Password"] = sharePassword;
+    fetch(
+      `/s/${encodeURIComponent(token)}/respond?edit_token=${encodeURIComponent(urlEdit)}`,
+      { headers },
+    )
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            (data && data.error) || "We couldn't find answers for that edit link.",
           );
-          const data = await res.json().catch(() => null);
-          if (cancelled) return;
-          if (res.ok && data && typeof data === "object") {
-            const fetched =
-              data.answers && typeof data.answers === "object" ? data.answers : {};
-            const id = typeof data.id === "string" ? data.id : "";
-            setAnswers(fetched);
-            setResponseId(id);
-            setIsEdit(true);
-            setEditing(true); // straight into the single-page edit view
-            haptic("success");
-            // First-class on this device too — it joins the picker list.
-            if (id) {
-              const next = saveStoredResponse(token, {
-                id,
-                edit_token: urlEdit,
-                at: Date.now(),
-                answers: fetched,
-              });
-              if (next) setStoredResponses(next);
-            }
-          } else {
-            setEditNotice(
-              (data && data.error) ||
-                "We couldn't find answers for that edit link. You can fill the form in fresh.",
-            );
-            setEditToken("");
-            setStep(INTRO);
-          }
-        } catch {
-          if (!cancelled) {
-            setEditNotice("We couldn't reach the Luna. Check your connection and try again.");
-            setEditToken("");
-          }
-        } finally {
-          if (!cancelled) setCheckingEdit(false);
         }
-        return;
-      }
-
-      if (cancelled) return;
-      if (stored.length > 0) {
-        // This device has sent answers before — land on the completed state,
-        // not the fresh intro.
-        setStep(COMPLETED);
-        return;
-      }
-
-      if (limitOne && readCookie(cookieName("done", token))) {
-        setAlreadyDone(true);
-      }
-    })();
+        if (cancelled) return;
+        setEditToken(urlEdit);
+        setResponseId(typeof data?.id === "string" ? data.id : "");
+        setAnswers(data && typeof data.answers === "object" && data.answers ? data.answers : {});
+        setIsEdit(true);
+        setFilling(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setEditNotice(apiErrorMessage(err, "We couldn't find answers for that edit link. You can fill the form in fresh."));
+        setFilling(true);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingEdit(false);
+      });
     return () => { cancelled = true; };
-  }, [token, sharePassword, collecting, allowEdits, limitOne, questions.length, searchParams]);
+  }, [token, sharePassword, urlEdit]);
 
-  // Keep the footer controls reachable while the on-screen keyboard is up:
-  // ask the browser to shrink the layout viewport instead of overlapping.
-  useEffect(() => {
-    const meta = document.querySelector('meta[name="viewport"]');
-    if (!meta) return undefined;
-    const prev = meta.getAttribute("content") || "";
-    if (prev.includes("interactive-widget")) return undefined;
-    meta.setAttribute("content", `${prev}, interactive-widget=resizes-content`);
-    return () => {
-      meta.setAttribute("content", prev);
-    };
-  }, []);
-
-  const currentQuestion = step >= 0 && step < questions.length ? questions[step] : null;
-
-  // Stored responses that still carry a usable edit secret — the pickable
-  // set for the edit picker.
   const editableResponses = storedResponses.filter(
     (r) => typeof r.edit_token === "string" && r.edit_token !== "",
   );
 
-  function setAnswer(questionId, value, { autoAdvance = false } = {}) {
+  function setAnswer(questionId, value) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
-    setFieldError("");
-    if (autoAdvance) {
-      if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
-      autoAdvanceRef.current = setTimeout(() => {
-        haptic("light"); // step transition
-        setStep((s) => Math.min(s + 1, questions.length));
-      }, AUTO_ADVANCE_MS);
-    }
+    setErrors((prev) => {
+      if (!prev[questionId]) return prev;
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
   }
 
-  function goBack() {
-    haptic("light");
-    setFieldError("");
-    setStep((s) => Math.max(INTRO, s - 1));
-  }
-
-  function goForward() {
-    if (currentQuestion) {
-      if (
-        currentQuestion.required &&
-        !isAnswered(currentQuestion, answers[currentQuestion.id])
-      ) {
-        haptic("error");
-        setFieldError("This one needs an answer before you continue.");
-        setShakeKey((k) => k + 1);
-        return;
-      }
-    }
-    haptic("light");
-    setFieldError("");
-    setStep((s) => Math.min(s + 1, questions.length));
-  }
-
-  /** "Respond again" — a genuinely new response: fresh secret, no target id. */
-  function respondAgain() {
-    haptic("light");
-    setAnswers({});
-    setEditToken("");
-    setResponseId("");
-    setIsEdit(false);
-    setEditErrors({});
-    setPicking(false);
-    setStep(INTRO);
-  }
-
-  /** Open the single-page edit view for one stored response. */
   function openEdit(entry) {
     haptic("selection");
     setEditToken(typeof entry.edit_token === "string" ? entry.edit_token : "");
     setResponseId(entry.id);
     setAnswers(entry.answers && typeof entry.answers === "object" ? entry.answers : {});
     setIsEdit(true);
-    setEditErrors({});
+    setErrors({});
     setPicking(false);
-    setEditing(true);
+    setDone(false);
+    setFilling(true);
+  }
+
+  function respondAgain() {
+    haptic("light");
+    setAnswers({});
+    setEditToken("");
+    setResponseId("");
+    setIsEdit(false);
+    setErrors({});
+    setSubmitError("");
+    setDone(false);
+    setFilling(true);
+  }
+
+  function answersToSend() {
+    /** @type {Record<string, unknown>} */
+    const body = {};
+    for (const q of shown) {
+      if (q.id in answers) body[q.id] = answers[q.id];
+    }
+    return body;
+  }
+
+  function validate() {
+    /** @type {Record<string, string>} */
+    const next = {};
+    for (const q of shown) {
+      const value = answers[q.id];
+      if (q.required && !isAnswered(q, value)) {
+        next[q.id] = "This one needs an answer.";
+        continue;
+      }
+      if (q.type === "email" && isAnswered(q, value) && !isEmailAddress(value)) {
+        next[q.id] = "That doesn't look like an email address.";
+      }
+      if (q.type === "number" && isAnswered(q, value)) {
+        const n = Number(value);
+        const min = q.config?.min;
+        const max = q.config?.max;
+        if (!Number.isFinite(n)) next[q.id] = "Enter a number.";
+        else if (typeof min === "number" && n < min) next[q.id] = `Enter at least ${min}.`;
+        else if (typeof max === "number" && n > max) next[q.id] = `Enter at most ${max}.`;
+      }
+    }
+    return next;
   }
 
   async function submit() {
     if (submitting) return;
+    const found = validate();
+    if (Object.keys(found).length) {
+      haptic("error");
+      setErrors(found);
+      const first = shown.find((q) => found[q.id]);
+      if (first) {
+        document.getElementById(`q-${first.id}`)?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
     setSubmitting(true);
     setSubmitError("");
     const tokenToUse = allowEdits ? editToken || newEditToken() : "";
     try {
-      const headers = {
+      const headers = withCsrfHeaders("POST", {
         "Content-Type": "application/json",
         Accept: "application/json",
-      };
+      });
       if (sharePassword) headers["X-Share-Password"] = sharePassword;
-      // Edit material only goes out when the form allows changes — the
-      // server refuses a carried edit token or response id outright when
-      // `allowEdits` is off.
-      const body = { answers };
+      const payload = { answers: answersToSend() };
       if (allowEdits) {
-        body.edit_token = tokenToUse;
-        if (responseId) body.response_id = responseId;
+        payload.edit_token = tokenToUse;
+        if (responseId) payload.response_id = responseId;
       }
       const res = await fetch(`/s/${encodeURIComponent(token)}/respond`, {
         method: "POST",
         headers,
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -348,34 +310,28 @@ export default function FormResponder({ token, form, sharePassword = "" }) {
         );
       }
       const id = typeof data?.id === "string" ? data.id : responseId;
-      // The cookie only marks "done" for the responseLimit gate — the real
-      // record of what this device sent lives in localStorage.
       writeCookie(cookieName("done", token), "1");
       if (id) {
         const entry = allowEdits
           ? {
               id,
               edit_token:
-                data && typeof data.edit_token === "string"
-                  ? data.edit_token
-                  : tokenToUse,
+                data && typeof data.edit_token === "string" ? data.edit_token : tokenToUse,
               at: Date.now(),
-              answers,
+              answers: answersToSend(),
             }
-          : { id, at: Date.now(), answers };
+          : { id, at: Date.now(), answers: answersToSend() };
         const next = saveStoredResponse(token, entry);
         if (next) setStoredResponses(next);
       }
       setEditToken(
-        allowEdits && data && typeof data.edit_token === "string"
-          ? data.edit_token
-          : tokenToUse,
+        allowEdits && data && typeof data.edit_token === "string" ? data.edit_token : tokenToUse,
       );
       if (id) setResponseId(id);
       setIsEdit(true);
-      setEditing(false);
-      setPicking(false);
-      setStep(questions.length + 1);
+      setFilling(false);
+      setDone(true);
+      setJustSent(true);
       haptic("success");
     } catch (err) {
       haptic("error");
@@ -385,76 +341,13 @@ export default function FormResponder({ token, form, sharePassword = "" }) {
     }
   }
 
-  // Edit view: every answer on one page — clear a field's error as it is
-  // fixed, then check required questions once on Save.
-  function setEditAnswer(questionId, value) {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }));
-    setEditErrors((prev) => {
-      if (!prev[questionId]) return prev;
-      const next = { ...prev };
-      delete next[questionId];
-      return next;
-    });
-  }
+  const editLink = editToken ? `${window.location.origin}/s/${token}?edit=${editToken}` : "";
 
-  function saveEdits() {
-    const missing = {};
-    for (const q of questions) {
-      if (q.required && !isAnswered(q, answers[q.id])) {
-        missing[q.id] = "This one needs an answer.";
-      }
-    }
-    setEditErrors(missing);
-    if (Object.keys(missing).length > 0) {
-      haptic("error");
-      return;
-    }
-    submit();
-  }
-
-  function onTouchStart(e) {
-    touchYRef.current = e.touches?.[0]?.clientY ?? null;
-  }
-
-  function onTouchEnd(e) {
-    const start = touchYRef.current;
-    touchYRef.current = null;
-    if (start == null || done || review || step === COMPLETED) return;
-    const dy = (e.changedTouches?.[0]?.clientY ?? start) - start;
-    if (dy < -SWIPE_PX) goForward();
-    else if (dy > SWIPE_PX) goBack();
-  }
-
-  const editLink = `${window.location.origin}/s/${token}?edit=${editToken}`;
-
-  // ---- state cards -------------------------------------------------------
-
-  if (!collecting) {
+  if (!accepting) {
     return (
       <StageCard
         title={form?.title || "This form"}
-        subtitle="This form isn't collecting answers anymore."
-      />
-    );
-  }
-
-  if (alreadyDone) {
-    return (
-      <StageCard
-        title="You've already answered this form"
-        subtitle="This form takes one answer per person. If that wasn't you, the form owner can share a fresh link."
-        action={
-          <Button
-            variant="accent"
-            surface="secondary"
-            onClick={() => {
-              haptic("light");
-              setAlreadyDone(false);
-            }}
-          >
-            Answer anyway
-          </Button>
-        }
+        subtitle={closedMessage || "This form isn't collecting answers anymore."}
       />
     );
   }
@@ -479,227 +372,188 @@ export default function FormResponder({ token, form, sharePassword = "" }) {
         onBack={() => {
           haptic("light");
           setPicking(false);
+          setDone(true);
         }}
       />
     );
   }
 
-  if (editing) {
+  if (alreadyDone && !filling) {
     return (
-      <EditAllScreen
-        title={form?.title || "Untitled form"}
-        questions={questions}
-        answers={answers}
-        errors={editErrors}
-        submitting={submitting}
-        submitError={submitError}
-        onAnswer={setEditAnswer}
-        onSave={saveEdits}
-        onCancel={() => {
-          haptic("selection");
-          setEditErrors({});
-          setEditing(false);
-        }}
+      <StageCard
+        title="You've already answered this form"
+        subtitle="This form asks for one answer per person. This browser remembers that — it's a reminder, not a lock. Another device can still answer."
+        action={
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {allowEdits && editableResponses.length > 0 && (
+              <Button
+                variant="accent"
+                surface="primary"
+                onClick={() => {
+                  if (editableResponses.length === 1) openEdit(editableResponses[0]);
+                  else {
+                    haptic("selection");
+                    setPicking(true);
+                  }
+                }}
+              >
+                {editableResponses.length === 1 ? "Edit response" : "Edit responses"}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              surface="primary"
+              onClick={() => {
+                haptic("light");
+                setAlreadyDone(false);
+                respondAgain();
+              }}
+            >
+              Answer anyway
+            </Button>
+          </div>
+        }
       />
     );
   }
 
-  // ---- flow ---------------------------------------------------------------
+  if (done && !filling) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+        <div className="w-full max-w-xl space-y-4 text-center">
+          <CheckCircle2 size={ICON_SIZE.xl} className="mx-auto text-success" aria-hidden="true" />
+          <h1 className="font-mono text-2xl text-secondary">
+            {justSent
+              ? thankYou
+              : storedResponses.length === 1
+                ? "You've answered this form"
+                : `You've sent ${storedResponses.length} answers`}
+          </h1>
+          {allowEdits && editLink && (
+            <div className="space-y-2">
+              <p className="text-sm text-secondary">
+                Want to change your answers later? Keep this link — it's only for you.
+              </p>
+              <CopyableValue value={editLink} surface="secondary" />
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {allowEdits && editableResponses.length > 0 && (
+              <Button
+                variant="accent"
+                surface="primary"
+                size="lg"
+                onClick={() => {
+                  if (editableResponses.length === 1) openEdit(editableResponses[0]);
+                  else {
+                    haptic("selection");
+                    setPicking(true);
+                  }
+                }}
+              >
+                {editableResponses.length === 1 ? "Edit response" : "Edit responses"}
+              </Button>
+            )}
+            {!limitOne && !full && (
+              <Button variant="ghost" surface="primary" size="lg" onClick={respondAgain}>
+                Respond again
+              </Button>
+            )}
+          </div>
+          {limitOne && (
+            <p className="text-xs text-accent">
+              This form asks for one answer per person. This browser remembers that — it's a reminder, not a lock.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-  const progress = questions.length === 0 ? 1 : Math.min(1, Math.max(0, step + 1) / (questions.length + 1));
+  if (full && !isEdit) {
+    return (
+      <StageCard
+        title={form?.title || "This form"}
+        subtitle={closedMessage || "This form has all the answers it can take."}
+      />
+    );
+  }
 
   return (
     <form
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       onSubmit={(e) => {
         e.preventDefault();
-        if (review) submit();
-        else if (!done) goForward();
+        submit();
       }}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
     >
-      {/* progress */}
-      <div className="h-1 w-full bg-secondary/20">
-        <div
-          className="h-full bg-accent motion-safe:transition-all motion-safe:duration-300"
-          style={{ width: `${Math.round(progress * 100)}%` }}
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress * 100)}
-          aria-label="Form progress"
-        />
-      </div>
-
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        {step === COMPLETED ? (
-          <div className="w-full max-w-xl space-y-4 text-center">
-            <CheckCircle2 size={ICON_SIZE.xl} className="mx-auto text-success" aria-hidden="true" />
-            <h1 className="font-mono text-2xl text-secondary">
-              {storedResponses.length === 1
-                ? "You've answered this form"
-                : `You've sent ${storedResponses.length} answers`}
-            </h1>
-            <p className="text-sm text-secondary">
-              {limitOne
-                ? "This form takes one answer per person."
-                : "Change an answer you sent, or send another one."}
+      <div className="mx-auto w-full max-w-2xl space-y-4 p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-6">
+        {editNotice && <PageNotice variant="warning">{editNotice}</PageNotice>}
+        <div className="rounded-large-element bg-secondary text-primary p-5 space-y-2">
+          <h1 className="font-mono text-xl font-normal text-primary">
+            {isEdit ? "Change your answers" : (form?.title || "Untitled form")}
+          </h1>
+          {!isEdit && form?.description ? (
+            <p className="whitespace-pre-wrap text-sm text-primary">{form.description}</p>
+          ) : null}
+          {isEdit && (
+            <p className="text-sm text-primary">
+              This is the same form. Change what you need, then send it again.
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {allowEdits && editableResponses.length > 0 && (
-                <Button
-                  variant="accent"
-                  surface="secondary"
-                  size="lg"
-                  onClick={() => {
-                    if (editableResponses.length === 1) {
-                      openEdit(editableResponses[0]);
-                    } else {
-                      haptic("selection");
-                      setPicking(true);
-                    }
-                  }}
-                >
-                  {editableResponses.length === 1 ? "Edit Response" : "Edit Responses"}
-                </Button>
-              )}
-              {!limitOne && (
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="lg"
-                  onClick={respondAgain}
-                >
-                  Respond again
-                </Button>
-              )}
-            </div>
-          </div>
-        ) : step === INTRO ? (
-          <div className="w-full max-w-xl space-y-4 text-center">
-            {editNotice && <PageNotice variant="warning">{editNotice}</PageNotice>}
-            <h1 className="font-mono text-2xl text-secondary">{form?.title || "Untitled form"}</h1>
-            {form?.description && (
-              <p className="whitespace-pre-wrap text-sm text-secondary">{form.description}</p>
-            )}
-            {questions.length === 0 ? (
-              <p className="text-sm text-secondary">
-                This form doesn&apos;t have any questions yet — check back later.
-              </p>
-            ) : (
-              <>
-                <p className="text-xs text-accent">
-                  {questions.length === 1 ? "1 question" : `${questions.length} questions`} — press Enter or swipe up to move on.
-                </p>
-                <Button variant="accent" surface="secondary" size="lg" onClick={goForward}>
-                  Start
-                  <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
-                </Button>
-              </>
-            )}
-          </div>
-        ) : currentQuestion ? (
-          <QuestionScreen
-            key={`${currentQuestion.id}:${shakeKey}`}
-            question={currentQuestion}
-            index={step}
-            count={questions.length}
-            value={answers[currentQuestion.id]}
-            error={fieldError}
-            onAnswer={(value, opts) => setAnswer(currentQuestion.id, value, opts)}
-          />
-        ) : review ? (
-          <div className="w-full max-w-xl space-y-4">
-            <h1 className="font-mono text-2xl text-secondary">
-              {isEdit ? "Change your answers" : "Look it over"}
-            </h1>
-            <p className="text-sm text-secondary">
-              {isEdit
-                ? "Tap any line to change it, then send again."
-                : "Tap any line to go back and change it."}
-            </p>
-            <div className="space-y-2">
-              {questions.map((q, i) => (
-                <button
-                  key={q.id}
-                  type="button"
-                  className="flex w-full items-start gap-3 rounded-large-element bg-primary text-secondary p-4 text-left hover:bg-secondary/10 motion-safe:transition-colors"
-                  onClick={() => {
-                    haptic("selection");
-                    setStep(i);
-                  }}
-                >
-                  <span className="font-mono text-xs text-accent pt-0.5">{i + 1}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-secondary">
-                      {q.label || "Untitled question"}
-                    </span>
-                    <span className={cn("block truncate text-sm", isAnswered(q, answers[q.id]) ? "text-secondary" : "text-accent")}>
-                      {isAnswered(q, answers[q.id]) ? formatAnswer(q, answers[q.id]) : "No answer yet"}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            {submitError && <PageNotice variant="error">{submitError}</PageNotice>}
-            <div className="flex items-center justify-between gap-2">
-              <Button variant="ghost" surface="secondary" onClick={goBack}>
-                <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
-                Back
-              </Button>
-              <Button
-                variant="accent"
-                surface="secondary"
-                type="submit"
-                disabled={submitting}
-              >
-                {submitting ? "Sending…" : isEdit ? "Send changes" : "Send answers"}
-                <Send size={ICON_SIZE.sm} aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-        ) : done ? (
-          <div className="w-full max-w-xl space-y-4 text-center">
-            <CheckCircle2 size={ICON_SIZE.xl} className="mx-auto text-success" aria-hidden="true" />
-            <h1 className="font-mono text-2xl text-secondary">Sent — thank you</h1>
-            {allowEdits && (
-              <div className="space-y-2">
-                <p className="text-sm text-secondary">
-                  Want to change your answers later? Keep this link — it&apos;s only for you.
-                </p>
-                <CopyableValue value={editLink} surface="secondary" />
-                <div>
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    onClick={() => {
-                      haptic("selection");
-                      setEditing(true);
-                    }}
-                  >
-                    Edit Response
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      {/* back/forward chrome on question screens */}
-      {currentQuestion && !done && (
-        <div className="flex items-center justify-between gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-          <Button variant="ghost" surface="secondary" onClick={goBack}>
-            <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
-            Back
-          </Button>
-          <Button variant="accent" surface="secondary" type="submit">
-            {step === questions.length - 1 ? "Review answers" : "Continue"}
-            <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
-          </Button>
+          )}
         </div>
-      )}
+
+        {shown.length === 0 ? (
+          <p className="text-sm text-secondary">
+            This form doesn't have any questions yet — check back later.
+          </p>
+        ) : (
+          shown.map((question, index) => (
+            <section
+              key={question.id}
+              id={`q-${question.id}`}
+              className="rounded-large-element bg-secondary text-primary p-5 space-y-3"
+            >
+              <p className="font-mono text-xs font-normal uppercase tracking-widest text-accent">
+                {index + 1} of {shown.length}
+                {question.required ? " · required" : ""}
+              </p>
+              <h2 className="text-base text-primary">
+                {question.label || "Untitled question"}
+              </h2>
+              {question.help ? (
+                <p className="text-sm text-primary">{question.help}</p>
+              ) : null}
+              {question.image ? (
+                <img
+                  src={`/s/${encodeURIComponent(token)}/form-image?path=${encodeURIComponent(question.image)}`}
+                  alt=""
+                  className="max-h-64 w-full rounded-large-element object-contain bg-primary"
+                />
+              ) : null}
+              <QuestionField
+                question={question}
+                value={answers[question.id]}
+                error={errors[question.id] || ""}
+                token={token}
+                sharePassword={sharePassword}
+                onAnswer={(value) => setAnswer(question.id, value)}
+              />
+            </section>
+          ))
+        )}
+
+        {submitError && <PageNotice variant="error">{submitError}</PageNotice>}
+
+        {shown.length > 0 && (
+          <div className="flex justify-end">
+            <Button variant="accent" surface="primary" type="submit" disabled={submitting}>
+              {submitting ? "Sending…" : isEdit ? "Save changes" : "Send answers"}
+              <Send size={ICON_SIZE.sm} aria-hidden="true" />
+            </Button>
+          </div>
+        )}
+      </div>
     </form>
   );
 }
@@ -708,18 +562,20 @@ FormResponder.propTypes = {
   token: PropTypes.string.isRequired,
   form: PropTypes.object.isRequired,
   sharePassword: PropTypes.string,
+  accepting: PropTypes.bool,
+  full: PropTypes.bool,
+  closedMessage: PropTypes.string,
 };
 
 /**
- * Centered message card for closed/already-answered states.
  * @param {{ title: string, subtitle: string, action?: import("react").ReactNode }} props
  */
 function StageCard({ title, subtitle, action }) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-3 rounded-large-element bg-secondary text-primary p-6 text-center">
-        <h1 className="font-mono text-xl text-primary">{title}</h1>
-        <p className="text-sm text-primary">{subtitle}</p>
+      <div className="w-full max-w-xl space-y-3 text-center">
+        <h1 className="font-mono text-2xl text-secondary">{title}</h1>
+        <p className="text-sm text-secondary">{subtitle}</p>
         {action}
       </div>
     </div>
@@ -733,129 +589,6 @@ StageCard.propTypes = {
 };
 
 /**
- * One question per screen — the stepped first-run flow.
- */
-function QuestionScreen({ question, index, count, value, error, onAnswer }) {
-  return (
-    <div className="w-full max-w-xl space-y-4 animate-fade-in">
-      <p className="font-mono text-xs uppercase tracking-widest text-accent">
-        {index + 1} of {count}
-        {question.required ? " · required" : ""}
-      </p>
-      <h1 className="font-mono text-2xl text-secondary">{question.label || "Untitled question"}</h1>
-      <QuestionField question={question} value={value} error={error} onAnswer={onAnswer} />
-    </div>
-  );
-}
-
-QuestionScreen.propTypes = {
-  question: PropTypes.object.isRequired,
-  index: PropTypes.number.isRequired,
-  count: PropTypes.number.isRequired,
-  value: PropTypes.any,
-  error: PropTypes.string,
-  onAnswer: PropTypes.func.isRequired,
-};
-
-/**
- * Every question on one scrollable page — used when a respondent changes
- * answers they already sent. Save checks required questions once and sends
- * the amended answers through the same respond endpoint with the edit
- * secret.
- * @param {{
- *   title: string,
- *   questions: object[],
- *   answers: Record<string, unknown>,
- *   errors: Record<string, string>,
- *   submitting: boolean,
- *   submitError: string,
- *   onAnswer: (questionId: string, value: unknown) => void,
- *   onSave: () => void,
- *   onCancel: () => void,
- * }} props
- */
-function EditAllScreen({
-  title,
-  questions,
-  answers,
-  errors,
-  submitting,
-  submitError,
-  onAnswer,
-  onSave,
-  onCancel,
-}) {
-  return (
-    <form
-      className="flex min-h-0 flex-1 flex-col"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSave();
-      }}
-    >
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto w-full max-w-xl space-y-6 pb-2">
-          <header className="space-y-1">
-            <h1 className="font-mono text-2xl text-secondary">Change your answers</h1>
-            <p className="text-sm text-secondary">
-              {title} — change what you need, then save at the bottom.
-            </p>
-          </header>
-          {questions.map((q, i) => (
-            <section key={q.id} className="space-y-2">
-              <p className="font-mono text-xs uppercase tracking-widest text-accent">
-                {i + 1} of {questions.length}
-                {q.required ? " · required" : ""}
-              </p>
-              <h2 className="font-mono text-lg text-secondary">
-                {q.label || "Untitled question"}
-              </h2>
-              <QuestionField
-                question={q}
-                value={answers[q.id]}
-                error={errors[q.id]}
-                onAnswer={(value) => onAnswer(q.id, value)}
-              />
-            </section>
-          ))}
-          {submitError && <PageNotice variant="error">{submitError}</PageNotice>}
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <Button variant="ghost" surface="secondary" onClick={onCancel}>
-          <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
-          Cancel
-        </Button>
-        <Button
-          variant="accent"
-          surface="secondary"
-          type="submit"
-          disabled={submitting}
-        >
-          {submitting ? "Saving…" : "Save changes"}
-          <Send size={ICON_SIZE.sm} aria-hidden="true" />
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-EditAllScreen.propTypes = {
-  title: PropTypes.string.isRequired,
-  questions: PropTypes.arrayOf(PropTypes.object).isRequired,
-  answers: PropTypes.object.isRequired,
-  errors: PropTypes.object.isRequired,
-  submitting: PropTypes.bool.isRequired,
-  submitError: PropTypes.string.isRequired,
-  onAnswer: PropTypes.func.isRequired,
-  onSave: PropTypes.func.isRequired,
-  onCancel: PropTypes.func.isRequired,
-};
-
-/**
- * Which saved answer to change — shown when this device has sent several.
- * Each row shows when it was sent plus a preview of the first answered
- * question so the entries are easy to tell apart.
  * @param {{
  *   responses: object[],
  *   questions: object[],
@@ -866,45 +599,28 @@ EditAllScreen.propTypes = {
 function ResponsePicker({ responses, questions, onPick, onBack }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <div className="mx-auto w-full max-w-xl space-y-4">
-          <header className="space-y-1">
-            <h1 className="font-mono text-2xl text-secondary">
-              Which answer do you want to change?
-            </h1>
-            <p className="text-sm text-secondary">
-              Pick one of the answers you&apos;ve sent.
-            </p>
-          </header>
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+        <div className="w-full max-w-xl space-y-4">
+          <h1 className="font-mono text-xl text-secondary">Which answer do you want to change?</h1>
           <div className="space-y-2">
-            {responses.map((entry, i) => (
+            {responses.map((entry) => (
               <button
                 key={entry.id}
                 type="button"
-                className="flex w-full items-start gap-3 rounded-large-element bg-primary text-secondary p-4 text-left hover:bg-secondary/10 motion-safe:transition-colors"
+                className="flex w-full flex-col gap-1 rounded-large-element bg-secondary text-primary p-4 text-left hover:bg-primary/10 motion-safe:transition-colors"
                 onClick={() => onPick(entry)}
               >
-                <span className="pt-0.5 font-mono text-xs text-accent">{i + 1}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-secondary">
-                    {responsePreview(entry, questions)}
-                  </span>
-                  <span className="block text-xs text-accent">
-                    {formatSentAt(entry.at)}
-                  </span>
+                <span className="font-mono text-xs font-normal text-accent">{formatSentAt(entry.at)}</span>
+                <span className="truncate text-sm text-primary">
+                  {responsePreview(entry, questions)}
                 </span>
-                <ArrowRight
-                  size={ICON_SIZE.sm}
-                  className="mt-0.5 shrink-0 text-accent"
-                  aria-hidden="true"
-                />
               </button>
             ))}
           </div>
         </div>
       </div>
       <div className="flex items-center gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <Button variant="ghost" surface="secondary" onClick={onBack}>
+        <Button variant="ghost" surface="primary" onClick={onBack}>
           <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
           Back
         </Button>
@@ -921,34 +637,80 @@ ResponsePicker.propTypes = {
 };
 
 /**
- * The answer control for one question. Choice/yes-no pick from pills; text
- * types get a single field; dropdown uses a native select; date uses a date
- * input. Unknown future types degrade to a short text field. Shared by the
- * stepped flow and the single-page edit view.
+ * The answer control for one question, on the same card the editor shows.
+ * @param {{
+ *   question: object,
+ *   value: unknown,
+ *   error?: string,
+ *   token: string,
+ *   sharePassword?: string,
+ *   onAnswer: (value: unknown) => void,
+ * }} props
  */
-function QuestionField({ question, value, error, onAnswer }) {
-  const info = typeInfo(question.type);
+function QuestionField({ question, value, error, token, sharePassword, onAnswer }) {
   const options = answerOptions(question);
+  const allowOther = question?.config?.allowOther === true;
   const inputClass =
     "w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent";
-  const picked = Array.isArray(value) ? value : value != null ? [String(value)] : [];
+  const picked = Array.isArray(value) ? value.map(String) : value != null && value !== "" ? [String(value)] : [];
+  const otherText = allowOther
+    ? picked.find((p) => !options.includes(p)) || ""
+    : "";
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [fileLabel, setFileLabel] = useState("");
+  const fileRef = useRef(null);
 
-  // Keep the focused field (and the controls below it) clear of the
-  // on-screen keyboard on small screens.
   function focusField(e) {
     e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
+  async function onFile(file) {
+    if (!file) return;
+    if (!isAllowedUploadName(file.name)) {
+      haptic("error");
+      setUploadError("Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      haptic("error");
+      setUploadError("That file is over 10 MB. Choose a smaller photo or PDF.");
+      return;
+    }
+    setUploading(true);
+    setUploadError("");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const headers = withCsrfHeaders("POST");
+      if (sharePassword) headers["X-Share-Password"] = sharePassword;
+      const res = await fetch(`/s/${encodeURIComponent(token)}/respond-file`, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.name) {
+        throw new Error((data && data.error) || "Couldn't attach that file. Try again.");
+      }
+      setFileLabel(file.name);
+      onAnswer(data.name);
+      haptic("success");
+    } catch (err) {
+      haptic("error");
+      setUploadError(apiErrorMessage(err, "Couldn't attach that file. Try again."));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
-      {info.hint && <p className="text-sm text-accent">{info.hint}</p>}
-
       {question.type === "choice" || question.type === "yes_no" ? (
         <div className="flex flex-col gap-2">
           {options.map((option) => {
-            const selected = question.type === "yes_no"
-              ? value === (option === "Yes" ? "yes" : "no")
-              : value === option;
+            const stored = question.type === "yes_no" ? (option === "Yes" ? "yes" : "no") : option;
+            const selected = value === stored;
             return (
               <button
                 key={option}
@@ -962,16 +724,21 @@ function QuestionField({ question, value, error, onAnswer }) {
                 aria-pressed={selected}
                 onClick={() => {
                   haptic("selection");
-                  onAnswer(
-                    question.type === "yes_no" ? (option === "Yes" ? "yes" : "no") : option,
-                    { autoAdvance: true },
-                  );
+                  onAnswer(stored);
                 }}
               >
                 {option}
               </button>
             );
           })}
+          {allowOther && question.type === "choice" && (
+            <OtherLine
+              selected={otherText !== "" || value === "__other__"}
+              text={otherText}
+              onPick={() => onAnswer(otherText)}
+              onText={(text) => onAnswer(text)}
+            />
+          )}
         </div>
       ) : question.type === "multi_choice" ? (
         <div className="flex flex-col gap-2">
@@ -990,9 +757,7 @@ function QuestionField({ question, value, error, onAnswer }) {
                 aria-pressed={selected}
                 onClick={() => {
                   haptic("selection");
-                  const next = selected
-                    ? picked.filter((p) => p !== option)
-                    : [...picked, option];
+                  const next = selected ? picked.filter((p) => p !== option) : [...picked, option];
                   onAnswer(next);
                 }}
               >
@@ -1000,24 +765,49 @@ function QuestionField({ question, value, error, onAnswer }) {
               </button>
             );
           })}
+          {allowOther && (
+            <OtherLine
+              selected={otherText !== ""}
+              text={otherText}
+              onPick={() => {
+                if (!otherText) return;
+                onAnswer([...picked.filter((p) => options.includes(p)), otherText]);
+              }}
+              onText={(text) => {
+                const kept = picked.filter((p) => options.includes(p));
+                onAnswer(text ? [...kept, text] : kept);
+              }}
+            />
+          )}
         </div>
       ) : question.type === "dropdown" ? (
-        <select
-          className={inputClass}
-          value={typeof value === "string" ? value : ""}
-          onFocus={focusField}
-          onChange={(e) => onAnswer(e.target.value)}
-          aria-label={question.label || "Pick one"}
-        >
-          <option value="" disabled>
-            Pick one…
-          </option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        <div className="space-y-2">
+          <Dropdown
+            options={[
+              ...options.map((option) => ({ value: option, label: option })),
+              ...(allowOther ? [{ value: "__other__", label: "Other" }] : []),
+            ]}
+            value={options.includes(String(value ?? "")) ? String(value) : otherText ? "__other__" : ""}
+            onChange={(next) => {
+              if (next === "__other__") onAnswer(otherText);
+              else onAnswer(next);
+            }}
+            placeholder="Pick one…"
+            bg="primary"
+            fullWidth
+            aria-label={question.label || "Pick one"}
+          />
+          {allowOther && (otherText !== "" || value === "__other__" || (value && !options.includes(String(value)))) && (
+            <input
+              className={inputClass}
+              value={otherText}
+              onFocus={focusField}
+              onChange={(e) => onAnswer(e.target.value)}
+              placeholder="Type your answer"
+              aria-label="Other answer"
+            />
+          )}
+        </div>
       ) : question.type === "date" ? (
         <input
           type="date"
@@ -1027,6 +817,61 @@ function QuestionField({ question, value, error, onAnswer }) {
           onChange={(e) => onAnswer(e.target.value)}
           aria-label={question.label || "Pick a day"}
         />
+      ) : question.type === "number" ? (
+        <input
+          type="number"
+          className={inputClass}
+          value={value == null ? "" : String(value)}
+          min={typeof question.config?.min === "number" ? question.config.min : undefined}
+          max={typeof question.config?.max === "number" ? question.config.max : undefined}
+          onFocus={focusField}
+          onChange={(e) => onAnswer(e.target.value === "" ? "" : Number(e.target.value))}
+          placeholder="0"
+          aria-label={question.label || "A number"}
+        />
+      ) : question.type === "email" ? (
+        <input
+          type="email"
+          className={inputClass}
+          value={typeof value === "string" ? value : ""}
+          onFocus={focusField}
+          onChange={(e) => onAnswer(e.target.value)}
+          placeholder="name@example.com"
+          aria-label={question.label || "Email"}
+          autoComplete="email"
+        />
+      ) : question.type === "file" ? (
+        <div className="space-y-2">
+          <Button
+            type="button"
+            variant="outline"
+            surface="secondary"
+            disabled={uploading}
+            aria-label={question.label ? `${question.label}. Attach a photo or PDF` : "Attach a photo or PDF"}
+            onClick={() => fileRef.current?.click()}
+          >
+            {uploading ? "Attaching…" : "Attach a photo or PDF"}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept={FILE_ACCEPT}
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              onFile(file);
+            }}
+          />
+          {(fileLabel || (typeof value === "string" && value)) && (
+            <p className="text-sm text-primary">
+              Attached: {fileLabel || value}
+            </p>
+          )}
+          {uploadError && <PageNotice variant="error">{uploadError}</PageNotice>}
+        </div>
       ) : question.type === "long_text" ? (
         <textarea
           className={cn(inputClass, "rounded-large-element min-h-32 resize-y")}
@@ -1047,7 +892,6 @@ function QuestionField({ question, value, error, onAnswer }) {
           aria-label={question.label || "Your answer"}
         />
       )}
-
       {error && <PageNotice variant="error">{error}</PageNotice>}
     </div>
   );
@@ -1057,5 +901,47 @@ QuestionField.propTypes = {
   question: PropTypes.object.isRequired,
   value: PropTypes.any,
   error: PropTypes.string,
+  token: PropTypes.string.isRequired,
+  sharePassword: PropTypes.string,
   onAnswer: PropTypes.func.isRequired,
+};
+
+/**
+ * @param {{ selected: boolean, text: string, onPick: () => void, onText: (text: string) => void }} props
+ */
+function OtherLine({ selected, text, onPick, onText }) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <button
+        type="button"
+        className={cn(
+          "rounded-pill border-2 px-4 py-3 text-left text-base motion-safe:transition-colors",
+          selected
+            ? "border-accent bg-accent text-primary"
+            : "border-secondary/30 bg-primary text-secondary hover:border-accent",
+        )}
+        aria-pressed={selected}
+        onClick={() => {
+          haptic("selection");
+          onPick();
+        }}
+      >
+        Other
+      </button>
+      <input
+        className="min-w-0 flex-1 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent"
+        value={text}
+        onChange={(e) => onText(e.target.value)}
+        placeholder="Type your answer"
+        aria-label="Other answer"
+      />
+    </div>
+  );
+}
+
+OtherLine.propTypes = {
+  selected: PropTypes.bool,
+  text: PropTypes.string,
+  onPick: PropTypes.func.isRequired,
+  onText: PropTypes.func.isRequired,
 };

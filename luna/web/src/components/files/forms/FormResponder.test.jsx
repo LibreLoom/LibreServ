@@ -52,9 +52,7 @@ function lastPost(fetchMock) {
 }
 
 async function answerFlowAndSend() {
-  fireEvent.click(await screen.findByRole("button", { name: /^Start/i }));
   fireEvent.click(await screen.findByRole("button", { name: "Yes" }));
-  fireEvent.click(await screen.findByRole("button", { name: /Review answers/i }));
   fireEvent.click(await screen.findByRole("button", { name: /Send answers/i }));
   await screen.findByText(/Sent — thank you/i);
 }
@@ -262,10 +260,8 @@ describe("FormResponder", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Respond again/i }),
     );
-    // Fresh intro → blank answers.
-    fireEvent.click(await screen.findByRole("button", { name: /^Start/i }));
+    // The form itself, blank — the same page, not a stepped intro.
     fireEvent.click(await screen.findByRole("button", { name: "No" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Review answers/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Send answers/i }));
 
     await waitFor(() => {
@@ -354,6 +350,6 @@ describe("FormResponder", () => {
     expect(
       await screen.findByText(/doesn't let you change answers/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Start/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Send answers/i })).toBeInTheDocument();
   });
 });

@@ -332,7 +332,7 @@ function PublicShareSession() {
     }
   }
 
-  // Respond links take over the whole page — one question per screen.
+  // Respond links take over the whole page — the form, as the editor laid it out.
   if (formDoc && !needPassword) {
     return (
       <div className="flex min-h-screen flex-col bg-primary text-secondary">
@@ -350,6 +350,9 @@ function PublicShareSession() {
             token={token}
             form={formDoc.form && typeof formDoc.form === "object" ? formDoc.form : {}}
             sharePassword={submittedPassword}
+            accepting={formDoc.accepting !== false}
+            full={formDoc.full === true}
+            closedMessage={typeof formDoc.closed_message === "string" ? formDoc.closed_message : ""}
           />
         )}
       </div>
