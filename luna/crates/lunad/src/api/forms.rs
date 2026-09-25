@@ -682,9 +682,9 @@ fn validate_answers(
         let Some(id) = question.get("id").and_then(|i| i.as_str()) else {
             continue;
         };
-        if question_skipped(question, &owned, answers) {
-            continue;
-        }
+        // A hidden question is not required. A value that was sent anyway
+        // still has to be a real answer — skip does not turn off type checks.
+        let skipped = question_skipped(question, &owned, answers);
         let label = question
             .get("label")
             .and_then(|l| l.as_str())
@@ -696,7 +696,7 @@ fn validate_answers(
             .unwrap_or(false);
         let value = answers.get(id);
         let answered = is_answered(value);
-        if required && !answered {
+        if required && !skipped && !answered {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 format!("\"{label}\" still needs an answer."),
@@ -1462,6 +1462,17 @@ not json
         // A skipped required question doesn't block a "No".
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "No", "q_2": "a@b.co" })).unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_ok());
+        // A value sent for that hidden question still has to match its type.
+        let answers: Map<String, Value> = serde_json::from_value(json!({
+            "q_1": "No", "q_2": "a@b.co", "q_4": ["not text"]
+        }))
+        .unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_err());
+        let answers: Map<String, Value> = serde_json::from_value(json!({
+            "q_1": "No", "q_2": "a@b.co", "q_4": "Fish"
+        }))
+        .unwrap();
         assert!(validate_answers(&doc, &answers, None).is_ok());
         // Coming Yes makes the meal required.
         let answers: Map<String, Value> =
