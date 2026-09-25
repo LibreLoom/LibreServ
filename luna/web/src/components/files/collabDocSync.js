@@ -54,6 +54,19 @@ function fromB64(b64) {
 }
 
 /**
+ * How the shared Y.Doc becomes the file on the drive. Text files use a
+ * Y.Text named "file". Forms pass their own adapter so questions live in a
+ * Y.Map and two editors don't fight over one JSON string.
+ *
+ * @typedef {object} DocAdapter
+ * @property {(ydoc: Y.Doc) => boolean} isEmpty
+ * @property {(ydoc: Y.Doc, content: string) => void} seed
+ * @property {(ydoc: Y.Doc) => string} serialize
+ * @property {(ydoc: Y.Doc, seed: string) => boolean} matchesSeed
+ * @property {(ydoc: Y.Doc) => void} clear
+ */
+
+/**
  * The slice of CollabSocket this provider needs — structurally satisfied by
  * CollabSocket and by test fakes.
  * @typedef {object} CollabSocketLike
@@ -75,13 +88,26 @@ export class CollabDocSync {
    *   onPeers?: (peers: object[]) => void,
    *   onStatus?: (status: string) => void,
    *   onPeerSaved?: (peerId: number) => void,
+   *   onFormResponse?: (msg: { count?: number }) => void,
    *   socket?: CollabSocketLike | (() => CollabSocketLike),
    *   solo?: boolean,
+   *   adapter?: DocAdapter,
    * }} opts `socket` is injectable for tests — an instance or a factory.
    * `solo` skips the hub entirely (link guests have no session): the doc
-   * seeds straight from the file and never syncs peers.
+   * seeds straight from the file and never syncs peers. `adapter` defaults
+   * to the text-file Y.Text.
    */
-  constructor({ driveId, path, onPeers, onStatus, onPeerSaved, socket, solo = false }) {
+  constructor({
+    driveId,
+    path,
+    onPeers,
+    onStatus,
+    onPeerSaved,
+    onFormResponse,
+    socket,
+    solo = false,
+    adapter = null,
+  }) {
     this.ydoc = new Y.Doc();
     this.ytext = this.ydoc.getText("file");
     this.awareness = new Awareness(this.ydoc);
@@ -91,6 +117,20 @@ export class CollabDocSync {
     this._onPeers = onPeers;
     this._onStatus = onStatus;
     this._onPeerSaved = onPeerSaved;
+    this._onFormResponse = onFormResponse;
+    this._adapter = adapter || {
+      isEmpty: (ydoc) => ydoc.getText("file").length === 0,
+      seed: (ydoc, content) => {
+        const text = ydoc.getText("file");
+        if (text.length === 0 && content.length > 0) text.insert(0, content);
+      },
+      serialize: (ydoc) => ydoc.getText("file").toString(),
+      matchesSeed: (ydoc, seed) => ydoc.getText("file").toString() === seed,
+      clear: (ydoc) => {
+        const text = ydoc.getText("file");
+        if (text.length) text.delete(0, text.length);
+      },
+    };
     this._synced = false;
     this._pendingContent = null;
     this._destroyed = false;
@@ -196,7 +236,7 @@ export class CollabDocSync {
 
   /** Serialize the shared document — what save writes back to the drive. */
   serialize() {
-    return this.ytext.toString();
+    return this._adapter.serialize(this.ydoc);
   }
 
   /**
@@ -205,7 +245,7 @@ export class CollabDocSync {
    * is empty by timing, not by fact, so dirty checks must wait for it.
    */
   get hydrated() {
-    return this._seeded || this._synced || this.ytext.length > 0;
+    return this._seeded || this._synced || !this._adapter.isEmpty(this.ydoc);
   }
 
   /** Tell the room we persisted the file (peers show a "saved" beat). */
@@ -256,6 +296,9 @@ export class CollabDocSync {
       case "saved":
         this._onPeerSaved?.(msg.peer_id);
         break;
+      case "form_response":
+        this._onFormResponse?.(msg);
+        break;
       default:
         break;
     }
@@ -285,11 +328,11 @@ export class CollabDocSync {
       // If we seeded while the hub was unreachable and haven't typed past
       // the seed, resolve the double-seed deterministically: the lowest
       // peer_id keeps its copy, everyone else drops theirs and syncs.
-      if (this._seeded && this.ytext.toString() === this._seedContent) {
+      if (this._seeded && this._seedContent != null && this._adapter.matchesSeed(this.ydoc, this._seedContent)) {
         const lowest = Math.min(...this.peers.keys());
         if (this.peerId !== lowest) {
           this.ydoc.transact(() => {
-            this.ytext.delete(0, this.ytext.length);
+            this._adapter.clear(this.ydoc);
           }, "remote");
           this._seeded = false;
         }
@@ -359,7 +402,7 @@ export class CollabDocSync {
   }
 
   _maybeSeed(force = false) {
-    if (this._destroyed || this.ytext.length > 0) return;
+    if (this._destroyed || !this._adapter.isEmpty(this.ydoc)) return;
     const alone = this.otherPeers().length === 0;
     const allowed = this._welcomed || this._offline;
     if (!allowed || (!alone && !force)) return;
@@ -371,9 +414,7 @@ export class CollabDocSync {
     // Empty files insert nothing — mark seeded first so `hydrated` still
     // flips (and the update event may legitimately never fire).
     this.ydoc.transact(() => {
-      if (this.ytext.length === 0 && content.length > 0) {
-        this.ytext.insert(0, content);
-      }
+      this._adapter.seed(this.ydoc, content);
     }, "seed");
   }
 

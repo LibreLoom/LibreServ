@@ -11,6 +11,23 @@ export const FORM_DOC_VERSION = 1;
 export const FORM_FILE_SUFFIX = ".lunaform";
 export const RESPONSES_SUFFIX = ".responses.jsonl";
 
+/**
+ * Folder next to the form that holds respondent photos and PDFs.
+ * `forms/Party.LUNAFORM` → `forms/Party.uploads` (stem casing kept).
+ */
+export function uploadsDirPath(formPath) {
+  const path = String(formPath || "");
+  const slash = path.lastIndexOf("/");
+  const parent = slash >= 0 ? path.slice(0, slash) : "";
+  const base = slash >= 0 ? path.slice(slash + 1) : path;
+  const lower = base.toLowerCase();
+  const stem = lower.endsWith(FORM_FILE_SUFFIX)
+    ? base.slice(0, base.length - FORM_FILE_SUFFIX.length)
+    : base;
+  const dir = `${stem}.uploads`;
+  return parent ? `${parent}/${dir}` : dir;
+}
+
 /** `rsvp.lunaform` → `rsvp.responses.jsonl` (same folder). */
 export function responsesSiblingPath(formPath) {
   const path = String(formPath || "");
@@ -31,6 +48,10 @@ export function blankFormDocument(title = "Untitled form") {
       responseLimit: "unlimited",
       allowEdits: true,
       collecting: true,
+      thankYou: "",
+      closeOn: "",
+      maxResponses: null,
+      notify: true,
     },
     questions: [],
   };
@@ -38,6 +59,43 @@ export function blankFormDocument(title = "Untitled form") {
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+const SETTING_DEFAULTS = {
+  responseLimit: "unlimited",
+  allowEdits: true,
+  collecting: true,
+  thankYou: "",
+  closeOn: "",
+  maxResponses: null,
+  notify: true,
+};
+
+/**
+ * Settings in a stable shape. Missing keys get the defaults (old forms
+ * predate them). Unknown keys stay, ahead of the known ones, so a newer
+ * Luna's flags survive a save.
+ * @param {unknown} raw
+ */
+export function canonicalSettings(raw) {
+  const src = isObject(raw) ? raw : {};
+  const known = new Set(Object.keys(SETTING_DEFAULTS));
+  /** @type {Record<string, unknown>} */
+  const extras = {};
+  for (const [key, value] of Object.entries(src)) {
+    if (!known.has(key)) extras[key] = value;
+  }
+  const max = src.maxResponses;
+  return {
+    ...extras,
+    responseLimit: src.responseLimit === "one" ? "one" : "unlimited",
+    allowEdits: src.allowEdits !== false,
+    collecting: src.collecting !== false,
+    thankYou: typeof src.thankYou === "string" ? src.thankYou : "",
+    closeOn: typeof src.closeOn === "string" ? src.closeOn : "",
+    maxResponses: typeof max === "number" && Number.isFinite(max) && max > 0 ? Math.floor(max) : null,
+    notify: src.notify !== false,
+  };
 }
 
 /**
@@ -79,12 +137,7 @@ export function parseFormDocument(text) {
   const doc = { ...raw, version };
   if (typeof doc.title !== "string") doc.title = "";
   if (typeof doc.description !== "string") doc.description = "";
-  doc.settings = {
-    responseLimit: "unlimited",
-    allowEdits: true,
-    collecting: true,
-    ...(isObject(raw.settings) ? raw.settings : {}),
-  };
+  doc.settings = canonicalSettings(raw.settings);
   doc.questions = Array.isArray(raw.questions)
     ? raw.questions.filter(isObject)
     : [];
@@ -94,6 +147,29 @@ export function parseFormDocument(text) {
 /** Serialize for saving — pretty JSON so the file stays hand-editable. */
 export function serializeFormDocument(doc) {
   return `${JSON.stringify(doc, null, 2)}\n`;
+}
+
+function seenKey(scope, path) {
+  return `lunaform_seen:${scope}:${path}`;
+}
+
+/** How many answers the owner last looked at, for the "new" badge. */
+export function readFormSeen(scope, path) {
+  try {
+    const n = Number(localStorage.getItem(seenKey(scope, path)));
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** @param {string} scope @param {string} path @param {number} count */
+export function writeFormSeen(scope, path, count) {
+  try {
+    localStorage.setItem(seenKey(scope, path), String(count));
+  } catch {
+    // private browsing — the badge just won't remember
+  }
 }
 
 function randomHex(bytes) {

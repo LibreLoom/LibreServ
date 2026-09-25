@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, ListChecks, Pencil, Plus, Share2, Trash2 } from "lucide-react";
+import { GripVertical, ImagePlus, ListChecks, Pencil, Plus, Share2, Trash2 } from "lucide-react";
+import { CollabDocSync } from "../collabDocSync.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -16,6 +17,7 @@ import FormResponses from "./FormResponses.jsx";
 import {
   answerOptions,
   defaultConfig,
+  isImageFileName,
   QUESTION_TYPES,
   QUESTION_TYPE_IDS,
   typeInfo,
@@ -25,9 +27,22 @@ import {
   latestResponses,
   newQuestionId,
   parseFormDocument,
-  serializeFormDocument,
+  writeFormSeen,
 } from "../../../lib/formDocument.js";
+import {
+  addFormQuestion,
+  formCollabAdapter,
+  moveFormQuestion,
+  patchFormQuestion,
+  readForm,
+  removeFormQuestion,
+  seedFormSnapshot,
+  setFormDescription,
+  setFormSetting,
+  setFormTitle,
+} from "../../../lib/formYDoc.js";
 import { fileSourceScope, useFileSource } from "../../../lib/fileSource.jsx";
+import { joinPath, parentPath } from "../../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -51,8 +66,8 @@ const TYPE_OPTIONS = QUESTION_TYPE_IDS.map((id) => ({
  * registers an upload thunk once the document is loaded and reports dirty
  * state so the frame's guard modal, Save button, and autosave tick all work.
  *
- * The builder edits the parsed document object and serializes the whole
- * thing back, so fields from a newer Luna version round-trip untouched.
+ * Questions live in a shared Y.Doc (see formYDoc). The file on the drive is
+ * still the JSON envelope, so fields from a newer Luna version round-trip.
  *
  * @param {{
  *   driveId: string,
@@ -100,22 +115,53 @@ function BuilderSession({
 }) {
   const queryClient = useQueryClient();
   const source = useFileSource();
+  const scope = fileSourceScope(source, driveId);
+  const solo = source.collab === false;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [doc, setDoc] = useState(/** @type {object | null} */ (null));
-  /** Serialized document on the drive — the dirty baseline. */
+  /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
   const [sharing, setSharing] = useState(false);
+  const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
+  const [connStatus, setConnStatus] = useState(solo ? "open" : "connecting");
+  const [answerNotice, setAnswerNotice] = useState("");
+  const [focusHere, setFocusHere] = useState(/** @type {{ id: string, name: string }[]} */ ([]));
   /** Pending warn-and-allow confirmation for edits that touch answered data. */
   const [confirm, setConfirm] = useState(/** @type {null | { title: string, message: string, run: () => void }} */ (null));
+  const [pickingImageFor, setPickingImageFor] = useState(/** @type {string | null} */ (null));
   const dragIndexRef = useRef(/** @type {number | null} */ (null));
   const [dropIndex, setDropIndex] = useState(/** @type {number | null} */ (null));
+  const syncRef = useRef(/** @type {CollabDocSync | null} */ (null));
+
+  const [sync] = useState(
+    () =>
+      new CollabDocSync({
+        driveId,
+        path,
+        solo,
+        adapter: formCollabAdapter(),
+        onPeers: (next) => setPeers(next),
+        onStatus: (status) => setConnStatus(status),
+        onPeerSaved: () => {
+          const session = syncRef.current;
+          if (session) setBaseline(session.serialize());
+        },
+        onFormResponse: () => {
+          queryClient.invalidateQueries({ queryKey: ["form-responses", scope, path] });
+          setAnswerNotice("Someone just answered.");
+          haptic("success");
+        },
+      }),
+  );
+  syncRef.current = sync;
 
   const responsesQuery = useQuery({
-    queryKey: ["form-responses", fileSourceScope(source, driveId), path],
+    queryKey: ["form-responses", scope, path],
     queryFn: () => source.formResponses(driveId, path),
     staleTime: 15_000,
+    refetchInterval: 15_000,
   });
   const responses = latestResponses(
     Array.isArray(responsesQuery.data) ? responsesQuery.data : [],
@@ -128,28 +174,55 @@ function BuilderSession({
   // Autosave bookkeeping — mirrors TextFileEditor.
   const baselineRef = useRef(/** @type {string | null} */ (null));
   baselineRef.current = baseline;
-  const docRef = useRef(/** @type {object | null} */ (null));
-  docRef.current = doc;
   const lastEditRef = useRef(0);
   const dirtySinceRef = useRef(0);
   const lastSaveAttemptRef = useRef(0);
   const savingRef = useRef(false);
 
   useEffect(() => {
+    if (tab !== "responses") return;
+    writeFormSeen(scope, path, responses.length);
+  }, [tab, scope, path, responses.length]);
+
+  useEffect(() => {
     let cancelled = false;
+    const pull = () => {
+      setDoc(readForm(sync.ydoc));
+      lastEditRef.current = Date.now();
+    };
+    const onAware = () => {
+      const localId = sync.ydoc.clientID;
+      /** @type {{ id: string, name: string }[]} */
+      const here = [];
+      for (const [clientId, state] of sync.awareness.getStates()) {
+        if (clientId === localId) continue;
+        const id = state?.questionId;
+        if (typeof id !== "string" || !id) continue;
+        const name = state?.user?.name;
+        here.push({ id, name: typeof name === "string" && name ? name : "Someone" });
+      }
+      setFocusHere(here);
+    };
+    sync.ydoc.on("update", pull);
+    sync.awareness.on("update", onAware);
+    sync.connect();
+
     (async () => {
       try {
         const res = await source.fetch(source.contentHref(driveId, path));
         if (!res.ok) throw new Error("Luna couldn't open this form.");
         const text = await res.text();
-        const parsed = parseFormDocument(text);
         if (cancelled) return;
+        const parsed = parseFormDocument(text);
         if (!parsed.ok) {
-          setError(parsed.error);
+          setError(parsed.error || "Luna couldn't read this form.");
           return;
         }
-        setDoc(parsed.doc);
-        setBaseline(serializeFormDocument(parsed.doc));
+        // Baseline is the canonical snapshot, so opening a form is not a
+        // save even when key order in the file differs.
+        setBaseline(seedFormSnapshot(text));
+        sync.adoptContent(text);
+        setDoc(readForm(sync.ydoc));
       } catch (err) {
         if (!cancelled) {
           setError(apiErrorMessage(err, "Luna couldn't open this form. Try downloading it."));
@@ -158,21 +231,28 @@ function BuilderSession({
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [driveId, path, source]);
+
+    return () => {
+      cancelled = true;
+      sync.ydoc.off("update", pull);
+      sync.awareness.off("update", onAware);
+      sync.disconnect();
+    };
+  }, [sync, driveId, path, source]);
 
   const isDirty =
-    doc != null && baseline != null && serializeFormDocument(doc) !== baseline;
+    canWrite && sync.hydrated && baseline != null && sync.serialize() !== baseline;
   useEffect(() => {
     if (isDirty) onSaveStateChange(true);
   }, [isDirty, onSaveStateChange]);
 
   const save = useCallback(async () => {
-    const current = docRef.current;
-    if (!current || !canWrite || savingRef.current) return false;
+    const session = syncRef.current;
+    if (!session || !session.hydrated || !canWrite || savingRef.current) return false;
+    const body = session.serialize();
+    if (!body) return false;
     savingRef.current = true;
     try {
-      const body = serializeFormDocument(current);
       await source.saveFile(
         driveId,
         path,
@@ -180,6 +260,7 @@ function BuilderSession({
         new Blob([body], { type: "application/json" }),
       );
       setBaseline(body);
+      session.notifySaved(body.length);
       onSaved?.();
       onSaveStateChange(false);
       return true;
@@ -191,14 +272,15 @@ function BuilderSession({
   saveRef.current = save;
 
   useEffect(() => {
-    if (loading || error) return undefined;
+    if (loading || error || !canWrite) return undefined;
     const id = setInterval(() => {
-      const current = docRef.current;
+      const session = syncRef.current;
       const now = Date.now();
       const dirty =
-        current != null &&
+        session != null &&
+        session.hydrated &&
         baselineRef.current != null &&
-        serializeFormDocument(current) !== baselineRef.current;
+        session.serialize() !== baselineRef.current;
       if (!dirty) {
         dirtySinceRef.current = 0;
         return;
@@ -216,7 +298,7 @@ function BuilderSession({
       }
     }, AUTOSAVE_TICK_MS);
     return () => clearInterval(id);
-  }, [loading, error]);
+  }, [loading, error, canWrite]);
 
   // Register the save thunk once the document is up — same "no session, no
   // save" contract as the text editor.
@@ -226,30 +308,22 @@ function BuilderSession({
     return () => onRegisterSave(null);
   }, [loading, error, doc, canWrite, save, onRegisterSave]);
 
-  // Any doc change marks the last-edit timestamp for the autosave tick —
-  // kept in an effect so render-scope functions stay pure.
-  useEffect(() => {
-    if (doc != null) lastEditRef.current = Date.now();
-  }, [doc]);
-
-  /** Apply a mutation to the document, preserving unknown fields. */
-  function updateDoc(mutate) {
-    setDoc((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev };
-      mutate(next);
-      return next;
-    });
+  /** Local edit. Viewers never write — the hub would reject the op. */
+  function edit(apply) {
+    if (!canWrite) return;
+    apply(sync.ydoc);
   }
 
   function setSetting(key, value) {
-    updateDoc((d) => { d.settings = { ...d.settings, [key]: value }; });
+    edit((ydoc) => setFormSetting(ydoc, key, value));
   }
 
   function updateQuestion(id, patch) {
-    updateDoc((d) => {
-      d.questions = d.questions.map((q) => (q.id === id ? { ...q, ...patch } : q));
-    });
+    edit((ydoc) => patchFormQuestion(ydoc, id, patch));
+  }
+
+  function focusQuestion(id) {
+    sync.awareness.setLocalStateField("questionId", id || null);
   }
 
   /** Warn-and-allow: a change that touches answered questions confirms first. */
@@ -264,19 +338,14 @@ function BuilderSession({
 
   function addQuestion(type) {
     haptic("light");
-    updateDoc((d) => {
-      d.questions = [
-        ...d.questions,
-        {
-          v: 1,
-          id: newQuestionId(),
-          type,
-          label: "",
-          required: false,
-          config: defaultConfig(type),
-        },
-      ];
-    });
+    edit((ydoc) => addFormQuestion(ydoc, {
+      v: 1,
+      id: newQuestionId(),
+      type,
+      label: "",
+      required: false,
+      config: defaultConfig(type),
+    }));
   }
 
   function removeQuestion(question) {
@@ -286,9 +355,7 @@ function BuilderSession({
       answeredIds.has(question.id)
         ? "People have already answered it. Their answers stay in the results — only the question goes away."
         : "This removes the question from the form.",
-      () => updateDoc((d) => {
-        d.questions = d.questions.filter((q) => q.id !== question.id);
-      }),
+      () => edit((ydoc) => removeFormQuestion(ydoc, question.id)),
     );
   }
 
@@ -304,14 +371,19 @@ function BuilderSession({
 
   function moveQuestion(from, to) {
     if (to < 0 || from === to) return;
-    updateDoc((d) => {
-      const list = [...d.questions];
-      if (from < 0 || from >= list.length || to >= list.length) return;
-      const [moved] = list.splice(from, 1);
-      list.splice(to, 0, moved);
-      d.questions = list;
-    });
+    edit((ydoc) => moveFormQuestion(ydoc, from, to));
   }
+
+  const peerNames = peers.map((p) => p.username).filter(Boolean).join(", ");
+  const connNote = solo
+    ? ""
+    : connStatus === "open"
+      ? peers.length > 0
+        ? `Editing together: ${peerNames}`
+        : ""
+      : connStatus === "connecting" || connStatus === "reconnecting"
+        ? "Connecting…"
+        : "Offline — your changes stay here and sync when Luna reconnects";
 
   const questions = Array.isArray(doc?.questions) ? doc.questions : [];
   const settings = doc?.settings || {};
@@ -325,28 +397,63 @@ function BuilderSession({
             { value: "responses", label: `Responses${responses.length ? ` (${responses.length})` : ""}`, icon: ListChecks },
           ]}
           value={tab}
-          onChange={(v) => setTab(v === "responses" ? "responses" : "questions")}
+          onChange={(v) => {
+            const next = v === "responses" ? "responses" : "questions";
+            if (next === "responses") setAnswerNotice("");
+            setTab(next);
+          }}
           surface="primary"
           aria-label="Form section"
         />
-        {!source.guest && (
-          <Button
-            variant="ghost"
-            surface="primary"
-            size="iconSm"
-            smoothResize={false}
-            haptic="light"
-            aria-label="Share this form"
-            tooltip="Share this form"
-            onClick={() => setSharing(true)}
-          >
-            <Share2 size={ICON_SIZE.md} aria-hidden="true" />
-          </Button>
-        )}
+        <div className="flex min-w-0 items-center gap-1">
+          {peers.length > 0 && (
+            <span
+              className="mr-1 flex items-center"
+              role="img"
+              aria-label={`Also editing: ${peerNames}`}
+              title={`Also editing: ${peerNames}`}
+            >
+              {peers.slice(0, 5).map((peer) => (
+                <span
+                  key={peer.peer_id}
+                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[0.65rem] text-primary first:ml-0 ring-2 ring-primary"
+                  style={{ backgroundColor: peer.color }}
+                  aria-hidden="true"
+                >
+                  {String(peer.username || "?").slice(0, 1).toUpperCase()}
+                </span>
+              ))}
+            </span>
+          )}
+          {!source.guest && (
+            <Button
+              variant="ghost"
+              surface="primary"
+              size="iconSm"
+              smoothResize={false}
+              haptic="light"
+              aria-label="Share this form"
+              tooltip="Share this form"
+              onClick={() => setSharing(true)}
+            >
+              <Share2 size={ICON_SIZE.md} aria-hidden="true" />
+            </Button>
+          )}
+        </div>
       </div>
+      {connNote ? (
+        <p className="truncate border-b border-secondary/15 px-3 py-1 text-xs text-accent" role="status">
+          {connNote}
+        </p>
+      ) : null}
+      {answerNotice ? (
+        <div className="px-3 pt-3">
+          <PageNotice variant="info">{answerNotice}</PageNotice>
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {loading ? (
+        {loading || (!error && !doc) ? (
           <div
             className="flex h-full items-center justify-center"
             role="status"
@@ -361,6 +468,7 @@ function BuilderSession({
           <div className="p-4"><PageNotice variant="error">{error}</PageNotice></div>
         ) : tab === "responses" ? (
           <FormResponses
+            driveId={driveId}
             formPath={path}
             questions={questions}
             responses={responses}
@@ -378,7 +486,7 @@ function BuilderSession({
               <input
                 className="w-full bg-transparent font-mono text-xl text-secondary outline-none no-focus-outline placeholder:text-accent"
                 value={doc?.title || ""}
-                onChange={(e) => updateDoc((d) => { d.title = e.target.value; })}
+                onChange={(e) => edit((ydoc) => setFormTitle(ydoc, e.target.value))}
                 placeholder="Form title"
                 aria-label="Form title"
                 disabled={!canWrite}
@@ -387,7 +495,7 @@ function BuilderSession({
                 className="w-full resize-none bg-transparent text-sm text-secondary outline-none no-focus-outline placeholder:text-accent"
                 rows={2}
                 value={doc?.description || ""}
-                onChange={(e) => updateDoc((d) => { d.description = e.target.value; })}
+                onChange={(e) => edit((ydoc) => setFormDescription(ydoc, e.target.value))}
                 placeholder="Say what this form is for (optional)"
                 aria-label="Form description"
                 disabled={!canWrite}
@@ -437,6 +545,12 @@ function BuilderSession({
                   dragIndexRef.current = null;
                   setDropIndex(null);
                 }}
+                earlier={questions.slice(0, index)}
+                watchers={focusHere.filter((p) => p.id === question.id)}
+                imageHref={question.image ? source.contentHref(driveId, question.image) : ""}
+                onFocus={() => focusQuestion(question.id)}
+                onBlur={() => focusQuestion("")}
+                onPickImage={() => setPickingImageFor(question.id)}
                 onPatch={(patch) => updateQuestion(question.id, patch)}
                 onChangeType={(type) => changeType(question, type)}
                 onRemove={() => removeQuestion(question)}
@@ -498,8 +612,8 @@ function BuilderSession({
                 </div>
                 <SegmentedControl
                   options={[
-                    { value: "one", label: "One" },
-                    { value: "unlimited", label: "Unlimited" },
+                    { value: "one", label: "One", disabled: !canWrite },
+                    { value: "unlimited", label: "Unlimited", disabled: !canWrite },
                   ]}
                   value={settings.responseLimit === "one" ? "one" : "unlimited"}
                   onChange={(v) => setSetting("responseLimit", v === "one" ? "one" : "unlimited")}
@@ -507,6 +621,68 @@ function BuilderSession({
                   aria-label="Answers per person"
                 />
               </div>
+              <div className="space-y-1">
+                <label className="block text-sm text-secondary" htmlFor="form-thank-you">
+                  Thank-you message
+                </label>
+                <textarea
+                  id="form-thank-you"
+                  className="w-full resize-none rounded-large-element border-2 border-secondary/30 bg-primary px-4 py-2 text-sm text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent"
+                  rows={2}
+                  value={settings.thankYou || ""}
+                  onChange={(e) => setSetting("thankYou", e.target.value)}
+                  placeholder="Sent — thank you"
+                  aria-label="Thank-you message"
+                  disabled={!canWrite}
+                />
+                <p className="text-xs text-accent">
+                  People see this after they send. Leave it blank and Luna says Sent — thank you.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="block text-sm text-secondary" htmlFor="form-close-on">
+                  Stop taking answers after
+                </label>
+                <input
+                  id="form-close-on"
+                  type="date"
+                  className="rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent"
+                  value={settings.closeOn || ""}
+                  onChange={(e) => setSetting("closeOn", e.target.value)}
+                  aria-label="Stop taking answers after"
+                  disabled={!canWrite}
+                />
+                <p className="text-xs text-accent">The form stays open through that day.</p>
+              </div>
+              <div className="space-y-1">
+                <label className="block text-sm text-secondary" htmlFor="form-max-responses">
+                  Stop after this many answers
+                </label>
+                <input
+                  id="form-max-responses"
+                  type="number"
+                  min="1"
+                  className="w-32 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent"
+                  value={settings.maxResponses ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setSetting("maxResponses", raw === "" ? null : Number(raw));
+                  }}
+                  aria-label="Stop after this many answers"
+                  disabled={!canWrite}
+                />
+                <p className="text-xs text-accent">
+                  Leave this empty for no limit. Changing an answer does not count as a new one.
+                </p>
+              </div>
+              <Toggle
+                surface="primary"
+                label="Tell me when someone answers"
+                description="Shows a notice in this form. Luna does not email you."
+                checked={settings.notify !== false}
+                disabled={!canWrite}
+                onChange={(next) => setSetting("notify", next)}
+              />
             </div>
           </div>
         )}
@@ -518,6 +694,19 @@ function BuilderSession({
           subject={{ kind: "path", driveId, path }}
           overlayClassName={NESTED_OVERLAY_CLASS}
           onClose={() => setSharing(false)}
+        />
+      )}
+
+      {pickingImageFor && (
+        <PicturePicker
+          driveId={driveId}
+          startFolder={parentPath(path) ?? ""}
+          onClose={() => setPickingImageFor(null)}
+          onPick={(imagePath) => {
+            const id = pickingImageFor;
+            setPickingImageFor(null);
+            if (id) updateQuestion(id, { image: imagePath });
+          }}
         />
       )}
 
@@ -552,6 +741,9 @@ BuilderSession.propTypes = {
  * One question in the builder — styled like the responder's card so what
  * you see is what people get.
  */
+const fieldClass =
+  "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent";
+
 function QuestionCard({
   question,
   index,
@@ -559,6 +751,12 @@ function QuestionCard({
   canWrite,
   hasAnswers,
   dragging,
+  earlier = [],
+  watchers = [],
+  imageHref,
+  onFocus,
+  onBlur,
+  onPickImage,
   onDragStart,
   onDragOver,
   onDrop,
@@ -575,6 +773,17 @@ function QuestionCard({
     onPatch({ config: { ...(question.config || {}), options: next } });
   }
 
+  function setBound(key, raw) {
+    const config = { ...(question.config || {}) };
+    if (raw === "") delete config[key];
+    else {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return;
+      config[key] = n;
+    }
+    onPatch({ config });
+  }
+
   return (
     <div
       className={cn(
@@ -583,6 +792,8 @@ function QuestionCard({
       )}
       onDragOver={onDragOver}
       onDrop={onDrop}
+      onFocus={onFocus}
+      onBlur={onBlur}
     >
       <div className="flex items-center gap-2">
         {canWrite && (
@@ -639,6 +850,50 @@ function QuestionCard({
 
       {info.hint && <p className="text-xs text-accent">{info.hint}</p>}
 
+      <input
+        className="w-full bg-transparent text-sm text-secondary outline-none no-focus-outline placeholder:text-accent"
+        value={question.help || ""}
+        onChange={(e) => onPatch({ help: e.target.value })}
+        placeholder="Add a hint under the question (optional)"
+        aria-label={`Hint for question ${index + 1}`}
+        disabled={!canWrite}
+      />
+
+      {question.image ? (
+        <div className="space-y-2">
+          <img
+            src={imageHref}
+            alt=""
+            className="max-h-48 w-full rounded-large-element object-contain bg-secondary"
+          />
+          {canWrite && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" surface="primary" size="sm" onClick={onPickImage}>
+                <ImagePlus size={ICON_SIZE.sm} aria-hidden="true" />
+                Change picture
+              </Button>
+              <Button
+                variant="ghost"
+                surface="primary"
+                size="sm"
+                onClick={() => onPatch({ image: "" })}
+              >
+                Remove picture
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : canWrite ? (
+        <Button variant="outline" surface="primary" size="sm" onClick={onPickImage}>
+          <ImagePlus size={ICON_SIZE.sm} aria-hidden="true" />
+          Add a picture
+        </Button>
+      ) : null}
+
+      {watcherLine(watchers) ? (
+        <p className="text-xs text-accent">{watcherLine(watchers)}</p>
+      ) : null}
+
       {/* Responder-shaped preview — for option types the options themselves
           are editable rows; for text-ish types a disabled field shows what
           people will see. */}
@@ -681,6 +936,18 @@ function QuestionCard({
               Add an option
             </Button>
           )}
+          <Toggle
+            surface="primary"
+            label="Let people type their own answer"
+            checked={question.config?.allowOther === true}
+            disabled={!canWrite}
+            onChange={(next) => {
+              const config = { ...(question.config || {}) };
+              if (next) config.allowOther = true;
+              else delete config.allowOther;
+              onPatch({ config });
+            }}
+          />
         </div>
       ) : info.fixedOptions ? (
         <div className="flex gap-2">
@@ -701,10 +968,48 @@ function QuestionCard({
         <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent inline-block">
           Pick a day
         </div>
+      ) : question.type === "number" ? (
+        <div className="space-y-2">
+          <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
+            A number goes here
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="number"
+              className={cn(fieldClass, "w-36")}
+              value={question.config?.min ?? ""}
+              onChange={(e) => setBound("min", e.target.value)}
+              aria-label="Smallest number"
+              placeholder="No minimum"
+              disabled={!canWrite}
+            />
+            <input
+              type="number"
+              className={cn(fieldClass, "w-36")}
+              value={question.config?.max ?? ""}
+              onChange={(e) => setBound("max", e.target.value)}
+              aria-label="Largest number"
+              placeholder="No maximum"
+              disabled={!canWrite}
+            />
+          </div>
+        </div>
+      ) : question.type === "email" ? (
+        <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
+          An email address goes here
+        </div>
+      ) : question.type === "file" ? (
+        <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
+          A photo or PDF goes here
+        </div>
       ) : (
         <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
           A short answer goes here
         </div>
+      )}
+
+      {earlier.length > 0 && (
+        <SkipRow question={question} earlier={earlier} canWrite={canWrite} onPatch={onPatch} />
       )}
 
       <div className="flex items-center justify-between gap-2 pt-1">
@@ -731,6 +1036,12 @@ QuestionCard.propTypes = {
   canWrite: PropTypes.bool,
   hasAnswers: PropTypes.bool,
   dragging: PropTypes.bool,
+  earlier: PropTypes.array,
+  watchers: PropTypes.array,
+  imageHref: PropTypes.string,
+  onFocus: PropTypes.func,
+  onBlur: PropTypes.func,
+  onPickImage: PropTypes.func,
   onDragStart: PropTypes.func.isRequired,
   onDragOver: PropTypes.func.isRequired,
   onDrop: PropTypes.func.isRequired,
@@ -739,6 +1050,196 @@ QuestionCard.propTypes = {
   onChangeType: PropTypes.func.isRequired,
   onRemove: PropTypes.func.isRequired,
   onRemoveOption: PropTypes.func.isRequired,
+};
+
+/** @param {{ id: string, name: string }[]} watchers */
+function watcherLine(watchers) {
+  const names = (watchers || []).map((w) => w.name).filter(Boolean);
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${names[0]} is on this question`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are on this question`;
+  return `${names[0]} and ${names.length - 1} others are on this question`;
+}
+
+/**
+ * Skip when an earlier answer matches. Yes/no stores yes/no, not the label.
+ */
+function SkipRow({ question, earlier, canWrite, onPatch }) {
+  const logic = question.logic && typeof question.logic.questionId === "string"
+    ? question.logic
+    : null;
+  const trigger = earlier.find((q) => q.id === logic?.questionId) || null;
+  const triggerInfo = trigger ? typeInfo(trigger.type) : null;
+
+  function setLogic(questionId, equals) {
+    if (!questionId) onPatch({ logic: null });
+    else onPatch({ logic: { questionId, equals: equals == null ? "" : String(equals) } });
+  }
+
+  function defaultEquals(next) {
+    if (!next) return "";
+    if (next.type === "yes_no") return "yes";
+    const opts = answerOptions(next);
+    return opts[0] || "";
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm text-secondary">Skip this question when</span>
+      <select
+        className={fieldClass}
+        aria-label="Skip when this earlier question"
+        value={trigger ? trigger.id : ""}
+        disabled={!canWrite}
+        onChange={(e) => {
+          const id = e.target.value;
+          const next = earlier.find((q) => q.id === id) || null;
+          setLogic(id, defaultEquals(next));
+        }}
+      >
+        <option value="">Don&apos;t skip</option>
+        {earlier.map((q, i) => (
+          <option key={q.id} value={q.id}>
+            {q.label || `Question ${i + 1}`}
+          </option>
+        ))}
+      </select>
+      {trigger && (
+        <>
+          <span className="text-sm text-secondary">is</span>
+          {trigger.type === "yes_no" ? (
+            <select
+              className={fieldClass}
+              aria-label="Skip when the answer is"
+              value={logic?.equals === "no" ? "no" : "yes"}
+              disabled={!canWrite}
+              onChange={(e) => setLogic(trigger.id, e.target.value)}
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          ) : triggerInfo?.options || triggerInfo?.fixedOptions ? (
+            <select
+              className={fieldClass}
+              aria-label="Skip when the answer is"
+              value={logic?.equals || ""}
+              disabled={!canWrite}
+              onChange={(e) => setLogic(trigger.id, e.target.value)}
+            >
+              {answerOptions(trigger).map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className={cn(fieldClass, "min-w-32 flex-1")}
+              aria-label="Skip when the answer is"
+              value={logic?.equals || ""}
+              disabled={!canWrite}
+              onChange={(e) => setLogic(trigger.id, e.target.value)}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+SkipRow.propTypes = {
+  question: PropTypes.object.isRequired,
+  earlier: PropTypes.array.isRequired,
+  canWrite: PropTypes.bool,
+  onPatch: PropTypes.func.isRequired,
+};
+
+/**
+ * Pick a picture that is already on the drive. The path is stored on the
+ * question; respondents load it through the answer link.
+ */
+function PicturePicker({ driveId, startFolder, onPick, onClose }) {
+  const source = useFileSource();
+  const [folder, setFolder] = useState(startFolder);
+  const listing = useQuery({
+    queryKey: ["form-pictures", fileSourceScope(source, driveId), folder],
+    queryFn: () => source.listDir(driveId, folder),
+  });
+  const entries = (Array.isArray(listing.data) ? listing.data : [])
+    .filter((entry) => entry && !entry.hidden)
+    .filter((entry) => entry.kind === "dir" || isImageFileName(entry.name));
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-primary/80 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose a picture"
+    >
+      <div className="flex max-h-[70vh] w-full max-w-md flex-col gap-3 rounded-large-element bg-secondary p-5 text-primary">
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate font-mono text-xs uppercase tracking-widest text-primary">
+            {folder || "Top folder"}
+          </p>
+          {folder ? (
+            <Button
+              variant="ghost"
+              surface="secondary"
+              size="sm"
+              onClick={() => {
+                haptic("light");
+                setFolder(parentPath(folder) ?? "");
+              }}
+            >
+              Up
+            </Button>
+          ) : null}
+          <Button variant="ghost" surface="secondary" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+        <p className="text-sm text-primary">
+          Choose a picture already on Luna. JPG, PNG, GIF, or WebP.
+        </p>
+        {listing.isError ? (
+          <PageNotice variant="error">Couldn&apos;t open that folder. Try again.</PageNotice>
+        ) : listing.isLoading ? (
+          <div className="flex items-center gap-2" role="status">
+            <Spinner size="sm" decorative />
+            <span className="text-sm text-primary">Opening</span>
+          </div>
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-primary">No pictures in this folder.</p>
+        ) : (
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+            {entries.map((entry) => {
+              const isDir = entry.kind === "dir";
+              return (
+                <button
+                  key={entry.name}
+                  type="button"
+                  className="flex w-full items-center rounded-large-element px-3 py-2 text-left text-sm text-primary hover:bg-primary/10"
+                  onClick={() => {
+                    haptic("selection");
+                    const next = joinPath(folder, entry.name);
+                    if (isDir) setFolder(next);
+                    else onPick(next);
+                  }}
+                >
+                  {isDir ? `Folder: ${entry.name}` : entry.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+PicturePicker.propTypes = {
+  driveId: PropTypes.string.isRequired,
+  startFolder: PropTypes.string.isRequired,
+  onPick: PropTypes.func.isRequired,
+  onClose: PropTypes.func.isRequired,
 };
 
 /** "+ Add a question" pill — picks a type from the registry. */

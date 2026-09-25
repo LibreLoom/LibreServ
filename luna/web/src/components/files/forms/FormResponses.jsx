@@ -4,9 +4,10 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { formatAnswer, summarizeAnswers, typeInfo } from "./questionTypes.js";
-import { responsesToCsv } from "../../../lib/formDocument.js";
-import { pathBasename } from "../../../lib/paths.js";
+import { formatAnswer, isAllowedUploadName, summarizeAnswers, typeInfo } from "./questionTypes.js";
+import { responsesToCsv, uploadsDirPath } from "../../../lib/formDocument.js";
+import { useFileSource } from "../../../lib/fileSource.jsx";
+import { joinPath, pathBasename } from "../../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -19,6 +20,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
  * label rename never orphans data.
  *
  * @param {{
+ *   driveId?: string,
  *   formPath: string,
  *   questions: object[],
  *   responses: object[],
@@ -28,6 +30,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
  * }} props
  */
 export default function FormResponses({
+  driveId = "",
   formPath,
   questions,
   responses,
@@ -35,6 +38,11 @@ export default function FormResponses({
   error = null,
   onRefresh,
 }) {
+  const source = useFileSource();
+  function fileHref(name) {
+    if (!driveId || typeof name !== "string" || !isAllowedUploadName(name)) return "";
+    return source.contentHref(driveId, joinPath(uploadsDirPath(formPath), name));
+  }
   // Columns: current questions in order, then any answered ids that no
   // longer have a question (deleted ones keep their data visible).
   const knownIds = new Set(questions.map((q) => q.id));
@@ -147,7 +155,9 @@ export default function FormResponses({
                       {summary.answered} answered
                     </span>
                   </div>
-                  {summary.kind === "bars" ? (
+                  {summary.kind === "number" ? (
+                    <p className="text-sm text-secondary">Total {summary.total}</p>
+                  ) : summary.kind === "bars" ? (
                     <div className="space-y-1.5">
                       {summary.rows.map((row) => (
                         <div key={row.label} className="flex items-center gap-2 text-sm">
@@ -168,7 +178,11 @@ export default function FormResponses({
                     <ul className="m-0 list-none space-y-1 p-0">
                       {summary.items.slice(0, 8).map((item, i) => (
                         <li key={i} className="truncate text-sm text-secondary">
-                          {item}
+                          {question.type === "file" && fileHref(item) ? (
+                            <a href={fileHref(item)} className="text-secondary underline" target="_blank" rel="noreferrer">
+                              {item}
+                            </a>
+                          ) : item}
                         </li>
                       ))}
                       {summary.items.length > 8 && (
@@ -211,7 +225,11 @@ export default function FormResponses({
                     </td>
                     {columns.map((col) => (
                       <td key={col.id} className="max-w-64 truncate px-3 py-2 text-secondary">
-                        {formatAnswer(col.question, rec.answers?.[col.id])}
+                        <AnswerCell
+                          question={col.question}
+                          value={rec.answers?.[col.id]}
+                          href={col.question?.type === "file" ? fileHref(rec.answers?.[col.id]) : ""}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -225,7 +243,27 @@ export default function FormResponses({
   );
 }
 
+function AnswerCell({ question, value, href }) {
+  const text = formatAnswer(question, value);
+  if (!text) return null;
+  if (href) {
+    return (
+      <a href={href} className="text-secondary underline" target="_blank" rel="noreferrer">
+        {text}
+      </a>
+    );
+  }
+  return text;
+}
+
+AnswerCell.propTypes = {
+  question: PropTypes.object,
+  value: PropTypes.any,
+  href: PropTypes.string,
+};
+
 FormResponses.propTypes = {
+  driveId: PropTypes.string,
   formPath: PropTypes.string.isRequired,
   questions: PropTypes.array.isRequired,
   responses: PropTypes.array.isRequired,

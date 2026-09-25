@@ -11,10 +11,10 @@
 //! resolved link carries `CAP_RESPOND`.
 
 use argon2::password_hash::rand_core::RngCore;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -29,8 +29,10 @@ use crate::auth::{self, CurrentUser};
 use crate::db;
 
 /// Share permission for answer links: the public page renders the form and
-/// `POST /s/{token}/respond` appends to the responses file. No file listing,
-/// no downloads, no uploads.
+/// `POST /s/{token}/respond` appends to the responses file. Respondents may
+/// also upload a photo or PDF (`POST /s/{token}/respond-file`) into a sibling
+/// folder, and load a picture the form already references
+/// (`GET /s/{token}/form-image`). No file listing, no other downloads.
 pub const PERMISSION_RESPOND: &str = "respond";
 
 /// Form documents are `<name>.lunaform` JSON envelopes.
@@ -49,6 +51,10 @@ const MAX_FORM_BYTES: u64 = 1024 * 1024;
 const MAX_RESPONSES_READ_BYTES: u64 = 64 * 1024 * 1024;
 /// Answer payloads are small — a long-text essay is still kilobytes.
 const RESPOND_BODY_BYTES: usize = 256 * 1024;
+/// One photo or PDF attached to an answer.
+const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
+/// A picture shown on a question, already on the drive.
+const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 /// Sanity cap on distinct question ids in one submission.
 const MAX_ANSWER_KEYS: usize = 500;
 
@@ -71,6 +77,11 @@ pub fn router() -> Router<AppState> {
                 .post(respond_submit)
                 .layer(DefaultBodyLimit::max(RESPOND_BODY_BYTES)),
         )
+        .route(
+            "/s/{token}/respond-file",
+            post(respond_upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 64 * 1024)),
+        )
+        .route("/s/{token}/form-image", get(respond_image))
         .route("/api/v1/forms/responses", get(member_form_responses))
         .route("/s/{token}/responses", get(guest_form_responses))
 }
@@ -201,6 +212,105 @@ fn form_allows_edits(doc: &Map<String, Value>) -> bool {
         .unwrap_or(true)
 }
 
+fn form_setting<'a>(doc: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+    doc.get("settings").and_then(|s| s.get(key))
+}
+
+/// `YYYY-MM-DD` after which the form stops. Empty or missing means no date.
+fn form_close_on(doc: &Map<String, Value>) -> Option<&str> {
+    let date = form_setting(doc, "closeOn").and_then(|v| v.as_str())?;
+    if date.len() == 10 && date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-' {
+        Some(date)
+    } else {
+        None
+    }
+}
+
+/// Unique answers the form will take. Missing, zero, or junk means no cap.
+fn form_max_responses(doc: &Map<String, Value>) -> Option<u64> {
+    let n = form_setting(doc, "maxResponses")?.as_u64()?;
+    if n == 0 { None } else { Some(n) }
+}
+
+/// Tell open editors when a new answer arrives. Missing means yes.
+fn form_notify(doc: &Map<String, Value>) -> bool {
+    form_setting(doc, "notify")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
+fn local_ymd(unix: i64) -> String {
+    let t = unix as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let p = unsafe { libc::localtime_r(&t, &mut tm) };
+    if p.is_null() {
+        return String::new();
+    }
+    format!(
+        "{:04}-{:02}-{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday
+    )
+}
+
+/// Collecting switched off, or the close date has passed. The answer cap is
+/// separate — someone with an edit link can still change an answer.
+fn hard_closed_message(doc: &Map<String, Value>) -> Option<String> {
+    if !form_is_collecting(doc) {
+        return Some("This form isn't collecting answers anymore.".into());
+    }
+    if let Some(date) = form_close_on(doc) {
+        let today = local_ymd(crate::db::now_unix());
+        if today.as_str() > date {
+            return Some(format!("This form stopped taking answers after {date}."));
+        }
+    }
+    None
+}
+
+fn form_questions(doc: &Map<String, Value>) -> Vec<&Value> {
+    doc.get("questions")
+        .and_then(|q| q.as_array())
+        .map(|list| list.iter().collect())
+        .unwrap_or_default()
+}
+
+fn question_skipped(question: &Value, questions: &[&Value], answers: &Map<String, Value>) -> bool {
+    let Some(logic) = question.get("logic").and_then(|l| l.as_object()) else {
+        return false;
+    };
+    let Some(trigger_id) = logic.get("questionId").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    if trigger_id.is_empty() {
+        return false;
+    }
+    let id = question.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let idx = questions
+        .iter()
+        .position(|q| q.get("id").and_then(|v| v.as_str()) == Some(id));
+    let trigger_idx = questions
+        .iter()
+        .position(|q| q.get("id").and_then(|v| v.as_str()) == Some(trigger_id));
+    let (Some(idx), Some(trigger_idx)) = (idx, trigger_idx) else {
+        return false;
+    };
+    if trigger_idx >= idx {
+        return false;
+    }
+    if question_skipped(questions[trigger_idx], questions, answers) {
+        return false;
+    }
+    let expect = logic.get("equals").and_then(|v| v.as_str()).unwrap_or("");
+    match answers.get(trigger_id) {
+        Some(Value::Array(items)) => items.iter().any(|i| i.as_str() == Some(expect)),
+        Some(Value::String(s)) => s == expect,
+        Some(other) => other.to_string() == expect,
+        None => expect.is_empty(),
+    }
+}
+
 /// `GET /s/{token}` for a respond link: hand the SPA the form document as
 /// `kind: "form"`. Never response data, never edit hashes — the form file
 /// doesn't contain them and we whitelist the envelope keys anyway. Call this
@@ -226,10 +336,24 @@ pub fn public_form_document(
             form.insert(key.to_string(), v.clone());
         }
     }
+    let count = read_response_records(&form_path)
+        .map(|records| latest_by_id(&records).len())
+        .unwrap_or(0);
+    let closed = hard_closed_message(&doc);
+    let full = form_max_responses(&doc).is_some_and(|max| count >= max as usize);
     Ok(Json(json!({
         "kind": "form",
         "permission": PERMISSION_RESPOND,
         "form": Value::Object(form),
+        "accepting": closed.is_none(),
+        "full": full,
+        "closed_message": closed.unwrap_or_else(|| {
+            if full {
+                "This form has all the answers it can take.".into()
+            } else {
+                String::new()
+            }
+        }),
     }))
     .into_response())
 }
@@ -479,18 +603,72 @@ fn is_answered(value: Option<&Value>) -> bool {
 /// need something, and each v1 type expects a particular shape. Unknown
 /// *types* accept any flat value — a newer Luna's question collects whatever
 /// it collects.
+fn question_options(question: &Value) -> Vec<&str> {
+    question
+        .get("config")
+        .and_then(|c| c.get("options"))
+        .and_then(|o| o.as_array())
+        .map(|list| list.iter().filter_map(|o| o.as_str()).collect())
+        .unwrap_or_default()
+}
+
+fn allows_other(question: &Value) -> bool {
+    question
+        .get("config")
+        .and_then(|c| c.get("allowOther"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn email_ok(value: &str) -> bool {
+    let value = value.trim();
+    let mut parts = value.split('@');
+    let local = parts.next().unwrap_or("");
+    let domain = parts.next().unwrap_or("");
+    parts.next().is_none()
+        && !local.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && !value.contains(char::is_whitespace)
+}
+
+/// Server-minted attachment names: 16 hex chars and a photo/PDF extension.
+fn upload_name_ok(name: &str) -> bool {
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    stem.len() == 16
+        && stem
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && matches!(ext, "jpg" | "jpeg" | "png" | "gif" | "webp" | "pdf")
+}
+
+fn number_in_range(question: &Value, n: f64) -> bool {
+    if !n.is_finite() {
+        return false;
+    }
+    let min = question
+        .get("config")
+        .and_then(|c| c.get("min"))
+        .and_then(|v| v.as_f64());
+    let max = question
+        .get("config")
+        .and_then(|c| c.get("max"))
+        .and_then(|v| v.as_f64());
+    min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m)
+}
+
 fn validate_answers(
     doc: &Map<String, Value>,
     answers: &Map<String, Value>,
+    uploads_dir: Option<&FsPath>,
 ) -> Result<(), (StatusCode, Json<Value>)> {
-    let empty = Vec::new();
-    let questions = doc
-        .get("questions")
-        .and_then(|q| q.as_array())
-        .unwrap_or(&empty);
-    let known: std::collections::HashMap<&str, &Value> = questions
+    let owned = form_questions(doc);
+    let known: std::collections::HashMap<&str, &Value> = owned
         .iter()
-        .filter_map(|q| q.get("id").and_then(|id| id.as_str()).map(|id| (id, q)))
+        .filter_map(|q| q.get("id").and_then(|id| id.as_str()).map(|id| (id, *q)))
         .collect();
     for key in answers.keys() {
         if !known.contains_key(key.as_str()) {
@@ -500,10 +678,13 @@ fn validate_answers(
             ));
         }
     }
-    for question in questions {
+    for question in &owned {
         let Some(id) = question.get("id").and_then(|i| i.as_str()) else {
             continue;
         };
+        if question_skipped(question, &owned, answers) {
+            continue;
+        }
         let label = question
             .get("label")
             .and_then(|l| l.as_str())
@@ -525,27 +706,34 @@ fn validate_answers(
             continue;
         };
         let qtype = question.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        // Offered options, when the type has them.
-        let options: Vec<&str> = question
-            .get("config")
-            .and_then(|c| c.get("options"))
-            .and_then(|o| o.as_array())
-            .map(|list| list.iter().filter_map(|o| o.as_str()).collect())
-            .unwrap_or_default();
+        let options = question_options(question);
+        let other = allows_other(question);
         let ok = match qtype {
             "multi_choice" => value.as_array().is_some_and(|items| {
                 items.iter().all(|i| i.is_string())
-                    && (options.is_empty()
+                    && (other
+                        || options.is_empty()
                         || items
                             .iter()
                             .all(|i| i.as_str().is_some_and(|s| options.contains(&s))))
             }),
             "choice" | "dropdown" => {
                 value.is_string()
-                    && (options.is_empty() || value.as_str().is_some_and(|s| options.contains(&s)))
+                    && (other
+                        || options.is_empty()
+                        || value.as_str().is_some_and(|s| options.contains(&s)))
             }
             "yes_no" => matches!(value.as_str(), Some("yes") | Some("no")),
             "date" | "short_text" | "long_text" => value.is_string(),
+            "email" => value.as_str().is_some_and(email_ok),
+            "number" => value.as_f64().is_some_and(|n| number_in_range(question, n)),
+            "file" => value.as_str().is_some_and(|name| {
+                upload_name_ok(name)
+                    && uploads_dir.is_none_or(|dir| {
+                        let path = dir.join(name);
+                        std::fs::metadata(&path).is_ok_and(|m| m.is_file())
+                    })
+            }),
             // A type from a newer Luna — store whatever flat value came in.
             _ => answer_value_ok(value),
         };
@@ -639,11 +827,8 @@ async fn respond_submit_inner(
         resolve_form_file(&conn, &link.drive_id, &link.path)?
     };
     let doc = read_form_document(&form_path)?;
-    if !form_is_collecting(&doc) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This form isn't collecting answers anymore.",
-        ));
+    if let Some(message) = hard_closed_message(&doc) {
+        return Err(json_error(StatusCode::FORBIDDEN, message));
     }
     let allow_edits = form_allows_edits(&doc);
     // When the form disallows changes, anything that smells like an edit —
@@ -693,9 +878,17 @@ async fn respond_submit_inner(
     // a wrong secret is refused before it can probe answer shapes.
     let records = read_response_records(&form_path)?;
     let latest = latest_by_id(&records);
-    let response_id = find_editable(&latest, body.response_id.as_deref(), &edit_hash)?
-        .unwrap_or_else(new_response_id);
-    validate_answers(&doc, &answers)?;
+    let existing = find_editable(&latest, body.response_id.as_deref(), &edit_hash)?;
+    let is_new = existing.is_none();
+    if is_new && form_max_responses(&doc).is_some_and(|max| latest.len() >= max as usize) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This form has all the answers it can take.",
+        ));
+    }
+    let response_id = existing.unwrap_or_else(new_response_id);
+    let uploads = uploads_dir_for(&form_path);
+    validate_answers(&doc, &answers, uploads.as_deref())?;
 
     let record = json!({
         "v": 1,
@@ -738,6 +931,17 @@ async fn respond_submit_inner(
         )
     })?;
     state.touch_io_activity();
+    if is_new && form_notify(&doc) {
+        let count = (latest.len() + 1) as u64;
+        let room_key = crate::office::collab::CollabHub::room_key(&link.drive_id, &link.path);
+        state
+            .collab
+            .broadcast(
+                &room_key,
+                crate::office::collab::ServerEvent::FormResponse { count },
+            )
+            .await;
+    }
     Ok(Json(json!({
         "ok": true,
         "id": response_id,
@@ -823,6 +1027,268 @@ fn respond_lookup_inner(
         "id": id,
         "answers": record.get("answers").cloned().unwrap_or(Value::Object(Map::new())),
     })))
+}
+
+/// `<name>.uploads` next to the form. Created on the first attachment.
+fn uploads_dir_for(form_path: &FsPath) -> Option<PathBuf> {
+    let name = form_path.file_name()?.to_str()?;
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.strip_suffix(FORM_FILE_SUFFIX)?;
+    // Keep the original stem's casing from the file name.
+    let stem = &name[..stem.len()];
+    Some(form_path.parent()?.join(format!("{stem}.uploads")))
+}
+
+fn upload_ext(filename: &str) -> Option<&'static str> {
+    let ext = filename.rsplit('.').next()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg" => Some("jpg"),
+        "png" => Some("png"),
+        "gif" => Some("gif"),
+        "webp" => Some("webp"),
+        "pdf" => Some("pdf"),
+        _ => None,
+    }
+}
+
+fn new_upload_name(ext: &str) -> String {
+    let mut bytes = [0u8; 8];
+    argon2::password_hash::rand_core::OsRng.fill_bytes(&mut bytes);
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("{hex}.{ext}")
+}
+
+/// `POST /s/{token}/respond-file` — store one photo or PDF beside the form.
+/// The answer later names the file Luna minted; the client never picks the path.
+async fn respond_upload(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Response {
+    let resolved = resolve_respond_link(&state, &addr, &token, &headers);
+    let (link_id, proof, res) = match resolved {
+        Err(e) => (String::new(), None, Err(e)),
+        Ok((link, proof)) => {
+            let res = respond_upload_inner(&state, &addr, &link, &mut multipart)
+                .await
+                .map(IntoResponse::into_response);
+            (link.id.clone(), proof, res)
+        }
+    };
+    crate::api::access::finish_public(res, &link_id, proof, &headers)
+}
+
+async fn respond_upload_inner(
+    state: &AppState,
+    addr: &SocketAddr,
+    link: &db::AccessLinkRow,
+    multipart: &mut Multipart,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let ip = addr.ip().to_string();
+    if !state.form_respond_limiter.allow(&respond_key(&ip)) {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries from this network just now. Wait a minute and try again.",
+        ));
+    }
+    let form_path = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        resolve_form_file(&conn, &link.drive_id, &link.path)?
+    };
+    let doc = read_form_document(&form_path)?;
+    if hard_closed_message(&doc).is_some() {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "This form isn't collecting answers anymore.",
+        ));
+    }
+    let mut saved: Option<(String, Vec<u8>)> = None;
+    while let Some(field) = multipart.next_field().await.map_err(|_| {
+        json_error(
+            StatusCode::BAD_REQUEST,
+            "That file didn't come through whole. Try choosing it again.",
+        )
+    })? {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let filename = field.file_name().unwrap_or("").to_string();
+        let Some(ext) = upload_ext(&filename) else {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.",
+            ));
+        };
+        let mut bytes = Vec::new();
+        let mut field = field;
+        while let Some(chunk) = field.chunk().await.map_err(|_| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "That file didn't come through whole. Try choosing it again.",
+            )
+        })? {
+            if bytes.len().saturating_add(chunk.len()) > MAX_UPLOAD_BYTES {
+                return Err(json_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "That file is over 10 MB. Choose a smaller photo or PDF.",
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if bytes.is_empty() {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That file was empty. Choose a photo or PDF and try again.",
+            ));
+        }
+        saved = Some((ext.to_string(), bytes));
+        break;
+    }
+    let Some((ext, bytes)) = saved else {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Choose a photo or PDF to attach.",
+        ));
+    };
+    let Some(dir) = uploads_dir_for(&form_path) else {
+        return Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't find where this form keeps files.",
+        ));
+    };
+    if let Ok(meta) = std::fs::symlink_metadata(&dir)
+        && meta.file_type().is_symlink()
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Luna couldn't save that file. Try again.",
+        ));
+    }
+    std::fs::create_dir_all(&dir).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't save that file. Try again.",
+        )
+    })?;
+    let name = new_upload_name(&ext);
+    let dest = dir.join(&name);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&dest)
+        .and_then(|mut file| {
+            file.write_all(&bytes)?;
+            file.sync_all()
+        })
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save that file. Try again.",
+            )
+        })?;
+    state.touch_io_activity();
+    Ok(Json(json!({ "ok": true, "name": name })))
+}
+
+#[derive(Deserialize)]
+struct FormImageQuery {
+    path: String,
+}
+
+/// `GET /s/{token}/form-image?path=` — a picture the form itself names.
+/// Anything else on the drive stays private.
+async fn respond_image(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    Query(query): Query<FormImageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let resolved = resolve_respond_link(&state, &addr, &token, &headers);
+    let (link_id, proof, res) = match resolved {
+        Err(e) => (String::new(), None, Err(e)),
+        Ok((link, proof)) => {
+            let res =
+                respond_image_inner(&state, &link, &query.path).map(IntoResponse::into_response);
+            (link.id.clone(), proof, res)
+        }
+    };
+    crate::api::access::finish_public(res, &link_id, proof, &headers)
+}
+
+fn respond_image_inner(
+    state: &AppState,
+    link: &db::AccessLinkRow,
+    image_path: &str,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let wanted = image_path.trim().trim_start_matches('/');
+    if wanted.is_empty() || wanted.contains("..") || wanted.contains('\\') {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "That picture isn't on this form.",
+        ));
+    }
+    let path = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let form_path = resolve_form_file(&conn, &link.drive_id, &link.path)?;
+        let doc = read_form_document(&form_path)?;
+        let listed = form_questions(&doc).into_iter().any(|q| {
+            q.get("image")
+                .and_then(|v| v.as_str())
+                .is_some_and(|p| p.trim().trim_start_matches('/') == wanted)
+        });
+        if !listed {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "That picture isn't on this form.",
+            ));
+        }
+        let (path, meta) = crate::files::resolve_any(&conn, &link.drive_id, wanted)
+            .map_err(|_| json_error(StatusCode::NOT_FOUND, "That picture isn't on this form."))?;
+        if !meta.is_file() || meta.len() > MAX_IMAGE_BYTES {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "That picture isn't on this form.",
+            ));
+        }
+        path
+    };
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let content_type = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "That picture isn't on this form.",
+            ));
+        }
+    };
+    let bytes = std::fs::read(&path)
+        .map_err(|_| json_error(StatusCode::NOT_FOUND, "That picture isn't on this form."))?;
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .body(axum::body::Body::from(bytes))
+        .unwrap())
 }
 
 #[cfg(test)]
@@ -938,43 +1404,103 @@ not json
         let doc = doc();
         // Required question missing → refused.
         let answers = Map::new();
-        assert!(validate_answers(&doc, &answers).is_err());
+        assert!(validate_answers(&doc, &answers, None).is_err());
         // Required answered + optional empty → fine.
         let answers: Map<String, Value> = serde_json::from_value(json!({ "q_1": "Yes" })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_ok());
+        assert!(validate_answers(&doc, &answers, None).is_ok());
         // Unknown question id → refused.
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_99": "x" })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_err());
+        assert!(validate_answers(&doc, &answers, None).is_err());
         // An option nobody offered → refused.
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Maybe" })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_err());
+        assert!(validate_answers(&doc, &answers, None).is_err());
         // multi_choice needs an array of offered strings.
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_2": "Slaw" })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_err());
+        assert!(validate_answers(&doc, &answers, None).is_err());
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_2": ["Slaw", "Beans"] })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_ok());
+        assert!(validate_answers(&doc, &answers, None).is_ok());
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_2": ["Slaw", "Pasta"] })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_err());
+        assert!(validate_answers(&doc, &answers, None).is_err());
         // yes_no is the two strings only.
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_4": "yes" })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_ok());
+        assert!(validate_answers(&doc, &answers, None).is_ok());
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_4": "maybe" })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_err());
+        assert!(validate_answers(&doc, &answers, None).is_err());
         // A type this build doesn't know accepts any flat value.
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_5": {"anything": "goes-ish"} }))
                 .unwrap();
-        assert!(validate_answers(&doc, &answers).is_err()); // nested → no
+        assert!(validate_answers(&doc, &answers, None).is_err()); // nested → no
         let answers: Map<String, Value> =
             serde_json::from_value(json!({ "q_1": "Yes", "q_5": 42 })).unwrap();
-        assert!(validate_answers(&doc, &answers).is_ok());
+        assert!(validate_answers(&doc, &answers, None).is_ok());
+    }
+
+    #[test]
+    fn email_number_other_and_skip_are_enforced() {
+        let doc: Map<String, Value> = serde_json::from_value(json!({
+            "questions": [
+                { "id": "q_1", "type": "choice", "label": "Coming?", "required": true,
+                  "config": { "options": ["Yes", "No"] } },
+                { "id": "q_2", "type": "email", "label": "Email", "required": true },
+                { "id": "q_3", "type": "number", "label": "Guests",
+                  "config": { "min": 1, "max": 8 } },
+                { "id": "q_4", "type": "short_text", "label": "Meal", "required": true,
+                  "logic": { "questionId": "q_1", "equals": "No" } },
+                { "id": "q_5", "type": "choice", "label": "Dish",
+                  "config": { "options": ["Salad"], "allowOther": true } }
+            ]
+        }))
+        .unwrap();
+        // A skipped required question doesn't block a "No".
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({ "q_1": "No", "q_2": "a@b.co" })).unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_ok());
+        // Coming Yes makes the meal required.
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({ "q_1": "Yes", "q_2": "a@b.co" })).unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_err());
+        // Bad email, out-of-range number, and a free-text Other.
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({ "q_1": "No", "q_2": "not-an-email" })).unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_err());
+        let answers: Map<String, Value> = serde_json::from_value(json!({
+            "q_1": "Yes", "q_2": "a@b.co", "q_3": 9, "q_4": "Fish"
+        }))
+        .unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_err());
+        let answers: Map<String, Value> = serde_json::from_value(json!({
+            "q_1": "Yes", "q_2": "a@b.co", "q_3": 2, "q_4": "Fish", "q_5": "My stew"
+        }))
+        .unwrap();
+        assert!(validate_answers(&doc, &answers, None).is_ok());
+        assert!(upload_name_ok("0123456789abcdef.pdf"));
+        assert!(!upload_name_ok("photo.pdf"));
+        assert!(!upload_name_ok("0123456789abcdef.exe"));
+    }
+
+    #[test]
+    fn close_date_and_cap_are_separate_from_edits() {
+        let open: Map<String, Value> =
+            serde_json::from_value(json!({ "settings": { "closeOn": "1999-01-01" } })).unwrap();
+        assert!(hard_closed_message(&open).is_some());
+        let future: Map<String, Value> =
+            serde_json::from_value(json!({ "settings": { "closeOn": "2999-01-01" } })).unwrap();
+        assert!(hard_closed_message(&future).is_none());
+        let capped: Map<String, Value> =
+            serde_json::from_value(json!({ "settings": { "maxResponses": 2 } })).unwrap();
+        assert_eq!(form_max_responses(&capped), Some(2));
+        assert!(form_notify(&Map::new()));
+        let quiet: Map<String, Value> =
+            serde_json::from_value(json!({ "settings": { "notify": false } })).unwrap();
+        assert!(!form_notify(&quiet));
     }
 }
 
@@ -1311,6 +1837,88 @@ mod http_tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn cap_blocks_new_answers_and_uploads_land_beside_the_form() {
+        let mount = tempfile::tempdir().unwrap();
+        let doc = r#"{
+            "version": 1,
+            "title": "Potluck",
+            "settings": { "collecting": true, "allowEdits": true, "maxResponses": 1 },
+            "questions": [
+                { "id": "q_1", "type": "choice", "label": "Coming?", "required": true,
+                  "config": { "options": ["Yes", "No"] } },
+                { "id": "q_file", "type": "file", "label": "Photo" }
+            ]
+        }"#;
+        std::fs::write(mount.path().join("rsvp.lunaform"), doc).unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
+
+        let boundary = "----lunaformboundary";
+        let mut raw = Vec::new();
+        raw.extend(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"note.pdf\"\r\nContent-Type: application/pdf\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        raw.extend(b"%PDF-1.1\n");
+        raw.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let mut http = HttpReq::builder()
+            .method(Method::POST)
+            .uri(format!("/s/{token}/respond-file"))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("accept", "application/json")
+            .body(Body::from(raw))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, http).await;
+        assert_eq!(res.status(), StatusCode::OK, "{:?}", res.status());
+        let uploaded = body_json(res).await;
+        let name = uploaded["name"].as_str().unwrap().to_string();
+        assert!(super::upload_name_ok(&name), "{name}");
+        assert!(mount.path().join("rsvp.uploads").join(&name).is_file());
+
+        let body =
+            format!(r#"{{"answers":{{"q_1":"Yes","q_file":"{name}"}},"edit_token":"secret-one"}}"#);
+        let res = call(
+            &app,
+            req(Method::POST, &format!("/s/{token}/respond"), &body),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let id = body_json(res).await["id"].as_str().unwrap().to_string();
+
+        let res = call(&app, req(Method::GET, &format!("/s/{token}"), "")).await;
+        let loaded = body_json(res).await;
+        assert_eq!(loaded["full"], true);
+        assert_eq!(loaded["accepting"], true);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                &format!("/s/{token}/respond"),
+                r#"{"answers":{"q_1":"No"},"edit_token":"someone-else"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        let edit = format!(
+            r#"{{"answers":{{"q_1":"No","q_file":"{name}"}},"edit_token":"secret-one","response_id":"{id}"}}"#
+        );
+        let res = call(
+            &app,
+            req(Method::POST, &format!("/s/{token}/respond"), &edit),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     fn insert_link_full(

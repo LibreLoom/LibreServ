@@ -5,7 +5,7 @@
 //! (drive_id, path), and a second opener is told who's editing and offered
 //! read-only / download / close instead of a silent clobber. It is
 //! deliberately NOT generalized to other file kinds — office files have real
-//! EuroOffice collab, and text/forms are out of scope.
+//! EuroOffice collab, and text and forms sync over the collab hub.
 //!
 //! The lock is held by a WebSocket (`GET /api/v1/diagrams/lock/ws`): the
 //! socket staying open IS the heartbeat, so a live holder never loses

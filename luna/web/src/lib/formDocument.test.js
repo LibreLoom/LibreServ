@@ -7,6 +7,7 @@ import {
   parseFormDocument,
   parseResponsesJsonl,
   responsesSiblingPath,
+  uploadsDirPath,
   responsesToCsv,
   serializeFormDocument,
 } from "./formDocument.js";
@@ -16,6 +17,8 @@ describe("formDocument", () => {
     expect(responsesSiblingPath("forms/rsvp.lunaform")).toBe("forms/rsvp.responses.jsonl");
     expect(responsesSiblingPath("Party.LUNAFORM")).toBe("Party.responses.jsonl");
     expect(responsesSiblingPath("odd")).toBe("odd.responses.jsonl");
+    expect(uploadsDirPath("forms/Party.LUNAFORM")).toBe("forms/Party.uploads");
+    expect(uploadsDirPath("rsvp.lunaform")).toBe("rsvp.uploads");
   });
 
   it("parses a real document and treats an empty file as a new form", () => {
