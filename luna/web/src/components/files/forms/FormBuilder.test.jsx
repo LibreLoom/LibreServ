@@ -26,6 +26,7 @@ vi.mock("../office/collabSocket.js", () => ({
 }));
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import FormBuilder from "./FormBuilder.jsx";
 import { driveSource, FileSourceProvider, shareSource } from "../../../lib/fileSource.jsx";
 
@@ -56,16 +57,18 @@ function mountBuilder({ source = driveSource, canWrite = true } = {}) {
   const reg = { save: /** @type {null | (() => Promise<unknown>)} */ (null) };
   render(
     <QueryClientProvider client={qc}>
-      <FileSourceProvider source={source}>
-        <FormBuilder
-          driveId="d1"
-          path="rsvp.lunaform"
-          name="rsvp.lunaform"
-          canWrite={canWrite}
-          onRegisterSave={(f) => { reg.save = f; }}
-          onSaveStateChange={() => {}}
-        />
-      </FileSourceProvider>
+      <ToastProvider>
+        <FileSourceProvider source={source}>
+          <FormBuilder
+            driveId="d1"
+            path="rsvp.lunaform"
+            name="rsvp.lunaform"
+            canWrite={canWrite}
+            onRegisterSave={(f) => { reg.save = f; }}
+            onSaveStateChange={() => {}}
+          />
+        </FileSourceProvider>
+      </ToastProvider>
     </QueryClientProvider>,
   );
   return reg;

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useSearchParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Send } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -387,7 +388,7 @@ export default function FormResponder({
             {allowEdits && editableResponses.length > 0 && (
               <Button
                 variant="accent"
-                surface="secondary"
+                surface="primary"
                 onClick={() => {
                   if (editableResponses.length === 1) openEdit(editableResponses[0]);
                   else {
@@ -396,12 +397,12 @@ export default function FormResponder({
                   }
                 }}
               >
-                {editableResponses.length === 1 ? "Edit Response" : "Edit Responses"}
+                {editableResponses.length === 1 ? "Edit response" : "Edit responses"}
               </Button>
             )}
             <Button
               variant="ghost"
-              surface="secondary"
+              surface="primary"
               onClick={() => {
                 haptic("light");
                 setAlreadyDone(false);
@@ -440,7 +441,7 @@ export default function FormResponder({
             {allowEdits && editableResponses.length > 0 && (
               <Button
                 variant="accent"
-                surface="secondary"
+                surface="primary"
                 size="lg"
                 onClick={() => {
                   if (editableResponses.length === 1) openEdit(editableResponses[0]);
@@ -450,11 +451,11 @@ export default function FormResponder({
                   }
                 }}
               >
-                {editableResponses.length === 1 ? "Edit Response" : "Edit Responses"}
+                {editableResponses.length === 1 ? "Edit response" : "Edit responses"}
               </Button>
             )}
             {!limitOne && !full && (
-              <Button variant="ghost" surface="secondary" size="lg" onClick={respondAgain}>
+              <Button variant="ghost" surface="primary" size="lg" onClick={respondAgain}>
                 Respond again
               </Button>
             )}
@@ -488,15 +489,15 @@ export default function FormResponder({
     >
       <div className="mx-auto w-full max-w-2xl space-y-4 p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-6">
         {editNotice && <PageNotice variant="warning">{editNotice}</PageNotice>}
-        <div className="rounded-large-element bg-primary text-secondary p-5 space-y-2">
-          <h1 className="font-mono text-xl text-secondary">
+        <div className="rounded-large-element bg-secondary text-primary p-5 space-y-2">
+          <h1 className="font-mono text-xl font-normal text-primary">
             {isEdit ? "Change your answers" : (form?.title || "Untitled form")}
           </h1>
           {!isEdit && form?.description ? (
-            <p className="whitespace-pre-wrap text-sm text-secondary">{form.description}</p>
+            <p className="whitespace-pre-wrap text-sm text-primary">{form.description}</p>
           ) : null}
           {isEdit && (
-            <p className="text-sm text-secondary">
+            <p className="text-sm text-primary">
               This is the same form. Change what you need, then send it again.
             </p>
           )}
@@ -511,23 +512,23 @@ export default function FormResponder({
             <section
               key={question.id}
               id={`q-${question.id}`}
-              className="rounded-large-element bg-primary text-secondary p-5 space-y-3"
+              className="rounded-large-element bg-secondary text-primary p-5 space-y-3"
             >
-              <p className="font-mono text-xs uppercase tracking-widest text-accent">
+              <p className="font-mono text-xs font-normal uppercase tracking-widest text-accent">
                 {index + 1} of {shown.length}
                 {question.required ? " · required" : ""}
               </p>
-              <h2 className="text-base text-secondary">
+              <h2 className="text-base text-primary">
                 {question.label || "Untitled question"}
               </h2>
               {question.help ? (
-                <p className="text-sm text-secondary">{question.help}</p>
+                <p className="text-sm text-primary">{question.help}</p>
               ) : null}
               {question.image ? (
                 <img
                   src={`/s/${encodeURIComponent(token)}/form-image?path=${encodeURIComponent(question.image)}`}
                   alt=""
-                  className="max-h-64 w-full rounded-large-element object-contain bg-secondary"
+                  className="max-h-64 w-full rounded-large-element object-contain bg-primary"
                 />
               ) : null}
               <QuestionField
@@ -546,7 +547,7 @@ export default function FormResponder({
 
         {shown.length > 0 && (
           <div className="flex justify-end">
-            <Button variant="accent" surface="secondary" type="submit" disabled={submitting}>
+            <Button variant="accent" surface="primary" type="submit" disabled={submitting}>
               {submitting ? "Sending…" : isEdit ? "Save changes" : "Send answers"}
               <Send size={ICON_SIZE.sm} aria-hidden="true" />
             </Button>
@@ -606,11 +607,11 @@ function ResponsePicker({ responses, questions, onPick, onBack }) {
               <button
                 key={entry.id}
                 type="button"
-                className="flex w-full flex-col gap-1 rounded-large-element bg-primary text-secondary p-4 text-left hover:bg-secondary/10 motion-safe:transition-colors"
+                className="flex w-full flex-col gap-1 rounded-large-element bg-secondary text-primary p-4 text-left hover:bg-primary/10 motion-safe:transition-colors"
                 onClick={() => onPick(entry)}
               >
-                <span className="font-mono text-xs text-accent">{formatSentAt(entry.at)}</span>
-                <span className="truncate text-sm text-secondary">
+                <span className="font-mono text-xs font-normal text-accent">{formatSentAt(entry.at)}</span>
+                <span className="truncate text-sm text-primary">
                   {responsePreview(entry, questions)}
                 </span>
               </button>
@@ -619,7 +620,7 @@ function ResponsePicker({ responses, questions, onPick, onBack }) {
         </div>
       </div>
       <div className="flex items-center gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <Button variant="ghost" surface="secondary" onClick={onBack}>
+        <Button variant="ghost" surface="primary" onClick={onBack}>
           <ArrowLeft size={ICON_SIZE.sm} aria-hidden="true" />
           Back
         </Button>
@@ -657,6 +658,8 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
     : "";
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [fileLabel, setFileLabel] = useState("");
+  const fileRef = useRef(null);
 
   function focusField(e) {
     e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -690,6 +693,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
       if (!res.ok || !data?.name) {
         throw new Error((data && data.error) || "Couldn't attach that file. Try again.");
       }
+      setFileLabel(file.name);
       onAnswer(data.name);
       haptic("success");
     } catch (err) {
@@ -778,22 +782,21 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
         </div>
       ) : question.type === "dropdown" ? (
         <div className="space-y-2">
-          <select
-            className={inputClass}
+          <Dropdown
+            options={[
+              ...options.map((option) => ({ value: option, label: option })),
+              ...(allowOther ? [{ value: "__other__", label: "Other" }] : []),
+            ]}
             value={options.includes(String(value ?? "")) ? String(value) : otherText ? "__other__" : ""}
-            onFocus={focusField}
-            onChange={(e) => {
-              if (e.target.value === "__other__") onAnswer(otherText);
-              else onAnswer(e.target.value);
+            onChange={(next) => {
+              if (next === "__other__") onAnswer(otherText);
+              else onAnswer(next);
             }}
+            placeholder="Pick one…"
+            bg="primary"
+            fullWidth
             aria-label={question.label || "Pick one"}
-          >
-            <option value="" disabled>Pick one…</option>
-            {options.map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-            {allowOther && <option value="__other__">Other</option>}
-          </select>
+          />
           {allowOther && (otherText !== "" || value === "__other__" || (value && !options.includes(String(value)))) && (
             <input
               className={inputClass}
@@ -839,21 +842,33 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
         />
       ) : question.type === "file" ? (
         <div className="space-y-2">
+          <Button
+            type="button"
+            variant="outline"
+            surface="secondary"
+            disabled={uploading}
+            aria-label={question.label ? `${question.label}. Attach a photo or PDF` : "Attach a photo or PDF"}
+            onClick={() => fileRef.current?.click()}
+          >
+            {uploading ? "Attaching…" : "Attach a photo or PDF"}
+          </Button>
           <input
+            ref={fileRef}
             type="file"
             accept={FILE_ACCEPT}
-            className="block w-full text-sm text-secondary file:mr-3 file:rounded-pill file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:text-primary"
-            aria-label={question.label || "Attach a file"}
-            disabled={uploading}
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
               onFile(file);
             }}
           />
-          {uploading && <p className="text-sm text-accent">Attaching…</p>}
-          {typeof value === "string" && value && (
-            <p className="text-sm text-secondary">Attached</p>
+          {(fileLabel || (typeof value === "string" && value)) && (
+            <p className="text-sm text-primary">
+              Attached: {fileLabel || value}
+            </p>
           )}
           {uploadError && <PageNotice variant="error">{uploadError}</PageNotice>}
         </div>

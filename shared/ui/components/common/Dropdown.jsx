@@ -175,7 +175,7 @@ export default function Dropdown({
         ) : (
           <>
             {label && !ghost && <span className="opacity-70">{label}</span>}
-            <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
+            <span className={cn("inline-flex items-center gap-1 whitespace-nowrap font-normal", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
               {selectedOption?.label || placeholder}
               <ChevronDown
                 size={ICON_SIZE.sm}

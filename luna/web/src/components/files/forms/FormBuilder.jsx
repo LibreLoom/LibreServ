@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, ImagePlus, ListChecks, Pencil, Plus, Share2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, ImagePlus, ListChecks, Pencil, Plus, Share2, Trash2 } from "lucide-react";
 import { CollabDocSync } from "../collabDocSync.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
-import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
-import { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
 import FormResponses from "./FormResponses.jsx";
 import {
@@ -114,6 +114,9 @@ function BuilderSession({
   onSaveStateChange,
 }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
   const source = useFileSource();
   const scope = fileSourceScope(source, driveId);
   const solo = source.collab === false;
@@ -126,7 +129,6 @@ function BuilderSession({
   const [sharing, setSharing] = useState(false);
   const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
   const [connStatus, setConnStatus] = useState(solo ? "open" : "connecting");
-  const [answerNotice, setAnswerNotice] = useState("");
   const [focusHere, setFocusHere] = useState(/** @type {{ id: string, name: string }[]} */ ([]));
   /** Pending warn-and-allow confirmation for edits that touch answered data. */
   const [confirm, setConfirm] = useState(/** @type {null | { title: string, message: string, run: () => void }} */ (null));
@@ -150,8 +152,7 @@ function BuilderSession({
         },
         onFormResponse: () => {
           queryClient.invalidateQueries({ queryKey: ["form-responses", scope, path] });
-          setAnswerNotice("Someone just answered.");
-          haptic("success");
+          addToastRef.current({ type: "success", message: "Someone just answered." });
         },
       }),
   );
@@ -398,9 +399,7 @@ function BuilderSession({
           ]}
           value={tab}
           onChange={(v) => {
-            const next = v === "responses" ? "responses" : "questions";
-            if (next === "responses") setAnswerNotice("");
-            setTab(next);
+            setTab(v === "responses" ? "responses" : "questions");
           }}
           surface="primary"
           aria-label="Form section"
@@ -416,8 +415,8 @@ function BuilderSession({
               {peers.slice(0, 5).map((peer) => (
                 <span
                   key={peer.peer_id}
-                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[0.65rem] text-primary first:ml-0 ring-2 ring-primary"
-                  style={{ backgroundColor: peer.color }}
+                  className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[0.65rem] text-secondary ring-2 ring-primary first:ml-0"
+                  style={{ boxShadow: `inset 0 0 0 2px ${peer.color}` }}
                   aria-hidden="true"
                 >
                   {String(peer.username || "?").slice(0, 1).toUpperCase()}
@@ -446,12 +445,6 @@ function BuilderSession({
           {connNote}
         </p>
       ) : null}
-      {answerNotice ? (
-        <div className="px-3 pt-3">
-          <PageNotice variant="info">{answerNotice}</PageNotice>
-        </div>
-      ) : null}
-
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading || (!error && !doc) ? (
           <div
@@ -482,9 +475,9 @@ function BuilderSession({
           <div className="mx-auto w-full max-w-2xl space-y-4 p-4 sm:p-6">
             {/* Title + description edit inline — the builder is WYSIWYG, so
                 this reads like the responder's first screen. */}
-            <div className="rounded-large-element bg-primary text-secondary p-5 space-y-3">
+            <div className="rounded-large-element bg-secondary text-primary p-5 space-y-3">
               <input
-                className="w-full bg-transparent font-mono text-xl text-secondary outline-none no-focus-outline placeholder:text-accent"
+                className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline placeholder:text-accent"
                 value={doc?.title || ""}
                 onChange={(e) => edit((ydoc) => setFormTitle(ydoc, e.target.value))}
                 placeholder="Form title"
@@ -492,7 +485,7 @@ function BuilderSession({
                 disabled={!canWrite}
               />
               <textarea
-                className="w-full resize-none bg-transparent text-sm text-secondary outline-none no-focus-outline placeholder:text-accent"
+                className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline placeholder:text-accent"
                 rows={2}
                 value={doc?.description || ""}
                 onChange={(e) => edit((ydoc) => setFormDescription(ydoc, e.target.value))}
@@ -554,6 +547,7 @@ function BuilderSession({
                 onPatch={(patch) => updateQuestion(question.id, patch)}
                 onChangeType={(type) => changeType(question, type)}
                 onRemove={() => removeQuestion(question)}
+                onMove={(to) => moveQuestion(index, to)}
                 onRemoveOption={(optionIndex) => {
                   const apply = () =>
                     updateQuestion(question.id, {
@@ -583,12 +577,12 @@ function BuilderSession({
               </div>
             )}
 
-            <div className="rounded-large-element bg-primary text-secondary p-5 space-y-4">
-              <h3 className="font-mono text-xs uppercase tracking-widest text-secondary">
+            <div className="rounded-large-element bg-secondary text-primary p-5 space-y-4">
+              <h3 className="font-mono text-xs font-normal uppercase tracking-widest text-primary">
                 Settings
               </h3>
               <Toggle
-                surface="primary"
+                surface="secondary"
                 label="Collecting answers"
                 description="Turn this off and the link stops taking new answers."
                 checked={settings.collecting !== false}
@@ -596,7 +590,7 @@ function BuilderSession({
                 onChange={(next) => setSetting("collecting", next)}
               />
               <Toggle
-                surface="primary"
+                surface="secondary"
                 label="Let people change their answers"
                 description="Each person gets a private edit link after sending."
                 checked={settings.allowEdits !== false}
@@ -605,7 +599,7 @@ function BuilderSession({
               />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm text-secondary">Answers per person</p>
+                  <p className="text-sm text-primary">Answers per person</p>
                   <p className="text-xs text-accent">
                     Limiting to one uses this device&apos;s browser memory — a reminder, not a lock.
                   </p>
@@ -617,12 +611,12 @@ function BuilderSession({
                   ]}
                   value={settings.responseLimit === "one" ? "one" : "unlimited"}
                   onChange={(v) => setSetting("responseLimit", v === "one" ? "one" : "unlimited")}
-                  surface="primary"
+                  surface="secondary"
                   aria-label="Answers per person"
                 />
               </div>
               <div className="space-y-1">
-                <label className="block text-sm text-secondary" htmlFor="form-thank-you">
+                <label className="block text-sm text-primary" htmlFor="form-thank-you">
                   Thank-you message
                 </label>
                 <textarea
@@ -640,7 +634,7 @@ function BuilderSession({
                 </p>
               </div>
               <div className="space-y-1">
-                <label className="block text-sm text-secondary" htmlFor="form-close-on">
+                <label className="block text-sm text-primary" htmlFor="form-close-on">
                   Stop taking answers after
                 </label>
                 <input
@@ -655,7 +649,7 @@ function BuilderSession({
                 <p className="text-xs text-accent">The form stays open through that day.</p>
               </div>
               <div className="space-y-1">
-                <label className="block text-sm text-secondary" htmlFor="form-max-responses">
+                <label className="block text-sm text-primary" htmlFor="form-max-responses">
                   Stop after this many answers
                 </label>
                 <input
@@ -676,9 +670,9 @@ function BuilderSession({
                 </p>
               </div>
               <Toggle
-                surface="primary"
+                surface="secondary"
                 label="Tell me when someone answers"
-                description="Shows a notice in this form. Luna does not email you."
+                description="Shows a short note. Luna does not email you."
                 checked={settings.notify !== false}
                 disabled={!canWrite}
                 onChange={(next) => setSetting("notify", next)}
@@ -744,6 +738,13 @@ BuilderSession.propTypes = {
 const fieldClass =
   "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent placeholder:text-accent";
 
+/** The control a person fills in — same shape as the answer page, not a grey stand-in. */
+const previewFieldClass =
+  "pointer-events-none w-full rounded-pill border-2 border-secondary/30 bg-primary px-4 py-2 text-base text-secondary outline-none placeholder:text-accent";
+
+const answerPillClass =
+  "rounded-pill border-2 border-secondary/30 bg-primary px-4 py-3 text-left text-base text-secondary";
+
 function QuestionCard({
   question,
   index,
@@ -764,6 +765,7 @@ function QuestionCard({
   onPatch,
   onChangeType,
   onRemove,
+  onMove,
   onRemoveOption,
 }) {
   const info = typeInfo(question.type);
@@ -784,10 +786,12 @@ function QuestionCard({
     onPatch({ config });
   }
 
+  const showOther = question.config?.allowOther === true;
+
   return (
     <div
       className={cn(
-        "rounded-large-element bg-primary text-secondary p-5 space-y-3 motion-safe:transition-colors",
+        "rounded-large-element bg-secondary text-primary p-5 space-y-3 motion-safe:transition-colors",
         dragging && "ring-2 ring-accent",
       )}
       onDragOver={onDragOver}
@@ -808,7 +812,33 @@ function QuestionCard({
             <GripVertical size={ICON_SIZE.md} aria-hidden="true" />
           </span>
         )}
-        <span className="font-mono text-xs uppercase tracking-widest text-accent">
+        {canWrite && (
+          <>
+            <Button
+              variant="ghost"
+              surface="secondary"
+              size="iconSm"
+              aria-label="Move this question up"
+              tooltip="Move this question up"
+              disabled={index === 0}
+              onClick={() => onMove(index - 1)}
+            >
+              <ChevronUp size={ICON_SIZE.sm} aria-hidden="true" />
+            </Button>
+            <Button
+              variant="ghost"
+              surface="secondary"
+              size="iconSm"
+              aria-label="Move this question down"
+              tooltip="Move this question down"
+              disabled={index >= count - 1}
+              onClick={() => onMove(index + 1)}
+            >
+              <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
+            </Button>
+          </>
+        )}
+        <span className="font-mono text-xs font-normal uppercase tracking-widest text-accent">
           {index + 1} of {count}
         </span>
         <div className="min-w-0 flex-1" />
@@ -821,14 +851,14 @@ function QuestionCard({
             aria-label="Question type"
           />
         ) : (
-          <span className="rounded-pill bg-secondary text-primary px-3 py-1 font-mono text-xs">
+          <span className="rounded-pill bg-primary px-3 py-1 font-mono text-xs font-normal text-secondary">
             {info.label}
           </span>
         )}
         {canWrite && (
           <Button
             variant="ghost"
-            surface="primary"
+            surface="secondary"
             size="iconSm"
             aria-label="Remove this question"
             tooltip="Remove this question"
@@ -840,7 +870,7 @@ function QuestionCard({
       </div>
 
       <input
-        className="w-full bg-transparent text-base text-secondary outline-none no-focus-outline placeholder:text-accent"
+        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline placeholder:text-accent"
         value={question.label || ""}
         onChange={(e) => onPatch({ label: e.target.value })}
         placeholder="Type the question"
@@ -848,98 +878,83 @@ function QuestionCard({
         disabled={!canWrite}
       />
 
-      {info.hint && <p className="text-xs text-accent">{info.hint}</p>}
-
-      <input
-        className="w-full bg-transparent text-sm text-secondary outline-none no-focus-outline placeholder:text-accent"
-        value={question.help || ""}
-        onChange={(e) => onPatch({ help: e.target.value })}
-        placeholder="Add a hint under the question (optional)"
-        aria-label={`Hint for question ${index + 1}`}
-        disabled={!canWrite}
-      />
+      {question.help ? (
+        <p className="text-sm text-primary">{question.help}</p>
+      ) : null}
 
       {question.image ? (
-        <div className="space-y-2">
-          <img
-            src={imageHref}
-            alt=""
-            className="max-h-48 w-full rounded-large-element object-contain bg-secondary"
-          />
-          {canWrite && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" surface="primary" size="sm" onClick={onPickImage}>
-                <ImagePlus size={ICON_SIZE.sm} aria-hidden="true" />
-                Change picture
-              </Button>
-              <Button
-                variant="ghost"
-                surface="primary"
-                size="sm"
-                onClick={() => onPatch({ image: "" })}
-              >
-                Remove picture
-              </Button>
-            </div>
-          )}
-        </div>
-      ) : canWrite ? (
-        <Button variant="outline" surface="primary" size="sm" onClick={onPickImage}>
-          <ImagePlus size={ICON_SIZE.sm} aria-hidden="true" />
-          Add a picture
-        </Button>
+        <img
+          src={imageHref}
+          alt=""
+          className="max-h-48 w-full rounded-large-element bg-primary object-contain"
+        />
       ) : null}
 
       {watcherLine(watchers) ? (
         <p className="text-xs text-accent">{watcherLine(watchers)}</p>
       ) : null}
 
-      {/* Responder-shaped preview — for option types the options themselves
-          are editable rows; for text-ish types a disabled field shows what
-          people will see. */}
-      {info.options ? (
-        <div className="space-y-2">
-          {options.map((option, optionIndex) => (
-            <div key={optionIndex} className="flex items-center gap-2">
-              <input
-                className="min-w-0 flex-1 rounded-pill border-2 border-secondary/30 bg-primary px-4 py-1.5 text-sm text-secondary outline-none focus:border-accent"
-                value={option}
-                onChange={(e) => {
-                  const next = [...options];
-                  next[optionIndex] = e.target.value;
-                  setOptions(next);
-                }}
-                aria-label={`Option ${optionIndex + 1}`}
-                disabled={!canWrite}
-              />
-              {canWrite && (
-                <Button
-                  variant="ghost"
-                  surface="primary"
-                  size="iconSm"
-                  aria-label={`Remove option ${optionIndex + 1}`}
-                  onClick={() => onRemoveOption(optionIndex)}
-                >
-                  <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
-                </Button>
-              )}
-            </div>
-          ))}
-          {canWrite && (
-            <Button
-              variant="outline"
-              surface="primary"
-              size="sm"
-              onClick={() => setOptions([...options, `Option ${options.length + 1}`])}
-            >
-              <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-              Add an option
+      <QuestionFace
+        question={question}
+        options={options}
+        canWrite={canWrite}
+        showOther={showOther}
+        onSetOptions={setOptions}
+        onRemoveOption={onRemoveOption}
+      />
+
+      <div className="space-y-3 border-t border-primary/20 pt-3">
+        {info.hint ? <p className="text-xs text-accent">{info.hint}</p> : null}
+        <input
+          className={fieldClass + " w-full"}
+          value={question.help || ""}
+          onChange={(e) => onPatch({ help: e.target.value })}
+          placeholder="Add a hint under the question (optional)"
+          aria-label={`Hint for question ${index + 1}`}
+          disabled={!canWrite}
+        />
+        {canWrite && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" surface="secondary" size="sm" onClick={onPickImage}>
+              <ImagePlus size={ICON_SIZE.sm} aria-hidden="true" />
+              {question.image ? "Change picture" : "Add a picture"}
             </Button>
-          )}
+            {question.image ? (
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="sm"
+                onClick={() => onPatch({ image: "" })}
+              >
+                Remove picture
+              </Button>
+            ) : null}
+          </div>
+        )}
+        {info.options && question.type === "dropdown" && (
+          <OptionEditor
+            options={options}
+            canWrite={canWrite}
+            onSetOptions={setOptions}
+            onRemoveOption={onRemoveOption}
+          />
+        )}
+        {info.options && canWrite && question.type !== "dropdown" && (
+          <Button
+            variant="outline"
+            surface="secondary"
+            size="sm"
+            onClick={() => setOptions([...options, `Option ${options.length + 1}`])}
+          >
+            <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+            Add an option
+          </Button>
+        )}
+        {info.options && (
           <Toggle
-            surface="primary"
+            surface="secondary"
             label="Let people type their own answer"
-            checked={question.config?.allowOther === true}
+            checked={showOther}
             disabled={!canWrite}
             onChange={(next) => {
               const config = { ...(question.config || {}) };
@@ -948,31 +963,8 @@ function QuestionCard({
               onPatch({ config });
             }}
           />
-        </div>
-      ) : info.fixedOptions ? (
-        <div className="flex gap-2">
-          {info.fixedOptions.map((option) => (
-            <span
-              key={option}
-              className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-secondary"
-            >
-              {option}
-            </span>
-          ))}
-        </div>
-      ) : question.type === "long_text" ? (
-        <div className="rounded-large-element border-2 border-secondary/30 px-4 py-2 text-sm text-accent">
-          A longer answer goes here
-        </div>
-      ) : question.type === "date" ? (
-        <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent inline-block">
-          Pick a day
-        </div>
-      ) : question.type === "number" ? (
-        <div className="space-y-2">
-          <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
-            A number goes here
-          </div>
+        )}
+        {question.type === "number" && (
           <div className="flex flex-wrap gap-2">
             <input
               type="number"
@@ -993,37 +985,23 @@ function QuestionCard({
               disabled={!canWrite}
             />
           </div>
-        </div>
-      ) : question.type === "email" ? (
-        <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
-          An email address goes here
-        </div>
-      ) : question.type === "file" ? (
-        <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
-          A photo or PDF goes here
-        </div>
-      ) : (
-        <div className="rounded-pill border-2 border-secondary/30 px-4 py-1.5 text-sm text-accent">
-          A short answer goes here
-        </div>
-      )}
-
-      {earlier.length > 0 && (
-        <SkipRow question={question} earlier={earlier} canWrite={canWrite} onPatch={onPatch} />
-      )}
-
-      <div className="flex items-center justify-between gap-2 pt-1">
-        {hasAnswers && (
-          <span className="text-xs text-accent">People have answered this</span>
         )}
-        <div className="min-w-0 flex-1" />
-        <Toggle
-          surface="primary"
-          label="Required"
-          checked={Boolean(question.required)}
-          disabled={!canWrite}
-          onChange={(next) => onPatch({ required: next })}
-        />
+        {earlier.length > 0 && (
+          <SkipRow question={question} earlier={earlier} canWrite={canWrite} onPatch={onPatch} />
+        )}
+        <div className="flex items-center justify-between gap-2">
+          {hasAnswers && (
+            <span className="text-xs text-accent">People have answered this</span>
+          )}
+          <div className="min-w-0 flex-1" />
+          <Toggle
+            surface="secondary"
+            label="Required"
+            checked={Boolean(question.required)}
+            disabled={!canWrite}
+            onChange={(next) => onPatch({ required: next })}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1049,6 +1027,7 @@ QuestionCard.propTypes = {
   onPatch: PropTypes.func.isRequired,
   onChangeType: PropTypes.func.isRequired,
   onRemove: PropTypes.func.isRequired,
+  onMove: PropTypes.func.isRequired,
   onRemoveOption: PropTypes.func.isRequired,
 };
 
@@ -1060,6 +1039,205 @@ function watcherLine(watchers) {
   if (names.length === 2) return `${names[0]} and ${names[1]} are on this question`;
   return `${names[0]} and ${names.length - 1} others are on this question`;
 }
+
+/**
+ * The face of a question — the same control the answer page shows.
+ * Choice pills stay editable because those words are what people pick.
+ * Dropdown options live in the footer so the face is a dropdown.
+ */
+function QuestionFace({ question, options, canWrite, showOther, onSetOptions, onRemoveOption }) {
+  if (question.type === "dropdown") {
+    return (
+      <div
+        aria-hidden="true"
+        className="inline-flex w-full items-center rounded-pill bg-primary px-3 py-1.5 text-xs text-secondary"
+      >
+        <span className="inline-flex w-full items-center justify-between gap-1 font-mono font-normal">
+          Pick one…
+          <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
+        </span>
+      </div>
+    );
+  }
+
+  if (question.type === "choice" || question.type === "multi_choice") {
+    return (
+      <div className="flex flex-col gap-2">
+        {options.map((option, optionIndex) => (
+          <div key={optionIndex} className="flex items-center gap-2">
+            <input
+              className={cn(answerPillClass, "min-w-0 flex-1 outline-none no-focus-outline focus:border-accent")}
+              value={option}
+              onChange={(e) => {
+                const next = [...options];
+                next[optionIndex] = e.target.value;
+                onSetOptions(next);
+              }}
+              aria-label={`Option ${optionIndex + 1}`}
+              disabled={!canWrite}
+            />
+            {canWrite && (
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`Remove option ${optionIndex + 1}`}
+                onClick={() => onRemoveOption(optionIndex)}
+              >
+                <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+        ))}
+        {showOther && (
+          <div className={answerPillClass} aria-hidden="true">Other</div>
+        )}
+      </div>
+    );
+  }
+
+  if (question.type === "yes_no") {
+    return (
+      <div className="flex flex-col gap-2" aria-hidden="true">
+        {["Yes", "No"].map((option) => (
+          <div key={option} className={answerPillClass}>{option}</div>
+        ))}
+      </div>
+    );
+  }
+
+  if (question.type === "long_text") {
+    return (
+      <textarea
+        readOnly
+        tabIndex={-1}
+        aria-hidden="true"
+        rows={4}
+        className={cn(previewFieldClass, "min-h-32 resize-y rounded-large-element")}
+        placeholder="Type your answer"
+      />
+    );
+  }
+
+  if (question.type === "date") {
+    return (
+      <input
+        type="date"
+        readOnly
+        tabIndex={-1}
+        aria-hidden="true"
+        className={previewFieldClass}
+      />
+    );
+  }
+
+  if (question.type === "number") {
+    return (
+      <input
+        readOnly
+        tabIndex={-1}
+        aria-hidden="true"
+        className={previewFieldClass}
+        placeholder="0"
+      />
+    );
+  }
+
+  if (question.type === "email") {
+    return (
+      <input
+        readOnly
+        tabIndex={-1}
+        aria-hidden="true"
+        className={previewFieldClass}
+        placeholder="name@example.com"
+      />
+    );
+  }
+
+  if (question.type === "file") {
+    return (
+      <div
+        aria-hidden="true"
+        className="inline-flex items-center gap-2 rounded-pill border-2 border-primary px-4 py-2 text-sm text-primary"
+      >
+        Attach a photo or PDF
+      </div>
+    );
+  }
+
+  return (
+    <input
+      readOnly
+      tabIndex={-1}
+      aria-hidden="true"
+      className={previewFieldClass}
+      placeholder="Type your answer"
+    />
+  );
+}
+
+QuestionFace.propTypes = {
+  question: PropTypes.object.isRequired,
+  options: PropTypes.array.isRequired,
+  canWrite: PropTypes.bool,
+  showOther: PropTypes.bool,
+  onSetOptions: PropTypes.func.isRequired,
+  onRemoveOption: PropTypes.func.isRequired,
+};
+
+/** Option list for a dropdown — the face is the closed menu, so the words live here. */
+function OptionEditor({ options, canWrite, onSetOptions, onRemoveOption }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-accent">Options in the list</p>
+      {options.map((option, optionIndex) => (
+        <div key={optionIndex} className="flex items-center gap-2">
+          <input
+            className={cn(fieldClass, "min-w-0 flex-1")}
+            value={option}
+            onChange={(e) => {
+              const next = [...options];
+              next[optionIndex] = e.target.value;
+              onSetOptions(next);
+            }}
+            aria-label={`Option ${optionIndex + 1}`}
+            disabled={!canWrite}
+          />
+          {canWrite && (
+            <Button
+              variant="ghost"
+              surface="secondary"
+              size="iconSm"
+              aria-label={`Remove option ${optionIndex + 1}`}
+              onClick={() => onRemoveOption(optionIndex)}
+            >
+              <Trash2 size={ICON_SIZE.xs} aria-hidden="true" />
+            </Button>
+          )}
+        </div>
+      ))}
+      {canWrite && (
+        <Button
+          variant="outline"
+          surface="secondary"
+          size="sm"
+          onClick={() => onSetOptions([...options, `Option ${options.length + 1}`])}
+        >
+          <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+          Add an option
+        </Button>
+      )}
+    </div>
+  );
+}
+
+OptionEditor.propTypes = {
+  options: PropTypes.array.isRequired,
+  canWrite: PropTypes.bool,
+  onSetOptions: PropTypes.func.isRequired,
+  onRemoveOption: PropTypes.func.isRequired,
+};
 
 /**
  * Skip when an earlier answer matches. Yes/no stores yes/no, not the label.
@@ -1083,53 +1261,42 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
     return opts[0] || "";
   }
 
+  const questionOptions = [
+    { value: "", label: "Don't skip" },
+    ...earlier.map((q, i) => ({ value: q.id, label: q.label || `Question ${i + 1}` })),
+  ];
+  const equalsOptions = trigger?.type === "yes_no"
+    ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]
+    : answerOptions(trigger).map((option) => ({ value: option, label: option }));
+
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-sm text-secondary">Skip this question when</span>
-      <select
-        className={fieldClass}
-        aria-label="Skip when this earlier question"
+      <span className="text-sm text-primary">Skip this question when</span>
+      <Dropdown
+        options={questionOptions}
         value={trigger ? trigger.id : ""}
         disabled={!canWrite}
-        onChange={(e) => {
-          const id = e.target.value;
+        bg="primary"
+        aria-label="Skip when this earlier question"
+        onChange={(id) => {
           const next = earlier.find((q) => q.id === id) || null;
           setLogic(id, defaultEquals(next));
         }}
-      >
-        <option value="">Don&apos;t skip</option>
-        {earlier.map((q, i) => (
-          <option key={q.id} value={q.id}>
-            {q.label || `Question ${i + 1}`}
-          </option>
-        ))}
-      </select>
+      />
       {trigger && (
         <>
-          <span className="text-sm text-secondary">is</span>
-          {trigger.type === "yes_no" ? (
-            <select
-              className={fieldClass}
-              aria-label="Skip when the answer is"
-              value={logic?.equals === "no" ? "no" : "yes"}
+          <span className="text-sm text-primary">is</span>
+          {trigger.type === "yes_no" || triggerInfo?.options || triggerInfo?.fixedOptions ? (
+            <Dropdown
+              options={equalsOptions}
+              value={trigger.type === "yes_no"
+                ? (logic?.equals === "no" ? "no" : "yes")
+                : (logic?.equals || "")}
               disabled={!canWrite}
-              onChange={(e) => setLogic(trigger.id, e.target.value)}
-            >
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </select>
-          ) : triggerInfo?.options || triggerInfo?.fixedOptions ? (
-            <select
-              className={fieldClass}
+              bg="primary"
               aria-label="Skip when the answer is"
-              value={logic?.equals || ""}
-              disabled={!canWrite}
-              onChange={(e) => setLogic(trigger.id, e.target.value)}
-            >
-              {answerOptions(trigger).map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
+              onChange={(value) => setLogic(trigger.id, value)}
+            />
           ) : (
             <input
               className={cn(fieldClass, "min-w-32 flex-1")}
@@ -1168,15 +1335,15 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
     .filter((entry) => entry.kind === "dir" || isImageFileName(entry.name));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-primary/80 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Choose a picture"
+    <ModalCard
+      open
+      title="Choose a picture"
+      onClose={onClose}
+      overlayClassName={NESTED_OVERLAY_CLASS}
     >
-      <div className="flex max-h-[70vh] w-full max-w-md flex-col gap-3 rounded-large-element bg-secondary p-5 text-primary">
-        <div className="flex items-center gap-2">
-          <p className="min-w-0 flex-1 truncate font-mono text-xs uppercase tracking-widest text-primary">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 pr-10">
+          <p className="min-w-0 flex-1 truncate font-mono text-xs font-normal uppercase tracking-widest text-primary">
             {folder || "Top folder"}
           </p>
           {folder ? (
@@ -1184,17 +1351,11 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
               variant="ghost"
               surface="secondary"
               size="sm"
-              onClick={() => {
-                haptic("light");
-                setFolder(parentPath(folder) ?? "");
-              }}
+              onClick={() => setFolder(parentPath(folder) ?? "")}
             >
               Up
             </Button>
           ) : null}
-          <Button variant="ghost" surface="secondary" size="sm" onClick={onClose}>
-            Close
-          </Button>
         </div>
         <p className="text-sm text-primary">
           Choose a picture already on Luna. JPG, PNG, GIF, or WebP.
@@ -1209,7 +1370,7 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
         ) : entries.length === 0 ? (
           <p className="text-sm text-primary">No pictures in this folder.</p>
         ) : (
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+          <div className="max-h-64 space-y-1 overflow-y-auto">
             {entries.map((entry) => {
               const isDir = entry.kind === "dir";
               return (
@@ -1231,7 +1392,7 @@ function PicturePicker({ driveId, startFolder, onPick, onClose }) {
           </div>
         )}
       </div>
-    </div>
+    </ModalCard>
   );
 }
 

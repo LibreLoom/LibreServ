@@ -144,11 +144,11 @@ export default function FormResponses({
               return (
                 <div
                   key={question.id}
-                  className="rounded-large-element bg-primary text-secondary p-4 space-y-2"
+                  className="rounded-large-element bg-secondary text-primary p-4 space-y-2"
                 >
                   <div className="flex items-center gap-2">
                     <InfoIcon size={ICON_SIZE.sm} className="text-accent" aria-hidden="true" />
-                    <p className="min-w-0 flex-1 truncate text-sm text-secondary">
+                    <p className="min-w-0 flex-1 truncate text-sm text-primary">
                       {question.label || "Untitled question"}
                     </p>
                     <span className="font-mono text-xs text-accent">
@@ -156,19 +156,19 @@ export default function FormResponses({
                     </span>
                   </div>
                   {summary.kind === "number" ? (
-                    <p className="text-sm text-secondary">Total {summary.total}</p>
+                    <p className="text-sm text-primary">Total {summary.total}</p>
                   ) : summary.kind === "bars" ? (
                     <div className="space-y-1.5">
                       {summary.rows.map((row) => (
                         <div key={row.label} className="flex items-center gap-2 text-sm">
-                          <span className="w-32 shrink-0 truncate text-secondary">{row.label}</span>
-                          <div className="h-2 min-w-0 flex-1 rounded-pill bg-secondary/20 overflow-hidden">
+                          <span className="w-32 shrink-0 truncate text-primary">{row.label}</span>
+                          <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-pill bg-primary">
                             <div
                               className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-300"
                               style={{ width: `${Math.round((row.count / max) * 100)}%` }}
                             />
                           </div>
-                          <span className="w-8 shrink-0 text-right font-mono text-xs text-secondary">
+                          <span className="w-8 shrink-0 text-right font-mono text-xs font-normal text-primary">
                             {row.count}
                           </span>
                         </div>
@@ -177,9 +177,9 @@ export default function FormResponses({
                   ) : (
                     <ul className="m-0 list-none space-y-1 p-0">
                       {summary.items.slice(0, 8).map((item, i) => (
-                        <li key={i} className="truncate text-sm text-secondary">
+                        <li key={i} className="truncate text-sm text-primary">
                           {question.type === "file" && fileHref(item) ? (
-                            <a href={fileHref(item)} className="text-secondary underline" target="_blank" rel="noreferrer">
+                            <a href={fileHref(item)} className="text-primary underline" target="_blank" rel="noreferrer">
                               {item}
                             </a>
                           ) : item}
@@ -198,17 +198,17 @@ export default function FormResponses({
           </div>
 
           {/* Individual answers */}
-          <div className="overflow-x-auto rounded-large-element bg-primary text-secondary">
+          <div className="overflow-x-auto rounded-large-element bg-secondary text-primary">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-secondary/15">
-                  <th className="whitespace-nowrap px-3 py-2 font-mono text-xs uppercase tracking-widest text-secondary">
+                <tr className="border-b border-primary/20">
+                  <th className="whitespace-nowrap px-3 py-2 font-mono text-xs font-normal uppercase tracking-widest text-primary">
                     Submitted
                   </th>
                   {columns.map((col) => (
                     <th
                       key={col.id}
-                      className="whitespace-nowrap px-3 py-2 font-mono text-xs uppercase tracking-widest text-secondary"
+                      className="whitespace-nowrap px-3 py-2 font-mono text-xs font-normal uppercase tracking-widest text-primary"
                     >
                       {col.label}
                     </th>
@@ -217,14 +217,14 @@ export default function FormResponses({
               </thead>
               <tbody>
                 {responses.map((rec) => (
-                  <tr key={rec.id} className="border-b border-secondary/10 last:border-b-0">
-                    <td className="whitespace-nowrap px-3 py-2 text-secondary">
+                  <tr key={rec.id} className="border-b border-primary/20 last:border-b-0">
+                    <td className="whitespace-nowrap px-3 py-2 text-primary">
                       {Number(rec.at)
                         ? new Date(Number(rec.at) * 1000).toLocaleString()
                         : ""}
                     </td>
                     {columns.map((col) => (
-                      <td key={col.id} className="max-w-64 truncate px-3 py-2 text-secondary">
+                      <td key={col.id} className="max-w-64 truncate px-3 py-2 text-primary">
                         <AnswerCell
                           question={col.question}
                           value={rec.answers?.[col.id]}
@@ -248,7 +248,7 @@ function AnswerCell({ question, value, href }) {
   if (!text) return null;
   if (href) {
     return (
-      <a href={href} className="text-secondary underline" target="_blank" rel="noreferrer">
+      <a href={href} className="text-primary underline" target="_blank" rel="noreferrer">
         {text}
       </a>
     );
