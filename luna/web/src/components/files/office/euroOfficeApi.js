@@ -290,7 +290,9 @@ export async function ensureOfficeBundle(driveId, path, session, source = driveS
   try {
     conv = await x2tConvert(`in.${session.file_type}`, "Editor.bin", src);
   } catch (err) {
-    console.error("[eurooffice] open conversion failed:", err);
+    if (/** @type {any} */ (import.meta).env?.DEV) {
+      console.error("[eurooffice] open conversion failed:", err);
+    }
     // The converter is pack assets too — probe them before blaming the
     // file, so a missing/half-installed pack reports as unavailable and a
     // dead connection as unreachable instead of "damaged file".
@@ -374,7 +376,9 @@ export async function saveEuroOfficeDocument(
   try {
     conv = await x2tConvert("Editor.bin", `out.${ext}`, bytes);
   } catch (err) {
-    console.error("[eurooffice] save conversion failed:", err);
+    if (/** @type {any} */ (import.meta).env?.DEV) {
+      console.error("[eurooffice] save conversion failed:", err);
+    }
     throw new Error(
       `Luna couldn't write this document back to .${ext}. Your changes weren't saved.`,
     );
@@ -482,7 +486,9 @@ export function patchEuroOfficeDownloadAs(iframe, fileName) {
       return;
     }
     downloadEuroOfficeDocument(iframe, fileName, ext).catch((err) => {
-      console.error("[eurooffice] download-as failed:", err);
+      if (/** @type {any} */ (import.meta).env?.DEV) {
+        console.error("[eurooffice] download-as failed:", err);
+      }
       const asc = /** @type {any} */ (iframe?.contentWindow)?.Asc;
       api.sendEvent?.(
         "asc_onError",
@@ -976,7 +982,9 @@ function collabLog(w, msg) {
     const log = (w.__lunaCollabLog ??= []);
     log.push({ t: Date.now(), msg });
     if (log.length > 100) log.shift();
-    console.debug(`[luna-collab] ${msg}`);
+    if (/** @type {any} */ (import.meta).env?.DEV) {
+      console.debug(`[luna-collab] ${msg}`);
+    }
   } catch {
     // logging must never break the patch
   }
