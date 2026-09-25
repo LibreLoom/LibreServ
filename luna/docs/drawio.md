@@ -37,11 +37,14 @@ it's plain XML, loaded into the editor and written back on save.
    sessions, and fans the payload out without reading it, same as EuroOffice.
    Other open editors apply `{action:"patch", patch}` (no checksum: two
    people editing at once would mismatch even when the structural patch
-   landed).    Inserts are not safe to apply twice, so a reconnect skips patches
-   this client sent and sequence numbers it already applied. A save names
-   the last sequence in the file; the room drops every op at or below that
-   sequence from the replay log, so someone who opens the file later does
-   not apply those edits again. View-only
+   landed). Inserts are not safe to apply twice, so a reconnect skips patches
+   this client sent and sequence numbers draw.io has confirmed. A patch is
+   not counted until that confirmation. If applying it fails, the editor
+   tries again; giving up leaves a hole, and a later save cannot name a
+   sequence past that hole, so the missed patch stays in the replay log.
+   A save names the last contiguous sequence actually in the exported file;
+   the room drops every op at or below that sequence, so someone who opens
+   the file later does not apply those edits again. View-only
    sessions join the room and apply patches, but they do not send any.
    Who is here is computed with the same presence line EuroOffice already
    reports (`Live · Sam`, `Live · only you`, plus ` · view only` when this
@@ -54,8 +57,10 @@ it's plain XML, loaded into the editor and written back on save.
    (`save_lock` / `save_end`, 5 minute backstop if the saver disconnects) —
    the same single-uploader rule as EuroOffice's `lunaSaveLock`. A denial
    leaves the diagram dirty so the next tick retries. The upload itself asks
-   the editor for the current bytes via `{action:"export"}`: format `xml`
-   returns the canonical mxfile XML; `xmlsvg`/`xmlpng` return a data URI
+   the editor for the current bytes via `{action:"export"}`. Queued patches
+   are applied first, and the sequence is captured at that freeze — an edit
+   still waiting on draw.io is not named, so the room does not drop it.
+   Format `xml` returns the canonical mxfile XML; `xmlsvg`/`xmlpng` return a data URI
    that's decoded and uploaded. The bytes go back through the normal files
    API (`files/upload?overwrite=1&coverage=<seq>`). The upload landing
    releases the election, so a lost `save_end` cannot hold the room. Luna

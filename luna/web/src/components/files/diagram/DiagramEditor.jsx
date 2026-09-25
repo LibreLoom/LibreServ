@@ -36,6 +36,8 @@ const AUTOSAVE_TICK_MS = 250;
 const OPEN_TIMEOUT_MS = 60_000;
 const EXPORT_TIMEOUT_MS = 60_000;
 const PATCH_TIMEOUT_MS = 15_000;
+/** Failed applies are retried. After this many, the seq stays outstanding. */
+const PATCH_ATTEMPTS = 3;
 
 /**
  * Fullscreen diagrams.net editor — mounts inside FileViewer's
@@ -113,14 +115,16 @@ function EditorSession({
   const lastEditRef = useRef(0);
   const lastSaveAttemptRef = useRef(0);
   const savingRef = useRef(false);
+  /** Set only around the export, so a patch cannot land in the file after coverage was taken. */
+  const exportingRef = useRef(false);
   const applyingRemoteRef = useRef(false);
   const pendingExportRef = useRef(
     /** @type {{ resolve: (m: any) => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout> } | null} */ (null),
   );
   const pendingPatchRef = useRef(
-    /** @type {{ resolve: () => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout> } | null} */ (null),
+    /** @type {{ seq: number | undefined, resolve: () => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout> } | null} */ (null),
   );
-  /** @type {import("react").MutableRefObject<{ patch: unknown }[]>} */
+  /** @type {import("react").MutableRefObject<{ seq?: number, patch: unknown, checksum?: unknown, attempts?: number }[]>} */
   const patchQueueRef = useRef([]);
   const pumpingRef = useRef(false);
   const iframeAliveRef = useRef(false);
@@ -152,6 +156,7 @@ function EditorSession({
     dirtyRef.current = false;
     peerSavedSeqRef.current = undefined;
     patchQueueRef.current = [];
+    exportingRef.current = false;
   }
 
   const reportDirty = useCallback((dirty) => {
@@ -179,9 +184,9 @@ function EditorSession({
   const pumpPatchesRef = useRef(() => {});
 
   const pumpPatches = useCallback(() => {
-    // A save in progress exports the editor as it is. Applying a patch
-    // mid-export would put that edit in the sequence but not in the file.
-    if (savingRef.current) return;
+    // Coverage is already taken. A patch applied now would be in the file
+    // and missing from the sequence the upload is about to name.
+    if (exportingRef.current) return;
     if (pumpingRef.current || pendingPatchRef.current) return;
     if (!docLoadedRef.current || !iframeAliveRef.current) return;
     const next = patchQueueRef.current.shift();
@@ -193,34 +198,40 @@ function EditorSession({
     }
     pumpingRef.current = true;
     applyingRemoteRef.current = true;
-    const timer = setTimeout(() => {
-      pendingPatchRef.current = null;
-      pumpingRef.current = false;
-      applyingRemoteRef.current = false;
-      pumpPatchesRef.current();
-    }, PATCH_TIMEOUT_MS);
-    pendingPatchRef.current = {
-      resolve: () => {},
-      reject: () => {},
-      timer,
-    };
-    pendingPatchRef.current.resolve = () => {
+
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    const finish = () => {
       clearTimeout(timer);
       pendingPatchRef.current = null;
       pumpingRef.current = false;
       applyingRemoteRef.current = false;
-      if (canWrite) {
-        lastEditRef.current = Date.now();
-        reportDirty(true);
+    };
+    // A dropped apply must come back. Giving up leaves the seq outstanding
+    // in DiagramCollab, so a save cannot compact a patch the file lacks.
+    const retry = () => {
+      finish();
+      const attempts = (next.attempts || 0) + 1;
+      if (attempts < PATCH_ATTEMPTS) {
+        patchQueueRef.current.unshift({ ...next, attempts });
       }
       pumpPatchesRef.current();
     };
-    pendingPatchRef.current.reject = () => {
-      clearTimeout(timer);
-      pendingPatchRef.current = null;
-      pumpingRef.current = false;
-      applyingRemoteRef.current = false;
-      pumpPatchesRef.current();
+
+    timer = setTimeout(retry, PATCH_TIMEOUT_MS);
+    pendingPatchRef.current = {
+      seq: next.seq,
+      resolve: () => {
+        finish();
+        collabRef.current?.confirmApplied(next.seq);
+        if (canWrite) {
+          lastEditRef.current = Date.now();
+          reportDirty(true);
+        }
+        pumpPatchesRef.current();
+      },
+      reject: retry,
+      timer,
     };
     postToEditor(iframe, { action: "patch", patch: next.patch });
   }, [canWrite, reportDirty]);
@@ -279,7 +290,12 @@ function EditorSession({
             setSelfPeerId(snap.selfPeerId);
           },
           onRemotePatch: (patch) => {
-            patchQueueRef.current.push(patch);
+            const seq = patch?.seq;
+            if (typeof seq === "number") {
+              if (pendingPatchRef.current?.seq === seq) return;
+              if (patchQueueRef.current.some((queued) => queued.seq === seq)) return;
+            }
+            patchQueueRef.current.push({ ...patch, attempts: 0 });
             pumpPatchesRef.current();
           },
           onPeerSaved: (msg) => {
@@ -334,22 +350,37 @@ function EditorSession({
     try {
       // Same idea as EuroOffice's lunaSaveLock: one open editor uploads.
       // Denial leaves the diagram dirty so the next autosave tick retries
-      // after the other person finishes.
-      const pumpStarted = Date.now();
-      while (pumpingRef.current && Date.now() - pumpStarted < PATCH_TIMEOUT_MS) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
+      // after the other person finishes. Patches keep applying during the
+      // wait — the file is what the editor holds when the export starts.
       election = (await collabRef.current?.requestSaveLock()) !== false;
       if (collabRef.current && !election) return false;
+      // Apply everything already queued, then freeze. A patch that arrives
+      // in the gap between "empty" and the freeze is applied too. Past the
+      // deadline, freeze anyway — an unapplied seq stays out of coverage.
+      const drainStarted = Date.now();
+      while (Date.now() - drainStarted < PATCH_TIMEOUT_MS) {
+        if (!pumpingRef.current && patchQueueRef.current.length === 0) {
+          exportingRef.current = true;
+          if (!pumpingRef.current && patchQueueRef.current.length === 0) break;
+          exportingRef.current = false;
+        }
+        pumpPatchesRef.current();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      exportingRef.current = true;
+      const inflightStarted = Date.now();
+      while (pumpingRef.current && Date.now() - inflightStarted < PATCH_TIMEOUT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      // Taken once, before export. A confirm that arrives while the bytes
+      // are being built must not move this number.
+      const coverage = collabRef.current?.snapshotSeq();
       const exportMsg = await requestExport();
       const bytes = diagramBytesFromExport(container, exportMsg);
       const blob = new Blob(
         [/** @type {BlobPart} */ (bytes)],
         { type: DIAGRAM_MIME[container] },
       );
-      // Named after the export, so the sequence matches the bytes. Null
-      // while a local patch is still waiting for its ack.
-      const coverage = collabRef.current?.snapshotSeq();
       const coverageOpt = typeof coverage === "number" ? { coverage } : {};
       await source.saveFile(driveId, path, name, blob, coverageOpt);
       collabRef.current?.sendSaved(
@@ -364,6 +395,7 @@ function EditorSession({
       return true;
     } finally {
       if (election) collabRef.current?.releaseSaveLock();
+      exportingRef.current = false;
       savingRef.current = false;
       pumpPatchesRef.current();
     }

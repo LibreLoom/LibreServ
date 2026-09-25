@@ -184,6 +184,8 @@ describe("DiagramCollab", () => {
         { type: "op", seq: 2, peer_id: 9, payload: { kind: "patch", patch: { n: 1 } } },
       ],
     });
+    expect(collab.snapshotSeq()).toBe(0);
+    collab.confirmApplied(2);
     expect(collab.snapshotSeq()).toBe(2);
     collab.sendPatch({ n: 9 }, "sum");
     expect(collab.snapshotSeq()).toBeNull();
@@ -194,5 +196,55 @@ describe("DiagramCollab", () => {
     expect(collab.editsCoveredBy(2)).toBe(false);
     collab.sendSaved(20, collab.snapshotSeq());
     expect(socket.sent.at(-1)).toEqual({ type: "saved", size: 20, seq: 3 });
+  });
+
+  it("does not count a remote patch until draw.io confirms it", () => {
+    const socket = fakeSocket();
+    const remote = [];
+    const collab = new DiagramCollab({
+      socket,
+      onRemotePatch: (patch) => remote.push(patch.seq),
+    });
+    socket.onMessage?.({
+      type: "op",
+      seq: 4,
+      peer_id: 2,
+      payload: { kind: "patch", patch: { n: 1 } },
+    });
+    expect(remote).toEqual([4]);
+    expect(collab.snapshotSeq()).toBe(0);
+    expect(collab.appliedSeqs.has(4)).toBe(false);
+    collab.confirmApplied(4);
+    expect(collab.snapshotSeq()).toBe(4);
+    expect(collab.appliedSeqs.has(4)).toBe(true);
+    socket.onMessage?.({
+      type: "op",
+      seq: 4,
+      peer_id: 2,
+      payload: { kind: "patch", patch: { n: 1 } },
+    });
+    expect(remote).toEqual([4]);
+  });
+
+  it("holds the save at a hole when a later patch is confirmed first", () => {
+    const socket = fakeSocket();
+    const collab = new DiagramCollab({ socket });
+    socket.onMessage?.({
+      type: "welcome",
+      peer_id: 1,
+      can_write: true,
+      peers: [],
+      catchup: [
+        { type: "op", seq: 3, peer_id: 2, payload: { kind: "patch", patch: { n: 1 } } },
+        { type: "op", seq: 4, peer_id: 2, payload: { kind: "patch", patch: { n: 2 } } },
+      ],
+    });
+    collab.confirmApplied(4);
+    expect(collab.snapshotSeq()).toBe(2);
+    expect(collab.appliedSeqs.has(3)).toBe(false);
+    expect(collab.appliedSeqs.has(4)).toBe(true);
+    expect(collab.editsCoveredBy(4)).toBe(true);
+    collab.confirmApplied(3);
+    expect(collab.snapshotSeq()).toBe(4);
   });
 });

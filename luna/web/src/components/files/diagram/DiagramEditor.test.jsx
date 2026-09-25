@@ -166,4 +166,180 @@ describe("DiagramEditor collaboration", () => {
       checksum: "abc",
     });
   });
+
+  it("retries a rejected remote patch, and replays it after giving up", async () => {
+    stubLuna();
+    render(<DiagramEditor {...PROPS} />);
+    const iframe = await screen.findByTitle(/Diagram editor/);
+    /** @type {object[]} */
+    const posted = [];
+    iframe.contentWindow.postMessage = (data) => {
+      posted.push(JSON.parse(String(data)));
+    };
+
+    await act(async () => {
+      lastSocket().onMessage?.({
+        type: "welcome",
+        peer_id: 1,
+        can_write: true,
+        peers: [{ peer_id: 1, username: "Ada" }],
+        catchup: [
+          { type: "op", seq: 3, peer_id: 2, payload: { kind: "patch", patch: { n: 1 } } },
+        ],
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "init" }),
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "load" }),
+        }),
+      );
+    });
+
+    const patchPosts = () => posted.filter((msg) => msg.action === "patch");
+    expect(patchPosts()).toHaveLength(1);
+
+    const reject = () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "patch", error: "no" }),
+        }),
+      );
+    };
+    await act(async () => reject());
+    await act(async () => reject());
+    expect(patchPosts()).toHaveLength(3);
+    await act(async () => reject());
+    expect(patchPosts()).toHaveLength(3);
+
+    await act(async () => {
+      lastSocket().onMessage?.({
+        type: "op",
+        seq: 3,
+        peer_id: 2,
+        payload: { kind: "patch", patch: { n: 1 } },
+      });
+    });
+    expect(patchPosts()).toHaveLength(4);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "patch" }),
+        }),
+      );
+    });
+    await act(async () => {
+      lastSocket().onMessage?.({
+        type: "op",
+        seq: 3,
+        peer_id: 2,
+        payload: { kind: "patch", patch: { n: 1 } },
+      });
+    });
+    expect(patchPosts()).toHaveLength(4);
+  });
+
+  it("uploads the sequence from before the export, not a patch that arrives during it", async () => {
+    /** @type {string[]} */
+    const uploads = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes("/files/upload")) uploads.push(u);
+        if (u.includes("/drawio/pack.json")) {
+          return jsonResponse(200, { pack: "luna-drawio", version: "v1" });
+        }
+        if (u.includes("/files/content")) return textResponse("<mxfile/>");
+        return jsonResponse(200, {});
+      }),
+    );
+    render(<DiagramEditor {...PROPS} />);
+    const iframe = await screen.findByTitle(/Diagram editor/);
+    /** @type {object[]} */
+    const posted = [];
+    iframe.contentWindow.postMessage = (data) => {
+      posted.push(JSON.parse(String(data)));
+    };
+
+    await act(async () => {
+      lastSocket().onMessage?.({
+        type: "welcome",
+        peer_id: 1,
+        can_write: true,
+        peers: [{ peer_id: 1, username: "Ada" }],
+        catchup: [
+          { type: "op", seq: 2, peer_id: 2, payload: { kind: "patch", patch: { n: 1 } } },
+        ],
+      });
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "init" }),
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "load" }),
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "patch" }),
+        }),
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "save" }),
+        }),
+      );
+    });
+    expect(posted.some((msg) => msg.action === "export")).toBe(true);
+
+    await act(async () => {
+      lastSocket().onMessage?.({
+        type: "op",
+        seq: 3,
+        peer_id: 2,
+        payload: { kind: "patch", patch: { n: 2 } },
+      });
+    });
+    expect(posted.filter((msg) => msg.action === "patch")).toHaveLength(1);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: iframe.contentWindow,
+          data: JSON.stringify({ event: "export", xml: "<mxfile/>" }),
+        }),
+      );
+    });
+    expect(uploads.some((url) => url.includes("coverage=2"))).toBe(true);
+    expect(uploads.some((url) => url.includes("coverage=3"))).toBe(false);
+  });
 });

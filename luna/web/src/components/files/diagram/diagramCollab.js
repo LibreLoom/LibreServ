@@ -107,7 +107,14 @@ export class DiagramCollab {
     /** @type {number[]} */
     this.appliedOrder = [];
     this.sentFingerprints = new Set();
-    /** Highest seq known to be in this editor. */
+    /**
+     * Remote seqs handed to the editor and not yet confirmed. A hole here
+     * holds the save back so the replay log is not compacted past a patch
+     * draw.io never applied.
+     * @type {Set<number>}
+     */
+    this.outstanding = new Set();
+    /** Highest seq draw.io has confirmed, or this client has been acked for. */
     this.includedSeq = 0;
     /** Local patches sent and not yet acked with a sequence. */
     this.pending = 0;
@@ -153,6 +160,20 @@ export class DiagramCollab {
   }
 
   /**
+   * Last contiguous op this editor can prove is in the file. A remote seq
+   * still waiting on draw.io pulls this back to the hole in front of it.
+   * @returns {number}
+   */
+  contiguousSeq() {
+    if (this.outstanding.size === 0) return this.includedSeq;
+    let min = Infinity;
+    for (const seq of this.outstanding) {
+      if (seq < min) min = seq;
+    }
+    return Math.min(this.includedSeq, Math.max(0, min - 1));
+  }
+
+  /**
    * Last op this editor can prove is in the file it is about to write.
    * Null while a local patch is still waiting for its sequence — trimming
    * the replay log without that number could drop an edit the file lacks,
@@ -161,7 +182,7 @@ export class DiagramCollab {
    */
   snapshotSeq() {
     if (this.pending > 0) return null;
-    return this.includedSeq;
+    return this.contiguousSeq();
   }
 
   /**
@@ -170,9 +191,19 @@ export class DiagramCollab {
   editsCoveredBy(savedSeq) {
     return peerSaveCoversEditor({
       pending: this.pending,
-      includedSeq: this.includedSeq,
+      includedSeq: this.contiguousSeq(),
       savedSeq,
     });
+  }
+
+  /**
+   * Draw.io confirmed this remote patch is in the editor.
+   * @param {number | undefined} seq
+   */
+  confirmApplied(seq) {
+    this.markApplied(seq);
+    if (typeof seq === "number") this.outstanding.delete(seq);
+    this._noteIncluded(seq);
   }
 
   /**
@@ -287,10 +318,13 @@ export class DiagramCollab {
     if (typeof seq === "number") this.includedSeq = Math.max(this.includedSeq, seq);
   }
 
-  /** @param {{ seq: number | undefined, patch: unknown, checksum: unknown }} patch */
+  /**
+   * Hand a remote patch to the editor. It is not applied, and not part of
+   * the save, until `confirmApplied`.
+   * @param {{ seq: number | undefined, patch: unknown, checksum: unknown }} patch
+   */
   _deliver(patch) {
-    this.markApplied(patch.seq);
-    this._noteIncluded(patch.seq);
+    if (typeof patch.seq === "number") this.outstanding.add(patch.seq);
     this.onRemotePatch?.(patch);
   }
 }
