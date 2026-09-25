@@ -1872,6 +1872,8 @@ struct PublicUploadCreate {
 struct PublicUploadCompleteQuery {
     overwrite: Option<String>,
     hash: Option<String>,
+    /// Diagram saves name the last live edit in the file. See `UploadQuery`.
+    coverage: Option<String>,
 }
 
 pub(crate) fn require_link_view(link: &AccessLinkRow) -> Result<(), ApiError> {
@@ -2219,6 +2221,14 @@ async fn public_upload_complete(
             state.gallery.upsert(&row.drive_id, &rel);
         }
         state.touch_io_activity();
+        crate::api::collab::note_diagram_saved(
+            &state,
+            &row.drive_id,
+            &rel,
+            &format!("guest:{}", link.id),
+            query.coverage.as_deref(),
+        )
+        .await;
         Ok(Json(entry).into_response())
     })
     .await
@@ -3877,8 +3887,9 @@ mod http_tests {
         assert_eq!(joined["type"], "peer_join", "{joined}");
         assert_eq!(joined["peer"]["username"], "Guest (2)");
 
-        // A draw.io diff patch is an opaque op: the sender does not hear it
-        // back, the other guest does, and the bytes are unchanged.
+        // A draw.io diff patch is an opaque op. The other guest hears the
+        // patch. The sender hears only the sequence, so it can name that
+        // edit when it saves.
         ws_send_text(
             &mut first,
             r#"{"type":"op","payload":{"kind":"patch","patch":{"n":1},"checksum":"a"}}"#,
@@ -3889,6 +3900,9 @@ mod http_tests {
         assert_eq!(op["payload"]["kind"], "patch");
         assert_eq!(op["payload"]["patch"]["n"], 1);
         assert_eq!(op["payload"]["checksum"], "a");
+        let ack = ws_next_text(&mut first).await.unwrap();
+        assert_eq!(ack["type"], "ack", "{ack}");
+        assert_eq!(ack["seq"], 1);
 
         // One saver at a time. The election is a direct reply, not a broadcast.
         ws_send_text(&mut first, r#"{"type":"save_lock"}"#).await;

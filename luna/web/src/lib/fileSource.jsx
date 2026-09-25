@@ -98,8 +98,10 @@ export const driveSource = {
     const form = new FormData();
     form.append("path", folder);
     form.append("file", file);
+    const coverage =
+      typeof opts.coverage === "number" ? `&coverage=${opts.coverage}` : "";
     await postForm(
-      `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1`,
+      `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1${coverage}`,
       form,
       { headers: opts.headers },
     );
@@ -206,9 +208,9 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
    * @param {string} path
    * @param {string} name
    * @param {Blob} blob
-   * @param {{ overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void }} [opts]
+   * @param {{ overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void, coverage?: number }} [opts]
    */
-  async function uploadBlob(path, name, blob, { overwrite = false, signal, headers: extraHeaders, onSession, onProgress } = {}) {
+  async function uploadBlob(path, name, blob, { overwrite = false, signal, headers: extraHeaders, onSession, onProgress, coverage } = {}) {
     const reqHeaders = () => ({ ...headers(), ...(extraHeaders || {}) });
     const folder = isFile ? "" : (parentPath(path) ?? "");
     const session = await postJson(
@@ -236,8 +238,12 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
           },
         );
       }
+      const complete = new URLSearchParams();
+      if (overwrite) complete.set("overwrite", "1");
+      if (typeof coverage === "number") complete.set("coverage", String(coverage));
+      const completeQuery = complete.toString();
       await postJson(
-        `/s/${token}/upload/${session.upload_id}/complete${overwrite ? "?overwrite=1" : ""}`,
+        `/s/${token}/upload/${session.upload_id}/complete${completeQuery ? `?${completeQuery}` : ""}`,
         {},
         { headers: reqHeaders(), signal },
       );

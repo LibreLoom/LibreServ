@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DiagramCollab,
-  dirtyAfterPeerSave,
   patchFingerprint,
   patchesToApply,
+  peerSaveCoversEditor,
 } from "./diagramCollab.js";
 
 function fakeSocket() {
@@ -15,9 +15,10 @@ function fakeSocket() {
     close() {},
     sendOp(payload) {
       this.sent.push({ type: "op", payload });
+      return true;
     },
-    sendSaved(size) {
-      this.sent.push({ type: "saved", size });
+    sendSaved(size, seq) {
+      this.sent.push({ type: "saved", size, seq });
     },
     sendSaveLock() {
       this.sent.push({ type: "save_lock" });
@@ -63,16 +64,16 @@ describe("patchesToApply", () => {
   });
 });
 
-describe("dirtyAfterPeerSave", () => {
-  it("clears shared dirt but keeps local edits that still need a save", () => {
-    expect(dirtyAfterPeerSave({ localDirty: false })).toEqual({
-      localDirty: false,
-      remoteDirty: false,
-    });
-    expect(dirtyAfterPeerSave({ localDirty: true })).toEqual({
-      localDirty: true,
-      remoteDirty: false,
-    });
+describe("peerSaveCoversEditor", () => {
+  it("covers an editor at or behind the saved sequence", () => {
+    expect(peerSaveCoversEditor({ includedSeq: 2, savedSeq: 4 })).toBe(true);
+    expect(peerSaveCoversEditor({ includedSeq: 4, savedSeq: 4 })).toBe(true);
+  });
+
+  it("keeps an editor that has moved past the save, or is still waiting on a sequence", () => {
+    expect(peerSaveCoversEditor({ includedSeq: 5, savedSeq: 4 })).toBe(false);
+    expect(peerSaveCoversEditor({ pending: 1, includedSeq: 2, savedSeq: 4 })).toBe(false);
+    expect(peerSaveCoversEditor({ includedSeq: 2, savedSeq: null })).toBe(false);
   });
 });
 
@@ -166,7 +167,32 @@ describe("DiagramCollab", () => {
     const socket = fakeSocket();
     const saved = vi.fn();
     const collab = new DiagramCollab({ socket, onPeerSaved: saved });
-    socket.onMessage?.({ type: "saved", peer_id: 4, size: 12 });
-    expect(saved).toHaveBeenCalledWith({ type: "saved", peer_id: 4, size: 12 });
+    expect(collab.snapshotSeq()).toBe(0);
+    socket.onMessage?.({ type: "saved", peer_id: 4, size: 12, seq: 3 });
+    expect(saved).toHaveBeenCalledWith({ type: "saved", peer_id: 4, size: 12, seq: 3 });
+  });
+
+  it("names the save only after its own patches have a sequence", () => {
+    const socket = fakeSocket();
+    const collab = new DiagramCollab({ socket, canWrite: true });
+    socket.onMessage?.({
+      type: "welcome",
+      peer_id: 1,
+      can_write: true,
+      peers: [{ peer_id: 1, username: "Ada" }],
+      catchup: [
+        { type: "op", seq: 2, peer_id: 9, payload: { kind: "patch", patch: { n: 1 } } },
+      ],
+    });
+    expect(collab.snapshotSeq()).toBe(2);
+    collab.sendPatch({ n: 9 }, "sum");
+    expect(collab.snapshotSeq()).toBeNull();
+    expect(collab.editsCoveredBy(2)).toBe(false);
+    socket.onMessage?.({ type: "ack", seq: 3 });
+    expect(collab.snapshotSeq()).toBe(3);
+    expect(collab.editsCoveredBy(3)).toBe(true);
+    expect(collab.editsCoveredBy(2)).toBe(false);
+    collab.sendSaved(20, collab.snapshotSeq());
+    expect(socket.sent.at(-1)).toEqual({ type: "saved", size: 20, seq: 3 });
   });
 });

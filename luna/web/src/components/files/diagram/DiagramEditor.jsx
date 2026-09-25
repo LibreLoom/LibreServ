@@ -22,7 +22,7 @@ import {
   postToEditor,
   probeDrawioPack,
 } from "./drawioApi.js";
-import { DiagramCollab, dirtyAfterPeerSave } from "./diagramCollab.js";
+import { DiagramCollab } from "./diagramCollab.js";
 
 // Autosave mirrors TextFileEditor and EuroOffice: fire once editing pauses
 // for AUTOSAVE_IDLE_MS, never let unsaved work age past AUTOSAVE_MAX_MS
@@ -107,9 +107,9 @@ function EditorSession({
   const iframeRef = useRef(/** @type {HTMLIFrameElement | null} */ (null));
   const payloadRef = useRef(/** @type {string | null} */ (null));
   const dirtyRef = useRef(false);
-  const localDirtyRef = useRef(false);
-  const remoteDirtyRef = useRef(false);
   const dirtySinceRef = useRef(0);
+  /** Seq from the latest peer save, or null when that save named none. */
+  const peerSavedSeqRef = useRef(/** @type {number | null | undefined} */ (undefined));
   const lastEditRef = useRef(0);
   const lastSaveAttemptRef = useRef(0);
   const savingRef = useRef(false);
@@ -150,8 +150,7 @@ function EditorSession({
     docLoadedRef.current = false;
     payloadRef.current = null;
     dirtyRef.current = false;
-    localDirtyRef.current = false;
-    remoteDirtyRef.current = false;
+    peerSavedSeqRef.current = undefined;
     patchQueueRef.current = [];
   }
 
@@ -180,6 +179,9 @@ function EditorSession({
   const pumpPatchesRef = useRef(() => {});
 
   const pumpPatches = useCallback(() => {
+    // A save in progress exports the editor as it is. Applying a patch
+    // mid-export would put that edit in the sequence but not in the file.
+    if (savingRef.current) return;
     if (pumpingRef.current || pendingPatchRef.current) return;
     if (!docLoadedRef.current || !iframeAliveRef.current) return;
     const next = patchQueueRef.current.shift();
@@ -208,7 +210,6 @@ function EditorSession({
       pumpingRef.current = false;
       applyingRemoteRef.current = false;
       if (canWrite) {
-        remoteDirtyRef.current = true;
         lastEditRef.current = Date.now();
         reportDirty(true);
       }
@@ -281,14 +282,10 @@ function EditorSession({
             patchQueueRef.current.push(patch);
             pumpPatchesRef.current();
           },
-          onPeerSaved: () => {
-            const next = dirtyAfterPeerSave({ localDirty: localDirtyRef.current });
-            localDirtyRef.current = next.localDirty;
-            remoteDirtyRef.current = next.remoteDirty;
-            if (!next.localDirty && !next.remoteDirty) {
-              dirtySinceRef.current = 0;
-              reportDirty(false);
-            }
+          onPeerSaved: (msg) => {
+            // Rechecked on the autosave tick, once editing has paused —
+            // the same moment EuroOffice compares changesIndex.
+            peerSavedSeqRef.current = typeof msg?.seq === "number" ? msg.seq : null;
           },
         });
         collabRef.current = collab;
@@ -338,6 +335,10 @@ function EditorSession({
       // Same idea as EuroOffice's lunaSaveLock: one open editor uploads.
       // Denial leaves the diagram dirty so the next autosave tick retries
       // after the other person finishes.
+      const pumpStarted = Date.now();
+      while (pumpingRef.current && Date.now() - pumpStarted < PATCH_TIMEOUT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
       election = (await collabRef.current?.requestSaveLock()) !== false;
       if (collabRef.current && !election) return false;
       const exportMsg = await requestExport();
@@ -346,11 +347,17 @@ function EditorSession({
         [/** @type {BlobPart} */ (bytes)],
         { type: DIAGRAM_MIME[container] },
       );
-      await source.saveFile(driveId, path, name, blob);
-      collabRef.current?.sendSaved(bytes.byteLength);
+      // Named after the export, so the sequence matches the bytes. Null
+      // while a local patch is still waiting for its ack.
+      const coverage = collabRef.current?.snapshotSeq();
+      const coverageOpt = typeof coverage === "number" ? { coverage } : {};
+      await source.saveFile(driveId, path, name, blob, coverageOpt);
+      collabRef.current?.sendSaved(
+        bytes.byteLength,
+        typeof coverage === "number" ? coverage : null,
+      );
       postToEditor(iframe, { action: "status", message: "", modified: false });
-      localDirtyRef.current = false;
-      remoteDirtyRef.current = false;
+      peerSavedSeqRef.current = undefined;
       dirtySinceRef.current = 0;
       reportDirty(false);
       onSavedRef.current?.();
@@ -358,6 +365,7 @@ function EditorSession({
     } finally {
       if (election) collabRef.current?.releaseSaveLock();
       savingRef.current = false;
+      pumpPatchesRef.current();
     }
   }, [container, driveId, name, path, reportDirty, requestExport, source]);
   const saveRef = useRef(save);
@@ -373,6 +381,19 @@ function EditorSession({
       }
       if (!dirtySinceRef.current) dirtySinceRef.current = now;
       if (savingRef.current) return;
+      // A peer's save may already contain this editor. Recheck every tick:
+      // foreign patches and our own acks land after the notice.
+      if (peerSavedSeqRef.current !== undefined) {
+        const covered = collabRef.current?.editsCoveredBy(peerSavedSeqRef.current) === true;
+        if (covered && now - lastEditRef.current >= AUTOSAVE_IDLE_MS) {
+          peerSavedSeqRef.current = undefined;
+          dirtySinceRef.current = now;
+          reportDirty(false);
+          const live = iframeRef.current;
+          if (live) postToEditor(live, { action: "status", message: "", modified: false });
+          return;
+        }
+      }
       if (now - lastSaveAttemptRef.current < AUTOSAVE_RETRY_MS) return;
       const idle = now - lastEditRef.current;
       const stale = now - dirtySinceRef.current;
@@ -384,7 +405,7 @@ function EditorSession({
       }
     }, AUTOSAVE_TICK_MS);
     return () => clearInterval(id);
-  }, [phase, canWrite]);
+  }, [phase, canWrite, reportDirty]);
 
   useEffect(() => {
     if (!docLoaded || !canWrite || !onRegisterSave) return undefined;
@@ -441,15 +462,11 @@ function EditorSession({
           if (canWrite && msg.patch) {
             collabRef.current?.sendPatch(msg.patch, msg.checksum);
           }
-          if (canWrite) {
-            localDirtyRef.current = true;
-            if (!dirtyRef.current) reportDirty(true);
-          }
+          if (canWrite && !dirtyRef.current) reportDirty(true);
           break;
         case "save":
           lastEditRef.current = Date.now();
           if (canWrite) {
-            localDirtyRef.current = true;
             reportDirty(true);
             const exitAfter = msg.exit === true;
             saveRef.current()

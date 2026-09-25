@@ -261,9 +261,29 @@ fn guest_collab_upgrade(
 
 /// `.drawio`, `.drawio.svg`, and `.drawio.png` — the same names the web UI
 /// opens in the diagram editor.
-fn is_diagram_name(path: &str) -> bool {
+pub(crate) fn is_diagram_name(path: &str) -> bool {
     let base = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
     base.ends_with(".drawio") || base.ends_with(".drawio.svg") || base.ends_with(".drawio.png")
+}
+
+/// A diagram file just hit disk (or the dirty cache a reader will see).
+/// Named coverage trims the replay log; the writer's election is released
+/// either way, matching EuroOffice's bundle PUT.
+pub(crate) async fn note_diagram_saved(
+    state: &AppState,
+    drive_id: &str,
+    rel: &str,
+    user_id: &str,
+    coverage: Option<&str>,
+) {
+    if !is_diagram_name(rel) {
+        return;
+    }
+    let seq = coverage.and_then(|value| value.parse::<u64>().ok());
+    state
+        .collab
+        .file_landed(&CollabHub::room_key(drive_id, rel), user_id, seq)
+        .await;
 }
 
 fn normalize_rel(path: &str) -> String {

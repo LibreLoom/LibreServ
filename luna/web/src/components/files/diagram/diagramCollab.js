@@ -57,14 +57,17 @@ export function patchesToApply(events, { selfPeerId = null, appliedSeqs, sentFin
 }
 
 /**
- * A peer finished uploading. Their save covered the shared edits. Local
- * edits that have not been saved yet stay dirty so this client writes the
- * tail — the same rule as EuroOffice's changesIndex check.
+ * A peer finished uploading and named the last op in the file. This editor
+ * is covered when every edit it holds is at or behind that sequence — the
+ * same rule as EuroOffice's changesIndex check. Unacked local edits are
+ * ahead of any number the server has assigned, so they stay dirty.
  *
- * @param {{ localDirty?: boolean }} state
+ * @param {{ pending?: number, includedSeq?: number, savedSeq?: number | null }} state
  */
-export function dirtyAfterPeerSave({ localDirty = false } = {}) {
-  return { localDirty: !!localDirty, remoteDirty: false };
+export function peerSaveCoversEditor({ pending = 0, includedSeq = 0, savedSeq = null } = {}) {
+  if (pending > 0) return false;
+  if (typeof savedSeq !== "number") return false;
+  return includedSeq <= savedSeq;
 }
 
 /**
@@ -104,6 +107,10 @@ export class DiagramCollab {
     /** @type {number[]} */
     this.appliedOrder = [];
     this.sentFingerprints = new Set();
+    /** Highest seq known to be in this editor. */
+    this.includedSeq = 0;
+    /** Local patches sent and not yet acked with a sequence. */
+    this.pending = 0;
     /** @type {((granted: boolean) => void) | null} */
     this._lockResolve = null;
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -140,12 +147,40 @@ export class DiagramCollab {
     if (!this.writable) return;
     const fp = patchFingerprint(patch);
     if (fp) this.sentFingerprints.add(fp);
-    this.socket.sendOp?.({ kind: "patch", patch, checksum: checksum ?? null });
+    const sent =
+      this.socket.sendOp?.({ kind: "patch", patch, checksum: checksum ?? null }) !== false;
+    if (sent) this.pending += 1;
   }
 
-  /** @param {number | null} [size] */
-  sendSaved(size) {
-    this.socket.sendSaved?.(size ?? null);
+  /**
+   * Last op this editor can prove is in the file it is about to write.
+   * Null while a local patch is still waiting for its sequence — trimming
+   * the replay log without that number could drop an edit the file lacks,
+   * or keep one the file already has.
+   * @returns {number | null}
+   */
+  snapshotSeq() {
+    if (this.pending > 0) return null;
+    return this.includedSeq;
+  }
+
+  /**
+   * @param {number | null} savedSeq
+   */
+  editsCoveredBy(savedSeq) {
+    return peerSaveCoversEditor({
+      pending: this.pending,
+      includedSeq: this.includedSeq,
+      savedSeq,
+    });
+  }
+
+  /**
+   * @param {number | null} [size]
+   * @param {number | null} [seq]
+   */
+  sendSaved(size, seq) {
+    this.socket.sendSaved?.(size ?? null, seq ?? null);
   }
 
   /**
@@ -224,6 +259,11 @@ export class DiagramCollab {
       this._emit();
       return;
     }
+    if (msg.type === "ack") {
+      if (this.pending > 0) this.pending -= 1;
+      this._noteIncluded(msg.seq);
+      return;
+    }
     if (msg.type === "op") {
       const [patch] = patchesToApply([msg], {
         selfPeerId: this.selfPeerId,
@@ -242,9 +282,15 @@ export class DiagramCollab {
     }
   }
 
+  /** @param {number | undefined} seq */
+  _noteIncluded(seq) {
+    if (typeof seq === "number") this.includedSeq = Math.max(this.includedSeq, seq);
+  }
+
   /** @param {{ seq: number | undefined, patch: unknown, checksum: unknown }} patch */
   _deliver(patch) {
     this.markApplied(patch.seq);
+    this._noteIncluded(patch.seq);
     this.onRemotePatch?.(patch);
   }
 }

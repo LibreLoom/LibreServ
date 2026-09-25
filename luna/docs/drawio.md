@@ -37,8 +37,11 @@ it's plain XML, loaded into the editor and written back on save.
    sessions, and fans the payload out without reading it, same as EuroOffice.
    Other open editors apply `{action:"patch", patch}` (no checksum: two
    people editing at once would mismatch even when the structural patch
-   landed). Inserts are not safe to apply twice, so a reconnect skips patches
-   this client sent and sequence numbers it already applied. View-only
+   landed).    Inserts are not safe to apply twice, so a reconnect skips patches
+   this client sent and sequence numbers it already applied. A save names
+   the last sequence in the file; the room drops every op at or below that
+   sequence from the replay log, so someone who opens the file later does
+   not apply those edits again. View-only
    sessions join the room and apply patches, but they do not send any.
    Who is here is computed with the same presence line EuroOffice already
    reports (`Live · Sam`, `Live · only you`, plus ` · view only` when this
@@ -54,10 +57,13 @@ it's plain XML, loaded into the editor and written back on save.
    the editor for the current bytes via `{action:"export"}`: format `xml`
    returns the canonical mxfile XML; `xmlsvg`/`xmlpng` return a data URI
    that's decoded and uploaded. The bytes go back through the normal files
-   API (`files/upload?overwrite=1`). Luna then tells the room `saved` and
-   answers `{action:"status", modified:false}` to clear the editor's
-   modified flag. A peer's save clears shared dirt; edits this client made
-   and has not uploaded yet stay dirty.
+   API (`files/upload?overwrite=1&coverage=<seq>`). The upload landing
+   releases the election, so a lost `save_end` cannot hold the room. Luna
+   then tells the room `saved` with that same sequence and answers
+   `{action:"status", modified:false}` to clear the editor's modified flag.
+   A peer whose editor is at or behind that sequence drops its dirty flag
+   after a short pause. A peer who has typed past it keeps the diagram
+   dirty and writes the tail.
 7. **Shared links:** guests join the same room at
    `GET /s/{token}/collab/ws` (path relative to the share). Only diagram
    files are accepted, so a guest cannot inject ops into a text or office

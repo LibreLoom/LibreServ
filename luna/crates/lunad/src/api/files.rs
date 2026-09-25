@@ -61,6 +61,9 @@ struct ContentQuery {
 struct UploadQuery {
     path: Option<String>,
     overwrite: Option<String>,
+    /// Diagram saves name the last live edit in the file, same as EuroOffice
+    /// `?coverage=` on an Editor.bin PUT. Absent for every other upload.
+    coverage: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1083,6 +1086,14 @@ async fn upload(
                                 flush_state.touch_io_activity();
                             });
                             state.touch_io_activity();
+                            crate::api::collab::note_diagram_saved(
+                                &state,
+                                &id,
+                                &rel,
+                                &user.id,
+                                query.coverage.as_deref(),
+                            )
+                            .await;
                             return Ok(Json(FileEntry {
                                 name,
                                 kind: "file".into(),
@@ -1155,6 +1166,14 @@ async fn upload(
                 state.gallery.upsert(&id, &rel);
                 invalidate_parent_listing(&state, &id, &rel);
                 state.touch_io_activity();
+                crate::api::collab::note_diagram_saved(
+                    &state,
+                    &id,
+                    &rel,
+                    &user.id,
+                    query.coverage.as_deref(),
+                )
+                .await;
                 return Ok(Json(FileEntry {
                     name,
                     kind: "file".into(),

@@ -119,8 +119,9 @@ export class CollabSocket {
    * @param {object} payload opaque JSON (not stringified twice)
    */
   sendOp(payload) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     this.ws.send(JSON.stringify({ type: "op", payload }));
+    return true;
   }
 
   /** @param {object|null} [cursor] */
@@ -129,10 +130,17 @@ export class CollabSocket {
     this.ws.send(JSON.stringify({ type: "presence", cursor: cursor ?? null }));
   }
 
-  /** @param {number|null} [size] */
-  sendSaved(size) {
+  /**
+   * @param {number|null} [size]
+   * @param {number|null} [seq] last op the file contains. Omitted when the
+   * saver could not name one.
+   */
+  sendSaved(size, seq) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: "saved", size: size ?? null }));
+    /** @type {{ type: string, size: number | null, seq?: number }} */
+    const msg = { type: "saved", size: size ?? null };
+    if (typeof seq === "number") msg.seq = seq;
+    this.ws.send(JSON.stringify(msg));
   }
 
   /**
