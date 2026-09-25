@@ -19,6 +19,10 @@ pub const MAX_PEERS_PER_ROOM: usize = 32;
 pub const OP_BACKLOG: usize = 256;
 pub const MAX_OP_BYTES: usize = 256 * 1024;
 pub const IDLE_EMPTY_SECS: u64 = 60;
+/// Backstop for a saver that disconnects without `save_end`. Matches the
+/// EuroOffice manual-save election TTL so a dead writer cannot hold the
+/// file forever.
+pub const SAVE_LOCK_TTL: Duration = Duration::from_secs(300);
 
 static PEER_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -37,6 +41,9 @@ struct Room {
     seq: u64,
     backlog: Vec<ServerEvent>,
     last_event: Instant,
+    /// Peer allowed to serialize and upload the file. Ops keep flowing
+    /// while it is held — the lock only excludes a second upload.
+    save_holder: Option<(u64, Instant)>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -67,6 +74,11 @@ pub enum ClientMsg {
         #[serde(default)]
         size: Option<u64>,
     },
+    /// Ask to be the one client that uploads the file. The reply is
+    /// `save_lock` to the asker only — peers are not told.
+    SaveLock,
+    /// Release the upload election. Sent when the save finishes or fails.
+    SaveEnd,
     Ping,
 }
 
@@ -100,6 +112,11 @@ pub enum ServerEvent {
         peer_id: u64,
         #[serde(skip_serializing_if = "Option::is_none")]
         size: Option<u64>,
+    },
+    /// Reply to `save_lock`. `granted: false` means another peer is
+    /// mid-upload — the asker leaves the document dirty and retries.
+    SaveLock {
+        granted: bool,
     },
     Error {
         message: String,
@@ -148,6 +165,7 @@ impl CollabHub {
                 seq: 0,
                 backlog: Vec::new(),
                 last_event: Instant::now(),
+                save_holder: None,
             }
         });
         if room.peers.len() >= MAX_PEERS_PER_ROOM {
@@ -185,6 +203,9 @@ impl CollabHub {
             return;
         };
         room.peers.remove(&peer_id);
+        if room.save_holder.is_some_and(|(id, _)| id == peer_id) {
+            room.save_holder = None;
+        }
         room.last_event = Instant::now();
         let _ = room.tx.send(ServerEvent::PeerLeave { peer_id });
     }
@@ -246,6 +267,13 @@ impl CollabHub {
                 let _ = room.tx.send(ServerEvent::Saved { peer_id, size });
                 None
             }
+            ClientMsg::SaveLock => Some(grant_save_lock(room, peer_id, can_write)),
+            ClientMsg::SaveEnd => {
+                if room.save_holder.is_some_and(|(id, _)| id == peer_id) {
+                    room.save_holder = None;
+                }
+                None
+            }
         }
     }
 
@@ -286,6 +314,25 @@ impl Default for CollabHub {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// EuroOffice-style upload election: one peer serializes and writes the
+/// file. A live foreign hold denies; an expired hold is taken over so a
+/// disconnected saver cannot wedge the room. The same peer asking again
+/// (a retry that never saw the first grant) keeps the lock.
+fn grant_save_lock(room: &mut Room, peer_id: u64, can_write: bool) -> ServerEvent {
+    if !can_write {
+        return ServerEvent::SaveLock { granted: false };
+    }
+    let now = Instant::now();
+    let blocked = room
+        .save_holder
+        .is_some_and(|(id, at)| id != peer_id && now.duration_since(at) < SAVE_LOCK_TTL);
+    if blocked {
+        return ServerEvent::SaveLock { granted: false };
+    }
+    room.save_holder = Some((peer_id, now));
+    ServerEvent::SaveLock { granted: true }
 }
 
 fn push_backlog(backlog: &mut Vec<ServerEvent>, event: ServerEvent) {
@@ -587,5 +634,65 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(self_name(&w6, p6), "Ada");
+    }
+
+    #[tokio::test]
+    async fn save_lock_is_single_writer_and_frees_on_leave() {
+        let hub = CollabHub::new();
+        let key = CollabHub::room_key("d", "plan.drawio");
+        let (a, mut rx_a, _) = hub
+            .join(key.clone(), "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        let (b, _rx_b, _) = hub
+            .join(key.clone(), "u2".into(), "Bea".into(), true)
+            .await
+            .unwrap();
+        while rx_a.try_recv().is_ok() {}
+
+        let grant = hub
+            .handle(&key, a, true, ClientMsg::SaveLock)
+            .await
+            .unwrap();
+        assert!(matches!(grant, ServerEvent::SaveLock { granted: true }));
+        // The election is a direct reply, not a broadcast — B's editor
+        // must not see A's lock.
+        assert!(rx_a.try_recv().is_err());
+
+        let deny = hub
+            .handle(&key, b, true, ClientMsg::SaveLock)
+            .await
+            .unwrap();
+        assert!(matches!(deny, ServerEvent::SaveLock { granted: false }));
+
+        // A viewer cannot take the election.
+        let (v, _, _) = hub
+            .join(key.clone(), "u3".into(), "Cam".into(), false)
+            .await
+            .unwrap();
+        let viewer = hub
+            .handle(&key, v, false, ClientMsg::SaveLock)
+            .await
+            .unwrap();
+        assert!(matches!(viewer, ServerEvent::SaveLock { granted: false }));
+
+        hub.leave(&key, a).await;
+        let after = hub
+            .handle(&key, b, true, ClientMsg::SaveLock)
+            .await
+            .unwrap();
+        assert!(matches!(after, ServerEvent::SaveLock { granted: true }));
+        assert!(
+            hub.handle(&key, b, true, ClientMsg::SaveEnd)
+                .await
+                .is_none()
+        );
+        let again = hub
+            .handle(&key, v, true, ClientMsg::SaveLock)
+            .await
+            .unwrap();
+        // v joined read-only; can_write on the call is what the socket
+        // enforces. A writable call after the release is granted.
+        assert!(matches!(again, ServerEvent::SaveLock { granted: true }));
     }
 }

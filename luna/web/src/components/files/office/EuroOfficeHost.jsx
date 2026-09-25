@@ -26,6 +26,7 @@ import {
   watchEuroOfficeSaved,
   watchEuroOfficeSocket,
 } from "./euroOfficeApi.js";
+import { collabPresenceLabel } from "../collabPresence.js";
 import { CollabSocket } from "./collabSocket.js";
 
 const OPEN_TIMEOUT_MS = 60_000;
@@ -41,34 +42,6 @@ const AUTOSAVE_TICK_MS = 250;
 // still release the save lock — otherwise autosave and the Save button
 // stay wedged forever behind savingRef.
 const SAVE_TIMEOUT_MS = 180_000;
-
-/**
- * Presence line for the parent fullscreen chrome (FileViewer owns the frame).
- * @param {"loading"|"ready"|"error"} status
- * @param {{ peer_id: number, username: string }[]} peers
- * @param {boolean} canWrite
- * @param {string} [selfName]
- * @param {number | null} [selfPeerId]
- */
-function presenceLabel(status, peers, canWrite, selfName = "", selfPeerId = null) {
-  const self = String(selfName || "").toLowerCase();
-  const others = peers
-    .filter((p) =>
-      selfPeerId != null
-        ? p.peer_id !== selfPeerId
-        : p.username && p.username.toLowerCase() !== self,
-    )
-    .map((p) => p.username)
-    .filter(Boolean);
-  let base =
-    status === "loading"
-      ? "Starting EuroOffice…"
-      : others.length
-        ? `Live · ${others.join(", ")}`
-        : "Live · only you";
-  if (!canWrite) base = `${base} · view only`;
-  return base;
-}
 
 /**
  * Absolute URL for a public Luna web asset (DocsAPI logo must be absolute).
@@ -200,7 +173,7 @@ export default function EuroOfficeHost({
   const selfName = user?.display_name || user?.username || "";
 
   useEffect(() => {
-    onPresenceChange?.(presenceLabel(status, peers, canWrite, selfName, selfPeerId));
+    onPresenceChange?.(collabPresenceLabel(status, peers, canWrite, selfName, selfPeerId));
   }, [status, peers, canWrite, onPresenceChange, selfName, selfPeerId]);
 
   useEffect(() => {

@@ -125,9 +125,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // OfficeEditor swaps to its "can't open office files" card inside the
   // same fullscreen frame.
   const [officeMissing, setOfficeMissing] = useState(false);
-  // Presence string is plumbed through to OfficeEditor but not rendered yet —
-  // collab presence UI will be redesigned separately.
-  const [, setOfficePresence] = useState("");
+  // Same presence line for EuroOffice and diagrams ("Live · only you",
+  // "Live · Ada"). The fullscreen frame renders it.
+  const [editorPresence, setEditorPresence] = useState("");
   // Modal-only text preview state — only read for preview-only opens
   // (isTextLike && !canWrite); the fullscreen editor loads its own copy.
   const [text, setText] = useState("");
@@ -157,7 +157,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setError(null);
     setConverting(false);
     setOfficeMissing(false);
-    setOfficePresence("");
+    setEditorPresence("");
     setMdView("preview");
   }
 
@@ -304,6 +304,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         isClosing={editorOverlay.isClosing}
         canWrite={canWrite}
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : "text"}
+        presence={editorPresence}
         onClose={onClose}
       >
         {({ onRegisterSave, onSaveStateChange, requestClose }) =>
@@ -314,7 +315,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               canWrite={canWrite}
               onSaved={onSaved}
               onClose={onClose}
-              onPresenceChange={setOfficePresence}
+              onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
               onUnavailable={handleOfficeUnavailable}
@@ -327,6 +328,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               canWrite={canWrite}
               onSaved={onSaved}
               onClose={onClose}
+              onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
               requestClose={requestClose}

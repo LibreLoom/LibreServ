@@ -4,10 +4,12 @@
 
 use std::time::Duration;
 
+use std::net::SocketAddr;
+
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Query, State, WebSocketUpgrade};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::extract::{ConnectInfo, Path, Query, State, WebSocketUpgrade};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Extension, Json, Router};
 use futures_util::{SinkExt, StreamExt};
@@ -28,7 +30,9 @@ pub struct CollabQuery {
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/v1/collab/ws", get(upgrade))
+    Router::new()
+        .route("/api/v1/collab/ws", get(upgrade))
+        .route("/s/{token}/collab/ws", get(guest_upgrade))
 }
 
 async fn upgrade(
@@ -190,6 +194,76 @@ where
         return Err(());
     };
     sink.send(Message::Text(text.into())).await.map_err(|_| ())
+}
+
+#[derive(Debug, Deserialize)]
+struct GuestCollabQuery {
+    #[serde(default)]
+    path: String,
+}
+
+/// Guest half of the same room members join. The link resolves the file —
+/// the query path is relative to the share, never a drive id. View-only
+/// links join with `can_write: false` so they follow live edits without
+/// sending any. Only diagram files are accepted: a guest must not be able
+/// to inject ops into a text or office room.
+async fn guest_upgrade(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(token): Path<String>,
+    Query(query): Query<GuestCollabQuery>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let (link, proof) =
+        match crate::api::access::resolve_public_link(&state, &addr, &token, &headers) {
+            Ok(pair) => pair,
+            Err(e) => return crate::api::access::finish_public(Err(e), "", None, &headers),
+        };
+    let link_id = link.id.clone();
+    crate::api::access::finish_public(
+        guest_collab_upgrade(&state, &link, &query, ws),
+        &link_id,
+        proof,
+        &headers,
+    )
+}
+
+fn guest_collab_upgrade(
+    state: &AppState,
+    link: &crate::db::AccessLinkRow,
+    query: &GuestCollabQuery,
+    ws: WebSocketUpgrade,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let rel = crate::api::access::link_file(state, link, &query.path)?;
+    if !is_diagram_name(&rel) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Live editing on a shared link is for diagram files.",
+        ));
+    }
+    let can_write = link.caps & crate::access::CAP_EDIT != 0;
+    let drive_id = link.drive_id.clone();
+    let user_id = format!("guest:{}", link.id);
+    let state = state.clone();
+    Ok(ws.on_upgrade(move |socket| {
+        session(
+            state,
+            socket,
+            drive_id,
+            rel,
+            user_id,
+            "Guest".to_string(),
+            can_write,
+        )
+    }))
+}
+
+/// `.drawio`, `.drawio.svg`, and `.drawio.png` — the same names the web UI
+/// opens in the diagram editor.
+fn is_diagram_name(path: &str) -> bool {
+    let base = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    base.ends_with(".drawio") || base.ends_with(".drawio.svg") || base.ends_with(".drawio.png")
 }
 
 fn normalize_rel(path: &str) -> String {

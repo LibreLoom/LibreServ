@@ -36,9 +36,15 @@ export class CollabSocket {
    * @param {string} driveId
    * @param {string} path
    */
-  constructor(driveId, path) {
+  /**
+   * @param {string} driveId
+   * @param {string} path
+   * @param {string} [url] override — guest diagram rooms use the share URL
+   */
+  constructor(driveId, path, url) {
     this.driveId = driveId;
     this.path = path;
+    this._url = url || "";
     /** @type {WebSocket | null} */
     this.ws = null;
     /** @type {((msg: object) => void) | null} */
@@ -55,7 +61,7 @@ export class CollabSocket {
 
   connect() {
     if (this._closed) return;
-    const url = browserCollabWsUrl(this.driveId, this.path);
+    const url = this._url || browserCollabWsUrl(this.driveId, this.path);
     const ws = new WebSocket(url);
     this.ws = ws;
     this.onStatus?.(this._attempts === 0 ? "connecting" : "reconnecting");
@@ -127,6 +133,24 @@ export class CollabSocket {
   sendSaved(size) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type: "saved", size: size ?? null }));
+  }
+
+  /**
+   * Ask to be the one client uploading the file. Resolves nothing — the
+   * `save_lock` reply arrives on `onMessage`. Returns false when the
+   * socket is not up, so the caller can save solo.
+   */
+  sendSaveLock() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "save_lock" }));
+    return true;
+  }
+
+  /** Drop the upload election after the save finishes or fails. */
+  sendSaveEnd() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "save_end" }));
+    return true;
   }
 
   close() {

@@ -1159,6 +1159,32 @@ describe("FileViewer fullscreen diagram overlay", () => {
     // Read-only session: no Save affordance in the rail.
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
+
+  it("shows the same live presence line in the frame as EuroOffice", async () => {
+    const { rerender } = render(
+      <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
+    );
+    await findFullscreenOverlay();
+    act(() => officeMocks.editorProps.onPresenceChange("Live · Sam"));
+    expect(document.querySelector('[data-slot="editor-presence"]')).toHaveTextContent(
+      "Live · Sam",
+    );
+
+    rerender(
+      <FileViewer open driveId="d1" path="diagrams/flow.drawio" onClose={() => {}} />,
+    );
+    await findFullscreenOverlay();
+    // A different file starts with a blank presence line until its editor reports.
+    expect(document.querySelector('[data-slot="editor-presence"]')).not.toBeInTheDocument();
+    act(() => diagramMocks.editorProps.onPresenceChange("Opening this diagram…"));
+    expect(document.querySelector('[data-slot="editor-presence"]')).toHaveTextContent(
+      "Opening this diagram…",
+    );
+    act(() => diagramMocks.editorProps.onPresenceChange("Live · Sam"));
+    expect(document.querySelector('[data-slot="editor-presence"]')).toHaveTextContent(
+      "Live · Sam",
+    );
+  });
 });
 
 describe("FileViewer conversion hints", () => {

@@ -124,7 +124,6 @@ async fn complete(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<CompleteQuery>,
-    headers: HeaderMap,
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
@@ -141,15 +140,6 @@ async fn complete(
             crate::gallery::gallery_indexer::join_rel(&row.path, &row.name),
         )
     };
-    // HACK — same diagram lock as the plain upload path (`api::files::upload`):
-    // a chunked save from a session that isn't holding the file is refused.
-    crate::api::diagram_locks::check_save_allowed(
-        &state,
-        &user.id,
-        &crate::api::diagram_locks::session_header(&headers),
-        &drive_id,
-        &rel,
-    )?;
     let entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())
         .map_err(map_upload_err)?;
     state.gallery.upsert(&drive_id, &rel);

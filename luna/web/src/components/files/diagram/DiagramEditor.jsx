@@ -1,55 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import ModalCard, {
-  NESTED_OVERLAY_CLASS,
-} from "@libreloom/ui/components/cards/ModalCard.jsx";
-import OfficeIssueCard from "../office/OfficeIssueCard.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
 import { pathBasename } from "../../../lib/paths.js";
 import { useFileSource } from "../../../lib/fileSource.jsx";
+import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import {
   DIAGRAM_EXPORT_FORMAT,
   DIAGRAM_MIME,
   diagramContainer,
 } from "../../../lib/diagramFile.js";
+import OfficeIssueCard from "../office/OfficeIssueCard.jsx";
+import { collabPresenceLabel } from "../collabPresence.js";
 import {
   diagramBytesFromExport,
   diagramLoadXml,
-  downloadDiagramCopy,
   drawioEmbedUrl,
   parseEmbedMessage,
   postToEditor,
   probeDrawioPack,
 } from "./drawioApi.js";
-import DiagramLockedCard from "./DiagramLockedCard.jsx";
-import { useDiagramLock } from "./useDiagramLock.js";
-import { ApiError } from "../../../lib/api.js";
+import { DiagramCollab, dirtyAfterPeerSave } from "./diagramCollab.js";
 
-// Autosave mirrors TextFileEditor: fire once editing pauses for
-// AUTOSAVE_IDLE_MS, never let unsaved work age past AUTOSAVE_MAX_MS during
-// continuous editing, and back off AUTOSAVE_RETRY_MS after a failed save.
+// Autosave mirrors TextFileEditor and EuroOffice: fire once editing pauses
+// for AUTOSAVE_IDLE_MS, never let unsaved work age past AUTOSAVE_MAX_MS
+// during continuous editing, and back off AUTOSAVE_RETRY_MS after a failed
+// save. A denied save election counts as a failed attempt — the next tick
+// retries once the other person has finished uploading.
 const AUTOSAVE_IDLE_MS = 2_000;
 const AUTOSAVE_MAX_MS = 15_000;
 const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
-// The init handshake or an export reply that never arrives must not wedge
-// the session — surface an open error / let the next save retry instead.
 const OPEN_TIMEOUT_MS = 60_000;
 const EXPORT_TIMEOUT_MS = 60_000;
+const PATCH_TIMEOUT_MS = 15_000;
 
 /**
  * Fullscreen diagrams.net editor — mounts inside FileViewer's
- * FullscreenEditorFrame and plugs into its save contract (register a save
- * thunk once the editor is loaded, report dirty state so the guard modal,
- * Save button, and beforeunload all work).
+ * FullscreenEditorFrame and plugs into its save contract.
  *
- * Pack discovery mirrors the office pack: probe the marker file, then let a
- * missing or half-installed pack land on its own install card instead of
- * reading as "the file is broken".
+ * Live edits use the same collab room as EuroOffice. Draw.io emits a diff
+ * patch on each change (`diffSync`); Luna relays that patch as an opaque
+ * op. Other open editors apply it in place, so two people can work in the
+ * same diagram. Saving still writes the file through the normal upload
+ * path, with one editor uploading at a time.
  *
  * @param {{
  *   driveId: string,
@@ -57,6 +53,7 @@ const EXPORT_TIMEOUT_MS = 60_000;
  *   canWrite?: boolean,
  *   onSaved?: () => void,
  *   onClose?: () => void,
+ *   onPresenceChange?: (label: string) => void,
  *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
  *   requestClose?: () => void,
@@ -72,6 +69,7 @@ DiagramEditor.propTypes = {
   canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
   onClose: PropTypes.func,
+  onPresenceChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onSaveStateChange: PropTypes.func,
   requestClose: PropTypes.func,
@@ -86,6 +84,7 @@ function EditorSession({
   canWrite = false,
   onSaved,
   onClose,
+  onPresenceChange,
   onRegisterSave,
   onSaveStateChange,
   requestClose,
@@ -93,71 +92,51 @@ function EditorSession({
   const name = pathBasename(path) || path;
   const container = diagramContainer(name);
   const source = useFileSource();
+  const auth = useOptionalAuth();
+  const user = source.guest ? null : auth?.user;
+  const selfName = user?.display_name || user?.username || "";
   const { resolvedTheme } = useTheme();
   const [phase, setPhase] = useState(
-    /** @type {"loading" | "ready" | "missing" | "error" | "locked"} */ ("loading"),
+    /** @type {"loading" | "ready" | "missing" | "error"} */ ("loading"),
   );
   const [error, setError] = useState("");
   const [retryTick, setRetryTick] = useState(0);
-  // "Open read-only" from the locked card — same session, just no lock and
-  // a noSaveBtn embed. Deliberately outside the render-phase reset: a retry
-  // after an open error shouldn't silently flip the file back to writable.
-  const [readOnly, setReadOnly] = useState(false);
-  const effectiveCanWrite = canWrite && !readOnly;
-  // HACK: advisory edit lock (useDiagramLock.js) — stopgap until real
-  // diagram collab. Acquire happens in the load effect below; the hold
-  // socket and release are the hook's job.
-  const lock = useDiagramLock({ driveId, path });
-  const acquireLock = lock.acquire; // stable on [driveId, path]
-  const lockLostRef = useRef(false);
-  lockLostRef.current = lock.status === "lost";
-  // The lock-lost modal shows once per loss — "Keep editing" dismisses it
-  // and later saves keep downloading copies.
-  const [lostAcked, setLostAcked] = useState(false);
-  const [copyError, setCopyError] = useState("");
-  // Regaining the hold (reconnect/re-acquire) re-arms the modal so a real
-  // later loss isn't swallowed by an old dismissal.
-  const [prevLockStatus, setPrevLockStatus] = useState(lock.status);
-  if (prevLockStatus !== lock.status) {
-    setPrevLockStatus(lock.status);
-    if (lock.status === "held") {
-      setLostAcked(false);
-      setCopyError("");
-    }
-  }
-  // True once the editor confirmed the document `load` — gates the save
-  // thunk registration so Save stays disabled until a session is up.
+  const [peers, setPeers] = useState(/** @type {{ peer_id: number, username: string }[]} */ ([]));
+  const [selfPeerId, setSelfPeerId] = useState(/** @type {number | null} */ (null));
   const [docLoaded, setDocLoaded] = useState(false);
   const iframeRef = useRef(/** @type {HTMLIFrameElement | null} */ (null));
-  // The iframe whose document already carries the activity listeners.
-  const iframeWatchedRef = useRef(/** @type {HTMLIFrameElement | null} */ (null));
-  // The diagram payload (xml text or data URI) fetched from the drive,
-  // handed to the editor on `init`.
   const payloadRef = useRef(/** @type {string | null} */ (null));
   const dirtyRef = useRef(false);
+  const localDirtyRef = useRef(false);
+  const remoteDirtyRef = useRef(false);
   const dirtySinceRef = useRef(0);
   const lastEditRef = useRef(0);
   const lastSaveAttemptRef = useRef(0);
   const savingRef = useRef(false);
-  // One pending export at a time — the save thunk awaits the editor's reply.
+  const applyingRemoteRef = useRef(false);
   const pendingExportRef = useRef(
     /** @type {{ resolve: (m: any) => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout> } | null} */ (null),
   );
+  const pendingPatchRef = useRef(
+    /** @type {{ resolve: () => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout> } | null} */ (null),
+  );
+  /** @type {import("react").MutableRefObject<{ patch: unknown }[]>} */
+  const patchQueueRef = useRef([]);
+  const pumpingRef = useRef(false);
   const iframeAliveRef = useRef(false);
-  // Callbacks via refs so an unstable parent identity can't tear the embed
-  // down mid-session (same reasoning as EuroOfficeHost).
+  const docLoadedRef = useRef(false);
+  const collabRef = useRef(/** @type {DiagramCollab | null} */ (null));
   const onSavedRef = useRef(onSaved);
   const onSaveStateChangeRef = useRef(onSaveStateChange);
+  const onPresenceChangeRef = useRef(onPresenceChange);
   const requestCloseRef = useRef(requestClose);
   const onCloseRef = useRef(onClose);
   onSavedRef.current = onSaved;
   onSaveStateChangeRef.current = onSaveStateChange;
+  onPresenceChangeRef.current = onPresenceChange;
   requestCloseRef.current = requestClose;
   onCloseRef.current = onClose;
 
-  // Render-phase reset (same pattern as FileViewer's previewKey scope): a
-  // retry or a new file drops back to the probe+load phase without a
-  // setState inside the effect body.
   const sessionScope = `${driveId}:${path}:${container}:${retryTick}`;
   const [scope, setScope] = useState(sessionScope);
   if (scope !== sessionScope) {
@@ -165,17 +144,95 @@ function EditorSession({
     setPhase("loading");
     setError("");
     setDocLoaded(false);
+    setPeers([]);
+    setSelfPeerId(null);
     iframeAliveRef.current = false;
+    docLoadedRef.current = false;
     payloadRef.current = null;
     dirtyRef.current = false;
-    setLostAcked(false);
-    setCopyError("");
+    localDirtyRef.current = false;
+    remoteDirtyRef.current = false;
+    patchQueueRef.current = [];
   }
 
-  // Probe the pack, then fetch the file. "Missing pack" is its own phase —
-  // it gets the install card, not the open-error card.
+  const reportDirty = useCallback((dirty) => {
+    dirtyRef.current = dirty;
+    if (dirty && !dirtySinceRef.current) dirtySinceRef.current = Date.now();
+    onSaveStateChangeRef.current?.(dirty);
+  }, []);
+
+  const presenceStatus =
+    phase === "ready" ? "ready" : phase === "error" || phase === "missing" ? "error" : "loading";
+
+  useEffect(() => {
+    onPresenceChangeRef.current?.(
+      collabPresenceLabel(
+        presenceStatus,
+        peers,
+        canWrite,
+        selfName,
+        selfPeerId,
+        "Opening this diagram…",
+      ),
+    );
+  }, [presenceStatus, peers, canWrite, selfName, selfPeerId]);
+
+  const pumpPatchesRef = useRef(() => {});
+
+  const pumpPatches = useCallback(() => {
+    if (pumpingRef.current || pendingPatchRef.current) return;
+    if (!docLoadedRef.current || !iframeAliveRef.current) return;
+    const next = patchQueueRef.current.shift();
+    if (!next) return;
+    const iframe = iframeRef.current;
+    if (!iframe) {
+      patchQueueRef.current.unshift(next);
+      return;
+    }
+    pumpingRef.current = true;
+    applyingRemoteRef.current = true;
+    const timer = setTimeout(() => {
+      pendingPatchRef.current = null;
+      pumpingRef.current = false;
+      applyingRemoteRef.current = false;
+      pumpPatchesRef.current();
+    }, PATCH_TIMEOUT_MS);
+    pendingPatchRef.current = {
+      resolve: () => {},
+      reject: () => {},
+      timer,
+    };
+    pendingPatchRef.current.resolve = () => {
+      clearTimeout(timer);
+      pendingPatchRef.current = null;
+      pumpingRef.current = false;
+      applyingRemoteRef.current = false;
+      if (canWrite) {
+        remoteDirtyRef.current = true;
+        lastEditRef.current = Date.now();
+        reportDirty(true);
+      }
+      pumpPatchesRef.current();
+    };
+    pendingPatchRef.current.reject = () => {
+      clearTimeout(timer);
+      pendingPatchRef.current = null;
+      pumpingRef.current = false;
+      applyingRemoteRef.current = false;
+      pumpPatchesRef.current();
+    };
+    postToEditor(iframe, { action: "patch", patch: next.patch });
+  }, [canWrite, reportDirty]);
+  pumpPatchesRef.current = pumpPatches;
+
+  // Probe the pack, fetch the file, then join the collab room. The file
+  // fetch runs first so a password-protected share can mint its proof
+  // cookie before the WebSocket upgrade (browsers cannot set headers on
+  // the socket).
   useEffect(() => {
     let cancelled = false;
+    /** @type {DiagramCollab | null} */
+    let collab = null;
     (async () => {
       const pack = await probeDrawioPack();
       if (cancelled) return;
@@ -187,18 +244,6 @@ function EditorSession({
         setPhase("error");
         setError("Couldn't reach Luna. Check this device's connection and try again.");
         return;
-      }
-      // HACK (advisory lock): writable opens must hold the lock before the
-      // editor mounts. "blocked" gets the who-is-editing card; "failed"
-      // (endpoint gone, network down) degrades to editing without a lock —
-      // an advisory stopgap must never gate editing.
-      if (effectiveCanWrite) {
-        const res = await acquireLock();
-        if (cancelled) return;
-        if (res === "blocked") {
-          setPhase("locked");
-          return;
-        }
       }
       try {
         const res = await source.fetch(source.contentHref(driveId, path));
@@ -212,24 +257,52 @@ function EditorSession({
             container,
           );
         }
-        if (!cancelled) setPhase("ready");
       } catch (err) {
         if (!cancelled) {
           setPhase("error");
           setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
         }
+        return;
       }
+      if (cancelled) return;
+      const url = source.collabWsUrl?.(driveId, path);
+      if (url) {
+        collab = new DiagramCollab({
+          driveId,
+          path,
+          url,
+          canWrite,
+          onUpdate: (snap) => {
+            if (cancelled) return;
+            setPeers(snap.peers);
+            setSelfPeerId(snap.selfPeerId);
+          },
+          onRemotePatch: (patch) => {
+            patchQueueRef.current.push(patch);
+            pumpPatchesRef.current();
+          },
+          onPeerSaved: () => {
+            const next = dirtyAfterPeerSave({ localDirty: localDirtyRef.current });
+            localDirtyRef.current = next.localDirty;
+            remoteDirtyRef.current = next.remoteDirty;
+            if (!next.localDirty && !next.remoteDirty) {
+              dirtySinceRef.current = 0;
+              reportDirty(false);
+            }
+          },
+        });
+        collabRef.current = collab;
+        collab.connect();
+      }
+      if (!cancelled) setPhase("ready");
     })();
     return () => {
       cancelled = true;
+      collab?.close();
+      if (collabRef.current === collab) collabRef.current = null;
     };
-  }, [source, driveId, path, container, retryTick, effectiveCanWrite, acquireLock]);
+  }, [source, driveId, path, container, retryTick, canWrite, reportDirty]);
 
-  /**
-   * Ask the editor for the current file bytes in this file's container
-   * format. Resolves with the editor's `export` event payload.
-   * @returns {Promise<any>}
-   */
   const requestExport = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !iframeAliveRef.current) {
@@ -256,80 +329,42 @@ function EditorSession({
     });
   }, [container]);
 
-  const lockMarkLostRef = useRef(lock.markLost);
-  lockMarkLostRef.current = lock.markLost;
-  const lockSaveHeadersRef = useRef(lock.saveHeaders);
-  lockSaveHeadersRef.current = lock.saveHeaders;
-  // Idle reporting (advisory lock): any editor message or input inside the
-  // same-origin iframe counts as activity.
-  const noteActivityRef = useRef(lock.noteActivity);
-  noteActivityRef.current = lock.noteActivity;
-
-  /**
-   * Serialize + upload through the normal files write path — the same
-   * overwrite upload the text editor uses. Returns true only when the file
-   * actually landed, so the frame never reports a save that didn't happen.
-   */
   const save = useCallback(async () => {
     if (savingRef.current) return false;
     savingRef.current = true;
     const iframe = iframeRef.current;
+    let election = false;
     try {
+      // Same idea as EuroOffice's lunaSaveLock: one open editor uploads.
+      // Denial leaves the diagram dirty so the next autosave tick retries
+      // after the other person finishes.
+      election = (await collabRef.current?.requestSaveLock()) !== false;
+      if (collabRef.current && !election) return false;
       const exportMsg = await requestExport();
       const bytes = diagramBytesFromExport(container, exportMsg);
-      // HACK (advisory lock): the lock was lost mid-edit — the drive copy
-      // may belong to someone else's session now, so save downloads a
-      // `*-copy` file instead of overwriting.
-      if (lockLostRef.current) {
-        downloadDiagramCopy(name, bytes, DIAGRAM_MIME[container]);
-        dirtyRef.current = false;
-        onSaveStateChangeRef.current?.(false);
-        onSavedRef.current?.();
-        return true;
-      }
       const blob = new Blob(
         [/** @type {BlobPart} */ (bytes)],
         { type: DIAGRAM_MIME[container] },
       );
-      try {
-        // Guests prove lock ownership with the session id; members are
-        // identified by their session cookie and send nothing extra.
-        await source.saveFile(driveId, path, name, blob, {
-          headers: lockSaveHeadersRef.current(),
-        });
-      } catch (err) {
-        // Write-path enforcement: a 409 means the lock belongs to someone
-        // else — flip to the save-a-copy modal, then let the frame's
-        // save-error surface report the failed save.
-        if (
-          err instanceof ApiError &&
-          err.status === 409 &&
-          err.code === "diagram_locked"
-        ) {
-          // The 409 body names the holder when there is one.
-          lockMarkLostRef.current(
-            typeof err.data?.holder === "string" ? err.data.holder : undefined,
-          );
-        }
-        throw err;
-      }
-      // Clear the editor's own modified flag — its status bar tracks dirty
-      // state separately from the frame's.
+      await source.saveFile(driveId, path, name, blob);
+      collabRef.current?.sendSaved(bytes.byteLength);
       postToEditor(iframe, { action: "status", message: "", modified: false });
-      dirtyRef.current = false;
-      onSaveStateChangeRef.current?.(false);
+      localDirtyRef.current = false;
+      remoteDirtyRef.current = false;
+      dirtySinceRef.current = 0;
+      reportDirty(false);
       onSavedRef.current?.();
       return true;
     } finally {
+      if (election) collabRef.current?.releaseSaveLock();
       savingRef.current = false;
     }
-  }, [container, driveId, name, path, requestExport, source]);
+  }, [container, driveId, name, path, reportDirty, requestExport, source]);
   const saveRef = useRef(save);
   saveRef.current = save;
 
-  // Autosave tick — same cadence contract as TextFileEditor.
   useEffect(() => {
-    if (phase !== "ready" || !effectiveCanWrite) return undefined;
+    if (phase !== "ready" || !canWrite) return undefined;
     const id = setInterval(() => {
       const now = Date.now();
       if (!dirtyRef.current) {
@@ -338,9 +373,6 @@ function EditorSession({
       }
       if (!dirtySinceRef.current) dirtySinceRef.current = now;
       if (savingRef.current) return;
-      // Lock lost → save() would download a copy each tick; leave the
-      // modal's manual "Save a copy" as the only copy trigger.
-      if (lockLostRef.current) return;
       if (now - lastSaveAttemptRef.current < AUTOSAVE_RETRY_MS) return;
       const idle = now - lastEditRef.current;
       const stale = now - dirtySinceRef.current;
@@ -352,19 +384,14 @@ function EditorSession({
       }
     }, AUTOSAVE_TICK_MS);
     return () => clearInterval(id);
-  }, [phase, effectiveCanWrite]);
+  }, [phase, canWrite]);
 
-  // Register the save thunk once the editor has loaded the document.
-  // Still registered when the lock is lost — save() then exports a copy
-  // to downloads instead of overwriting.
   useEffect(() => {
-    if (!docLoaded || !effectiveCanWrite || !onRegisterSave) return undefined;
+    if (!docLoaded || !canWrite || !onRegisterSave) return undefined;
     onRegisterSave(save);
     return () => onRegisterSave(null);
-  }, [docLoaded, effectiveCanWrite, save, onRegisterSave]);
+  }, [docLoaded, canWrite, save, onRegisterSave]);
 
-  // Embed protocol: init → load → autosave/save/exit/export. The listener
-  // attaches once the iframe exists (phase "ready").
   useEffect(() => {
     if (phase !== "ready") return undefined;
     const iframe = iframeRef.current;
@@ -381,81 +408,55 @@ function EditorSession({
 
     /** @param {MessageEvent} event */
     function onMessage(event) {
-      // Only messages from our iframe; same-origin, so origin must match too.
       if (event.source !== iframe.contentWindow) return;
       if (event.origin !== window.location.origin) return;
       const msg = parseEmbedMessage(event.data);
       if (!msg || !msg.event) return;
-      noteActivityRef.current?.();
 
       switch (msg.event) {
         case "configure":
-          // Not requested via configure=1, but answer defensively so the
-          // editor can't stall waiting for it.
           postToEditor(iframe, { action: "configure", config: {} });
           break;
         case "init":
           iframeAliveRef.current = true;
-          // The pack is same-origin — watch real input inside the editor
-          // (mousemove over a drawing) so idle means idle, not "typing in
-          // the iframe the parent can't see".
-          if (iframeWatchedRef.current !== iframe) {
-            iframeWatchedRef.current = iframe;
-            try {
-              const doc = iframe.contentDocument;
-              for (const ev of [
-                "pointermove",
-                "pointerdown",
-                "keydown",
-                "wheel",
-                "touchstart",
-              ]) {
-                doc?.addEventListener(ev, () => noteActivityRef.current?.(), {
-                  passive: true,
-                });
-              }
-            } catch {
-              // Same-origin in practice; if it ever isn't, embed messages
-              // still count as activity.
-            }
-          }
           postToEditor(iframe, {
             action: "load",
             xml: payloadRef.current,
             autosave: 1,
+            // Diff patches are the live-edit payload. patchOnly keeps the
+            // autosave event small — the file bytes still come from export.
+            diffSync: { patchOnly: true },
             title: name,
-            // Resource key: the editor's own status bar reads
-            // "Unsaved changes" while modified.
             modified: "unsavedChanges",
           });
           break;
         case "load":
+          docLoadedRef.current = true;
           setDocLoaded(true);
+          pumpPatchesRef.current();
           break;
         case "autosave":
-          // The autosave payload carries xml, but every container goes
-          // through export on save anyway — the event is just the dirty
-          // signal.
+          if (applyingRemoteRef.current) break;
           lastEditRef.current = Date.now();
-          if (!dirtyRef.current) {
-            dirtyRef.current = true;
-            onSaveStateChangeRef.current?.(true);
+          if (canWrite && msg.patch) {
+            collabRef.current?.sendPatch(msg.patch, msg.checksum);
+          }
+          if (canWrite) {
+            localDirtyRef.current = true;
+            if (!dirtyRef.current) reportDirty(true);
           }
           break;
         case "save":
           lastEditRef.current = Date.now();
-          dirtyRef.current = true;
-          onSaveStateChangeRef.current?.(true);
-          if (effectiveCanWrite) {
+          if (canWrite) {
+            localDirtyRef.current = true;
+            reportDirty(true);
             const exitAfter = msg.exit === true;
             saveRef.current()
               .then((saved) => {
                 if (saved && exitAfter) onCloseRef.current?.();
               })
-              .catch(() => {
-                // The frame's save error surface covers manual saves; the
-                // autosave tick retries editor-initiated ones.
-              });
+              .catch(() => {});
           }
           break;
         case "export":
@@ -472,10 +473,13 @@ function EditorSession({
             }
           }
           break;
+        case "patch":
+          if (pendingPatchRef.current) {
+            if (msg.error) pendingPatchRef.current.reject(new Error(String(msg.error)));
+            else pendingPatchRef.current.resolve();
+          }
+          break;
         case "exit":
-          // noExitBtn hides the editor's Exit button; template-cancel and a
-          // few other paths can still emit it — funnel through the frame's
-          // guarded close.
           requestCloseRef.current?.();
           break;
         default:
@@ -488,27 +492,18 @@ function EditorSession({
       clearTimeout(openTimeout);
       window.removeEventListener("message", onMessage);
       iframeAliveRef.current = false;
+      docLoadedRef.current = false;
       if (pendingExportRef.current) {
         clearTimeout(pendingExportRef.current.timer);
         pendingExportRef.current.reject(new Error("The editor was closed."));
         pendingExportRef.current = null;
       }
+      if (pendingPatchRef.current) {
+        clearTimeout(pendingPatchRef.current.timer);
+        pendingPatchRef.current = null;
+      }
     };
-  }, [phase, effectiveCanWrite, name]);
-
-  // HACK (advisory lock): someone else holds the edit lock.
-  if (phase === "locked") {
-    return (
-      <DiagramLockedCard
-        holderName={lock.holder}
-        selfHold={lock.selfHold}
-        downloadUrl={source.downloadHref(driveId, path)}
-        downloadName={name}
-        onOpenReadOnly={() => setReadOnly(true)}
-        onClose={onClose}
-      />
-    );
-  }
+  }, [phase, canWrite, name, reportDirty]);
 
   if (phase === "missing") {
     return (
@@ -563,86 +558,14 @@ function EditorSession({
           </div>
         </div>
       ) : (
-        <>
-          {/* HACK (advisory lock): losing the hold mid-edit interrupts once
-              with a modal — never a banner that can spawn repeatedly. */}
-          <ModalCard
-            open={lock.status === "lost" && !lostAcked}
-            onClose={() => setLostAcked(true)}
-            title="Editing session ended"
-            showCloseButton={false}
-            overlayClassName={NESTED_OVERLAY_CLASS}
-            openHaptic="warning"
-          >
-            {({ close }) => (
-              <div className="space-y-4">
-                <p className="text-sm text-primary">
-                  {lock.holder
-                    ? `${lock.holder} is editing this diagram now, so saving to it is turned off for this session.`
-                    : "This diagram's editing session ended — someone else may be editing it now, so saving to it is turned off for this session."}{" "}
-                  Save to download your changes instead.
-                </p>
-                {copyError ? (
-                  <PageNotice variant="error" surface="secondary">
-                    {copyError}
-                  </PageNotice>
-                ) : null}
-                <div className="flex flex-col gap-3">
-                  <Button
-                    variant="primary"
-                    surface="secondary"
-                    fullWidth
-                    haptic="light"
-                    onClick={() => {
-                      setCopyError("");
-                      void saveRef
-                        .current()
-                        .then((ok) => {
-                          if (ok) {
-                            setLostAcked(true);
-                            close();
-                          } else {
-                            setCopyError(
-                              "Luna couldn't download your changes. Try again.",
-                            );
-                          }
-                        })
-                        .catch(() =>
-                          setCopyError(
-                            "Luna couldn't download your changes. Try again.",
-                          ),
-                        );
-                    }}
-                  >
-                    Download my changes
-                  </Button>
-                  <Button
-                    variant="outline"
-                    surface="secondary"
-                    fullWidth
-                    haptic="light"
-                    onClick={() => {
-                      setLostAcked(true);
-                      close();
-                    }}
-                  >
-                    Keep editing — saves become downloads
-                  </Button>
-                </div>
-              </div>
-            )}
-          </ModalCard>
-          <iframe
-            ref={iframeRef}
-            src={drawioEmbedUrl({ dark: resolvedTheme === "dark", canWrite: effectiveCanWrite })}
+        <iframe
+          ref={iframeRef}
+          src={drawioEmbedUrl({ dark: resolvedTheme === "dark", canWrite })}
           title={`Diagram editor — ${name}`}
           className="h-full min-h-0 w-full flex-1 border-0 bg-primary text-secondary"
-            // The pack is same-origin and self-hosted; sandbox still fences
-            // it off from Luna's own app surface.
-            sandbox="allow-scripts allow-same-origin allow-modals allow-popups allow-downloads allow-forms"
-            allow="clipboard-read; clipboard-write"
-          />
-        </>
+          sandbox="allow-scripts allow-same-origin allow-modals allow-popups allow-downloads allow-forms"
+          allow="clipboard-read; clipboard-write"
+        />
       )}
     </div>
   );
@@ -654,6 +577,7 @@ EditorSession.propTypes = {
   canWrite: PropTypes.bool,
   onSaved: PropTypes.func,
   onClose: PropTypes.func,
+  onPresenceChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onSaveStateChange: PropTypes.func,
   requestClose: PropTypes.func,
