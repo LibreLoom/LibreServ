@@ -1872,6 +1872,8 @@ struct PublicUploadCreate {
 struct PublicUploadCompleteQuery {
     overwrite: Option<String>,
     hash: Option<String>,
+    /// Diagram saves name the last live edit in the file. See `UploadQuery`.
+    coverage: Option<String>,
 }
 
 pub(crate) fn require_link_view(link: &AccessLinkRow) -> Result<(), ApiError> {
@@ -1996,16 +1998,6 @@ fn upload_dest(
             .to_string();
         Ok((link.drive_id.clone(), parent, Some(name)))
     }
-}
-
-/// The lock-holder key a guest save claims — `guest:{link}:{session}` from
-/// `X-Diagram-Session`. A missing or mismatched header is just a different
-/// session, which is exactly what the diagram lock conflict check refuses.
-fn guest_save_key(link: &AccessLinkRow, headers: &HeaderMap) -> String {
-    crate::api::diagram_locks::guest_lock_key(
-        &link.id,
-        &crate::api::diagram_locks::session_header(headers),
-    )
 }
 
 /// An upload session belongs to a link when it lands in the link's scope:
@@ -2194,17 +2186,6 @@ async fn public_upload_complete(
         // can't see which names are taken and a bare error would leak one.
         let overwrite = query.overwrite.as_deref() == Some("1") && link.caps & CAP_EDIT != 0;
         let rename_on_conflict = link.caps & CAP_VIEW == 0;
-        // HACK (api::diagram_locks): while another editor session holds the
-        // diagram lock on the leaf this upload would write, refuse the save —
-        // same rule as the member path, keyed by the guest's session header.
-        let leaf = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
-        crate::api::diagram_locks::check_save_allowed(
-            &state,
-            &guest_save_key(&link, &headers),
-            &crate::api::diagram_locks::session_header(&headers),
-            &row.drive_id,
-            &leaf,
-        )?;
         let entry = uploads::complete(
             &state.db,
             &id,
@@ -2240,6 +2221,14 @@ async fn public_upload_complete(
             state.gallery.upsert(&row.drive_id, &rel);
         }
         state.touch_io_activity();
+        crate::api::collab::note_diagram_saved(
+            &state,
+            &row.drive_id,
+            &rel,
+            &format!("guest:{}", link.id),
+            query.coverage.as_deref(),
+        )
+        .await;
         Ok(Json(entry).into_response())
     })
     .await
@@ -2458,15 +2447,6 @@ async fn public_create(
     run_public(&state, &addr, &token, &headers, async |state, link| {
         require_link_upload(&link)?;
         let rel = guest_child_for_create(&link, &body.path)?;
-        // HACK (api::diagram_locks): creating a .drawio another editor
-        // session holds the lock on is refused like any other save.
-        crate::api::diagram_locks::check_save_allowed(
-            &state,
-            &guest_save_key(&link, &headers),
-            &crate::api::diagram_locks::session_header(&headers),
-            &link.drive_id,
-            &rel,
-        )?;
         {
             let conn = state.db.lock().map_err(|_| busy())?;
             files::create(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?;
@@ -3724,11 +3704,11 @@ mod http_tests {
     }
 
     // -------------------------------------------------------------------
-    // Guest diagram locks + share lifecycle (rename/move/trash/restore)
+    // Guest diagram collab + share lifecycle (rename/move/trash/restore)
     // -------------------------------------------------------------------
 
     /// Stand the app up on a real socket — a WebSocket upgrade only exists
-    /// on a live connection (hyper fills `OnUpgrade`), so the lock route
+    /// on a live connection (hyper fills `OnUpgrade`), so the collab route
     /// can't be driven through `oneshot`.
     async fn spawn_app(app: axum::Router) -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -3800,17 +3780,33 @@ mod http_tests {
         }
     }
 
-    /// Read one unmasked server→client text frame (the lock messages stay
-    /// under 126 bytes, so the short length form is the only one used).
+    /// Read one unmasked server→client text frame. Skips pings. Supports
+    /// the 16-bit length form so a `welcome` with peer records fits.
     async fn ws_next_text(reply: &mut WsReply) -> Option<serde_json::Value> {
         use tokio::io::AsyncReadExt;
         loop {
             if reply.buf.len() >= 2 {
-                let len = (reply.buf[1] & 0x7f) as usize;
-                if reply.buf.len() >= 2 + len {
-                    let payload = reply.buf[2..2 + len].to_vec();
-                    reply.buf.drain(..2 + len);
-                    return serde_json::from_slice(&payload).ok();
+                let opcode = reply.buf[0] & 0x0f;
+                let len_marker = reply.buf[1] & 0x7f;
+                let (header, len) = if len_marker == 126 {
+                    if reply.buf.len() < 4 {
+                        (0, 0)
+                    } else {
+                        let len = u16::from_be_bytes([reply.buf[2], reply.buf[3]]) as usize;
+                        (4, len)
+                    }
+                } else if len_marker == 127 {
+                    return None;
+                } else {
+                    (2, len_marker as usize)
+                };
+                if header > 0 && reply.buf.len() >= header + len {
+                    let payload = reply.buf[header..header + len].to_vec();
+                    reply.buf.drain(..header + len);
+                    if opcode == 0x1 {
+                        return serde_json::from_slice(&payload).ok();
+                    }
+                    continue;
                 }
             }
             let mut chunk = [0u8; 4096];
@@ -3828,6 +3824,20 @@ mod http_tests {
         }
     }
 
+    /// Client→server text frame. Mask key is all zeros, which is a legal
+    /// mask and leaves the payload unchanged.
+    async fn ws_send_text(reply: &mut WsReply, text: &str) {
+        use tokio::io::AsyncWriteExt;
+        let payload = text.as_bytes();
+        assert!(payload.len() < 126, "test frame must fit in 7-bit length");
+        let mut frame = Vec::with_capacity(6 + payload.len());
+        frame.push(0x81);
+        frame.push(0x80 | payload.len() as u8);
+        frame.extend_from_slice(&[0, 0, 0, 0]);
+        frame.extend_from_slice(payload);
+        reply.stream.write_all(&frame).await.unwrap();
+    }
+
     /// `luna_link_{id}=<proof>` out of a response head's Set-Cookie line.
     fn proof_from_head(head: &str, id: &str) -> Option<String> {
         let want = format!("luna_link_{id}=");
@@ -3841,7 +3851,7 @@ mod http_tests {
     }
 
     #[tokio::test]
-    async fn guest_lock_ws_upgrades_and_reports_holds_over_a_socket() {
+    async fn guest_collab_ws_upgrades_and_shares_one_room() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("docs")).unwrap();
         std::fs::write(mount.path().join("docs/plan.drawio"), "<mxfile/>").unwrap();
@@ -3857,32 +3867,60 @@ mod http_tests {
         let token = link["token"].as_str().unwrap().to_string();
         let addr = spawn_app(app).await;
 
-        let mut first = ws_connect(
-            addr,
-            &format!("/s/{token}/diagrams/lock/ws?session=s1"),
-            &[],
-        )
-        .await;
+        let mut first = ws_connect(addr, &format!("/s/{token}/collab/ws"), &[]).await;
         assert_eq!(first.status, 101, "{}", first.head);
         let msg = ws_next_text(&mut first).await.unwrap();
-        assert_eq!(msg["type"], "held", "{msg}");
+        assert_eq!(msg["type"], "welcome", "{msg}");
+        assert_eq!(msg["can_write"], true);
+        assert_eq!(msg["peers"].as_array().unwrap().len(), 1);
+        assert_eq!(msg["peers"][0]["username"], "Guest");
 
-        // A second guest session on the same link learns who holds it.
-        let mut second = ws_connect(
-            addr,
-            &format!("/s/{token}/diagrams/lock/ws?session=s2"),
-            &[],
-        )
-        .await;
+        // A second guest on the same link joins the same room.
+        let mut second = ws_connect(addr, &format!("/s/{token}/collab/ws"), &[]).await;
         assert_eq!(second.status, 101, "{}", second.head);
         let msg = ws_next_text(&mut second).await.unwrap();
-        assert_eq!(msg["type"], "locked", "{msg}");
-        assert_eq!(msg["holder"], "A guest");
-        assert_eq!(msg["self"], false);
+        assert_eq!(msg["type"], "welcome", "{msg}");
+        assert_eq!(msg["peers"].as_array().unwrap().len(), 2);
+        // The first socket hears the join, numbered so the two sessions
+        // are distinguishable — same rule as member collab.
+        let joined = ws_next_text(&mut first).await.unwrap();
+        assert_eq!(joined["type"], "peer_join", "{joined}");
+        assert_eq!(joined["peer"]["username"], "Guest (2)");
+
+        // A draw.io diff patch is an opaque op. The other guest hears the
+        // patch. The sender hears only the sequence, so it can name that
+        // edit when it saves.
+        ws_send_text(
+            &mut first,
+            r#"{"type":"op","payload":{"kind":"patch","patch":{"n":1},"checksum":"a"}}"#,
+        )
+        .await;
+        let op = ws_next_text(&mut second).await.unwrap();
+        assert_eq!(op["type"], "op", "{op}");
+        assert_eq!(op["payload"]["kind"], "patch");
+        assert_eq!(op["payload"]["patch"]["n"], 1);
+        assert_eq!(op["payload"]["checksum"], "a");
+        let ack = ws_next_text(&mut first).await.unwrap();
+        assert_eq!(ack["type"], "ack", "{ack}");
+        assert_eq!(ack["seq"], 1);
+
+        // One saver at a time. The election is a direct reply, not a broadcast.
+        ws_send_text(&mut first, r#"{"type":"save_lock"}"#).await;
+        let grant = ws_next_text(&mut first).await.unwrap();
+        assert_eq!(grant["type"], "save_lock", "{grant}");
+        assert_eq!(grant["granted"], true);
+        ws_send_text(&mut second, r#"{"type":"save_lock"}"#).await;
+        let deny = ws_next_text(&mut second).await.unwrap();
+        assert_eq!(deny["type"], "save_lock", "{deny}");
+        assert_eq!(deny["granted"], false);
+        ws_send_text(&mut first, r#"{"type":"save_end"}"#).await;
+        ws_send_text(&mut second, r#"{"type":"save_lock"}"#).await;
+        let after = ws_next_text(&mut second).await.unwrap();
+        assert_eq!(after["granted"], true, "{after}");
     }
 
     #[tokio::test]
-    async fn guest_lock_ws_rejects_view_only_links_and_bad_targets() {
+    async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("family")).unwrap();
         std::fs::write(mount.path().join("family/plan.drawio"), "<mxfile/>").unwrap();
@@ -3906,12 +3944,21 @@ mod http_tests {
         .await;
         let token = full["token"].as_str().unwrap().to_string();
         let addr = spawn_app(app).await;
-        let ws =
-            |token: &str, path: &str| format!("/s/{token}/diagrams/lock/ws?path={path}&session=s1");
+        let ws = |token: &str, path: &str| format!("/s/{token}/collab/ws?path={path}");
 
-        // A view link can open the diagram read-only but never holds a lock.
-        let res = ws_connect(addr, &ws(&view_token, "plan.drawio"), &[]).await;
-        assert_eq!(res.status, 403, "{}", res.head);
+        // A view link follows live edits but cannot send them.
+        let mut res = ws_connect(addr, &ws(&view_token, "plan.drawio"), &[]).await;
+        assert_eq!(res.status, 101, "{}", res.head);
+        let msg = ws_next_text(&mut res).await.unwrap();
+        assert_eq!(msg["type"], "welcome");
+        assert_eq!(msg["can_write"], false);
+        ws_send_text(
+            &mut res,
+            r#"{"type":"op","payload":{"kind":"patch","patch":{"n":1}}}"#,
+        )
+        .await;
+        let denied = ws_next_text(&mut res).await.unwrap();
+        assert_eq!(denied["type"], "error", "{denied}");
         // Escapes, non-diagrams, and missing files are refused pre-upgrade.
         let res = ws_connect(addr, &ws(&token, "../plan.drawio"), &[]).await;
         assert_eq!(res.status, 400, "{}", res.head);
@@ -3922,14 +3969,14 @@ mod http_tests {
         // A real in-scope diagram upgrades.
         let mut res = ws_connect(addr, &ws(&token, "plan.drawio"), &[]).await;
         assert_eq!(res.status, 101, "{}", res.head);
-        assert_eq!(ws_next_text(&mut res).await.unwrap()["type"], "held");
+        assert_eq!(ws_next_text(&mut res).await.unwrap()["type"], "welcome");
         // Unknown tokens never reach the handler.
         let res = ws_connect(addr, &ws("nope", "plan.drawio"), &[]).await;
         assert_eq!(res.status, 404, "{}", res.head);
     }
 
     #[tokio::test]
-    async fn guest_lock_ws_authenticates_password_links_by_header_or_proof() {
+    async fn guest_collab_ws_authenticates_password_links_by_header_or_proof() {
         let mount = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(mount.path().join("docs")).unwrap();
         std::fs::write(mount.path().join("docs/plan.drawio"), "<mxfile/>").unwrap();
@@ -3945,175 +3992,23 @@ mod http_tests {
         let id = link["id"].as_str().unwrap().to_string();
         let token = link["token"].as_str().unwrap().to_string();
         let addr = spawn_app(app).await;
-        let ws = |session: &str| format!("/s/{token}/diagrams/lock/ws?session={session}");
+        let path = format!("/s/{token}/collab/ws");
 
         // No credentials at all → password challenge, not an upgrade.
-        let res = ws_connect(addr, &ws("s1"), &[]).await;
+        let res = ws_connect(addr, &path, &[]).await;
         assert_eq!(res.status, 401, "{}", res.head);
 
         // The password header upgrades and mints the proof cookie — which is
         // what a real browser relies on, since WebSocket requests can't set
         // custom headers.
-        let res = ws_connect(addr, &ws("s1"), &[("x-share-password", "s3cret-passw0rd")]).await;
+        let res = ws_connect(addr, &path, &[("x-share-password", "s3cret-passw0rd")]).await;
         assert_eq!(res.status, 101, "{}", res.head);
         let proof = proof_from_head(&res.head, &id).expect("proof cookie");
-        drop(res); // releases the s1 hold
+        drop(res);
 
-        let mut res = ws_connect(addr, &ws("s2"), &[("cookie", proof.as_str())]).await;
+        let mut res = ws_connect(addr, &path, &[("cookie", proof.as_str())]).await;
         assert_eq!(res.status, 101, "{}", res.head);
-        assert_eq!(ws_next_text(&mut res).await.unwrap()["type"], "held");
-    }
-
-    fn public_json_req(
-        method: Method,
-        uri: &str,
-        body: &str,
-        session: Option<&str>,
-    ) -> HttpReq<Body> {
-        let mut builder = HttpReq::builder()
-            .method(method)
-            .uri(uri)
-            .header("content-type", "application/json")
-            .header("accept", "application/json");
-        if let Some(s) = session {
-            builder = builder.header("x-diagram-session", s);
-        }
-        let mut http = builder.body(Body::from(body.to_string())).unwrap();
-        http.extensions_mut().insert(ConnectInfo(CLIENT));
-        http
-    }
-
-    fn put_chunk(uri: &str, bytes: &[u8]) -> HttpReq<Body> {
-        let mut http = HttpReq::builder()
-            .method(Method::PUT)
-            .uri(uri)
-            .header(
-                "content-range",
-                format!("bytes 0-{}/{}", bytes.len() - 1, bytes.len()),
-            )
-            .body(Body::from(bytes.to_vec()))
-            .unwrap();
-        http.extensions_mut().insert(ConnectInfo(CLIENT));
-        http
-    }
-
-    /// Run one guest upload session for `name` inside the folder link and
-    /// complete it, returning the complete-call response.
-    async fn guest_upload_save(
-        app: &axum::Router,
-        token: &str,
-        name: &str,
-        session: Option<&str>,
-    ) -> axum::response::Response {
-        let res = call(
-            app,
-            public_json_req(
-                Method::POST,
-                &format!("/s/{token}/upload"),
-                &format!(r#"{{"name":"{name}","size":4}}"#),
-                None,
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        let up = body_json(res).await;
-        let upload_id = up["upload_id"].as_str().unwrap().to_string();
-        let res = call(
-            app,
-            put_chunk(&format!("/s/{token}/upload/{upload_id}"), b"data"),
-        )
-        .await;
-        assert_eq!(res.status(), 200);
-        call(
-            app,
-            public_json_req(
-                Method::POST,
-                &format!("/s/{token}/upload/{upload_id}/complete?overwrite=1"),
-                "",
-                session,
-            ),
-        )
-        .await
-    }
-
-    #[tokio::test]
-    async fn guest_diagram_save_conflicts_with_a_foreign_lock_session() {
-        let mount = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(mount.path().join("family")).unwrap();
-        std::fs::write(mount.path().join("family/plan.drawio"), "<mxfile/>").unwrap();
-        let (_dir, app, state) = test_app_state(mount.path());
-        let (cookie, csrf) = admin(&app).await;
-        let link = make_link(
-            &app,
-            &cookie,
-            &csrf,
-            r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"full"}"#,
-        )
-        .await;
-        let token = link["token"].as_str().unwrap().to_string();
-        // A member editor holds the lock — every guest session is foreign.
-        state.diagram_locks.acquire_for_test(
-            "photos",
-            "family/plan.drawio",
-            "u-member",
-            "s1",
-            "Max",
-        );
-        let res = guest_upload_save(&app, &token, "plan.drawio", Some("sess-b")).await;
-        assert_eq!(res.status(), StatusCode::CONFLICT);
-        let body = body_json(res).await;
-        assert_eq!(body["code"], "diagram_locked");
-        assert_eq!(body["holder"], "Max");
-        // The create path enforces the same rule.
-        let res = call(
-            &app,
-            public_json_req(
-                Method::POST,
-                &format!("/s/{token}/create"),
-                r#"{"path":"plan.drawio"}"#,
-                Some("sess-b"),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::CONFLICT);
-        let body = body_json(res).await;
-        assert_eq!(body["code"], "diagram_locked");
-    }
-
-    #[tokio::test]
-    async fn guest_diagram_save_lands_for_the_lock_holder() {
-        let mount = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(mount.path().join("family")).unwrap();
-        std::fs::write(mount.path().join("family/plan.drawio"), "<mxfile/>").unwrap();
-        let (_dir, app, state) = test_app_state(mount.path());
-        let (cookie, csrf) = admin(&app).await;
-        let link = make_link(
-            &app,
-            &cookie,
-            &csrf,
-            r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"full"}"#,
-        )
-        .await;
-        let id = link["id"].as_str().unwrap().to_string();
-        let token = link["token"].as_str().unwrap().to_string();
-        // The guest's own editing session holds the lock.
-        state.diagram_locks.acquire_for_test(
-            "photos",
-            "family/plan.drawio",
-            &crate::api::diagram_locks::guest_lock_key(&id, "sess-a"),
-            "sess-a",
-            "A guest",
-        );
-        // A save claiming another session is refused like any foreign save;
-        // the upload session stays usable for the real holder's retry.
-        let res = guest_upload_save(&app, &token, "plan.drawio", None).await;
-        assert_eq!(res.status(), StatusCode::CONFLICT);
-        let res = guest_upload_save(&app, &token, "plan.drawio", Some("sess-a")).await;
-        assert_eq!(res.status(), 200);
-        assert_eq!(
-            std::fs::read(mount.path().join("family/plan.drawio")).unwrap(),
-            b"data"
-        );
+        assert_eq!(ws_next_text(&mut res).await.unwrap()["type"], "welcome");
     }
 
     #[tokio::test]

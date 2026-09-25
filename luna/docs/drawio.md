@@ -16,8 +16,10 @@ it's plain XML, loaded into the editor and written back on save.
 2. The editor is the stock draw.io webapp served by lunad at `/drawio` from
    `{data_dir}/drawio`, loaded in a same-origin iframe with
    `embed=1&proto=json&stealth=1&noExitBtn=1&saveAndExit=0` (`ui=dark` when
-   Luna is in dark mode; `noSaveBtn=1` for read-only opens). `stealth=1`
-   disables draw.io's realtime sync channel, so nothing leaves the device.
+   Luna is in dark mode; `noSaveBtn=1` for view-only opens). `stealth=1`
+   disables draw.io's own realtime channel (the one that phones home to
+   JGraph). Live editing uses Luna's collab hub instead — the same room
+   EuroOffice uses for presence.
 3. **If the pack is missing:** the probe is a `GET /drawio/pack.json` marker
    file — without the pack the request falls through to the SPA fallback
    (200 text/html), which the probe rejects. The fullscreen shell then shows
@@ -27,16 +29,54 @@ it's plain XML, loaded into the editor and written back on save.
    `load` with the file contents — raw XML for `.drawio`, a base64 data URI
    for the image-container variants (`xml` accepts SVG/PNG data URIs with
    embedded XML). The editor replies `load` when the document is up.
-5. **Saving:** `autosave=1` makes the editor emit `autosave` events on every
-   change; Luna debounces them (same cadence as the text editor: ~2s idle,
-   never more than 15s stale, 5s retry backoff). A save — from the debounced
-   autosave, the frame's Save button, or the editor's own Save button — asks
-   the editor for the current bytes via `{action:"export"}`: format `xml`
-   returns the canonical mxfile XML; `xmlsvg`/`xmlpng` return a data URI
+5. **Live editing:** the `load` message sets `autosave: 1` and
+   `diffSync: { patchOnly: true }`. Each local change arrives as an
+   `autosave` event carrying a draw.io diff `patch` (and a checksum). Luna
+   sends that patch as an opaque collab op (`{kind:"patch", patch, checksum}`)
+   on `GET /api/v1/collab/ws` — lunad authenticates peers, numbers extra
+   sessions, and fans the payload out without reading it, same as EuroOffice.
+   Other open editors apply `{action:"patch", patch}` (no checksum: two
+   people editing at once would mismatch even when the structural patch
+   landed). Inserts are not safe to apply twice, so a reconnect skips patches
+   this client sent and sequence numbers draw.io has confirmed. A patch is
+   not counted until that confirmation. If applying it fails, the editor
+   tries again; giving up leaves a hole, and a later save cannot name a
+   sequence past that hole, so the missed patch stays in the replay log.
+   A save names the last contiguous sequence actually in the exported file;
+   the room drops every op at or below that sequence, so someone who opens
+   the file later does not apply those edits again. View-only
+   sessions join the room and apply patches, but they do not send any.
+   Who is here is computed with the same presence line EuroOffice already
+   reports (`Live · Sam`, `Live · only you`, plus ` · view only` when this
+   session cannot edit; `Opening this diagram…` while the editor is still
+   opening). That line is not drawn in the frame — presence chrome is
+   still waiting on its own design.
+6. **Saving:** Luna debounces dirty state the same way as the text editor
+   and EuroOffice (~2s idle, never more than 15s stale, 5s retry backoff).
+   Before uploading, this editor asks the room for the save election
+   (`save_lock` / `save_end`, 5 minute backstop if the saver disconnects) —
+   the same single-uploader rule as EuroOffice's `lunaSaveLock`. A denial
+   leaves the diagram dirty so the next tick retries. The upload itself asks
+   the editor for the current bytes via `{action:"export"}`. Queued patches
+   are applied first, and the sequence is captured at that freeze — an edit
+   still waiting on draw.io is not named, so the room does not drop it.
+   Format `xml` returns the canonical mxfile XML; `xmlsvg`/`xmlpng` return a data URI
    that's decoded and uploaded. The bytes go back through the normal files
-   API (`files/upload?overwrite=1`), then Luna answers
+   API (`files/upload?overwrite=1&coverage=<seq>`). The upload landing
+   releases the election, so a lost `save_end` cannot hold the room. Luna
+   then tells the room `saved` with that same sequence and answers
    `{action:"status", modified:false}` to clear the editor's modified flag.
-6. The editor's Exit button is hidden — the frame owns close and the
+   A peer whose editor is at or behind that sequence drops its dirty flag
+   after a short pause. A peer who has typed past it keeps the diagram
+   dirty and writes the tail.
+7. **Shared links:** guests join the same room at
+   `GET /s/{token}/collab/ws` (path relative to the share). Only diagram
+   files are accepted, so a guest cannot inject ops into a text or office
+   room. View links join with `can_write: false`. Password links are checked
+   the same way as the rest of the share API; the file fetch runs before the
+   socket so the browser can store the proof cookie (a WebSocket request
+   cannot set that header itself).
+8. The editor's Exit button is hidden — the frame owns close and the
    unsaved-changes guard. `exit` events (e.g. template cancel) still funnel
    through the frame's guarded close. In the editor's own status bar,
    `modified: "unsavedChanges"` on the load message shows "Unsaved changes"
@@ -84,10 +124,12 @@ without the pack shows the normal "not installed" card on diagram files.
 | Endpoint | Purpose |
 |---|---|
 | `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot only when `{data_dir}/drawio` exists |
+| `GET /api/v1/collab/ws` | Member collab room (presence, opaque diff patches, save election) — the same endpoint EuroOffice uses |
+| `GET /s/{token}/collab/ws` | Guest collab room for a shared diagram. Refuses anything that is not a `.drawio` / `.drawio.svg` / `.drawio.png` file |
 
-No session endpoint, no socket, no bundle dir — the file on the drive is
-the whole state. Vite dev proxies `/drawio` to lunad (see
-`web/vite.config.js`).
+There is no diagram-only socket and no bundle dir. The file on the drive is
+the document; the collab room only carries live patches and who is here.
+Vite dev proxies `/drawio` to lunad (see `web/vite.config.js`).
 
 ## Creating blank diagrams
 

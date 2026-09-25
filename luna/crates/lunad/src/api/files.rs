@@ -61,6 +61,9 @@ struct ContentQuery {
 struct UploadQuery {
     path: Option<String>,
     overwrite: Option<String>,
+    /// Diagram saves name the last live edit in the file, same as EuroOffice
+    /// `?coverage=` on an Editor.bin PUT. Absent for every other upload.
+    coverage: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -985,7 +988,6 @@ async fn upload(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<UploadQuery>,
-    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<FileEntry>, (StatusCode, Json<Value>)> {
     let query_path = query.path.unwrap_or_default();
@@ -1029,17 +1031,6 @@ async fn upload(
                 }
 
                 let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
-                // HACK (api::diagram_locks): while another session holds a
-                // live advisory lock on this .drawio file, refuse the save
-                // so a stale editor can't clobber their work. The session
-                // header ties the save to the holding editor instance.
-                crate::api::diagram_locks::check_save_allowed(
-                    &state,
-                    &user.id,
-                    &crate::api::diagram_locks::session_header(&headers),
-                    &id,
-                    &rel,
-                )?;
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
@@ -1095,6 +1086,14 @@ async fn upload(
                                 flush_state.touch_io_activity();
                             });
                             state.touch_io_activity();
+                            crate::api::collab::note_diagram_saved(
+                                &state,
+                                &id,
+                                &rel,
+                                &user.id,
+                                query.coverage.as_deref(),
+                            )
+                            .await;
                             return Ok(Json(FileEntry {
                                 name,
                                 kind: "file".into(),
@@ -1167,6 +1166,14 @@ async fn upload(
                 state.gallery.upsert(&id, &rel);
                 invalidate_parent_listing(&state, &id, &rel);
                 state.touch_io_activity();
+                crate::api::collab::note_diagram_saved(
+                    &state,
+                    &id,
+                    &rel,
+                    &user.id,
+                    query.coverage.as_deref(),
+                )
+                .await;
                 return Ok(Json(FileEntry {
                     name,
                     kind: "file".into(),

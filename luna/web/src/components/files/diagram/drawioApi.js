@@ -6,8 +6,9 @@
  * editor runs in a same-origin iframe and speaks draw.io's embed protocol:
  * JSON `postMessage` events/actions — `init` → `load` → `autosave`/`save` →
  * `status`. Nothing is sent to JGraph's servers: the pack is local and the
- * iframe URL carries `stealth=1`, which disables the realtime sync channel
- * the hosted build uses.
+ * iframe URL carries `stealth=1`, which disables draw.io's own realtime
+ * channel (that one phones home). Live edits are relayed by Luna's collab
+ * hub instead, using the embed diff-sync protocol.
  *
  * The `.drawio` file on the drive IS the document — saves write the XML back
  * through the normal files upload API, same as the text editor. The
@@ -45,8 +46,9 @@ export async function probeDrawioPack() {
 /**
  * Iframe URL for the embedded editor. `noExitBtn`/`saveAndExit=0` keep the
  * editor's own close buttons hidden — Luna's fullscreen frame owns close and
- * the unsaved-changes guard. `stealth=1` disables draw.io's realtime sync
- * channel (SIMPLE_PEER_URL) so nothing leaves this Luna.
+ * the unsaved-changes guard. `stealth=1` disables draw.io's own realtime
+ * channel so nothing leaves this Luna. Collaboration uses Luna's collab
+ * hub and the embed `diffSync` load option.
  *
  * @param {{ dark?: boolean, canWrite?: boolean }} opts
  */
@@ -174,28 +176,6 @@ export function dataUriToBytes(uri) {
   } catch {
     return new Uint8Array(0);
   }
-}
-
-/**
- * HACK (advisory lock, see useDiagramLock.js): when the editor loses its
- * lock mid-edit, the drive copy may be owned by someone else's session —
- * saving must NOT overwrite it. This downloads the current bytes as
- * `<name>-copy.drawio[.svg|.png]` so the person's work survives.
- *
- * @param {string} name original file name
- * @param {Uint8Array} bytes export bytes
- * @param {string} mime MIME type for the blob
- */
-export function downloadDiagramCopy(name, bytes, mime) {
-  const copyName = name.replace(/\.drawio(\.(svg|png))?$/i, "-copy.drawio$1");
-  const url = URL.createObjectURL(
-    new Blob([/** @type {BlobPart} */ (bytes)], { type: mime }),
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = copyName === name ? `${name}-copy` : copyName;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export { diagramContainer };

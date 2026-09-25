@@ -51,9 +51,6 @@ pub struct AppState {
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub collab: std::sync::Arc<crate::office::collab::CollabHub>,
     pub office_docs: std::sync::Arc<crate::office::office_docs::OfficeDocHub>,
-    /// HACK: advisory .drawio edit locks (api::diagram_locks) — RAM-only
-    /// stopgap until diagrams get real collaboration.
-    pub diagram_locks: std::sync::Arc<crate::api::diagram_locks::DiagramLocks>,
 }
 
 impl AppState {
@@ -124,7 +121,6 @@ impl AppState {
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             collab: Arc::new(crate::office::collab::CollabHub::new()),
             office_docs: Arc::new(crate::office::office_docs::OfficeDocHub::new()),
-            diagram_locks: Arc::new(crate::api::diagram_locks::DiagramLocks::default()),
         }
     }
 

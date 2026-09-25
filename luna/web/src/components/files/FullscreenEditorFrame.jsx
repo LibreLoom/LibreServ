@@ -165,9 +165,9 @@ export default function FullscreenEditorFrame({
         // Escape — this is a window capture listener and would otherwise eat
         // the keypress before their document listeners see it.
         if (confirmCloseRef.current || menuOpenRef.current) return;
-        // Any other open dialog (e.g. the diagram lock-lost modal) owns
-        // Escape too — without this the frame would close the editor out
-        // from under the modal, or stack the unsaved-changes guard on top.
+        // Any other open dialog owns Escape too — without this the frame
+        // would close the editor out from under the modal, or stack the
+        // unsaved-changes guard on top.
         if (document.querySelector('[data-slot="dialog-overlay"]')) return;
         // CodeMirror panels (search, etc.) own Escape while focus is inside
         // them — let the panel close instead of the whole editor.

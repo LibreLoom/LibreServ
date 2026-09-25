@@ -47,7 +47,7 @@ async function requireOk(res, fallback) {
  *   fetch: (url: string, options?: object) => Promise<Response>,
  *   contentHref: (driveId: string, path: string) => string,
  *   downloadHref: (driveId: string, path: string, kind?: string) => string,
- *   diagramLockWsUrl: (driveId: string, path: string, session: string) => string,
+ *   collabWsUrl: (driveId: string, path: string) => string,
  *   listDir: (driveId: string, path: string) => Promise<object[]>,
  *   stat: (driveId: string, path: string) => Promise<object>,
  *   fetchBytes: (driveId: string, path: string) => Promise<ArrayBuffer>,
@@ -79,11 +79,10 @@ export const driveSource = {
   fetch: (url, options) => apiFetch(url, options),
   contentHref: (driveId, path) => contentHref(driveId, path),
   downloadHref: (driveId, path) => downloadHref(driveId, path), // dirs zip server-side
-  diagramLockWsUrl: (driveId, path, session) =>
-    `${wsBase()}/api/v1/diagrams/lock/ws` +
+  collabWsUrl: (driveId, path) =>
+    `${wsBase()}/api/v1/collab/ws` +
     `?drive_id=${encodeURIComponent(driveId || "")}` +
-    `&path=${encodeURIComponent(path || "")}` +
-    `&session=${encodeURIComponent(session || "")}`,
+    `&path=${encodeURIComponent(path || "")}`,
   listDir: (driveId, path) =>
     getJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(path)}`),
   stat: (driveId, path) =>
@@ -99,8 +98,10 @@ export const driveSource = {
     const form = new FormData();
     form.append("path", folder);
     form.append("file", file);
+    const coverage =
+      typeof opts.coverage === "number" ? `&coverage=${opts.coverage}` : "";
     await postForm(
-      `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1`,
+      `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1${coverage}`,
       form,
       { headers: opts.headers },
     );
@@ -203,13 +204,13 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
 
   /**
    * Chunked guest upload — same pipeline as the signed-in one. `opts.headers`
-   * carries per-save metadata like the diagram session id.
+   * carries optional per-save headers.
    * @param {string} path
    * @param {string} name
    * @param {Blob} blob
-   * @param {{ overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void }} [opts]
+   * @param {{ overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void, coverage?: number }} [opts]
    */
-  async function uploadBlob(path, name, blob, { overwrite = false, signal, headers: extraHeaders, onSession, onProgress } = {}) {
+  async function uploadBlob(path, name, blob, { overwrite = false, signal, headers: extraHeaders, onSession, onProgress, coverage } = {}) {
     const reqHeaders = () => ({ ...headers(), ...(extraHeaders || {}) });
     const folder = isFile ? "" : (parentPath(path) ?? "");
     const session = await postJson(
@@ -237,8 +238,12 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
           },
         );
       }
+      const complete = new URLSearchParams();
+      if (overwrite) complete.set("overwrite", "1");
+      if (typeof coverage === "number") complete.set("coverage", String(coverage));
+      const completeQuery = complete.toString();
       await postJson(
-        `/s/${token}/upload/${session.upload_id}/complete${overwrite ? "?overwrite=1" : ""}`,
+        `/s/${token}/upload/${session.upload_id}/complete${completeQuery ? `?${completeQuery}` : ""}`,
         {},
         { headers: reqHeaders(), signal },
       );
@@ -289,10 +294,8 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       params.set("download", "1");
       return `/s/${token}/file?${params}`;
     },
-    diagramLockWsUrl: (_driveId, path, session) =>
-      `${wsBase()}/s/${token}/diagrams/lock/ws` +
-      `?path=${encodeURIComponent(rel(path) || "")}` +
-      `&session=${encodeURIComponent(session || "")}`,
+    collabWsUrl: (_driveId, path) =>
+      `${wsBase()}/s/${token}/collab/ws?path=${encodeURIComponent(rel(path) || "")}`,
     listDir: async (_driveId, path) => {
       // Upload-only links (drop boxes) can't see inside — the browser shows
       // its empty state with the upload affordances, no 403 noise.
