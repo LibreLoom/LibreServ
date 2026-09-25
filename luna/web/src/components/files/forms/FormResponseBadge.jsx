@@ -18,13 +18,18 @@ export default function FormResponseBadge({ driveId, formPath }) {
   const scope = fileSourceScope(source, driveId);
   const canView = !source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0;
   const count = useQuery({
+    // Same key and shape as the builder, so the file list and the editor
+    // share one cache. A length stored under this key rendered as
+    // "[object Object] answers".
     queryKey: ["form-responses", scope, formPath],
-    queryFn: async () => latestResponses(await source.formResponses(driveId, formPath)).length,
+    queryFn: () => source.formResponses(driveId, formPath),
     enabled: canView,
     staleTime: 30_000,
   });
   if (count.data == null) return null;
-  const n = count.data;
+  const n = Array.isArray(count.data)
+    ? latestResponses(count.data).length
+    : (typeof count.data === "number" ? count.data : 0);
   const fresh = Math.max(0, n - readFormSeen(scope, formPath));
   const label = fresh > 0
     ? (fresh === 1 ? "1 new" : `${fresh} new`)
