@@ -43,13 +43,25 @@ async fn create(
         })?;
         let from_path = body.from_path.as_deref().unwrap_or("");
         let to_path = body.to_path.as_deref().unwrap_or("");
-        if !crate::auth::can_access(&user, &conn, &body.from_drive, from_path, false) {
+        // Moving removes the source — that needs edit, not just view.
+        let from_cap = if body.kind == "move" {
+            crate::access::CAP_EDIT
+        } else {
+            crate::access::CAP_VIEW
+        };
+        if !crate::auth::has_cap(&user, &conn, &body.from_drive, from_path, from_cap) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "You don't have permission to copy from here.",
             ));
         }
-        if !crate::auth::can_access(&user, &conn, &body.to_drive, to_path, true) {
+        if !crate::auth::has_cap(
+            &user,
+            &conn,
+            &body.to_drive,
+            to_path,
+            crate::access::CAP_UPLOAD,
+        ) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "You don't have permission to save here.",

@@ -1,4 +1,6 @@
-import { FilePlus, FileSpreadsheet, FileText, FolderPlus, Presentation } from "lucide-react";
+import { ClipboardList, FilePlus, FileSpreadsheet, FileText, FolderPlus, Presentation, Workflow } from "lucide-react";
+import { blankFormDocument, serializeFormDocument } from "./formDocument.js";
+import { BLANK_DRAWIO_XML } from "./diagramFile.js";
 
 /**
  * Things people can make from the New menu.
@@ -16,6 +18,7 @@ import { FilePlus, FileSpreadsheet, FileText, FolderPlus, Presentation } from "l
  *   defaultName: string,
  *   defaultExt?: string,
  *   stub?: "docx" | "xlsx" | "pptx",
+ *   initialContent?: () => string,
  * }} CreateKind
  */
 
@@ -86,6 +89,38 @@ export const CREATE_KINDS = [
     defaultName: "Presentation.pptx",
     defaultExt: ".pptx",
     stub: "pptx",
+  },
+  {
+    id: "diagram",
+    label: "Diagram",
+    group: "Office",
+    icon: Workflow,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New diagram",
+    nameLabel: "Name for this diagram",
+    confirmLabel: "Create diagram",
+    defaultName: "Diagram.drawio",
+    defaultExt: ".drawio",
+    // A real mxfile from byte zero — draw.io would open an empty file as a
+    // blank page anyway, but starting valid keeps other tools sane.
+    initialContent: () => BLANK_DRAWIO_XML,
+  },
+  {
+    id: "form",
+    label: "Form",
+    group: "Office",
+    icon: ClipboardList,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New form",
+    nameLabel: "Name for this form",
+    confirmLabel: "Create form",
+    defaultName: "Untitled form.lunaform",
+    defaultExt: ".lunaform",
+    // Forms carry a real JSON envelope from byte zero — an empty file would
+    // just parse to a blank form, but starting valid keeps other tools sane.
+    initialContent: () => serializeFormDocument(blankFormDocument("Untitled form")),
   },
 ];
 

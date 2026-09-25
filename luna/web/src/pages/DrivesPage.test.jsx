@@ -270,9 +270,9 @@ describe("DrivesPage", () => {
         }
         if (u.endsWith("/me/access")) {
           return new Response(JSON.stringify([
-            { id: "g-drive", drive_id: "d1", drive_label: "Photos Drive", path: "", permission: "read" },
-            { id: "g-dcim", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM", permission: "write" },
-            { id: "g-print", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM/print", permission: "read" },
+            { id: "g-drive", kind: "path", drive_id: "d1", drive_label: "Photos Drive", path: "", caps: "view" },
+            { id: "g-dcim", kind: "path", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM", caps: "full" },
+            { id: "g-print", kind: "path", drive_id: "d1", drive_label: "Photos Drive", path: "DCIM/print", caps: "view" },
           ]), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -282,14 +282,41 @@ describe("DrivesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByText("Whole drive")).toBeInTheDocument();
-    expect(screen.getByText("DCIM")).toBeInTheDocument();
-    expect(screen.queryByText("DCIM/print")).not.toBeInTheDocument();
-    const opens = screen.getAllByRole("link", { name: "Open" });
+    expect(await screen.findByText(/^Whole drive$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Photos Drive · DCIM$/)).toBeInTheDocument();
+    expect(screen.queryByText(/DCIM\/print/)).not.toBeInTheDocument();
+    const opens = screen.getAllByRole("link", { name: "Browse files" });
     expect(opens).toHaveLength(2);
-    expect(opens[0]).toHaveAttribute("href", "/drives/d1?path=");
+    expect(opens[0]).toHaveAttribute("href", "/drives/d1");
     expect(opens[1]).toHaveAttribute("href", "/drives/d1?path=DCIM");
     expect(screen.queryByText(/Unrecognized Drives/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a single-file share at the file, not its folder", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+          return new Response(JSON.stringify({ id: "2", role: "user", username: "sam" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (u.endsWith("/me/access")) {
+          return new Response(JSON.stringify([
+            { id: "g-file", kind: "path", drive_id: "d1", drive_label: "Photos Drive",
+              path: "docs/report.pdf", name: "report.pdf", is_file: true, caps: "view" },
+          ]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open" }))
+      .toHaveAttribute("href", "/drives/d1?path=docs&file=report.pdf");
   });
 
   it("shows granted folders for a household member", async () => {

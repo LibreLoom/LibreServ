@@ -195,25 +195,54 @@ describe("DashboardPage", () => {
       username: "jamie",
       role: "user",
       drives: [],
-      access: [],
-      albums: [
+      access: [
         {
-          id: "al1",
-          home_drive_id: "d1",
+          id: "m1",
+          kind: "album",
+          drive_id: "d1",
+          drive_label: "Photos Drive",
+          album_id: "al1",
           name: "Beach day",
-          item_count: 4,
-          shared: true,
+          caps: "view",
         },
       ],
     });
     renderPage();
     expect(await screen.findByText(/Albums shared with you/i)).toBeInTheDocument();
     expect(screen.getByText("Beach day")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^Open$/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^View album$/i })).toHaveAttribute(
       "href",
       "/gallery#albums/d1/al1",
     );
     expect(screen.queryByText(/Nothing shared with you yet/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a shared file at the file and links to all shared items", async () => {
+    stubFetch({
+      username: "jamie",
+      role: "user",
+      drives: [],
+      access: [
+        {
+          id: "m2",
+          kind: "path",
+          drive_id: "d1",
+          drive_label: "Photos Drive",
+          path: "docs/report.pdf",
+          name: "report.pdf",
+          is_file: true,
+          caps: "view",
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("Shared with you")).toBeInTheDocument();
+    expect(screen.getByText("report.pdf")).toBeInTheDocument();
+    const open = screen.getAllByRole("link", { name: /^Open$/i })
+      .find((a) => a.closest("li")?.textContent?.includes("report.pdf"));
+    expect(open).toHaveAttribute("href", "/drives/d1?path=docs&file=report.pdf");
+    expect(screen.getByRole("link", { name: /See all shared items/i }))
+      .toHaveAttribute("href", "/shared");
   });
 
   it("flags a newly plugged-in USB for admins", async () => {

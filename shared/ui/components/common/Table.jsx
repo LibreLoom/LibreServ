@@ -3,7 +3,10 @@ import PropTypes from "prop-types";
 import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
 
-const CELL_BASE = "py-2.5 bg-secondary text-primary";
+const CELL_BASE = "py-2.5 text-primary";
+const CELL_BG = "bg-secondary";
+// color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+const CELL_BG_STRIPE = "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
 const CELL_FIRST = "pl-3 rounded-l-large-element";
 const CELL_LAST = "pr-3 rounded-r-large-element";
 const CELL_MIDDLE = "px-1";
@@ -39,7 +42,7 @@ function useIsMdUp() {
 }
 
 /**
- * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean }} _
+ * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, striped?: boolean }} _
  */
 export default function Table({
   columns,
@@ -51,6 +54,7 @@ export default function Table({
   headClassName = "text-accent",
   onRowClick,
   mobileCards = false,
+  striped = false,
 }) {
   const isMdUp = useIsMdUp();
   const showCards = mobileCards && !isMdUp;
@@ -71,7 +75,8 @@ export default function Table({
               <li key={key}>
                 <article
                   className={cn(
-                    "rounded-large-element bg-secondary text-primary p-4 flex flex-col gap-3",
+                    "rounded-large-element text-primary p-4 flex flex-col gap-3",
+                    striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
                     onRowClick &&
                       // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
                       "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0 hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]",
@@ -181,6 +186,7 @@ export default function Table({
                     const isLast = colIndex === columns.length - 1;
                     const cellClasses = [
                       CELL_BASE,
+                      striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
                       isFirst ? CELL_FIRST : "",
                       isLast ? CELL_LAST : "",
                       !isFirst && !isLast ? CELL_MIDDLE : "",
@@ -242,4 +248,5 @@ Table.propTypes = {
   headClassName: PropTypes.string,
   onRowClick: PropTypes.func,
   mobileCards: PropTypes.bool,
+  striped: PropTypes.bool,
 };

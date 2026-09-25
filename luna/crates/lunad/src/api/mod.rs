@@ -1,8 +1,10 @@
+pub mod access;
 pub mod auth;
 pub mod connect;
 pub mod device_tokens;
+pub mod diagram_locks;
 pub mod drives;
-pub mod grants;
+pub mod forms;
 pub mod health;
 pub mod network;
 pub mod protections;
@@ -10,7 +12,6 @@ pub mod public_limits;
 pub mod response;
 pub mod search;
 pub mod setup;
-pub mod shares;
 pub mod updates;
 pub mod users;
 
@@ -33,10 +34,11 @@ pub fn router() -> Router<AppState> {
         .merge(connect::router())
         .merge(device_tokens::router())
         .merge(users::router())
-        .merge(grants::router())
         .merge(search::router())
         .merge(protections::router())
-        .merge(shares::router())
+        .merge(access::router())
+        .merge(forms::router())
+        .merge(diagram_locks::router())
         .merge(network::router())
         .merge(setup::router())
         .merge(drives::router())

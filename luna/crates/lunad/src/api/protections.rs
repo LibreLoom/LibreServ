@@ -77,13 +77,25 @@ async fn create(
             "Luna's index is busy. Try again.",
         )
     })?;
-    if !crate::auth::can_access(&user, &conn, &body.source_drive_id, &body.source_path, true) {
+    if !crate::auth::has_cap(
+        &user,
+        &conn,
+        &body.source_drive_id,
+        &body.source_path,
+        crate::access::CAP_EDIT,
+    ) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to protect this folder.",
         ));
     }
-    if !crate::auth::can_access(&user, &conn, &body.target_drive_id, "", true) {
+    if !crate::auth::has_cap(
+        &user,
+        &conn,
+        &body.target_drive_id,
+        "",
+        crate::access::CAP_EDIT,
+    ) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to save on the second drive.",

@@ -533,7 +533,7 @@ export default function GalleryToolbar({
             id="photo-search"
             value={query}
             onChange={onQueryChange}
-            placeholder="Search photos…"
+            placeholder="Search photos — try “september 19” or “last summer”…"
             onClear={clearQuery}
           />
           {iconButtons}
@@ -559,7 +559,7 @@ export default function GalleryToolbar({
           id="photo-search-mobile"
           value={query}
           onChange={onQueryChange}
-          placeholder="Search photos…"
+          placeholder="Search photos — try “september 19” or “last summer”…"
           onClear={clearQuery}
         />
         {iconButtons}

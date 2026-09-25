@@ -8,8 +8,8 @@ use rusqlite::params;
 ///
 /// Drive-scoped high-churn metadata (file index, scrub hashes, gallery, trash
 /// paths, upload sessions) lives in each drive's `.luna` SQLite microdb.
-/// This OS-disk DB keeps users, auth, grants, shares, protection rules, jobs,
-/// and the thin drives registry.
+/// This OS-disk DB keeps users, auth, access members/links, protection rules,
+/// jobs, and the thin drives registry.
 pub fn open(path: &Path) -> anyhow::Result<Connection> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -66,25 +66,36 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             updated_at INTEGER NOT NULL,
             token_version INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS grants (
+        CREATE TABLE IF NOT EXISTS access_members (
             id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
+            subject_kind TEXT NOT NULL,
             drive_id TEXT NOT NULL,
             path TEXT NOT NULL DEFAULT '',
-            permission TEXT NOT NULL,
+            album_id TEXT NOT NULL DEFAULT '',
+            user_id TEXT NOT NULL,
+            caps INTEGER NOT NULL,
+            created_by TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS shares (
+        CREATE TABLE IF NOT EXISTS access_links (
             id TEXT PRIMARY KEY,
             token_hash TEXT NOT NULL UNIQUE,
+            token TEXT NOT NULL DEFAULT '',
+            subject_kind TEXT NOT NULL,
             drive_id TEXT NOT NULL,
-            path TEXT NOT NULL,
+            path TEXT NOT NULL DEFAULT '',
+            album_id TEXT NOT NULL DEFAULT '',
+            caps INTEGER NOT NULL,
             password_hash TEXT NOT NULL DEFAULT '',
             expires_at INTEGER,
             created_by TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            permission TEXT NOT NULL DEFAULT 'read'
+            created_at INTEGER NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS access_members_user ON access_members(user_id);
+        CREATE INDEX IF NOT EXISTS access_members_subject
+            ON access_members(subject_kind, drive_id, path, album_id);
+        CREATE INDEX IF NOT EXISTS access_links_subject
+            ON access_links(subject_kind, drive_id, path, album_id);
         CREATE TABLE IF NOT EXISTS protections (
             id TEXT PRIMARY KEY,
             source_drive TEXT NOT NULL,
@@ -133,12 +144,10 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     ensure_column(&conn, "jobs", "user_id", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
-    ensure_column(
-        &conn,
-        "shares",
-        "permission",
-        "TEXT NOT NULL DEFAULT 'read'",
-    )?;
+    // Legacy sharing tables — replaced by access_members/access_links.
+    let _ = conn.execute_batch("DROP TABLE IF EXISTS grants; DROP TABLE IF EXISTS shares;");
+    // Links minted before raw-token storage can't be re-shown — '' stays empty.
+    ensure_column(&conn, "access_links", "token", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(
         &conn,
         "device_token_usage",
@@ -296,14 +305,14 @@ pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Forget a drive and every row that points at it (grants, shares, index, …).
+/// Forget a drive and every row that points at it (access rows, index, …).
 /// Does not touch files on the drive itself. All deletes run in one transaction
 /// so a mid-cascade failure cannot leave related rows gone while the drive remains.
 pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
     let tx = conn.unchecked_transaction()?;
     let statements = [
-        "DELETE FROM grants WHERE drive_id = ?1",
-        "DELETE FROM shares WHERE drive_id = ?1",
+        "DELETE FROM access_members WHERE drive_id = ?1",
+        "DELETE FROM access_links WHERE drive_id = ?1",
         "DELETE FROM jobs WHERE from_drive = ?1 OR to_drive = ?1",
         "DELETE FROM protections WHERE source_drive = ?1 OR target_drive = ?1",
     ];
@@ -321,15 +330,15 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 }
 
 /// Wipe all user data and return the box to first-run state, keeping the
-/// schema. Clears users/grants/shares/device-tokens, jobs/protections, drives,
+/// schema. Clears users/access/device-tokens, jobs/protections, drives,
 /// and resets setup + the JWT and BLE setup secrets. Per-drive `.luna`
 /// microdbs (index, hashes, gallery, uploads, trash meta) are not part of
 /// `luna.db` and are left on the sticks.
 pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
     for table in [
         "users",
-        "grants",
-        "shares",
+        "access_members",
+        "access_links",
         "device_tokens",
         "jobs",
         "protections",
@@ -525,7 +534,7 @@ pub fn count_users(conn: &Connection) -> anyhow::Result<i64> {
 }
 
 pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM grants WHERE user_id = ?1", params![id])?;
+    conn.execute("DELETE FROM access_members WHERE user_id = ?1", params![id])?;
     conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -584,150 +593,268 @@ pub fn revoke_device_tokens_for_user(conn: &Connection, user_id: &str) -> anyhow
     Ok(())
 }
 
+/// A member row: a Luna user holding capabilities on a subject.
+/// `subject_kind` is "path" (file/folder/drive, `path` set) or "album"
+/// (`album_id` set, `drive_id` is the album's home drive).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrantRow {
+pub struct AccessMemberRow {
     pub id: String,
-    pub user_id: String,
+    pub subject_kind: String,
     pub drive_id: String,
     pub path: String,
-    pub permission: String,
+    pub album_id: String,
+    pub user_id: String,
+    pub caps: i64,
+    pub created_by: String,
 }
 
-pub fn insert_grant(
-    conn: &Connection,
-    id: &str,
-    user_id: &str,
-    drive_id: &str,
-    path: &str,
-    permission: &str,
-) -> anyhow::Result<()> {
-    let path = crate::grants::normalize_grant_path(path);
+pub fn insert_access_member(conn: &Connection, row: &AccessMemberRow) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO grants (id, user_id, drive_id, path, permission, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, user_id, drive_id, path, permission, now_unix()],
+        "INSERT INTO access_members (id, subject_kind, drive_id, path, album_id, user_id, caps, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            row.id,
+            row.subject_kind,
+            row.drive_id,
+            row.path,
+            row.album_id,
+            row.user_id,
+            row.caps,
+            row.created_by,
+            now_unix()
+        ],
     )?;
     Ok(())
 }
 
-pub fn list_grants_for_user(conn: &Connection, user_id: &str) -> anyhow::Result<Vec<GrantRow>> {
-    list_grants_where(conn, "user_id = ?1", params![user_id])
+fn member_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AccessMemberRow> {
+    Ok(AccessMemberRow {
+        id: row.get(0)?,
+        subject_kind: row.get(1)?,
+        drive_id: row.get(2)?,
+        path: row.get(3)?,
+        album_id: row.get(4)?,
+        user_id: row.get(5)?,
+        caps: row.get(6)?,
+        created_by: row.get(7)?,
+    })
 }
 
-pub fn list_all_grants(conn: &Connection) -> anyhow::Result<Vec<GrantRow>> {
-    list_grants_where(conn, "1", params![])
+const MEMBER_COLS: &str = "id, subject_kind, drive_id, path, album_id, user_id, caps, created_by";
+
+pub fn get_access_member(conn: &Connection, id: &str) -> anyhow::Result<Option<AccessMemberRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MEMBER_COLS} FROM access_members WHERE id = ?1"
+    ))?;
+    let mut rows = stmt.query_map(params![id], member_from_row)?;
+    Ok(rows.next().transpose()?)
 }
 
-fn list_grants_where(
+pub fn list_access_members_for_user(
     conn: &Connection,
-    where_clause: &str,
-    args: impl rusqlite::Params,
-) -> anyhow::Result<Vec<GrantRow>> {
-    let sql = format!(
-        "SELECT id, user_id, drive_id, path, permission FROM grants WHERE {where_clause} ORDER BY drive_id, path"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(args, |row| {
-        Ok(GrantRow {
-            id: row.get(0)?,
-            user_id: row.get(1)?,
-            drive_id: row.get(2)?,
-            path: row.get(3)?,
-            permission: row.get(4)?,
-        })
-    })?;
+    user_id: &str,
+) -> anyhow::Result<Vec<AccessMemberRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MEMBER_COLS} FROM access_members WHERE user_id = ?1 ORDER BY drive_id, path"
+    ))?;
+    let rows = stmt.query_map(params![user_id], member_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub fn delete_grant(conn: &Connection, id: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM grants WHERE id = ?1", params![id])?;
-    Ok(())
+pub fn list_all_access_members(conn: &Connection) -> anyhow::Result<Vec<AccessMemberRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MEMBER_COLS} FROM access_members ORDER BY drive_id, path, user_id"
+    ))?;
+    let rows = stmt.query_map([], member_from_row)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-/// Update only the permission on an existing grant. Returns true if a row changed.
-pub fn update_grant_permission(
+pub fn list_access_members_for_subject(
     conn: &Connection,
-    id: &str,
-    permission: &str,
-) -> anyhow::Result<bool> {
+    subject_kind: &str,
+    drive_id: &str,
+    path: &str,
+    album_id: &str,
+) -> anyhow::Result<Vec<AccessMemberRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MEMBER_COLS} FROM access_members
+         WHERE subject_kind = ?1 AND drive_id = ?2 AND path = ?3 AND album_id = ?4
+         ORDER BY created_at"
+    ))?;
+    let rows = stmt.query_map(
+        params![subject_kind, drive_id, path, album_id],
+        member_from_row,
+    )?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn update_access_member_caps(conn: &Connection, id: &str, caps: i64) -> anyhow::Result<bool> {
     let n = conn.execute(
-        "UPDATE grants SET permission = ?1 WHERE id = ?2",
-        params![permission, id],
+        "UPDATE access_members SET caps = ?1 WHERE id = ?2",
+        params![caps, id],
     )?;
     Ok(n > 0)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShareRow {
-    pub id: String,
-    pub token_hash: String,
-    pub drive_id: String,
-    pub path: String,
-    pub password_hash: String,
-    pub expires_at: Option<i64>,
-    pub created_by: String,
-    pub permission: String,
+pub fn delete_access_member(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM access_members WHERE id = ?1", params![id])?;
+    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn insert_share(
+/// Every member row on one subject (used when the subject is deleted).
+pub fn delete_access_members_for_subject(
     conn: &Connection,
-    id: &str,
-    token_hash: &str,
+    subject_kind: &str,
     drive_id: &str,
     path: &str,
-    password_hash: &str,
-    expires_at: Option<i64>,
-    permission: &str,
-    created_by: &str,
+    album_id: &str,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO shares (id, token_hash, drive_id, path, password_hash, expires_at, permission, created_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![id, token_hash, drive_id, path, password_hash, expires_at, permission, created_by, now_unix()],
+        "DELETE FROM access_members
+         WHERE subject_kind = ?1 AND drive_id = ?2 AND path = ?3 AND album_id = ?4",
+        params![subject_kind, drive_id, path, album_id],
     )?;
     Ok(())
 }
 
-pub fn get_share_by_token_hash(
+/// A link row: "anyone with this URL" holds capabilities on a subject.
+/// The bearer token is never stored — only its blake3 hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccessLinkRow {
+    pub id: String,
+    pub token_hash: String,
+    /// Raw token, kept so the owner can re-copy the address later. Empty for
+    /// links minted before this column existed — those stay unrecoverable.
+    pub token: String,
+    pub subject_kind: String,
+    pub drive_id: String,
+    pub path: String,
+    pub album_id: String,
+    pub caps: i64,
+    pub password_hash: String,
+    pub expires_at: Option<i64>,
+    pub created_by: String,
+    pub created_at: i64,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn insert_access_link(conn: &Connection, row: &AccessLinkRow) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO access_links (id, token_hash, token, subject_kind, drive_id, path, album_id, caps, password_hash, expires_at, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            row.id,
+            row.token_hash,
+            row.token,
+            row.subject_kind,
+            row.drive_id,
+            row.path,
+            row.album_id,
+            row.caps,
+            row.password_hash,
+            row.expires_at,
+            row.created_by,
+            now_unix()
+        ],
+    )?;
+    Ok(())
+}
+
+fn link_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AccessLinkRow> {
+    Ok(AccessLinkRow {
+        id: row.get(0)?,
+        token_hash: row.get(1)?,
+        token: row.get(2)?,
+        subject_kind: row.get(3)?,
+        drive_id: row.get(4)?,
+        path: row.get(5)?,
+        album_id: row.get(6)?,
+        caps: row.get(7)?,
+        password_hash: row.get(8)?,
+        expires_at: row.get(9)?,
+        created_by: row.get(10)?,
+        created_at: row.get(11)?,
+    })
+}
+
+const LINK_COLS: &str = "id, token_hash, token, subject_kind, drive_id, path, album_id, caps, password_hash, expires_at, created_by, created_at";
+
+pub fn get_access_link_by_token_hash(
     conn: &Connection,
     token_hash: &str,
-) -> anyhow::Result<Option<ShareRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by, permission FROM shares WHERE token_hash = ?1",
-    )?;
-    let mut rows = stmt.query_map(params![token_hash], |row| {
-        Ok(ShareRow {
-            id: row.get(0)?,
-            token_hash: row.get(1)?,
-            drive_id: row.get(2)?,
-            path: row.get(3)?,
-            password_hash: row.get(4)?,
-            expires_at: row.get(5)?,
-            created_by: row.get(6)?,
-            permission: row.get(7)?,
-        })
-    })?;
+) -> anyhow::Result<Option<AccessLinkRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {LINK_COLS} FROM access_links WHERE token_hash = ?1"
+    ))?;
+    let mut rows = stmt.query_map(params![token_hash], link_from_row)?;
     Ok(rows.next().transpose()?)
 }
 
-pub fn list_shares(conn: &Connection) -> anyhow::Result<Vec<ShareRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by, permission FROM shares ORDER BY created_at DESC",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(ShareRow {
-            id: row.get(0)?,
-            token_hash: row.get(1)?,
-            drive_id: row.get(2)?,
-            path: row.get(3)?,
-            password_hash: row.get(4)?,
-            expires_at: row.get(5)?,
-            created_by: row.get(6)?,
-            permission: row.get(7)?,
-        })
-    })?;
+pub fn get_access_link(conn: &Connection, id: &str) -> anyhow::Result<Option<AccessLinkRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {LINK_COLS} FROM access_links WHERE id = ?1"
+    ))?;
+    let mut rows = stmt.query_map(params![id], link_from_row)?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn list_access_links(conn: &Connection) -> anyhow::Result<Vec<AccessLinkRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {LINK_COLS} FROM access_links ORDER BY created_at DESC"
+    ))?;
+    let rows = stmt.query_map([], link_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn list_access_links_for_subject(
+    conn: &Connection,
+    subject_kind: &str,
+    drive_id: &str,
+    path: &str,
+    album_id: &str,
+) -> anyhow::Result<Vec<AccessLinkRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {LINK_COLS} FROM access_links
+         WHERE subject_kind = ?1 AND drive_id = ?2 AND path = ?3 AND album_id = ?4
+         ORDER BY created_at"
+    ))?;
+    let rows = stmt.query_map(
+        params![subject_kind, drive_id, path, album_id],
+        link_from_row,
+    )?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Persist mutable fields on a link row (caps, password, expiry). Token hash,
+/// subject, and creator are immutable.
+pub fn update_access_link(conn: &Connection, row: &AccessLinkRow) -> anyhow::Result<bool> {
+    let n = conn.execute(
+        "UPDATE access_links SET caps = ?2, password_hash = ?3, expires_at = ?4 WHERE id = ?1",
+        params![row.id, row.caps, row.password_hash, row.expires_at],
+    )?;
+    Ok(n > 0)
+}
+
+pub fn delete_access_link(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM access_links WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Every member and link row on one subject (subject deleted → all access dies).
+pub fn delete_access_for_subject(
+    conn: &Connection,
+    subject_kind: &str,
+    drive_id: &str,
+    path: &str,
+    album_id: &str,
+) -> anyhow::Result<()> {
+    delete_access_members_for_subject(conn, subject_kind, drive_id, path, album_id)?;
+    conn.execute(
+        "DELETE FROM access_links
+         WHERE subject_kind = ?1 AND drive_id = ?2 AND path = ?3 AND album_id = ?4",
+        params![subject_kind, drive_id, path, album_id],
+    )?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -802,11 +929,6 @@ pub fn touch_protection(conn: &Connection, id: &str) -> anyhow::Result<()> {
         "UPDATE protections SET last_run = ?2 WHERE id = ?1",
         params![id, now_unix()],
     )?;
-    Ok(())
-}
-
-pub fn delete_share(conn: &Connection, id: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM shares WHERE id = ?1", params![id])?;
     Ok(())
 }
 
@@ -1304,14 +1426,14 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO grants (id, user_id, drive_id, path, permission, created_at)
-             VALUES ('g1', 'u1', 'd1', '', 'write', ?1)",
+            "INSERT INTO access_members (id, subject_kind, drive_id, path, album_id, user_id, caps, created_by, created_at)
+             VALUES ('m1', 'path', 'd1', '', '', 'u1', 7, 'a', ?1)",
             params![now],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO shares (id, token_hash, drive_id, path, password_hash, expires_at, created_by, created_at)
-             VALUES ('s1', 'tok', 'd1', '', '', NULL, 'u1', ?1)",
+            "INSERT INTO access_links (id, token_hash, subject_kind, drive_id, path, album_id, caps, password_hash, expires_at, created_by, created_at)
+             VALUES ('l1', 'tok', 'path', 'd1', '', '', 1, '', NULL, 'u1', ?1)",
             params![now],
         )
         .unwrap();
@@ -1319,40 +1441,55 @@ mod tests {
         delete_drive_cascade(&conn, "d1").unwrap();
 
         assert!(get_drive(&conn, "d1").unwrap().is_none());
-        let grants: i64 = conn
+        let members: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM grants WHERE drive_id = 'd1'",
+                "SELECT COUNT(*) FROM access_members WHERE drive_id = 'd1'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        let shares: i64 = conn
+        let links: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM shares WHERE drive_id = 'd1'",
+                "SELECT COUNT(*) FROM access_links WHERE drive_id = 'd1'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(grants, 0);
-        assert_eq!(shares, 0);
+        assert_eq!(members, 0);
+        assert_eq!(links, 0);
     }
 
     #[test]
-    fn update_grant_permission_swaps_read_and_write() {
+    fn access_member_caps_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
-        insert_grant(&conn, "g1", "u1", "d1", "photos", "read").unwrap();
+        insert_access_member(
+            &conn,
+            &AccessMemberRow {
+                id: "m1".into(),
+                subject_kind: "path".into(),
+                drive_id: "d1".into(),
+                path: "photos".into(),
+                album_id: String::new(),
+                user_id: "u1".into(),
+                caps: 1,
+                created_by: "a".into(),
+            },
+        )
+        .unwrap();
 
-        assert!(update_grant_permission(&conn, "g1", "write").unwrap());
-        let grants = list_all_grants(&conn).unwrap();
-        assert_eq!(grants.len(), 1);
-        assert_eq!(grants[0].permission, "write");
+        assert!(update_access_member_caps(&conn, "m1", 3).unwrap());
+        let rows = list_access_members_for_user(&conn, "u1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].caps, 3);
 
-        assert!(update_grant_permission(&conn, "g1", "read").unwrap());
-        let grants = list_all_grants(&conn).unwrap();
-        assert_eq!(grants[0].permission, "read");
-
-        assert!(!update_grant_permission(&conn, "missing", "write").unwrap());
+        assert!(!update_access_member_caps(&conn, "missing", 7).unwrap());
+        delete_access_member(&conn, "m1").unwrap();
+        assert!(
+            list_access_members_for_user(&conn, "u1")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

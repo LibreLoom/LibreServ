@@ -10,8 +10,8 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { CollabDocSync } from "./collabDocSync.js";
-import { apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
-import { contentHref, downloadHref } from "../../lib/paths.js";
+import { apiErrorMessage } from "../../lib/api.js";
+import { useFileSource } from "../../lib/fileSource.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 // Autosave mirrors EuroOfficeHost: fire once typing pauses for
@@ -83,6 +83,10 @@ function EditorSession({
   const [connStatus, setConnStatus] = useState("connecting");
   const [mdMode, setMdMode] = useState(/** @type {"write"|"source"|"read"} */ ("write"));
   const [stats, setStats] = useState({ line: 1, col: 1, words: 0 });
+  const source = useFileSource();
+  // Guests have no session for the collab hub — solo mode seeds the doc
+  // straight from the file and saves through the link instead.
+  const solo = source.collab === false;
   // Bump on every document update so dirty state and the read-mode preview
   // see remote edits, not just local keystrokes.
   const [, setDocVersion] = useState(0);
@@ -102,6 +106,7 @@ function EditorSession({
       new CollabDocSync({
         driveId,
         path,
+        solo,
         onPeers: (next) => setPeers(next),
         onStatus: (status) => setConnStatus(status),
         // A peer's save lands as a broadcast — the drive now holds (very
@@ -127,7 +132,7 @@ function EditorSession({
 
     (async () => {
       try {
-        const res = await apiFetch(contentHref(driveId, path));
+        const res = await source.fetch(source.contentHref(driveId, path));
         if (!res.ok) throw new Error("Luna couldn't open this file.");
         const body = await res.text();
         if (cancelled) return;
@@ -149,7 +154,7 @@ function EditorSession({
       // the same document must survive into the second mount.
       sync.disconnect();
     };
-  }, [sync, driveId, path]);
+  }, [sync, driveId, path, source]);
 
   // Dirty only counts once the shared doc is hydrated — between the fetch
   // resolving (baseline set) and the seed/sync landing, the doc is empty by
@@ -170,17 +175,7 @@ function EditorSession({
     savingRef.current = true;
     try {
       const body = session.serialize();
-      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-      const file = new File([new Blob([body], { type: "text/plain" })], name, {
-        type: "text/plain",
-      });
-      const form = new FormData();
-      form.append("path", folder);
-      form.append("file", file);
-      await postForm(
-        `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1`,
-        form,
-      );
+      await source.saveFile(driveId, path, name, new Blob([body], { type: "text/plain" }));
       setBaseline(body);
       session.notifySaved(body.length);
       onSaved?.();
@@ -189,7 +184,7 @@ function EditorSession({
     } finally {
       savingRef.current = false;
     }
-  }, [driveId, path, name, onSaved, onSaveStateChange]);
+  }, [source, driveId, path, name, onSaved, onSaveStateChange]);
   const saveRef = useRef(save);
   saveRef.current = save;
 
@@ -301,7 +296,7 @@ function EditorSession({
             tooltip="Download"
             asChild
           >
-            <a href={downloadHref(driveId, path)}>
+            <a href={source.downloadHref(driveId, path)}>
               <Download size={ICON_SIZE.md} aria-hidden="true" />
             </a>
           </Button>

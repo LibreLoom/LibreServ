@@ -252,7 +252,6 @@ export default function AddToAlbumModal({
                             {typeof album.item_count === "number"
                               ? ` · ${album.item_count} ${album.item_count === 1 ? "item" : "items"}`
                               : ""}
-                            {album.shared ? " · Shared" : ""}
                           </span>
                         </span>
                       </button>

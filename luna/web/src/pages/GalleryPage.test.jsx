@@ -149,8 +149,7 @@ describe("galleryUrl", () => {
     expect(url).toContain("to=1700086399");
   });
 
-  it("asks for archived and kind filters", () => {
-    expect(galleryUrl({ archived: true })).toContain("archived=true");
+  it("asks for a kind filter", () => {
     expect(galleryUrl({ kind: "video" })).toContain("kind=video");
   });
 
@@ -171,6 +170,14 @@ describe("galleryUrl", () => {
     expect(galleryUrl({ albumMembership: "any" })).toContain("album_membership=any");
     expect(galleryUrl({ albumMembership: "maybe" })).not.toContain("album_membership=");
   });
+
+  it("wires month_day and a custom page size for the On this day view", () => {
+    const url = galleryUrl({ monthDay: "03-14", to: 1700000000, limit: 80 });
+    expect(url).toContain("month_day=03-14");
+    expect(url).toContain("to=1700000000");
+    expect(url).toContain("limit=80");
+    expect(galleryUrl({ limit: 1 })).toContain("limit=1");
+  });
 });
 
 describe("parseGalleryHash", () => {
@@ -178,6 +185,32 @@ describe("parseGalleryHash", () => {
     expect(parseGalleryHash("#day/2024-06-01")).toEqual({
       segment: "library",
       day: "2024-06-01",
+    });
+  });
+
+  it("parses scroll and photo params on the library", () => {
+    const p = `${encodeURIComponent("a")}|${encodeURIComponent("dir/one.jpg")}`;
+    expect(parseGalleryHash(`#library?y=2400&p=${p}`)).toEqual({
+      segment: "library",
+      y: 2400,
+      photo: "a\0dir/one.jpg",
+    });
+  });
+
+  it("keeps params on album deep links", () => {
+    const p = `${encodeURIComponent("a")}|${encodeURIComponent("x.jpg")}`;
+    expect(parseGalleryHash(`#albums/a/al1?p=${p}`)).toEqual({
+      segment: "albums",
+      albumHome: "a",
+      albumId: "al1",
+      photo: "a\0x.jpg",
+    });
+  });
+
+  it("parses the On this day deep link", () => {
+    expect(parseGalleryHash("#onthisday")).toEqual({
+      segment: "library",
+      onThisDay: true,
     });
   });
 });
@@ -480,6 +513,17 @@ describe("GalleryPage", () => {
       "aria-checked",
       "true",
     );
+  });
+
+  it("reopens the lightbox photo from the hash on reload", async () => {
+    const p = `${encodeURIComponent("b")}|${encodeURIComponent("two.jpg")}`;
+    window.history.replaceState(null, "", `/gallery#library?p=${p}`);
+    stubGalleryFetch();
+    renderGallery();
+    expect(await screen.findByRole("dialog", { name: "two.jpg" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.hash).toBe(`#library?p=${p}`);
+    });
   });
 
   it("follows hashchange for back/forward navigation", async () => {
@@ -1181,13 +1225,12 @@ describe("GalleryPage", () => {
     ).toBe(true);
   });
 
-  it("opens ShareAlbumModal when clicking Share album", async () => {
+  it("opens the share sheet when clicking Share album", async () => {
     const album = {
       id: "alb-share",
       home_drive_id: "a",
       name: "Shared Moments",
       item_count: 5,
-      shared: true,
       cover_thumb: "/thumb",
     };
     const fetchMock = vi.fn(async (url) => {
@@ -1204,20 +1247,40 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums/a/alb-share/invites")) {
+      if (u.includes("/api/v1/access/subject")) {
         return new Response(
-          JSON.stringify([
-            {
-              id: "inv-1",
+          JSON.stringify({
+            subject: {
+              kind: "album",
+              drive_id: "a",
+              path: "",
               album_id: "alb-share",
-              token: "tok123",
-              url: "/a/tok123",
-              role: "contributor",
-              expires_at: null,
+              is_file: false,
+              exists: true,
+              name: "Shared Moments",
+              item_count: 5,
             },
-          ]),
+            my_caps: "full",
+            members: [],
+            links: [
+              {
+                id: "lnk-1",
+                caps: "view+upload",
+                has_password: false,
+                expires_at: null,
+                created_at: 1,
+                created_by: "u1",
+              },
+            ],
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
+      }
+      if (u.includes("/users/directory")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/gallery/albums")) {
         return new Response(JSON.stringify([album]), {
@@ -1242,9 +1305,121 @@ describe("GalleryPage", () => {
     await user.click(screen.getByRole("button", { name: "Share album" }));
 
     expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Link" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Links" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /New link/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Can view & add/)).toBeInTheDocument();
+    expect(await screen.findByText(/Can view \+ add photos/)).toBeInTheDocument();
+  });
+
+  it("shows a dismissable On this day pill that opens a filter view", async () => {
+    localStorage.clear();
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
+        return new Response(
+          JSON.stringify({ id: "1", username: "max", role: "admin", has_admin: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("/setup")) {
+        return new Response(
+          JSON.stringify({ name: "Luna", setup_completed: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        const items = u.includes("month_day=")
+          ? [
+              {
+                drive_id: "a",
+                path: "memory.jpg",
+                name: "memory.jpg",
+                taken_at: 1_647_216_000,
+                thumb: "/tm",
+                kind: "image",
+              },
+            ]
+          : [
+              {
+                drive_id: "a",
+                path: "one.jpg",
+                name: "one.jpg",
+                taken_at: 1_700_000_000,
+                thumb: "/t1",
+                kind: "image",
+              },
+            ];
+        return new Response(
+          JSON.stringify({ items, next_offset: items.length, has_more: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderGallery();
+
+    // The pill appears once the probe finds photos from previous years.
+    const openBtn = await screen.findByRole("button", { name: /On this day · 1 photo/i });
+    expect(screen.getByRole("button", { name: /Dismiss On this day/i })).toBeInTheDocument();
+
+    // It opens a filter view: chrome label, deep link, only memory photos.
+    fireEvent.click(openBtn);
+    expect(await screen.findByLabelText("memory.jpg")).toBeInTheDocument();
+    expect(screen.queryByLabelText("one.jpg")).not.toBeInTheDocument();
+    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    expect(chrome).toBeTruthy();
+    expect(
+      within(/** @type {HTMLElement} */ (chrome)).getByText("On this day"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#onthisday");
+    });
+
+    // A filter view offers Save as album, prefilled with the view name.
+    fireEvent.click(
+      within(/** @type {HTMLElement} */ (chrome)).getByRole("button", {
+        name: /Save as album/i,
+      }),
+    );
+    expect(await screen.findByLabelText(/Album name/i)).toHaveValue("On this day");
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+    // It rides the same rail as other filters: the chip can dismiss the view.
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Remove filter On this day/i }),
+    );
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    expect(screen.queryByLabelText("memory.jpg")).not.toBeInTheDocument();
+
+    // Reopen, then Back also returns to the library and the pill comes back.
+    fireEvent.click(
+      await screen.findByRole("button", { name: /On this day · 1 photo/i }),
+    );
+    expect(await screen.findByLabelText("memory.jpg")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /^Back$/i }));
+    expect(
+      await screen.findByRole("button", { name: /On this day · 1 photo/i }),
+    ).toBeInTheDocument();
+
+    // Dismiss hides it for the rest of the day.
+    fireEvent.click(screen.getByRole("button", { name: /Dismiss On this day/i }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /On this day ·/i }),
+      ).not.toBeInTheDocument();
+    });
   });
 });

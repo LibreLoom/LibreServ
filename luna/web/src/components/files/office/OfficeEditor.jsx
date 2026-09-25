@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import { downloadHref, pathBasename } from "../../../lib/paths.js";
+import { useFileSource } from "../../../lib/fileSource.jsx";
+import { pathBasename } from "../../../lib/paths.js";
 import EuroOfficeHost from "./EuroOfficeHost.jsx";
 import OfficeIssueCard from "./OfficeIssueCard.jsx";
 
@@ -36,13 +37,14 @@ export default function OfficeEditor({
   onUnavailable,
   missing = false,
 }) {
+  const source = useFileSource();
   const name = pathBasename(path) || path;
 
   if (missing) {
     return (
       <OfficeIssueCard
         title="This Luna can't open office files"
-        downloadUrl={downloadHref(driveId, path)}
+        downloadUrl={source.downloadHref(driveId, path)}
         downloadName={name}
         onClose={onClose}
       >

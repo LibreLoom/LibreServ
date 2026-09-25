@@ -23,7 +23,8 @@ import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip
 import { useFileEditor, runMarkdownAction } from "./useFileEditor.js";
 import { insertMarkdownTable } from "./markdownTables.js";
 import { TableImportDialog } from "./MarkdownTableEditor.jsx";
-import { contentHref, joinPath, parentPath } from "../../lib/paths.js";
+import { useFileSource } from "../../lib/fileSource.jsx";
+import { joinPath, parentPath } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
@@ -247,15 +248,16 @@ export default function MarkdownEditor({
   }, [sync, mode]);
 
   // Stable identity — the hook's mode-flip effect depends on it.
+  const source = useFileSource();
   const resolveImageSrc = useCallback(
     (/** @type {string} */ src) => {
       const raw = src.trim();
       if (!raw) return null;
       if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
       const folder = parentPath(path) ?? "";
-      return contentHref(driveId, joinPath(folder, raw));
+      return source.contentHref(driveId, joinPath(folder, raw));
     },
-    [driveId, path],
+    [source, driveId, path],
   );
 
   // Draft text recovered from a torn-down table widget (remote delete,

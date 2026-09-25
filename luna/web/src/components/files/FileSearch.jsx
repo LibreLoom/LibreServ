@@ -23,7 +23,7 @@ import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import AccessSheet, { AccessButton } from "./AccessSheet";
+import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
 import FolderPickerModal from "./FolderPickerModal";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../../lib/api";
@@ -492,14 +492,13 @@ export default function FileSearch() {
                                     </a>
                                   </Button>
                                 </Tooltip>
-                                <AccessButton
+                                <ShareButton
                                   label={item.name}
                                   surface="primary"
                                   onClick={() =>
                                     setAccessTarget({
                                       driveId: item.drive_id,
                                       path: item.path,
-                                      kind: isDir ? "folder" : "file",
                                     })
                                   }
                                 />
@@ -645,11 +644,13 @@ export default function FileSearch() {
         }}
       />
 
-      <AccessSheet
+      <ShareSheet
         open={accessTarget != null}
-        driveId={accessTarget?.driveId || ""}
-        path={accessTarget?.path || ""}
-        kind={accessTarget?.kind || "folder"}
+        subject={
+          accessTarget
+            ? { kind: "path", driveId: accessTarget.driveId, path: accessTarget.path || "" }
+            : null
+        }
         onClose={() => setAccessTarget(null)}
       />
     </div>

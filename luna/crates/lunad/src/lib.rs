@@ -1,3 +1,4 @@
+pub mod access;
 pub mod api;
 pub mod at_rest;
 pub mod auth;
@@ -9,7 +10,6 @@ pub mod dev_mock;
 pub mod drives;
 pub mod files;
 pub mod gallery;
-pub mod grants;
 pub mod hibp;
 pub mod jobs;
 pub mod net;
@@ -40,6 +40,8 @@ pub struct AppState {
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Unauthenticated form answers (`POST /s/{token}/respond`).
+    pub form_respond_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::system::updates::UpdateService>,
@@ -49,6 +51,9 @@ pub struct AppState {
     pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub collab: std::sync::Arc<crate::office::collab::CollabHub>,
     pub office_docs: std::sync::Arc<crate::office::office_docs::OfficeDocHub>,
+    /// HACK: advisory .drawio edit locks (api::diagram_locks) — RAM-only
+    /// stopgap until diagrams get real collaboration.
+    pub diagram_locks: std::sync::Arc<crate::api::diagram_locks::DiagramLocks>,
 }
 
 impl AppState {
@@ -104,6 +109,12 @@ impl AppState {
                 std::time::Duration::from_secs(60),
                 20,
             )),
+            // Form answers arrive one submit at a time; a burst per IP is spam.
+            form_respond_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                db.clone(),
+                std::time::Duration::from_secs(60),
+                12,
+            )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),
             updates,
@@ -113,6 +124,7 @@ impl AppState {
             scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             collab: Arc::new(crate::office::collab::CollabHub::new()),
             office_docs: Arc::new(crate::office::office_docs::OfficeDocHub::new()),
+            diagram_locks: Arc::new(crate::api::diagram_locks::DiagramLocks::default()),
         }
     }
 

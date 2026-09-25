@@ -9,11 +9,10 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
-import TextLink from "../components/ui/TextLink";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
-import AccessSheet, { AccessButton } from "../components/files/AccessSheet";
+import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
 import useCanProtect from "../hooks/useCanProtect";
@@ -27,6 +26,7 @@ import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
+import { KIND_ALBUM, capsHint, capsLabel, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -59,19 +59,13 @@ const STATE_PILLS = {
   failed: "error",
 };
 
-function PermissionPill({ permission }) {
-  const write = permission === "write";
+function PermissionPill({ caps, file = false }) {
+  const variant = caps === "full" ? "success" : caps === "upload" ? "warning" : "info";
+  const label = capsLabel(caps, { file });
+  const hint = capsHint(caps, { file });
   return (
-    <Pill variant={write ? "success" : "info"}>
-      {write ? (
-        <TermHint content="Can open files and save changes in this folder.">
-          Write
-        </TermHint>
-      ) : (
-        <TermHint content="Can open files in this folder, but cannot save changes.">
-          Read
-        </TermHint>
-      )}
+    <Pill variant={variant}>
+      {hint ? <TermHint content={hint}>{label}</TermHint> : label}
     </Pill>
   );
 }
@@ -329,7 +323,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
           </Button>
         )}
         {onShare && ready && (
-          <AccessButton label={drive.label} onClick={() => onShare(drive)} />
+          <ShareButton label={drive.label} onClick={() => onShare(drive)} />
         )}
         {onProtect && ready && (
           <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
@@ -460,25 +454,25 @@ export default function DrivesPage() {
   useStrandedErrorToast(actionError, actionModalOpen, () => setActionError(null));
 
   if (user?.role === "user") {
-    const grants = memberAccessRoots(access.data || []);
+    const grants = memberAccessRoots(access.data || []).filter((g) => g.kind !== KIND_ALBUM);
     return (
       <Page title="Files" titleId="drives-title" rightContent={<FileSearch />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => (
-            <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
+            <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
               <p className="text-primary font-mono text-sm">
-                {grant.path || "Whole drive"}
+                {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
               </p>
               <div className="mt-3 flex items-center justify-between gap-3">
-                <PermissionPill permission={grant.permission} />
-                <div className="flex items-center gap-1">
-                  <AccessButton
+                <PermissionPill caps={grant.caps} file={grant.is_file === true} />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="primary" asChild>
+                    <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
+                  </Button>
+                  <ShareButton
                     label={grant.path || grant.drive_label}
-                    onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "", kind: "folder" })}
+                    onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}
                   />
-                  <TextLink surface="secondary" to={`/drives/${grant.drive_id}?path=${encodeURIComponent(grant.path || "")}`}>
-                    Open
-                  </TextLink>
                 </div>
               </div>
             </Card>
@@ -491,10 +485,13 @@ export default function DrivesPage() {
             description="Ask an Admin to share a folder, drive, or file with you."
           />
         )}
-        <AccessSheet
+        <ShareSheet
           open={sharingDrive != null}
-          driveId={sharingDrive?.id || ""}
-          path={sharingDrive?.path || ""}
+          subject={
+            sharingDrive
+              ? { kind: "path", driveId: sharingDrive.id, path: sharingDrive.path || "" }
+              : null
+          }
           onClose={() => setSharingDrive(null)}
         />
       </Page>
@@ -520,7 +517,7 @@ export default function DrivesPage() {
               showHealth
               onEject={(d) => setEjectTarget(d)}
               onRemove={(d) => setRemoveTarget(d)}
-              onShare={(d) => setSharingDrive({ id: d.id, path: "", kind: "drive" })}
+              onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
             />
           ))}
@@ -552,10 +549,13 @@ export default function DrivesPage() {
         </>
       )}
 
-      <AccessSheet
+      <ShareSheet
         open={sharingDrive != null}
-        driveId={sharingDrive?.id || ""}
-        path={sharingDrive?.path || ""}
+        subject={
+          sharingDrive
+            ? { kind: "path", driveId: sharingDrive.id, path: sharingDrive.path || "" }
+            : null
+        }
         onClose={() => setSharingDrive(null)}
       />
       <ProtectSheet

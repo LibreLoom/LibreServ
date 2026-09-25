@@ -2,9 +2,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import OfficeIssueCard from "./OfficeIssueCard.jsx";
-import { useAuth } from "../../../context/AuthContext.jsx";
+import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
-import { downloadHref, pathBasename } from "../../../lib/paths.js";
+import { useFileSource } from "../../../lib/fileSource.jsx";
+import { pathBasename } from "../../../lib/paths.js";
 import {
   canSaveOfficeExt,
   createEuroOfficeSession,
@@ -151,7 +152,11 @@ export default function EuroOfficeHost({
   // single dropped font fetch is otherwise fatal to a healthy editing
   // session. Bounded so a genuinely broken pack still surfaces the card.
   const fontRetryAtRef = useRef(0);
-  const { user } = useAuth();
+  const source = useFileSource();
+  // Guests have no AuthProvider — and even when one is present (a signed-in
+  // visitor previewing a link), the scoped session's identity is canonical.
+  const auth = useOptionalAuth();
+  const user = source.guest ? null : auth?.user;
   const { resolvedTheme } = useTheme();
   const [status, setStatus] = useState(
     /** @type {"loading" | "error" | "ready"} */ ("loading"),
@@ -165,8 +170,9 @@ export default function EuroOfficeHost({
 
   useEffect(() => {
     // No room without a real file — an empty path 404s the upgrade, which
-    // surfaces in the console as a failed connection.
-    if (!driveId || !path) return;
+    // surfaces in the console as a failed connection. Guest sources have no
+    // presence hub (the docstorage engine inside the editor still runs).
+    if (!driveId || !path || source.collab === false) return;
     const sock = new CollabSocket(driveId, path);
     sock.onMessage = (msg) => {
       if (msg?.type === "welcome") {
@@ -189,7 +195,7 @@ export default function EuroOfficeHost({
     return () => {
       sock.close();
     };
-  }, [driveId, path]);
+  }, [driveId, path, source]);
 
   const selfName = user?.display_name || user?.username || "";
 
@@ -244,7 +250,7 @@ export default function EuroOfficeHost({
         return;
       }
       try {
-        const session = await createEuroOfficeSession(driveId, path);
+        const session = await createEuroOfficeSession(driveId, path, source);
         if (cancelled) return;
         // The pack check rides on this load: a missing pack 404s the script
         // or serves SPA HTML without window.DocsAPI, which loadEuroOfficeDocsApi
@@ -273,7 +279,7 @@ export default function EuroOfficeHost({
         // First opener converts the file to Editor.bin in this browser and
         // uploads the bundle; joiners find it already on Luna.
         setPhase("Opening with EuroOffice…");
-        await ensureOfficeBundle(driveId, path, session);
+        await ensureOfficeBundle(driveId, path, session, source);
         if (cancelled) return;
 
         timeoutId = setTimeout(() => {
@@ -333,6 +339,7 @@ export default function EuroOfficeHost({
                   name,
                   folder,
                   snapshotIndex,
+                  source,
                 ),
                 timedOut,
               ]);
@@ -737,6 +744,7 @@ export default function EuroOfficeHost({
     placeholderId,
     user,
     uiTheme,
+    source,
     reloadTick,
   ]);
 
@@ -751,7 +759,7 @@ export default function EuroOfficeHost({
           title={
             sawReadyRef.current ? `${name} stopped working` : `Couldn't open ${name}`
           }
-          downloadUrl={downloadHref(driveId, path)}
+          downloadUrl={source.downloadHref(driveId, path)}
           downloadName={name}
           onClose={onClose}
           onRetry={() => {

@@ -24,6 +24,9 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use crate::AppState;
+use crate::api::office::current_office_access;
+use crate::auth::OfficeClaims;
+use crate::db;
 use crate::office::office_docs::{HubError, OfficeDocHub, Participant};
 
 const PING_INTERVAL: Duration = Duration::from_secs(25);
@@ -239,6 +242,13 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
             event = rx.recv() => {
                 match event {
                     Ok(mut ev) => {
+                        // Nothing from the room reaches a socket that hasn't
+                        // authenticated — a subscriber must not hear edits it
+                        // was never granted access to.
+                        if !client.authed { continue; }
+                        if !access_still_valid(&state, &mut client) {
+                            close_reason = "access revoked"; break;
+                        }
                         // Frames fanned out to "everyone else" carry __except.
                         let except = ev.get("__except").and_then(Value::as_u64);
                         if let Some(map) = ev.as_object_mut() { map.remove("__except"); }
@@ -254,6 +264,10 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
                 }
             }
             _ = ping.tick() => {
+                // An idle editor still drops the moment its grant dies.
+                if client.claims.is_some() && !access_still_valid(&state, &mut client) {
+                    close_reason = "access revoked"; break;
+                }
                 if ping_outstanding && last_rx.elapsed() > PONG_TIMEOUT {
                     close_reason = "pong timeout";
                     break;
@@ -275,6 +289,25 @@ async fn break_session(state: &AppState, key: &str, sock_id: u64) {
     }
 }
 
+/// Re-derive the socket's grant from the live DB: `false` means the link is
+/// gone/rotated or the member's access was revoked; a write token whose grant
+/// was downgraded also drops (never silently demoted to viewer).
+fn access_still_valid(state: &AppState, client: &mut ClientState) -> bool {
+    let Some(claims) = client.claims.as_ref() else {
+        return false;
+    };
+    match current_office_access(state, claims) {
+        Some(write) => {
+            if claims.write && !write {
+                return false;
+            }
+            client.can_write = claims.write && write;
+            true
+        }
+        None => false,
+    }
+}
+
 enum PacketOutcome {
     Frames(Vec<String>),
     Pong,
@@ -287,6 +320,10 @@ enum PacketOutcome {
 struct ClientState {
     authed: bool,
     can_write: bool,
+    /// Verified claims of the token that CONNECTed this socket. Access is
+    /// re-derived from `current_office_access` on every frame/relay/ping so
+    /// a revoked grant or rotated link password closes the socket live.
+    claims: Option<OfficeClaims>,
     /// The authed participant record — cursor/message relays need id,
     /// id_original, and username for DS-shaped `messages` payloads.
     participant: Option<Participant>,
@@ -344,7 +381,10 @@ async fn handle_packet(
                 .or_else(|| payload.get("docid").and_then(Value::as_str))
                 .unwrap_or(key);
             match verify_token(state, docid, token).await {
-                Some(write) if docid == key => client.can_write = write,
+                Some((claims, write)) if docid == key => {
+                    client.can_write = write;
+                    client.claims = Some(claims);
+                }
                 _ => {
                     // No payload logging — the CONNECT frame carries the
                     // office JWT, which must not land in the daemon log.
@@ -407,6 +447,15 @@ async fn handle_message(
     let Some(mtype) = msg.get("type").and_then(Value::as_str) else {
         return PacketOutcome::Ignore;
     };
+    // Nothing reaches the room before a CONNECT verified a token; after
+    // that, every frame re-derives access so a revoked grant, a rotated
+    // link password, or a downgrade kills the socket on the next event.
+    let Some(claims) = client.claims.clone() else {
+        return PacketOutcome::Close;
+    };
+    if !access_still_valid(state, client) {
+        return PacketOutcome::Close;
+    }
     let hub = &state.office_docs;
     match mtype {
         "auth" => {
@@ -429,11 +478,43 @@ async fn handle_message(
                     .and_then(Value::as_str)
                     .or_else(|| msg.get("jwtOpen").and_then(Value::as_str))
                     .unwrap_or("");
-                if !jwt.is_empty() && verify_token(state, key, jwt).await.is_none() {
+                if jwt.is_empty() || verify_token(state, key, jwt).await.is_none() {
                     return PacketOutcome::Close;
                 }
             }
-            match hub.auth(key, sock_id, &msg, client.can_write).await {
+            // The participant's identity is the token's, never the client's —
+            // a guest or member can't borrow another user's cursor/name by
+            // editing the auth payload. `user` may be absent or a scalar in
+            // a crafted message, so create/replace it before overwriting.
+            let username = if claims.link_id.is_some() {
+                "Guest".to_string()
+            } else {
+                state
+                    .db
+                    .lock()
+                    .ok()
+                    .and_then(|conn| db::get_user(&conn, &claims.sub).ok().flatten())
+                    .map(|u| {
+                        if u.display_name.is_empty() {
+                            u.username
+                        } else {
+                            u.display_name
+                        }
+                    })
+                    .unwrap_or_else(|| claims.sub.clone())
+            };
+            let mut auth_msg = msg.clone();
+            if let Some(map) = auth_msg.as_object_mut() {
+                let user = map.entry("user".to_string()).or_insert_with(|| json!({}));
+                if !user.is_object() {
+                    *user = json!({});
+                }
+                if let Some(uo) = user.as_object_mut() {
+                    uo.insert("id".to_string(), json!(claims.sub));
+                    uo.insert("username".to_string(), json!(username));
+                }
+            }
+            match hub.auth(key, sock_id, &auth_msg, client.can_write).await {
                 Ok((participant, mut frames, peer_frame)) => {
                     client.authed = true;
                     client.participant = Some(participant.clone());
@@ -441,16 +522,20 @@ async fn handle_message(
                     // keeps only the `jwt` we hand back (_onRefreshToken) —
                     // without one the next reconnect's CONNECT carries no
                     // credential and our socket layer refuses it. Mint a
-                    // fresh office token bound to the same user+file.
-                    if let Some((drive_id, path)) = state.office_docs.binding(key).await
-                        && let Ok(jwt) = state.auth.issue_office_token(
-                            &participant.id_original,
-                            &drive_id,
-                            &path,
-                            client.can_write,
-                            OFFICE_TOKEN_TTL_SECS,
-                        )
+                    // fresh token re-signed from the verified claims so the
+                    // link/key scope survives the refresh untouched. The
+                    // socket keeps the refreshed claims too — otherwise its
+                    // own expiry check would kill an idle socket at the old
+                    // token's deadline.
+                    let mut refreshed = claims.clone();
+                    refreshed.exp = db::now_unix() + OFFICE_TOKEN_TTL_SECS.max(1);
+                    if let Ok(jwt) = state
+                        .auth
+                        .issue_scoped_office_token(refreshed, OFFICE_TOKEN_TTL_SECS)
                     {
+                        if let Ok(new_claims) = state.auth.verify_office_token(&jwt) {
+                            client.claims = Some(new_claims);
+                        }
                         for f in &mut frames {
                             if f.get("type").and_then(Value::as_str) == Some("auth")
                                 && f.get("result").and_then(Value::as_i64) == Some(1)
@@ -461,7 +546,15 @@ async fn handle_message(
                     }
                     // openCmd → documentOpen with this key's bundle urls.
                     if msg.get("openCmd").is_some() {
-                        let urls = bundle_urls(state, key).await;
+                        // Scoped tokens (every new session, member or guest)
+                        // read bundles through this open's per-key+id /s
+                        // endpoint; legacy member tokens keep the session-
+                        // cookie route.
+                        let base = match (claims.key.as_deref(), claims.bundle_id.as_deref()) {
+                            (Some(k), Some(bid)) => format!("/s/office-bundle/{k}/{bid}"),
+                            _ => format!("/api/v1/office/bundle/{key}"),
+                        };
+                        let urls = bundle_urls(state, key, &base).await;
                         if let Some(open) = hub.open_urls(key, &urls).await {
                             frames.push(open);
                         } else {
@@ -647,8 +740,10 @@ async fn lock_list_json(state: &AppState, key: &str) -> Value {
 }
 
 /// Bundle file list the open command resolves to — `Editor.bin`, `media/*`,
-/// `origin.<ext>`, all served by the REST bundle endpoints.
-async fn bundle_urls(state: &AppState, key: &str) -> Value {
+/// `origin.<ext>`, all served by the REST bundle endpoints. `base` is the
+/// URL prefix for this connection's scope (`/s/office-bundle/{key}` for
+/// scoped tokens, the session-cookie route for legacy member tokens).
+async fn bundle_urls(state: &AppState, key: &str, base: &str) -> Value {
     let dir = state.data_dir.join("office_bundles").join(key);
     let mut urls = serde_json::Map::new();
     let read = tokio::fs::read_dir(&dir).await;
@@ -664,33 +759,43 @@ async fn bundle_urls(state: &AppState, key: &str) -> Value {
                     let fname = f.file_name().to_string_lossy().to_string();
                     urls.insert(
                         format!("media/{fname}"),
-                        json!(format!("/api/v1/office/bundle/{key}/media/{fname}")),
+                        json!(format!("{base}/media/{fname}")),
                     );
                 }
             }
         } else {
-            urls.insert(
-                name.clone(),
-                json!(format!("/api/v1/office/bundle/{key}/{name}")),
-            );
+            urls.insert(name.clone(), json!(format!("{base}/{name}")));
         }
     }
     Value::Object(urls)
 }
 
-/// Verify the office JWT and that the claimed doc key is bound to the same
-/// drive+path the token was minted for. Returns the token's write bit.
+/// Verify the office JWT, that a scoped token names this socket's doc key,
+/// that the grant behind the token is still live, and that the claimed doc
+/// key is bound to the same drive+path the token was minted for. Returns the
+/// verified claims and the token's *current* write bit.
 ///
 /// Sessions (and their bindings) live in memory — a daemon restart or the
 /// idle-session sweep drops them while open editors still hold valid tokens.
 /// Rather than refusing those reconnects forever (`CONNECT unauthorized`
 /// loop → dead editor), recreate the room from the verified claims and mark
 /// it `resurrected` so dead-era sessionId restores are refused at `auth`.
-async fn verify_token(state: &AppState, key: &str, token: &str) -> Option<bool> {
+async fn verify_token(state: &AppState, key: &str, token: &str) -> Option<(OfficeClaims, bool)> {
     let claims = state.auth.verify_office_token(token).ok()?;
+    // Scoped tokens only ever open their own document — a key minted for one
+    // file must never join (or resurrect) another room.
+    if let Some(claim_key) = claims.key.as_deref()
+        && claim_key != key
+    {
+        return None;
+    }
+    let write_now = current_office_access(state, &claims)?;
+    if claims.write && !write_now {
+        return None;
+    }
     match state.office_docs.binding(key).await {
         Some((drive_id, path)) if drive_id == claims.drive_id && path == claims.path => {
-            Some(claims.write)
+            Some((claims.clone(), claims.write && write_now))
         }
         Some(_) => None,
         None => {
@@ -698,7 +803,7 @@ async fn verify_token(state: &AppState, key: &str, token: &str) -> Option<bool> 
                 .office_docs
                 .resurrect_key(key, &claims.drive_id, &claims.path)
                 .await;
-            Some(claims.write)
+            Some((claims.clone(), claims.write && write_now))
         }
     }
 }
@@ -721,4 +826,467 @@ fn now_nanos() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::access::{CAP_ALL, CAP_VIEW, KIND_PATH};
+    use crate::drives::DriveManager;
+    use crate::drives::mount::shared_mock;
+
+    fn test_state(dir: &tempfile::TempDir) -> AppState {
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let dm = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        AppState::new(conn, dm, dir.path())
+    }
+
+    fn mount_drive(dir: &tempfile::TempDir) {
+        let mount = dir.path().join("drive-a");
+        std::fs::create_dir_all(mount.join("docs")).unwrap();
+        std::fs::write(mount.join("docs/Report.docx"), b"pk").unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "drive-a",
+            "A",
+            "mounted",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn add_link(state: &AppState, id: &str, path: &str, caps: i64) {
+        let conn = state.db.lock().unwrap();
+        crate::db::insert_access_link(
+            &conn,
+            &crate::db::AccessLinkRow {
+                id: id.into(),
+                token_hash: blake3::hash(id.as_bytes()).to_hex().to_string(),
+                token: id.into(),
+                subject_kind: KIND_PATH.into(),
+                drive_id: "drive-a".into(),
+                path: path.into(),
+                album_id: String::new(),
+                caps,
+                password_hash: String::new(),
+                expires_at: None,
+                created_by: "u".into(),
+                created_at: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    fn link_claims(link_id: &str, key: &str, path: &str, write: bool) -> OfficeClaims {
+        OfficeClaims {
+            typ: "luna_office".into(),
+            sub: "guest:x".into(),
+            drive_id: "drive-a".into(),
+            path: path.into(),
+            write,
+            exp: 0,
+            key: Some(key.into()),
+            bundle_id: Some("b1".into()),
+            link_id: Some(link_id.into()),
+            link_revision: Some(blake3::hash("".as_bytes()).to_hex().to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn scoped_token_cannot_join_another_keys_room() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        add_link(&state, "l1", "docs", CAP_ALL);
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", true), 3600)
+            .unwrap();
+        assert!(verify_token(&state, "key-a", &jwt).await.is_some());
+        assert!(
+            verify_token(&state, "key-b", &jwt).await.is_none(),
+            "a token minted for key-a must never open key-b's room"
+        );
+    }
+
+    #[tokio::test]
+    async fn revoked_link_closes_verify_and_access() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        add_link(&state, "l1", "docs", CAP_ALL);
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", true), 3600)
+            .unwrap();
+        let claims = state.auth.verify_office_token(&jwt).unwrap();
+        assert_eq!(
+            verify_token(&state, "key-a", &jwt).await.map(|(_, w)| w),
+            Some(true)
+        );
+
+        // Downgrade: the write token dies rather than demoting to viewer.
+        {
+            let conn = state.db.lock().unwrap();
+            let mut link = crate::db::get_access_link(&conn, "l1").unwrap().unwrap();
+            link.caps = CAP_VIEW;
+            crate::db::update_access_link(&conn, &link).unwrap();
+        }
+        assert!(verify_token(&state, "key-a", &jwt).await.is_none());
+        assert_eq!(current_office_access(&state, &claims), Some(false));
+
+        // Delete: nothing survives.
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::delete_access_link(&conn, "l1").unwrap();
+        }
+        assert_eq!(current_office_access(&state, &claims), None);
+    }
+
+    #[tokio::test]
+    async fn expired_claims_and_deleted_users_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_user(&conn, "u1", "max", "Max", "x", "admin").unwrap();
+        }
+        let mut claims = OfficeClaims {
+            typ: "luna_office".into(),
+            sub: "u1".into(),
+            drive_id: "drive-a".into(),
+            path: "docs/Report.docx".into(),
+            write: true,
+            exp: crate::db::now_unix() + 60,
+            key: None,
+            bundle_id: None,
+            link_id: None,
+            link_revision: None,
+        };
+        assert_eq!(current_office_access(&state, &claims), Some(true));
+        claims.exp = crate::db::now_unix() - 1;
+        assert_eq!(current_office_access(&state, &claims), None, "expired");
+        claims.exp = crate::db::now_unix() + 60;
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::delete_user(&conn, "u1").unwrap();
+        }
+        assert_eq!(current_office_access(&state, &claims), None, "deleted user");
+    }
+
+    fn connect_packet(jwt: &str) -> String {
+        format!("40{}", json!({"token": jwt, "data": {"docid": "key-a"}}))
+    }
+
+    fn event_packet(msg: Value) -> String {
+        format!("42{}", json!(["message", msg]))
+    }
+
+    fn event_payloads(out: &PacketOutcome) -> Vec<Value> {
+        match out {
+            PacketOutcome::Frames(frames) => frames
+                .iter()
+                .filter_map(|s| {
+                    s.strip_prefix("42[\"message\",")
+                        .and_then(|r| r.strip_suffix(']'))
+                        .and_then(|r| serde_json::from_str::<Value>(r).ok())
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    async fn authed_client(state: &AppState, key: &str, jwt: &str, sock: u64) -> ClientState {
+        let mut client = ClientState::default();
+        let _ = handle_packet(state, key, sock, &connect_packet(jwt), &mut client).await;
+        let _ = handle_packet(
+            state,
+            key,
+            sock,
+            &event_packet(json!({"type":"auth","docid":key,"jwtSession":jwt})),
+            &mut client,
+        )
+        .await;
+        client
+    }
+
+    #[tokio::test]
+    async fn message_before_connect_closes() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        let mut client = ClientState::default();
+        let out = handle_packet(
+            &state,
+            "key-a",
+            9,
+            &event_packet(json!({"type":"cursor"})),
+            &mut client,
+        )
+        .await;
+        assert!(matches!(out, PacketOutcome::Close), "event before CONNECT");
+        let out = handle_packet(
+            &state,
+            "key-a",
+            9,
+            &event_packet(json!({"type":"auth","docid":"key-a"})),
+            &mut client,
+        )
+        .await;
+        assert!(
+            matches!(out, PacketOutcome::Close),
+            "auth event before CONNECT"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_only_auth_gets_trusted_identity_and_no_write() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        add_link(&state, "l1", "docs", CAP_VIEW);
+        // Pre-register the binding so the auth is a same-era restore, not a
+        // resurrected-room one (which is refused as stale by design).
+        state
+            .office_docs
+            .register_key("key-a", "drive-a", "docs/Report.docx")
+            .await;
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", false), 3600)
+            .unwrap();
+        let mut client = ClientState::default();
+        let out = handle_packet(&state, "key-a", 5, &connect_packet(&jwt), &mut client).await;
+        assert!(matches!(out, PacketOutcome::Frames(_)));
+        assert!(!client.can_write);
+
+        // A crafted auth claims write permissions and a forged identity.
+        let auth = json!({
+            "type": "auth",
+            "docid": "key-a",
+            "jwtSession": jwt,
+            "user": { "id": "u-admin", "username": "root", "indexUser": 7 },
+            "sessionId": 5,
+            "mode": "edit",
+            "permissions": { "edit": true },
+            "openCmd": { "c": "open", "id": "key-a" },
+        });
+        let out = handle_packet(&state, "key-a", 5, &event_packet(auth), &mut client).await;
+        let msgs = event_payloads(&out);
+        let reply = msgs
+            .iter()
+            .find(|m| m["type"] == "auth")
+            .expect("auth reply");
+        assert_eq!(reply["result"], 1);
+        assert!(!client.can_write, "read-only token must not gain write");
+
+        // The refreshed jwt keeps the full scope so reconnects re-verify.
+        let new_jwt = reply["jwt"].as_str().expect("refreshed jwt");
+        let c = state.auth.verify_office_token(new_jwt).unwrap();
+        assert_eq!(c.key.as_deref(), Some("key-a"));
+        assert_eq!(c.bundle_id.as_deref(), Some("b1"));
+        assert_eq!(c.link_id.as_deref(), Some("l1"));
+        // ...and the socket's own copy was refreshed, not left at exp 0.
+        assert!(client.claims.as_ref().unwrap().exp > crate::db::now_unix());
+
+        let parts = state.office_docs.participants_json("key-a").await;
+        let p = &parts.as_array().unwrap()[0];
+        assert_eq!(
+            p["idOriginal"], "guest:x",
+            "forged id replaced by claims.sub"
+        );
+        assert_eq!(p["username"], "Guest", "forged username replaced");
+        assert_eq!(p["indexUser"], 7, "reconnect indexUser preserved");
+
+        // A write-shaped message still can't land ops.
+        let out = handle_packet(
+            &state,
+            "key-a",
+            5,
+            &event_packet(json!({
+                "type": "saveChanges",
+                "changes": "[{\"x\":1}]",
+                "startSaveChanges": true,
+                "endSaveChanges": true,
+            })),
+            &mut client,
+        )
+        .await;
+        assert!(matches!(
+            out,
+            PacketOutcome::Ignore | PacketOutcome::Frames(_)
+        ));
+        assert_eq!(state.office_docs.op_count("key-a").await, 0);
+
+        // A second open whose `user` field is a scalar still ends up with
+        // the claims identity — never "anon".
+        let jwt2 = state
+            .auth
+            .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", false), 3600)
+            .unwrap();
+        let mut client2 = ClientState::default();
+        let _ = handle_packet(&state, "key-a", 6, &connect_packet(&jwt2), &mut client2).await;
+        let _ = handle_packet(
+            &state,
+            "key-a",
+            6,
+            &event_packet(json!({
+                "type": "auth", "docid": "key-a", "jwtSession": jwt2, "user": "forged",
+            })),
+            &mut client2,
+        )
+        .await;
+        let parts = state.office_docs.participants_json("key-a").await;
+        assert!(
+            parts
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|p| p["idOriginal"] == "guest:x")
+        );
+    }
+
+    #[tokio::test]
+    async fn open_reply_bundle_urls_use_this_opens_bundle_id() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        add_link(&state, "l1", "docs", CAP_ALL);
+        let bundle_dir = dir.path().join("office_bundles/key-a");
+        std::fs::create_dir_all(&bundle_dir).unwrap();
+        std::fs::write(bundle_dir.join("Editor.bin"), b"x").unwrap();
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", true), 3600)
+            .unwrap();
+        let mut client = ClientState::default();
+        let _ = handle_packet(&state, "key-a", 3, &connect_packet(&jwt), &mut client).await;
+        let out = handle_packet(
+            &state,
+            "key-a",
+            3,
+            &event_packet(json!({
+                "type": "auth", "docid": "key-a", "jwtSession": jwt,
+                "user": {"id":"x"}, "openCmd": {"c":"open","id":"key-a"},
+            })),
+            &mut client,
+        )
+        .await;
+        let msgs = event_payloads(&out);
+        let open = msgs
+            .iter()
+            .find(|m| m["type"] == "documentOpen")
+            .expect("documentOpen frame");
+        assert_eq!(
+            open["data"]["data"]["Editor.bin"], "/s/office-bundle/key-a/b1/Editor.bin",
+            "bundle urls carry this open's bundle_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn revoked_downgraded_rotated_and_expired_links_close_the_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        let cursor = event_packet(json!({"type":"cursor"}));
+
+        // Revocation: the next event after the link disappears must close.
+        add_link(&state, "l1", "docs", CAP_ALL);
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(link_claims("l1", "key-a", "docs/Report.docx", true), 3600)
+            .unwrap();
+        let mut client = authed_client(&state, "key-a", &jwt, 11).await;
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::delete_access_link(&conn, "l1").unwrap();
+        }
+        let out = handle_packet(&state, "key-a", 11, &cursor, &mut client).await;
+        assert!(matches!(out, PacketOutcome::Close), "revoked link");
+
+        // Downgrade: a write token loses the socket when caps drop to view.
+        add_link(&state, "l2", "docs", CAP_ALL);
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(link_claims("l2", "key-a", "docs/Report.docx", true), 3600)
+            .unwrap();
+        let mut client = authed_client(&state, "key-a", &jwt, 12).await;
+        {
+            let conn = state.db.lock().unwrap();
+            let mut link = crate::db::get_access_link(&conn, "l2").unwrap().unwrap();
+            link.caps = CAP_VIEW;
+            crate::db::update_access_link(&conn, &link).unwrap();
+        }
+        let out = handle_packet(&state, "key-a", 12, &cursor, &mut client).await;
+        assert!(matches!(out, PacketOutcome::Close), "downgraded link");
+
+        // Password rotation: the minted revision no longer matches.
+        {
+            let conn = state.db.lock().unwrap();
+            let mut row = crate::db::AccessLinkRow {
+                id: "l3".into(),
+                token_hash: blake3::hash("l3".as_bytes()).to_hex().to_string(),
+                token: "l3".into(),
+                subject_kind: KIND_PATH.into(),
+                drive_id: "drive-a".into(),
+                path: "docs".into(),
+                album_id: String::new(),
+                caps: CAP_ALL,
+                password_hash: "oldhash".into(),
+                expires_at: None,
+                created_by: "u".into(),
+                created_at: 0,
+            };
+            crate::db::insert_access_link(&conn, &row).unwrap();
+            let mut claims = link_claims("l3", "key-a", "docs/Report.docx", true);
+            claims.link_revision = Some(blake3::hash("oldhash".as_bytes()).to_hex().to_string());
+            let jwt = state.auth.issue_scoped_office_token(claims, 3600).unwrap();
+            drop(conn);
+            let mut client = authed_client(&state, "key-a", &jwt, 13).await;
+            let conn = state.db.lock().unwrap();
+            row.password_hash = "newhash".into();
+            crate::db::update_access_link(&conn, &row).unwrap();
+            drop(conn);
+            let out = handle_packet(&state, "key-a", 13, &cursor, &mut client).await;
+            assert!(matches!(out, PacketOutcome::Close), "rotated password");
+        }
+
+        // Expiry: a link past its expires_at closes an open socket.
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_access_link(
+                &conn,
+                &crate::db::AccessLinkRow {
+                    id: "l4".into(),
+                    token_hash: blake3::hash("l4".as_bytes()).to_hex().to_string(),
+                    token: "l4".into(),
+                    subject_kind: KIND_PATH.into(),
+                    drive_id: "drive-a".into(),
+                    path: "docs".into(),
+                    album_id: String::new(),
+                    caps: CAP_ALL,
+                    password_hash: String::new(),
+                    expires_at: Some(crate::db::now_unix() + 60),
+                    created_by: "u".into(),
+                    created_at: 0,
+                },
+            )
+            .unwrap();
+            drop(conn);
+            let claims = link_claims("l4", "key-a", "docs/Report.docx", true);
+            let jwt = state.auth.issue_scoped_office_token(claims, 3600).unwrap();
+            let mut client = authed_client(&state, "key-a", &jwt, 14).await;
+            let conn = state.db.lock().unwrap();
+            let mut link = crate::db::get_access_link(&conn, "l4").unwrap().unwrap();
+            link.expires_at = Some(crate::db::now_unix() - 1);
+            crate::db::update_access_link(&conn, &link).unwrap();
+            drop(conn);
+            let out = handle_packet(&state, "key-a", 14, &cursor, &mut client).await;
+            assert!(matches!(out, PacketOutcome::Close), "expired link");
+        }
+    }
 }

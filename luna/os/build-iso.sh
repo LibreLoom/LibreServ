@@ -44,6 +44,11 @@ if [ ! -f "$ROOT/os/dist/eurooffice-pack.tar.zst" ]; then
 	"$ROOT/scripts/build-eurooffice-pack.sh"
 fi
 
+echo "==> draw.io pack (baked into the ISO, lands on LUNA_DATA)"
+if [ ! -f "$ROOT/os/dist/drawio-pack.tar.zst" ]; then
+	"$ROOT/scripts/build-drawio-pack.sh"
+fi
+
 echo "==> rootfs"
 "$ROOT/os/build-rootfs.sh"
 

@@ -34,6 +34,21 @@ function FitBounds({ points }) {
   return null;
 }
 
+/** Esc dismisses an open place popup and cancels an in-progress area draw. */
+function EscapeDismiss({ onCancel }) {
+  const map = useMap();
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      map.closePopup?.();
+      onCancel?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [map, onCancel]);
+  return null;
+}
+
 /** Leaflet needs invalidateSize when a flex parent settles the map height. */
 function InvalidateOnResize() {
   const map = useMap();
@@ -386,6 +401,13 @@ export default function PlacesMap({
     onDrawArea?.();
   }, [setDrawMode, onDrawArea]);
 
+  const handleCancelDraw = useCallback(() => {
+    if (!isDrawMode) return;
+    haptic("light");
+    setDrawMode(false);
+    setDrawnBbox(null);
+  }, [isDrawMode, setDrawMode]);
+
   if (loading) {
     return (
       <div
@@ -491,6 +513,7 @@ export default function PlacesMap({
                     label: "Custom area",
                     count: matchedCount,
                     place_bbox: drawnBbox,
+                    drawn: true,
                   });
                   setDrawMode(false);
                   setDrawnBbox(null);
@@ -534,6 +557,7 @@ export default function PlacesMap({
         />
         <InvalidateOnResize />
         <FitBounds points={markers} />
+        <EscapeDismiss onCancel={handleCancelDraw} />
         <ClusterMarkers markers={markers} onSelect={onSelect} onDrawArea={handleStartDraw} />
         <MapAreaDraw
           active={isDrawMode}

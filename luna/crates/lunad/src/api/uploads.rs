@@ -54,7 +54,6 @@ async fn create(
         &user,
         &body.drive_id,
         body.path.as_deref().unwrap_or(""),
-        true,
     )?;
     if body.size > MAX_FILE_BYTES {
         return Err(json_error(
@@ -82,7 +81,7 @@ async fn write_chunk(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_upload_access(&state, &user, &id, true)?;
+    check_upload_access(&state, &user, &id)?;
     let spec = headers
         .get(header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
@@ -125,8 +124,9 @@ async fn complete(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<CompleteQuery>,
+    headers: HeaderMap,
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
-    check_upload_access(&state, &user, &id, true)?;
+    check_upload_access(&state, &user, &id)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
     let (drive_id, rel) = {
         let conn = state.db.lock().map_err(|_| {
@@ -141,6 +141,15 @@ async fn complete(
             crate::gallery::gallery_indexer::join_rel(&row.path, &row.name),
         )
     };
+    // HACK — same diagram lock as the plain upload path (`api::files::upload`):
+    // a chunked save from a session that isn't holding the file is refused.
+    crate::api::diagram_locks::check_save_allowed(
+        &state,
+        &user.id,
+        &crate::api::diagram_locks::session_header(&headers),
+        &drive_id,
+        &rel,
+    )?;
     let entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())
         .map_err(map_upload_err)?;
     state.gallery.upsert(&drive_id, &rel);
@@ -153,7 +162,7 @@ async fn cancel(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_upload_access(&state, &user, &id, true)?;
+    check_upload_access(&state, &user, &id)?;
     uploads::cancel(&state.db, &id).map_err(map_upload_err)?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -163,7 +172,6 @@ fn check_access(
     user: &crate::auth::CurrentUser,
     drive_id: &str,
     path: &str,
-    write: bool,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -171,17 +179,12 @@ fn check_access(
             "Luna's index is busy. Try again.",
         )
     })?;
-    if crate::auth::can_access(user, &conn, drive_id, path, write) {
+    if crate::auth::has_cap(user, &conn, drive_id, path, crate::access::CAP_UPLOAD) {
         Ok(())
-    } else if write {
-        Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have permission to save here.",
-        ))
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this folder.",
+            "You don't have permission to save here.",
         ))
     }
 }
@@ -190,7 +193,6 @@ fn check_upload_access(
     state: &AppState,
     user: &crate::auth::CurrentUser,
     upload_id: &str,
-    write: bool,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -201,17 +203,18 @@ fn check_upload_access(
     let row = uploads::get_row(&conn, upload_id).map_err(map_upload_err)?;
     // Reuse this lock — do not call check_access (it would deadlock on the
     // non-reentrant Mutex).
-    if crate::auth::can_access(user, &conn, &row.drive_id, &row.path, write) {
+    if crate::auth::has_cap(
+        user,
+        &conn,
+        &row.drive_id,
+        &row.path,
+        crate::access::CAP_UPLOAD,
+    ) {
         Ok(())
-    } else if write {
-        Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have permission to save here.",
-        ))
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this folder.",
+            "You don't have permission to save here.",
         ))
     }
 }

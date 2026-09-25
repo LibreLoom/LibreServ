@@ -1,24 +1,14 @@
-import { useCallback, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
-import {
-  File as FileIcon,
-  Folder,
-  HardDrive,
-  RotateCcw,
-  Trash2,
-} from "lucide-react";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "react-router-dom";
+import { HardDrive, Trash2 } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
-import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import FileSearch from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
-import PropertiesSheet, { PropertiesButton } from "../components/files/PropertiesSheet";
 import useDriveMove from "../hooks/useDriveMove";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -27,12 +17,11 @@ import {
   deleteJson,
   getDrives,
   getJson,
-  postJson,
 } from "../lib/api";
-import { fmtSize, folderHref, joinPath, parentPath, pathBasename } from "../lib/paths";
-import { canViewerOpen } from "../lib/officeConvert.js";
+import { folderHref, isTrashPath } from "../lib/paths";
+import useFileNavigation from "../hooks/useFileNavigation.js";
 import { useAuth } from "../context/AuthContext";
-import { hasWriteOnDrive } from "../lib/shareTree.js";
+import { CAP, hasCapOnDrive } from "../lib/shareTree.js";
 import { isPresentDrive } from "../lib/drives.js";
 
 function jobBusy(job) {
@@ -42,82 +31,30 @@ function jobBusy(job) {
 export default function FilesPage() {
   const { addToast } = useToast();
   const { id } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const queryClient = useQueryClient();
-  const path = searchParams.get("path") || "";
-  const selectPath = searchParams.get("select") || "";
-  const inTrash = searchParams.get("view") === "trash";
-  const location = useLocation();
-  const fileParam = searchParams.get("file") || searchParams.get("open") || "";
-  const rawHash = location.hash ? decodeURIComponent(location.hash.replace(/^#/, "")) : "";
-  const hashCandidate = rawHash && rawHash !== "main-content" ? rawHash : "";
-  const candidateFile = fileParam || hashCandidate;
-
-  const viewerPath = useMemo(() => {
-    if (inTrash || !candidateFile) return null;
-    const name = pathBasename(candidateFile);
-    if (!name || !canViewerOpen(name)) {
-      return null;
-    }
-    if (candidateFile.includes("/")) {
-      return candidateFile;
-    }
-    return joinPath(path, candidateFile);
-  }, [inTrash, candidateFile, path]);
-
-  const handleViewerPathChange = useCallback((next) => {
-    const params = new URLSearchParams(searchParams);
-    if (next) {
-      const fileName = pathBasename(next);
-      params.set("file", fileName);
-      const dir = parentPath(next);
-      if (dir !== null && dir !== path) {
-        if (dir) params.set("path", dir);
-        else params.delete("path");
-      }
-      params.delete("select");
-      params.delete("view");
-      params.delete("open");
-      setSearchParams(params);
-    } else {
-      params.delete("file");
-      params.delete("open");
-      if (typeof window !== "undefined" && window.location?.hash && window.location.hash !== "#main-content") {
-        window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
-      }
-      setSearchParams(params, { replace: true });
-    }
-  }, [searchParams, setSearchParams, path]);
+  const {
+    path,
+    selectPath,
+    viewerPath,
+    onPathChange,
+    onViewerPathChange,
+    clearSelectParam,
+  } = useFileNavigation();
 
   const [actionError, setActionError] = useState(null);
-  const [restoreTarget, setRestoreTarget] = useState(null);
-  const [restoreName, setRestoreName] = useState("");
-  const [purgeTarget, setPurgeTarget] = useState(null);
-  const [propertiesTarget, setPropertiesTarget] = useState(null);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  const clearSelectParam = useCallback(() => {
-    if (!searchParams.has("select")) return;
-    const params = new URLSearchParams(searchParams);
-    params.delete("select");
-    setSearchParams(params, { replace: true });
-  }, [searchParams, setSearchParams]);
-
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
-  const grants = useQuery({
-    queryKey: ["grants"],
-    queryFn: () => getJson("/api/v1/grants"),
+  const access = useQuery({
+    queryKey: ["my-access"],
+    queryFn: () => getJson("/api/v1/me/access"),
     enabled: !isAdmin,
   });
-  const canOpenTrash = isAdmin || hasWriteOnDrive(grants.data, id);
-
-  const trash = useQuery({
-    queryKey: ["trash", id],
-    queryFn: () => getJson(`/api/v1/drives/${id}/trash`),
-    enabled: !!drive && inTrash,
-  });
+  // Trash browses like a folder but keeps its access rule: write somewhere
+  // on the drive, or the explorer never mounts.
+  const inTrash = isTrashPath(path);
+  const canOpenTrash = isAdmin || hasCapOnDrive(access.data, id, CAP.EDIT);
 
   const jobs = useQuery({
     queryKey: ["jobs"],
@@ -125,40 +62,10 @@ export default function FilesPage() {
     refetchInterval: (q) => ((q.state.data || []).some(jobBusy) ? 1000 : false),
   });
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["files", id] });
-    queryClient.invalidateQueries({ queryKey: ["trash", id] });
-    queryClient.invalidateQueries({ queryKey: ["jobs"] });
-  };
-
-  const restoreMutation = useMutation({
-    mutationFn: (/** @type {any} */ item) =>
-      postJson(`/api/v1/drives/${id}/files/restore`, {
-        path: item.path,
-        dest: restoreName,
-      }),
-    onSuccess: () => {
-      addToast({ type: "success", message: "File restored." });
-      invalidate();
-    },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
-  });
-
-  const purgeMutation = useMutation({
-    mutationFn: (/** @type {any} */ item) =>
-      postJson(`/api/v1/drives/${id}/files/purge`, { path: item.path }),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Deleted for good." });
-      invalidate();
-    },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
-  });
-
   const cancelMutation = useMutation({
     mutationFn: (jobId) => deleteJson(`/api/v1/jobs/${jobId}`),
     onSuccess: () => {
       addToast({ type: "success", message: "Job stopped." });
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
     onError: (err) => setActionError(apiErrorMessage(err, "Couldn't cancel that job. Try again.")),
   });
@@ -167,7 +74,6 @@ export default function FilesPage() {
   const moveFilesMutation = useDriveMove({ driveId: id, onError: setActionError });
 
   const activeJobs = (jobs.data || []).filter(jobBusy);
-  const trashItems = trash.data || [];
 
   // Same conditions the explorer used for the in-list strip: only when the
   // file browser itself can render and more than one drive is ready.
@@ -177,8 +83,7 @@ export default function FilesPage() {
     && drive.state !== "missing"
     && presentDriveCount > 1;
 
-  const trashModalOpen = restoreTarget != null || purgeTarget != null;
-  useStrandedErrorToast(actionError, trashModalOpen, () => setActionError(null));
+  useStrandedErrorToast(actionError, false, () => setActionError(null));
 
   return (
     <Page
@@ -227,26 +132,6 @@ export default function FilesPage() {
         </div>
       )}
 
-      {inTrash ? (
-        <Card className="mb-4" padding>
-          <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-primary">
-            <Button variant="ghost" surface="secondary" size="sm" asChild>
-              <Link to={folderHref(id, "")}>{drive?.label || "Drive"}</Link>
-            </Button>
-            <span className="flex items-center gap-2">
-              <span className="text-accent">/</span>
-              <span>Trash</span>
-            </span>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" surface="secondary" size="sm" asChild>
-              <Link to={`/drives/${id}`}>Back to files</Link>
-            </Button>
-          </div>
-        </Card>
-      ) : null}
-
-
       {!drives.isLoading && !drive && (
         <EmptyState
           className="mt-4"
@@ -265,7 +150,7 @@ export default function FilesPage() {
         />
       )}
 
-      {!inTrash && drive && drive.state === "missing" && (
+      {drive && drive.state === "missing" && (
         <EmptyState
           className="mt-4"
           icon={HardDrive}
@@ -283,24 +168,29 @@ export default function FilesPage() {
         />
       )}
 
-      {!inTrash && drive && drive.state !== "missing" && (
+      {drive && drive.state !== "missing" && inTrash && !canOpenTrash && !access.isLoading && (
+        <EmptyState
+          className="mt-4"
+          icon={Trash2}
+          title="Trash isn't available here"
+          description="You need Write access somewhere on this drive to open trash."
+          action={
+            <Button size="sm" variant="primary" asChild>
+              <Link to={folderHref(id, "")}>Back to files</Link>
+            </Button>
+          }
+        />
+      )}
+
+      {drive && drive.state !== "missing" && !(inTrash && !canOpenTrash) && (
         <DriveFileExplorer
           driveId={id}
           driveLabel={drive.label}
           drives={drives.data}
           path={path}
-          onPathChange={(next) => {
-            const params = new URLSearchParams(searchParams);
-            if (next) params.set("path", next);
-            else params.delete("path");
-            params.delete("view");
-            params.delete("select");
-            params.delete("file");
-            params.delete("open");
-            setSearchParams(params, { replace: true });
-          }}
+          onPathChange={onPathChange}
           viewerPath={viewerPath}
-          onViewerPathChange={handleViewerPathChange}
+          onViewerPathChange={onViewerPathChange}
           selectPath={selectPath || null}
           onSelectPathApplied={clearSelectParam}
           linkNavigation
@@ -309,158 +199,6 @@ export default function FilesPage() {
           showTrashLink={canOpenTrash}
         />
       )}
-
-      {inTrash && canOpenTrash && (
-        <div className="rounded-large-element bg-secondary text-primary overflow-hidden">
-          {trashItems.map((item) => (
-              <div
-                key={item.path}
-                className="flex items-center justify-between px-3 py-2.5 gap-2 bg-secondary text-primary border-b border-primary/15 last:border-b-0"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  {item.kind === "dir" ? (
-                    <Folder size={ICON_SIZE.md} className="text-accent shrink-0" />
-                  ) : (
-                    <FileIcon size={ICON_SIZE.md} className="text-accent shrink-0" />
-                  )}
-                  <div className="min-w-0">
-                    <p className="font-mono text-sm truncate">{item.original_name || item.name}</p>
-                    <p className="text-xs">{fmtSize(item.size)}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Put ${item.original_name} back`}
-                    onClick={() => {
-                      setRestoreTarget(item);
-                      setRestoreName(item.original_name || item.name);
-                    }}
-                  >
-                    <RotateCcw size={ICON_SIZE.sm} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    surface="secondary"
-                    size="iconSm"
-                    aria-label={`Delete ${item.original_name} forever`}
-                    onClick={() => setPurgeTarget(item)}
-                  >
-                    <Trash2 size={ICON_SIZE.sm} />
-                  </Button>
-                  <PropertiesButton
-                    label={item.original_name || item.name}
-                    onClick={() => setPropertiesTarget(item)}
-                  />
-                </div>
-              </div>
-          ))}
-        </div>
-      )}
-
-      {inTrash && !canOpenTrash && !grants.isLoading && (
-        <EmptyState
-          className="mt-4"
-          icon={Trash2}
-          title="Trash isn't available here"
-          description="You need Write access somewhere on this drive to open trash."
-        />
-      )}
-
-      {inTrash && canOpenTrash && !trash.isLoading && trashItems.length === 0 && (
-        <EmptyState
-          className="mt-4"
-          icon={Trash2}
-          title="Trash is empty"
-        />
-      )}
-
-      <ModalCard
-        open={restoreTarget != null}
-        title="Put this back?"
-        onClose={() => {
-          setActionError(null);
-          setRestoreTarget(null);
-        }}
-      >
-        {({ close }) => (
-          <>
-            <p className="text-primary text-sm">
-              Luna will move it out of trash on this same drive. Choose the name it should have.
-            </p>
-            <input
-              className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
-              value={restoreName}
-              onChange={(e) => setRestoreName(e.target.value)}
-              aria-label="Restored file name"
-            />
-            {actionError && <ModalErrorNotice error={actionError} />}
-            <div className="mt-4 flex gap-3">
-              <Button
-                variant="primary"
-                loading={restoreMutation.isPending}
-                onClick={() => {
-                  if (!restoreTarget) return;
-                  restoreMutation.mutateAsync(restoreTarget)
-                    .then(() => close())
-                    .catch(() => {});
-                }}
-              >
-                Put it back
-              </Button>
-              <Button variant="outline" onClick={close}>Not now</Button>
-            </div>
-          </>
-        )}
-      </ModalCard>
-
-      <ModalCard
-        open={purgeTarget != null}
-        title="Delete forever?"
-        onClose={() => {
-          setActionError(null);
-          setPurgeTarget(null);
-        }}
-      >
-        {({ close }) => (
-          <>
-            <p className="text-primary text-sm">
-              <span className="font-mono">{purgeTarget?.original_name}</span> will be
-              removed for good. Luna cannot get it back after this.
-            </p>
-            <ModalErrorNotice error={actionError} />
-            <div className="mt-4 flex gap-3">
-              <Button
-                variant="danger"
-                loading={purgeMutation.isPending}
-                onClick={() => {
-                  if (!purgeTarget) return;
-                  purgeMutation.mutateAsync(purgeTarget)
-                    .then(() => close())
-                    .catch(() => {});
-                }}
-              >
-                Delete forever
-              </Button>
-              <Button variant="outline" onClick={close}>Keep in trash</Button>
-            </div>
-          </>
-        )}
-      </ModalCard>
-
-      <PropertiesSheet
-        open={propertiesTarget != null}
-        driveId={id}
-        driveLabel={drive?.label || "Drive"}
-        path={propertiesTarget?.path || ""}
-        entry={propertiesTarget
-          ? { name: propertiesTarget.original_name || propertiesTarget.name, kind: propertiesTarget.kind }
-          : null}
-        inTrash
-        onClose={() => setPropertiesTarget(null)}
-      />
     </Page>
   );
 }

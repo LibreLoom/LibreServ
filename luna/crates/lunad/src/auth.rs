@@ -45,6 +45,29 @@ pub struct OfficeClaims {
     pub path: String,
     pub write: bool,
     pub exp: i64,
+    /// Bundle key this token may serve — set on scoped session tokens so a
+    /// token minted for one document can't read or write another's bundle.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Per-open bundle credential path — two opens sharing one document key
+    /// get different bundle URLs and cookie paths.
+    #[serde(default)]
+    pub bundle_id: Option<String>,
+    /// Share link this token was minted through (guest sessions).
+    #[serde(default)]
+    pub link_id: Option<String>,
+    /// blake3 of the link's password hash at mint time — rotating or removing
+    /// the password invalidates every outstanding guest office token.
+    #[serde(default)]
+    pub link_revision: Option<String>,
+}
+
+/// Proof that a guest supplied a password-protected link's password.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkClaims {
+    pub typ: String,
+    pub lid: String,
+    pub exp: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,7 +345,29 @@ impl AuthService {
             path: path.to_string(),
             write,
             exp: now + ttl_secs.max(60),
+            key: None,
+            bundle_id: None,
+            link_id: None,
+            link_revision: None,
         };
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(&self.signing_key()),
+        )
+        .map_err(|e| AuthError::Token(e.to_string()))
+    }
+
+    /// Mint an office token carrying its full scope (bundle key, link id,
+    /// password revision). Used by the session endpoints so every bundle and
+    /// socket check can re-validate against the *current* grant.
+    pub fn issue_scoped_office_token(
+        &self,
+        mut claims: OfficeClaims,
+        ttl_secs: i64,
+    ) -> Result<String, AuthError> {
+        claims.typ = "luna_office".into();
+        claims.exp = crate::db::now_unix() + ttl_secs.max(1);
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &claims,
@@ -346,6 +391,39 @@ impl AuthService {
             return Err(AuthError::Token("incomplete office token".into()));
         }
         Ok(data.claims)
+    }
+
+    /// Mint a proof that a guest supplied a share link's password. The SPA
+    /// stores it in a `luna_link_<id>` cookie so <img>/<a> media requests —
+    /// which cannot set headers — stay authenticated for its TTL.
+    pub fn issue_link_proof(&self, link_id: &str, ttl_secs: i64) -> Result<String, AuthError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let claims = LinkClaims {
+            typ: "luna_link".into(),
+            lid: link_id.to_string(),
+            exp: now + ttl_secs.max(60),
+        };
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(&self.signing_key()),
+        )
+        .map_err(|e| AuthError::Token(e.to_string()))
+    }
+
+    /// True when `proof` is a live link-proof token minted for `link_id`.
+    pub fn verify_link_proof(&self, link_id: &str, proof: &str) -> bool {
+        let Ok(data) = jsonwebtoken::decode::<LinkClaims>(
+            proof,
+            &jsonwebtoken::DecodingKey::from_secret(&self.signing_key()),
+            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        ) else {
+            return false;
+        };
+        data.claims.typ == "luna_link" && data.claims.lid == link_id
     }
 
     pub fn user(&self, id: &str) -> Result<Option<UserRow>, AuthError> {
@@ -982,13 +1060,66 @@ pub fn categorize_api_request(method: &axum::http::Method, path: &str) -> (Strin
     ("API access".to_string(), "".to_string())
 }
 
-/// Does `user` have `read` or `write` access to `drive_id`/`path`?
+/// The user's effective capability bits on `drive_id`/`path`.
 ///
-/// Admins see everything. Scoped grants match the exact path or anything
-/// beneath it (`grant = "family"` allows `family/photos`). After the lexical
-/// check, the canonical path must still sit under the (canonical) grant
+/// Admins hold everything. Path members match the exact path or anything
+/// beneath it (`member = "family"` allows `family/photos`). After the lexical
+/// check, the canonical path must still sit under the (canonical) member
 /// prefix so a symlink inside the granted folder cannot walk the rest of
 /// the drive.
+pub fn caps_on_path(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+) -> crate::access::Caps {
+    if user.role == "admin" {
+        return crate::access::CAP_ALL;
+    }
+    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
+        return 0;
+    };
+    let mount = db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .filter(|d| !d.mount_point.is_empty())
+        .map(|d| d.mount_point);
+    let mut caps: crate::access::Caps = 0;
+    for row in rows {
+        if row.subject_kind != crate::access::KIND_PATH || row.drive_id != drive_id {
+            continue;
+        }
+        if !crate::access::path_contains(&row.path, path) {
+            continue;
+        }
+        let covers = match mount.as_deref() {
+            Some(root) => grant_covers_canonical(
+                root,
+                &crate::access::normalize_subject_path(&row.path),
+                &crate::access::normalize_subject_path(path),
+            ),
+            None => true,
+        };
+        if covers {
+            caps |= row.caps;
+        }
+    }
+    caps
+}
+
+/// True when the user holds every capability bit in `cap` on this path.
+pub fn has_cap(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    cap: crate::access::Caps,
+) -> bool {
+    caps_on_path(user, conn, drive_id, path) & cap == cap
+}
+
+/// Back-compat boolean form: `write = false` needs CAP_VIEW, `true` needs
+/// CAP_EDIT (rename/delete/move — the destructive half of "full access").
 pub fn can_access(
     user: &CurrentUser,
     conn: &Connection,
@@ -996,36 +1127,17 @@ pub fn can_access(
     path: &str,
     write: bool,
 ) -> bool {
-    if user.role == "admin" {
-        return true;
-    }
-    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
-        return false;
-    };
-    let mount = db::get_drive(conn, drive_id)
-        .ok()
-        .flatten()
-        .filter(|d| !d.mount_point.is_empty())
-        .map(|d| d.mount_point);
-    grants.into_iter().any(|g| {
-        if g.drive_id != drive_id {
-            return false;
-        }
-        if write && g.permission != "write" {
-            return false;
-        }
-        if !crate::grants::path_contains(&g.path, path) {
-            return false;
-        }
-        match mount.as_deref() {
-            Some(root) => grant_covers_canonical(
-                root,
-                &crate::grants::normalize_grant_path(&g.path),
-                &crate::grants::normalize_grant_path(path),
-            ),
-            None => true,
-        }
-    })
+    has_cap(
+        user,
+        conn,
+        drive_id,
+        path,
+        if write {
+            crate::access::CAP_EDIT
+        } else {
+            crate::access::CAP_VIEW
+        },
+    )
 }
 
 fn grant_covers_canonical(root: &str, grant_rel: &str, request_rel: &str) -> bool {
@@ -1075,31 +1187,35 @@ pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -
     if user.role == "admin" {
         return true;
     }
-    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
         return false;
     };
-    grants.iter().any(|g| g.drive_id == drive_id)
+    rows.iter()
+        .any(|r| r.subject_kind == crate::access::KIND_PATH && r.drive_id == drive_id)
 }
 
-/// True if the user may change anything on this drive (whole drive or a folder).
+/// True if the user may change anything on this drive (upload or edit,
+/// whole drive or a folder).
 pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
     if user.role == "admin" {
         return true;
     }
-    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
         return false;
     };
-    grants
-        .iter()
-        .any(|g| g.drive_id == drive_id && g.permission == "write")
+    rows.iter().any(|r| {
+        r.subject_kind == crate::access::KIND_PATH
+            && r.drive_id == drive_id
+            && r.caps & (crate::access::CAP_UPLOAD | crate::access::CAP_EDIT) != 0
+    })
 }
 
 /// True if WebDAV (or a file browser) may list/walk `path` on this drive.
 ///
-/// Broader than [`can_access`]: a grant on `family/photos` lets the user walk
-/// `""` → `family` → `family/photos` so Finder can reach the granted folder.
-/// Sibling folders outside the grant stay hidden. Writes still use
-/// [`can_access`] with `write = true`.
+/// Broader than [`can_access`]: a member row on `family/photos` lets the user
+/// walk `""` → `family` → `family/photos` so Finder can reach the granted
+/// folder. Sibling folders outside the member's scope stay hidden. Writes
+/// still use capability checks.
 pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
     if can_access(user, conn, drive_id, path, false) {
         return true;
@@ -1107,25 +1223,28 @@ pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, pa
     if user.role == "admin" {
         return true;
     }
-    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+    let Ok(rows) = db::list_access_members_for_user(conn, &user.id) else {
         return false;
     };
-    grants.iter().any(|g| {
-        if g.drive_id != drive_id {
+    rows.iter().any(|r| {
+        if r.subject_kind != crate::access::KIND_PATH || r.drive_id != drive_id {
             return false;
         }
-        let grant_path = crate::grants::normalize_grant_path(&g.path);
-        let walk = crate::grants::normalize_grant_path(path);
-        // Whole-drive grant already covered by can_access above.
-        if grant_path.is_empty() {
-            return true;
+        let member_path = crate::access::normalize_subject_path(&r.path);
+        let walk = crate::access::normalize_subject_path(path);
+        // A whole-drive row with view caps was already handled by
+        // can_access. An upload-only whole-drive row must NOT make every
+        // path browsable — only the root, so the member can reach their
+        // drop target (children still fail the ancestor check below).
+        if member_path.is_empty() {
+            return walk.is_empty() || (r.caps & crate::access::CAP_VIEW) != 0;
         }
-        // Empty path is the drive root — always an ancestor of any grant.
+        // Empty path is the drive root — always an ancestor of any member row.
         if walk.is_empty() {
             return true;
         }
-        // path is a proper prefix of the grant (ancestor walk).
-        crate::grants::path_contains(&walk, &grant_path)
+        // path is a proper prefix of the member's scope (ancestor walk).
+        crate::access::path_contains(&walk, &member_path)
     })
 }
 
@@ -1233,6 +1352,23 @@ mod tests {
         assert!(auth.login("max", "old-password12").is_err());
     }
 
+    fn member(conn: &Connection, id: &str, user_id: &str, drive_id: &str, path: &str, caps: i64) {
+        crate::db::insert_access_member(
+            conn,
+            &crate::db::AccessMemberRow {
+                id: id.into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: drive_id.into(),
+                path: path.into(),
+                album_id: String::new(),
+                user_id: user_id.into(),
+                caps,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+
     #[test]
     fn grants_scope_access_by_folder() {
         let (dir, auth) = service();
@@ -1243,7 +1379,14 @@ mod tests {
             .register("sam", "Sam", "hunter22hunter1", "user")
             .unwrap();
         let conn = auth.db.lock().unwrap();
-        crate::db::insert_grant(&conn, "g1", &sam.id, "drive-a", "family", "read").unwrap();
+        member(
+            &conn,
+            "g1",
+            &sam.id,
+            "drive-a",
+            "family",
+            crate::access::CAP_VIEW,
+        );
         let sam_user = CurrentUser {
             id: sam.id.clone(),
             username: sam.username.clone(),
@@ -1275,7 +1418,14 @@ mod tests {
             true
         ));
         // Deep grant: ancestors are browsable; siblings are not.
-        crate::db::insert_grant(&conn, "g2", &sam.id, "drive-b", "family/photos", "read").unwrap();
+        member(
+            &conn,
+            "g2",
+            &sam.id,
+            "drive-b",
+            "family/photos",
+            crate::access::CAP_VIEW,
+        );
         assert!(can_browse_path(&sam_user, &conn, "drive-b", ""));
         assert!(can_browse_path(&sam_user, &conn, "drive-b", "family"));
         assert!(can_browse_path(
@@ -1291,6 +1441,58 @@ mod tests {
             "family/other"
         ));
         assert!(!can_browse_path(&sam_user, &conn, "drive-b", "secret"));
+        drop(conn);
+        drop((dir, auth));
+    }
+
+    #[test]
+    fn upload_only_grant_is_view_blind() {
+        let (dir, auth) = service();
+        let _admin = auth
+            .register("Max", "Max", "hunter22hunter1", "user")
+            .unwrap();
+        let sam = auth
+            .register("sam", "Sam", "hunter22hunter1", "user")
+            .unwrap();
+        let conn = auth.db.lock().unwrap();
+        let sam_user = CurrentUser {
+            id: sam.id.clone(),
+            username: sam.username.clone(),
+            role: "user".into(),
+        };
+        // Whole-drive upload-only grant: the member may land on the drive
+        // root to drop files, but nothing on it becomes browsable.
+        member(
+            &conn,
+            "gu",
+            &sam.id,
+            "drive-c",
+            "",
+            crate::access::CAP_UPLOAD,
+        );
+        assert!(can_browse_path(&sam_user, &conn, "drive-c", ""));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-c", "photos"));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-c", "photos/2024"));
+        // Folder-scoped upload-only grant: ancestors stay walkable, the
+        // grant folder opens (empty listing), its children stay hidden.
+        member(
+            &conn,
+            "gu2",
+            &sam.id,
+            "drive-d",
+            "drop/inbox",
+            crate::access::CAP_UPLOAD,
+        );
+        assert!(can_browse_path(&sam_user, &conn, "drive-d", ""));
+        assert!(can_browse_path(&sam_user, &conn, "drive-d", "drop"));
+        assert!(can_browse_path(&sam_user, &conn, "drive-d", "drop/inbox"));
+        assert!(!can_browse_path(
+            &sam_user,
+            &conn,
+            "drive-d",
+            "drop/inbox/file.txt"
+        ));
+        assert!(!can_browse_path(&sam_user, &conn, "drive-d", "other"));
         drop(conn);
         drop((dir, auth));
     }
@@ -1322,7 +1524,14 @@ mod tests {
             mount.to_str().unwrap(),
         )
         .unwrap();
-        crate::db::insert_grant(&conn, "g1", &sam.id, "drive-a", "family", "read").unwrap();
+        member(
+            &conn,
+            "g1",
+            &sam.id,
+            "drive-a",
+            "family",
+            crate::access::CAP_VIEW,
+        );
         let sam_user = CurrentUser {
             id: sam.id.clone(),
             username: sam.username.clone(),

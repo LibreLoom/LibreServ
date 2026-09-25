@@ -301,6 +301,37 @@ else
 		echo "WARNING: office pack did not extract cleanly — removed the partial copy." >&2
 	fi
 fi
+
+# draw.io pack: the self-hosted diagram editor webapp (~150 MB extracted).
+# Same deal — a missing/corrupt pack warns but doesn't fail the install.
+_diopack=""
+for _cand in "$HERE/drawio-pack.tar.zst" "$HERE/../drawio-pack.tar.zst"; do
+	if [ -f "$_cand" ]; then
+		_diopack="$_cand"
+		break
+	fi
+done
+if [ -z "$_diopack" ]; then
+	echo
+	echo "NOTE: no diagram editor pack on this media — diagram editing will be"
+	echo "unavailable until the pack is installed into /var/lib/luna/drawio."
+elif ! command -v zstd >/dev/null 2>&1; then
+	echo
+	echo "WARNING: zstd is missing in the installer — diagram pack skipped." >&2
+elif [ ! -f "$_diopack.sha256" ] || \
+	! (cd "$(dirname "$_diopack")" && sha256sum -c "$(basename "$_diopack").sha256" >/dev/null 2>&1); then
+	echo
+	echo "WARNING: diagram pack checksum missing or failed — skipping it." >&2
+else
+	echo
+	echo "Installing the diagram editor pack…"
+	if zstd -dc "$_diopack" | tar -x -C "$_data_mnt" && [ -f "$_data_mnt/drawio/index.html" ]; then
+		echo "Diagram pack installed."
+	else
+		rm -rf "$_data_mnt/drawio"
+		echo "WARNING: diagram pack did not extract cleanly — removed the partial copy." >&2
+	fi
+fi
 umount "$_data_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."

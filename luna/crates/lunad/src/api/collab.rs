@@ -230,7 +230,17 @@ fn user_can(
             "Luna's index is busy. Try again.",
         )
     })?;
-    Ok(crate::auth::can_access(user, &conn, drive_id, path, write))
+    Ok(crate::auth::has_cap(
+        user,
+        &conn,
+        drive_id,
+        path,
+        if write {
+            crate::access::CAP_EDIT
+        } else {
+            crate::access::CAP_VIEW
+        },
+    ))
 }
 
 fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {

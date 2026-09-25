@@ -9,12 +9,19 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use image::{ImageFormat, ImageReader};
+use image::ImageReader;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::Serialize;
 
-const THUMB_MAX: u32 = 400;
+/// Long-edge cap for generated thumbnails. Sized for ~320px grid cells on
+/// 2x displays — the cells are square crops, so landscape thumbs still
+/// upscale a little on the short edge.
+const THUMB_MAX: u32 = 640;
+const THUMB_JPEG_QUALITY: u8 = 85;
+/// Thumb recipe version, baked into the filename. Bump when size, filter,
+/// or quality changes — scans regenerate, stale names get swept.
+const THUMB_GEN: u32 = 2;
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "m4v", "webm"];
 const BATCH_UPSERT: usize = 64;
@@ -85,10 +92,6 @@ pub struct ListFilter {
     /// Map viewport filter: min_lon, min_lat, max_lon, max_lat (WGS84 degrees).
     pub place_bbox: Option<[f64; 4]>,
     pub user_id: Option<String>,
-    /// Only photos this user has archived.
-    pub archived_user: Option<String>,
-    /// Hide photos this user has archived (library / favorites views).
-    pub exclude_archived_user: Option<String>,
     /// Restrict to `"image"` or `"video"` when set.
     pub kind: Option<String>,
     /// Exact camera make filter (case-insensitive).
@@ -119,6 +122,9 @@ pub struct ListFilter {
     /// Album membership on the **same drive DB only**: `"none"` | `"any"`.
     /// Cross-drive album membership (album home on another mount) is not scanned.
     pub album_membership: Option<String>,
+    /// `MM-DD` (UTC) match on effective capture time — powers the "On this
+    /// day" view (same month-day across years).
+    pub month_day: Option<String>,
 }
 
 /// One group of likely duplicate photos (same size + file name).
@@ -239,7 +245,7 @@ pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> Option<PathBu
 fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
     let key = format!("{drive_id}:{rel}");
     let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
-    thumb_dir.join(format!("{hash}.jpg"))
+    thumb_dir.join(format!("{hash}.v{THUMB_GEN}.jpg"))
 }
 
 pub fn thumb_url(drive_id: &str, rel: &str) -> String {
@@ -307,11 +313,40 @@ fn normalize_format_ext(raw: &str) -> String {
     if e == "jpeg" { "jpg".into() } else { e }
 }
 
+/// `MM-DD` with plausible ranges (the caller derives it from today's date, so
+/// only real days arrive — Feb 30 is allowed to simply never match).
+fn valid_month_day(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 5 || b[2] != b'-' {
+        return false;
+    }
+    if !b[..2].iter().chain(&b[3..]).all(u8::is_ascii_digit) {
+        return false;
+    }
+    let month: u32 = s[..2].parse().unwrap_or(0);
+    let day: u32 = s[3..].parse().unwrap_or(0);
+    (1..=12).contains(&month) && (1..=31).contains(&day)
+}
+
 /// Walk one drive and refresh its on-drive photo index + thumbnails.
 pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     let thumb_dir = thumbs_dir(root)
         .ok_or_else(|| anyhow::anyhow!("drive is not adopted — no .luna-<uuid> marker"))?;
     std::fs::create_dir_all(&thumb_dir)?;
+    // Filenames carry THUMB_GEN — sweep thumbs from older recipes so a
+    // quality change doesn't leak disk or keep serving the old encode.
+    let gen_suffix = format!(".v{THUMB_GEN}.jpg");
+    if let Ok(entries) = std::fs::read_dir(&thumb_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if name.ends_with(".jpg") && !name.ends_with(&gen_suffix) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
     let mut conn = open_drive_db(root)?;
     let mut report = ScanReport::default();
     let mut seen = HashSet::new();
@@ -841,7 +876,7 @@ fn should_reindex_after_rename(rel: &str) -> bool {
     is_media(Path::new(rel))
 }
 
-/// Generate a 400px JPEG thumbnail. Returns (width, height, was_created).
+/// Generate a JPEG thumbnail (fit within THUMB_MAX). Returns (width, height, was_created).
 pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32, u32, bool)> {
     if dest.exists() {
         return Ok((0, 0, false));
@@ -882,7 +917,7 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
             "-vf",
             &format!("scale='min({THUMB_MAX},iw)':-2"),
             "-q:v",
-            "5",
+            "2",
         ])
         .arg(&tmp)
         .stdout(std::process::Stdio::null())
@@ -1010,12 +1045,22 @@ fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, b
     reader.limits(img_limits);
     let img = reader.decode()?;
     let (w, h) = (img.width(), img.height());
-    let thumb = img.thumbnail(THUMB_MAX, THUMB_MAX);
+    // `thumbnail()` is the fast box sampler — visibly soft next to Lanczos3.
+    // And save_with_format encodes JPEG at q75; thumbs get an explicit
+    // higher quality since they're the only pixels most photos ever show.
+    let thumb = img.resize(THUMB_MAX, THUMB_MAX, image::imageops::FilterType::Lanczos3);
     let tmp = dest.with_extension("jpg.tmp");
     if let Some(parent) = tmp.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    thumb.save_with_format(&tmp, ImageFormat::Jpeg)?;
+    {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        thumb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+            &mut out,
+            THUMB_JPEG_QUALITY,
+        ))?;
+        std::io::Write::flush(&mut out)?;
+    }
     std::fs::rename(&tmp, dest)?;
     Ok((w, h, true))
 }
@@ -1210,8 +1255,6 @@ fn query_drive_photos(
         .favorites_user
         .as_deref()
         .or(filter.user_id.as_deref())
-        .or(filter.archived_user.as_deref())
-        .or(filter.exclude_archived_user.as_deref())
         .unwrap_or("");
     let mut q_pat = filter
         .q
@@ -1234,16 +1277,6 @@ fn query_drive_photos(
         0i64
     };
     let fav_only = if filter.favorites_user.is_some() {
-        1i64
-    } else {
-        0
-    };
-    let archived_only = if filter.archived_user.is_some() {
-        1i64
-    } else {
-        0
-    };
-    let exclude_archived = if filter.exclude_archived_user.is_some() {
         1i64
     } else {
         0
@@ -1322,6 +1355,12 @@ fn query_drive_photos(
         .map(str::to_ascii_lowercase)
         .filter(|s| s == "none" || s == "any")
         .unwrap_or_default();
+    let month_day = filter
+        .month_day
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| valid_month_day(s))
+        .unwrap_or_default();
     // Tokenize the free-text query into structured predicates (places,
     // dates, kinds, …) plus leftover LIKE terms. When it produced nothing
     // at all, fall back to the historical whole-`q` substring match.
@@ -1344,7 +1383,6 @@ fn query_drive_photos(
                 COALESCE(p.flash, -1)
          FROM photos p
          LEFT JOIN favorites f ON f.path = p.path AND f.user_id = ?1
-         LEFT JOIN archive ar ON ar.path = p.path AND ar.user_id = ?1
          WHERE (?2 = '' OR p.name LIKE ?2 COLLATE NOCASE OR p.path LIKE ?2 COLLATE NOCASE
                 OR p.camera_make LIKE ?2 COLLATE NOCASE OR p.camera_model LIKE ?2 COLLATE NOCASE
                 OR p.lens LIKE ?2 COLLATE NOCASE)
@@ -1355,53 +1393,52 @@ fn query_drive_photos(
            AND (?6 = 0 OR f.path IS NOT NULL)
            AND (?7 = 0 OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
                 AND p.lon >= ?8 AND p.lon <= ?9 AND p.lat >= ?10 AND p.lat <= ?11))
-           AND (?12 = 0 OR ar.path IS NOT NULL)
-           AND (?13 = 0 OR ar.path IS NULL)
-           AND (?14 = '' OR p.kind = ?14)
-           AND (?15 = '' OR lower(p.camera_make) = lower(?15))
-           AND (?16 = '' OR lower(p.camera_model) = lower(?16))
-           AND (?17 = '' OR lower(p.lens) = lower(?17))
-           AND (?18 < 0 OR (p.iso > 0 AND p.iso >= ?18))
-           AND (?19 < 0 OR (p.iso > 0 AND p.iso <= ?19))
-           AND (?20 < 0 OR (p.focal_mm > 0 AND p.focal_mm >= ?20))
-           AND (?21 < 0 OR (p.focal_mm > 0 AND p.focal_mm <= ?21))
-           AND (?22 < 0 OR p.flash = ?22)
-           AND (?23 = '' OR (
-                (?23 = 'landscape' AND p.width > p.height AND p.width > 0) OR
-                (?23 = 'portrait' AND p.height > p.width AND p.height > 0) OR
-                (?23 = 'square' AND p.width = p.height AND p.width > 0)
+           AND (?12 = '' OR p.kind = ?12)
+           AND (?13 = '' OR lower(p.camera_make) = lower(?13))
+           AND (?14 = '' OR lower(p.camera_model) = lower(?14))
+           AND (?15 = '' OR lower(p.lens) = lower(?15))
+           AND (?16 < 0 OR (p.iso > 0 AND p.iso >= ?16))
+           AND (?17 < 0 OR (p.iso > 0 AND p.iso <= ?17))
+           AND (?18 < 0 OR (p.focal_mm > 0 AND p.focal_mm >= ?18))
+           AND (?19 < 0 OR (p.focal_mm > 0 AND p.focal_mm <= ?19))
+           AND (?20 < 0 OR p.flash = ?20)
+           AND (?21 = '' OR (
+                (?21 = 'landscape' AND p.width > p.height AND p.width > 0) OR
+                (?21 = 'portrait' AND p.height > p.width AND p.height > 0) OR
+                (?21 = 'square' AND p.width = p.height AND p.width > 0)
            ))
-           AND (?24 < 0 OR (
-                (?24 = 1 AND p.lat IS NOT NULL AND p.lon IS NOT NULL) OR
-                (?24 = 0 AND (p.lat IS NULL OR p.lon IS NULL))
+           AND (?22 < 0 OR (
+                (?22 = 1 AND p.lat IS NOT NULL AND p.lon IS NOT NULL) OR
+                (?22 = 0 AND (p.lat IS NULL OR p.lon IS NULL))
            ))
-           AND (?25 < 0 OR ?26 < 0 OR (
+           AND (?23 < 0 OR ?24 < 0 OR (
                 CASE
-                  WHEN ?25 <= ?26 THEN
-                    ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) BETWEEN ?25 AND ?26
+                  WHEN ?23 <= ?24 THEN
+                    ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) BETWEEN ?23 AND ?24
                   ELSE
-                    ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) >= ?25
-                    OR ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) <= ?26
+                    ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) >= ?23
+                    OR ((COALESCE(NULLIF(p.taken_at, 0), p.mtime) / 3600) % 24) <= ?24
                 END
            ))
-           AND (?27 < 0 OR (p.width > 0 AND p.height > 0
-                AND (CAST(p.width AS REAL) * CAST(p.height AS REAL) / 1000000.0) >= ?27))
-           AND (?28 < 0 OR p.duration_secs >= ?28)
-           AND (?29 < 0 OR p.duration_secs <= ?29)
-           AND (?30 < 0 OR (
-                (?30 = 1 AND p.taken_at = 0) OR
-                (?30 = 0 AND p.taken_at != 0)
+           AND (?25 < 0 OR (p.width > 0 AND p.height > 0
+                AND (CAST(p.width AS REAL) * CAST(p.height AS REAL) / 1000000.0) >= ?25))
+           AND (?26 < 0 OR p.duration_secs >= ?26)
+           AND (?27 < 0 OR p.duration_secs <= ?27)
+           AND (?28 < 0 OR (
+                (?28 = 1 AND p.taken_at = 0) OR
+                (?28 = 0 AND p.taken_at != 0)
            ))
-           AND (?31 = '' OR (
-                (?31 = 'any' AND EXISTS (
+           AND (?29 = '' OR (
+                (?29 = 'any' AND EXISTS (
                     SELECT 1 FROM album_items ai
-                    WHERE ai.path = p.path AND ai.drive_id = ?32
+                    WHERE ai.path = p.path AND ai.drive_id = ?30
                 )) OR
-                (?31 = 'none' AND NOT EXISTS (
+                (?29 = 'none' AND NOT EXISTS (
                     SELECT 1 FROM album_items ai
-                    WHERE ai.path = p.path AND ai.drive_id = ?32
+                    WHERE ai.path = p.path AND ai.drive_id = ?30
                 ))
-           ))"
+           ))
+           AND (?31 = '' OR strftime('%m-%d', COALESCE(NULLIF(p.taken_at, 0), p.mtime), 'unixepoch') = ?31)"
     .to_string();
     let mut binds: Vec<Value> = vec![
         uid.to_string().into(),
@@ -1415,8 +1452,6 @@ fn query_drive_photos(
         bbox_max_lon.into(),
         bbox_min_lat.into(),
         bbox_max_lat.into(),
-        archived_only.into(),
-        exclude_archived.into(),
         kind.to_string().into(),
         camera_make.to_string().into(),
         camera_model.to_string().into(),
@@ -1436,6 +1471,7 @@ fn query_drive_photos(
         undated.into(),
         album_membership.into(),
         drive_id.to_string().into(),
+        month_day.to_string().into(),
     ];
     if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
         append_query_clauses(&mut sql, &mut binds, pq);
@@ -1514,10 +1550,10 @@ fn query_drive_photos(
     Ok(photos)
 }
 
-/// Append `q`-parser predicates to the base query. Binds continue at `?33`
-/// (the base statement uses `?1..=?32`; `?32` is the drive id). Values the
-/// parser produced as integers are inlined — only user text goes through
-/// binds, so there is no injection surface.
+/// Append `q`-parser predicates to the base query. Binds continue at `?32`
+/// (the base statement uses `?1..=?31`; `?30` is the drive id, `?31` the
+/// month-day filter). Values the parser produced as integers are inlined —
+/// only user text goes through binds, so there is no injection surface.
 fn append_query_clauses(
     sql: &mut String,
     binds: &mut Vec<Value>,
@@ -1539,48 +1575,53 @@ fn append_query_clauses(
              OR p.place_country LIKE {p} COLLATE NOCASE \
              OR EXISTS (SELECT 1 FROM album_items ai JOIN albums al ON al.id = ai.album_id \
                         AND al.name LIKE {p} COLLATE NOCASE \
-                        WHERE ai.drive_id = ?32 AND ai.path = p.path)"
+                        WHERE ai.drive_id = ?30 AND ai.path = p.path)"
         )
     };
-    let mut n = 32usize;
+    let mut n = 31usize;
     for term in &pq.like_terms {
         n += 1;
         sql.push_str(&format!(" AND ({})", text_match(&format!("?{n}"))));
         binds.push(like(term));
     }
-    for place in &pq.places {
-        // A resolved phrase still text-matches (a file named "portland-x.jpg"
-        // must hit even when the photo is in Texas), plus canonical-name
-        // equality on the derived place columns, plus a bbox around each
-        // resolved city center for rows whose label differs.
-        n += 1;
-        let mut alts = vec![text_match(&format!("?{n}"))];
-        binds.push(like(&place.raw));
-        for name in &place.names {
+    // All place alternatives OR into one group — "paris london" means
+    // either city (a photo can't be in both), not both at once. Each
+    // resolved phrase still text-matches (a file named "portland-x.jpg"
+    // must hit even when the photo is in Texas), plus canonical-name
+    // equality on the derived place columns, plus a bbox around each
+    // resolved city center for rows whose label differs.
+    if !pq.places.is_empty() {
+        let mut alts = Vec::new();
+        for place in &pq.places {
             n += 1;
-            alts.push(format!(
-                "lower(p.place_city) = ?{n} OR lower(p.place_region) = ?{n} \
-                 OR lower(p.place_country) = ?{n} OR lower(p.place_label) = ?{n}"
-            ));
-            binds.push(Value::Text(name.to_lowercase()));
-        }
-        for (lat, lon) in &place.centers {
-            let dlat = crate::gallery::places::CITY_QUERY_RADIUS_KM / 111.0;
-            let dlon = dlat / lat.to_radians().cos().abs().max(0.3);
-            n += 4;
-            alts.push(format!(
-                "(p.lat BETWEEN ?{} AND ?{} AND p.lon BETWEEN ?{} AND ?{})",
-                n - 3,
-                n - 2,
-                n - 1,
-                n
-            ));
-            binds.extend([
-                Value::Real(lat - dlat),
-                Value::Real(lat + dlat),
-                Value::Real(lon - dlon),
-                Value::Real(lon + dlon),
-            ]);
+            alts.push(text_match(&format!("?{n}")));
+            binds.push(like(&place.raw));
+            for name in &place.names {
+                n += 1;
+                alts.push(format!(
+                    "lower(p.place_city) = ?{n} OR lower(p.place_region) = ?{n} \
+                     OR lower(p.place_country) = ?{n} OR lower(p.place_label) = ?{n}"
+                ));
+                binds.push(Value::Text(name.to_lowercase()));
+            }
+            for (lat, lon) in &place.centers {
+                let dlat = crate::gallery::places::CITY_QUERY_RADIUS_KM / 111.0;
+                let dlon = dlat / lat.to_radians().cos().abs().max(0.3);
+                n += 4;
+                alts.push(format!(
+                    "(p.lat BETWEEN ?{} AND ?{} AND p.lon BETWEEN ?{} AND ?{})",
+                    n - 3,
+                    n - 2,
+                    n - 1,
+                    n
+                ));
+                binds.extend([
+                    Value::Real(lat - dlat),
+                    Value::Real(lat + dlat),
+                    Value::Real(lon - dlon),
+                    Value::Real(lon + dlon),
+                ]);
+            }
         }
         sql.push_str(&format!(" AND ({})", alts.join(" OR ")));
     }
@@ -1639,6 +1680,47 @@ fn append_query_clauses(
             .collect();
         sql.push_str(&format!(" AND ({})", parts.join(" OR ")));
     }
+    if !pq.days.is_empty() {
+        let list = pq
+            .days
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(
+            " AND CAST(strftime('%d', {EFF}, 'unixepoch') AS INTEGER) IN ({list})"
+        ));
+    }
+    // Month+day ranges ("between sep 19 and oct 3") compare on the 'MM-DD'
+    // string — zero-padded, so lexicographic order is calendar order.
+    // Ranges wrapping the year boundary split into two arms.
+    if !pq.md_ranges.is_empty() {
+        let parts: Vec<String> = pq
+            .md_ranges
+            .iter()
+            .map(|&((m1, d1), (m2, d2))| {
+                let lo = format!("{m1:02}-{d1:02}");
+                let hi = format!("{m2:02}-{d2:02}");
+                let md = format!("strftime('%m-%d', {EFF}, 'unixepoch')");
+                if lo <= hi {
+                    format!("({md} BETWEEN '{lo}' AND '{hi}')")
+                } else {
+                    format!("({md} >= '{lo}' OR {md} <= '{hi}')")
+                }
+            })
+            .collect();
+        sql.push_str(&format!(" AND ({})", parts.join(" OR ")));
+    }
+    if !pq.any_ranges.is_empty() {
+        let mut parts = Vec::with_capacity(pq.any_ranges.len());
+        for (lo, hi) in &pq.any_ranges {
+            n += 2;
+            parts.push(format!("({EFF} >= ?{} AND {EFF} < ?{})", n - 1, n));
+            binds.push(Value::Integer(*lo));
+            binds.push(Value::Integer(*hi));
+        }
+        sql.push_str(&format!(" AND ({})", parts.join(" OR ")));
+    }
     for (lo, hi) in &pq.ranges {
         n += 2;
         sql.push_str(&format!(" AND ({EFF} >= ?{} AND {EFF} < ?{})", n - 1, n));
@@ -1669,7 +1751,8 @@ fn append_query_clauses(
         sql.push_str(&format!(
             " AND ((?{n} = 'landscape' AND p.width > p.height AND p.width > 0) OR \
                   (?{n} = 'portrait' AND p.height > p.width AND p.height > 0) OR \
-                  (?{n} = 'square' AND p.width = p.height AND p.width > 0))"
+                  (?{n} = 'square' AND p.width = p.height AND p.width > 0) OR \
+                  (?{n} = 'pano' AND p.width >= 2 * p.height AND p.height > 0))"
         ));
         binds.push(Value::Text(o.to_string()));
     }
@@ -1683,12 +1766,6 @@ fn append_query_clauses(
     }
     if pq.favorites_none {
         sql.push_str(" AND f.path IS NULL");
-    }
-    if pq.archived_only {
-        sql.push_str(" AND ar.path IS NOT NULL");
-    }
-    if pq.archived_none {
-        sql.push_str(" AND ar.path IS NULL");
     }
     if pq.undated {
         sql.push_str(" AND p.taken_at = 0");
@@ -1867,7 +1944,7 @@ fn path_allowed_by_grants(
         None => true,
         Some(grants) => match grants.get(drive_id) {
             None => false,
-            Some(prefs) => prefs.iter().any(|p| crate::grants::path_contains(p, path)),
+            Some(prefs) => prefs.iter().any(|p| crate::access::path_contains(p, path)),
         },
     }
 }
@@ -2033,24 +2110,6 @@ pub fn set_favorite(root: &Path, user_id: &str, path: &str, on: bool) -> anyhow:
     Ok(())
 }
 
-pub fn set_archived(root: &Path, user_id: &str, path: &str, on: bool) -> anyhow::Result<()> {
-    let conn = open_drive_db(root)?;
-    if on {
-        let now = now_unix();
-        conn.execute(
-            "INSERT INTO archive (user_id, path, created_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(user_id, path) DO NOTHING",
-            params![user_id, path, now],
-        )?;
-    } else {
-        conn.execute(
-            "DELETE FROM archive WHERE user_id = ?1 AND path = ?2",
-            params![user_id, path],
-        )?;
-    }
-    Ok(())
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct Album {
     pub id: String,
@@ -2061,8 +2120,7 @@ pub struct Album {
     pub cover_path: String,
     pub cover_drive_id: String,
     pub cover_thumb: String,
-    pub shared: bool,
-    pub allow_uploads: bool,
+    /// Folder (relative to the home drive) where guest/contributor uploads land.
     pub contrib_path: String,
     pub locked: bool,
     pub item_count: u64,
@@ -2080,9 +2138,13 @@ fn album_cover_thumb(home_drive_id: &str, cover_drive_id: &str, cover_path: &str
     thumb_url(drive, cover_path)
 }
 
+/// List albums across mounted drives. `member_ids` maps each home drive id to
+/// the album ids the user is an access-member of (universal access model); an
+/// admin (`include_all`) sees every album regardless.
 pub fn list_albums(
     mounts: &[(String, PathBuf)],
     user_id: &str,
+    member_ids: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     include_all: bool,
 ) -> anyhow::Result<Vec<Album>> {
     let mut out = Vec::new();
@@ -2094,23 +2156,14 @@ pub fn list_albums(
             Ok(c) => c,
             Err(_) => continue,
         };
-        let sql = if include_all {
+        let mut stmt = conn.prepare(
             "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
-                    a.shared, a.allow_uploads, a.contrib_path, a.locked,
+                    a.contrib_path, a.locked,
                     (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
              FROM albums a
-             ORDER BY a.created_at DESC"
-        } else {
-            "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
-                    a.shared, a.allow_uploads, a.contrib_path, a.locked,
-                    (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
-             FROM albums a
-             WHERE a.owner_user_id = ?1
-                OR EXISTS (SELECT 1 FROM album_members m WHERE m.album_id = a.id AND m.user_id = ?1)
-             ORDER BY a.created_at DESC"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Album> {
+             ORDER BY a.created_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row: &rusqlite::Row<'_>| {
             let cover_path: String = row.get(4)?;
             let cover_drive_id: String = row.get(5)?;
             Ok(Album {
@@ -2122,23 +2175,20 @@ pub fn list_albums(
                 cover_thumb: album_cover_thumb(drive_id, &cover_drive_id, &cover_path),
                 cover_path,
                 cover_drive_id,
-                shared: row.get::<_, i64>(6)? != 0,
-                allow_uploads: row.get::<_, i64>(7)? != 0,
-                contrib_path: row.get(8)?,
-                locked: row.get::<_, i64>(9)? != 0,
-                item_count: row.get::<_, i64>(10)? as u64,
+                contrib_path: row.get(6)?,
+                locked: row.get::<_, i64>(7)? != 0,
+                item_count: row.get::<_, i64>(8)? as u64,
             })
-        };
-        if include_all {
-            let rows = stmt.query_map([], map_row)?;
-            for row in rows {
-                out.push(row?);
+        })?;
+        for row in rows {
+            let album = row?;
+            let member = member_ids
+                .get(drive_id)
+                .is_some_and(|ids| ids.contains(&album.id));
+            if !include_all && album.owner_user_id != user_id && !member {
+                continue;
             }
-        } else {
-            let rows = stmt.query_map(params![user_id], map_row)?;
-            for row in rows {
-                out.push(row?);
-            }
+            out.push(album);
         }
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
@@ -2155,8 +2205,8 @@ pub fn create_album(
     let id = uuid_v4();
     let now = now_unix();
     conn.execute(
-        "INSERT INTO albums (id, owner_user_id, name, created_at, shared, allow_uploads, contrib_path, cover_drive_id, locked)
-         VALUES (?1, ?2, ?3, ?4, 0, 0, '', '', 0)",
+        "INSERT INTO albums (id, owner_user_id, name, created_at, contrib_path, cover_drive_id, locked)
+         VALUES (?1, ?2, ?3, ?4, '', '', 0)",
         params![id, owner_user_id, name, now],
     )?;
     Ok(Album {
@@ -2168,8 +2218,6 @@ pub fn create_album(
         cover_path: String::new(),
         cover_drive_id: String::new(),
         cover_thumb: String::new(),
-        shared: false,
-        allow_uploads: false,
         contrib_path: String::new(),
         locked: false,
         item_count: 0,
@@ -2283,8 +2331,8 @@ pub fn get_album(
 ) -> anyhow::Result<Option<Album>> {
     let conn = open_drive_db(root)?;
     conn.query_row(
-        "SELECT id, owner_user_id, name, created_at, cover_path, cover_drive_id, shared,
-                allow_uploads, contrib_path, locked,
+        "SELECT id, owner_user_id, name, created_at, cover_path, cover_drive_id,
+                contrib_path, locked,
                 (SELECT COUNT(*) FROM album_items i WHERE i.album_id = albums.id)
          FROM albums WHERE id = ?1",
         params![album_id],
@@ -2300,11 +2348,9 @@ pub fn get_album(
                 cover_thumb: album_cover_thumb(home_drive_id, &cover_drive_id, &cover_path),
                 cover_path,
                 cover_drive_id,
-                shared: row.get::<_, i64>(6)? != 0,
-                allow_uploads: row.get::<_, i64>(7)? != 0,
-                contrib_path: row.get(8)?,
-                locked: row.get::<_, i64>(9)? != 0,
-                item_count: row.get::<_, i64>(10)? as u64,
+                contrib_path: row.get(6)?,
+                locked: row.get::<_, i64>(7)? != 0,
+                item_count: row.get::<_, i64>(8)? as u64,
             })
         },
     )
@@ -2312,11 +2358,20 @@ pub fn get_album(
     .map_err(Into::into)
 }
 
-pub fn delete_invites_for_album(root: &Path, album_id: &str) -> anyhow::Result<()> {
-    let conn = open_drive_db(root)?;
-    conn.execute(
-        "DELETE FROM album_invites WHERE album_id = ?1",
-        params![album_id],
+/// Remove every access row (members + links) that points at this album.
+/// Called when the album is deleted so the universal model stays clean.
+pub fn delete_access_for_album(
+    central: &rusqlite::Connection,
+    home_drive_id: &str,
+    album_id: &str,
+) -> anyhow::Result<()> {
+    central.execute(
+        "DELETE FROM access_members WHERE subject_kind = 'album' AND drive_id = ?1 AND album_id = ?2",
+        params![home_drive_id, album_id],
+    )?;
+    central.execute(
+        "DELETE FROM access_links WHERE subject_kind = 'album' AND drive_id = ?1 AND album_id = ?2",
+        params![home_drive_id, album_id],
     )?;
     Ok(())
 }
@@ -2325,8 +2380,6 @@ pub fn update_album(
     root: &Path,
     album_id: &str,
     name: Option<&str>,
-    shared: Option<bool>,
-    allow_uploads: Option<bool>,
     locked: Option<bool>,
     cover: Option<(String, String)>,
 ) -> anyhow::Result<()> {
@@ -2335,24 +2388,6 @@ pub fn update_album(
         conn.execute(
             "UPDATE albums SET name = ?1 WHERE id = ?2",
             params![name, album_id],
-        )?;
-    }
-    if let Some(shared) = shared {
-        conn.execute(
-            "UPDATE albums SET shared = ?1 WHERE id = ?2",
-            params![if shared { 1 } else { 0 }, album_id],
-        )?;
-        if !shared {
-            conn.execute(
-                "DELETE FROM album_invites WHERE album_id = ?1",
-                params![album_id],
-            )?;
-        }
-    }
-    if let Some(allow) = allow_uploads {
-        conn.execute(
-            "UPDATE albums SET allow_uploads = ?1 WHERE id = ?2",
-            params![if allow { 1 } else { 0 }, album_id],
         )?;
     }
     if let Some(locked) = locked {
@@ -2375,14 +2410,6 @@ pub fn delete_album(root: &Path, album_id: &str) -> anyhow::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "DELETE FROM album_items WHERE album_id = ?1",
-        params![album_id],
-    )?;
-    tx.execute(
-        "DELETE FROM album_members WHERE album_id = ?1",
-        params![album_id],
-    )?;
-    tx.execute(
-        "DELETE FROM album_invites WHERE album_id = ?1",
         params![album_id],
     )?;
     tx.execute("DELETE FROM albums WHERE id = ?1", params![album_id])?;
@@ -2601,263 +2628,6 @@ pub fn write_items_zip(
     }
     zip.finish()?;
     Ok(file_count)
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AlbumMember {
-    pub user_id: String,
-    pub role: String,
-}
-
-pub fn list_members(root: &Path, album_id: &str) -> anyhow::Result<Vec<AlbumMember>> {
-    let conn = open_drive_db(root)?;
-    let mut stmt = conn.prepare("SELECT user_id, role FROM album_members WHERE album_id = ?1")?;
-    let rows = stmt.query_map(params![album_id], |row| {
-        Ok(AlbumMember {
-            user_id: row.get(0)?,
-            role: row.get(1)?,
-        })
-    })?;
-    Ok(rows.filter_map(|r| r.ok()).collect())
-}
-
-pub fn upsert_member(root: &Path, album_id: &str, user_id: &str, role: &str) -> anyhow::Result<()> {
-    let conn = open_drive_db(root)?;
-    conn.execute(
-        "INSERT INTO album_members (album_id, user_id, role) VALUES (?1, ?2, ?3)
-         ON CONFLICT(album_id, user_id) DO UPDATE SET role = excluded.role",
-        params![album_id, user_id, role],
-    )?;
-    Ok(())
-}
-
-pub fn remove_member(root: &Path, album_id: &str, user_id: &str) -> anyhow::Result<()> {
-    let conn = open_drive_db(root)?;
-    conn.execute(
-        "DELETE FROM album_members WHERE album_id = ?1 AND user_id = ?2",
-        params![album_id, user_id],
-    )?;
-    Ok(())
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AlbumInvite {
-    pub id: String,
-    pub album_id: String,
-    pub token: String,
-    pub role: String,
-    pub expires_at: Option<i64>,
-    pub created_at: i64,
-    pub url: String,
-}
-
-pub fn create_invite(
-    root: &Path,
-    album_id: &str,
-    role: &str,
-    expires_at: Option<i64>,
-    password_hash: Option<&str>,
-) -> anyhow::Result<AlbumInvite> {
-    let conn = open_drive_db(root)?;
-    let id = uuid_v4();
-    let token = uuid_v4().replace('-', "");
-    let now = now_unix();
-    conn.execute(
-        "INSERT INTO album_invites (id, album_id, token, role, expires_at, password_hash, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, album_id, token, role, expires_at, password_hash, now],
-    )?;
-    Ok(AlbumInvite {
-        id,
-        album_id: album_id.to_string(),
-        url: format!("/a/{token}"),
-        token,
-        role: role.to_string(),
-        expires_at,
-        created_at: now,
-    })
-}
-
-pub fn delete_invite(root: &Path, invite_id: &str) -> anyhow::Result<()> {
-    let conn = open_drive_db(root)?;
-    conn.execute(
-        "DELETE FROM album_invites WHERE id = ?1",
-        params![invite_id],
-    )?;
-    Ok(())
-}
-
-pub fn list_invites(root: &Path, album_id: &str) -> anyhow::Result<Vec<AlbumInvite>> {
-    let conn = open_drive_db(root)?;
-    let mut stmt = conn.prepare(
-        "SELECT id, album_id, token, role, expires_at, created_at
-         FROM album_invites
-         WHERE album_id = ?1
-         ORDER BY created_at DESC",
-    )?;
-    let rows = stmt.query_map(params![album_id], |row| {
-        let token: String = row.get(2)?;
-        Ok(AlbumInvite {
-            id: row.get(0)?,
-            album_id: row.get(1)?,
-            url: format!("/a/{token}"),
-            token,
-            role: row.get(3)?,
-            expires_at: row.get(4)?,
-            created_at: row.get(5)?,
-        })
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
-    Ok(out)
-}
-
-/// Find an invite by token across mounted drives. Returns (home_drive_id, root, invite, album).
-pub fn find_invite(
-    mounts: &[(String, PathBuf)],
-    token: &str,
-) -> anyhow::Result<Option<(String, PathBuf, AlbumInvite, Album)>> {
-    let now = now_unix();
-    for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
-            continue;
-        }
-        let conn = match open_drive_db(root) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let found = conn
-            .query_row(
-                "SELECT id, album_id, token, role, expires_at, created_at
-                 FROM album_invites WHERE token = ?1",
-                params![token],
-                |row| {
-                    Ok(AlbumInvite {
-                        id: row.get(0)?,
-                        album_id: row.get(1)?,
-                        token: row.get(2)?,
-                        role: row.get(3)?,
-                        expires_at: row.get(4)?,
-                        created_at: row.get(5)?,
-                        url: format!("/a/{}", token),
-                    })
-                },
-            )
-            .optional()?;
-        let Some(invite) = found else {
-            continue;
-        };
-        if let Some(exp) = invite.expires_at
-            && exp < now
-        {
-            continue;
-        }
-        let Some(album) = get_album(root, drive_id, &invite.album_id)? else {
-            continue;
-        };
-        if !album.shared {
-            continue;
-        }
-        return Ok(Some((drive_id.clone(), root.clone(), invite, album)));
-    }
-    Ok(None)
-}
-
-pub fn user_can_access_album(root: &Path, album: &Album, user_id: &str) -> anyhow::Result<bool> {
-    if album.owner_user_id == user_id {
-        return Ok(true);
-    }
-    let conn = open_drive_db(root)?;
-    let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM album_members WHERE album_id = ?1 AND user_id = ?2",
-        params![album.id, user_id],
-        |row| row.get(0),
-    )?;
-    Ok(n > 0)
-}
-
-/// True when `path` on `drive_id` is in an album this user owns, joined, or (Admin) any album.
-///
-/// Used so Members can open photos through album membership without a folder grant.
-pub fn user_can_view_path_via_album(
-    mounts: &[(String, PathBuf)],
-    user_id: &str,
-    as_admin: bool,
-    drive_id: &str,
-    path: &str,
-) -> bool {
-    for (home, root) in mounts {
-        if gallery_db_path(root).is_none() {
-            continue;
-        }
-        let Ok(conn) = open_drive_db(root) else {
-            continue;
-        };
-        let Ok(mut stmt) = conn.prepare(
-            "SELECT a.id, a.owner_user_id, a.contrib_path
-             FROM albums a
-             WHERE EXISTS (
-                 SELECT 1 FROM album_items i
-                 WHERE i.album_id = a.id AND i.drive_id = ?1 AND i.path = ?2
-             )
-             OR (
-                 a.contrib_path != ''
-                 AND ?1 = ?3
-                 AND (
-                     ?2 = a.contrib_path
-                     OR ?2 LIKE (a.contrib_path || '/%')
-                 )
-             )",
-        ) else {
-            continue;
-        };
-        let Ok(rows) = stmt.query_map(params![drive_id, path, home.as_str()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        }) else {
-            continue;
-        };
-        for row in rows.flatten() {
-            let (album_id, owner_user_id, _contrib) = row;
-            if as_admin || owner_user_id == user_id {
-                return true;
-            }
-            let n: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM album_members WHERE album_id = ?1 AND user_id = ?2",
-                    params![album_id, user_id],
-                    |r| r.get(0),
-                )
-                .unwrap_or(0);
-            if n > 0 {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-pub fn user_can_contribute(root: &Path, album: &Album, user_id: &str) -> anyhow::Result<bool> {
-    if album.owner_user_id == user_id {
-        return Ok(true);
-    }
-    if !album.allow_uploads {
-        return Ok(false);
-    }
-    let conn = open_drive_db(root)?;
-    let role: Option<String> = conn
-        .query_row(
-            "SELECT role FROM album_members WHERE album_id = ?1 AND user_id = ?2",
-            params![album.id, user_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(matches!(role.as_deref(), Some("contributor")))
 }
 
 fn now_unix() -> i64 {
@@ -3103,7 +2873,8 @@ mod tests {
 
         let album = create_album(&photos_dir, "d1", "u1", "Trip").unwrap();
         add_album_items(&photos_dir, &album.id, &[("d1".into(), "x.png".into())]).unwrap();
-        let albums = list_albums(&mounts, "u1", false).unwrap();
+        let empty_members = std::collections::HashMap::new();
+        let albums = list_albums(&mounts, "u1", &empty_members, false).unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].item_count, 1);
 
@@ -3342,45 +3113,23 @@ mod tests {
         let a = create_album(root, "home", "u1", "Mine").unwrap();
         let b = create_album(root, "home", "u2", "Theirs").unwrap();
         let mounts = vec![("home".into(), root.to_path_buf())];
-        let member_view = list_albums(&mounts, "u1", false).unwrap();
+        let empty = std::collections::HashMap::new();
+        let member_view = list_albums(&mounts, "u1", &empty, false).unwrap();
         assert_eq!(member_view.len(), 1);
         assert_eq!(member_view[0].id, a.id);
-        let admin_view = list_albums(&mounts, "u1", true).unwrap();
+        let admin_view = list_albums(&mounts, "u1", &empty, true).unwrap();
         assert_eq!(admin_view.len(), 2);
         assert!(admin_view.iter().any(|x| x.id == a.id));
         assert!(admin_view.iter().any(|x| x.id == b.id));
-    }
 
-    #[test]
-    fn album_member_can_view_item_without_folder_grant() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        adopt(root, "home");
-        let album = create_album(root, "home", "owner", "Shared").unwrap();
-        add_album_items(root, &album.id, &[("home".into(), "secret/pic.jpg".into())]).unwrap();
-        upsert_member(root, &album.id, "member", "viewer").unwrap();
-        let mounts = vec![("home".into(), root.to_path_buf())];
-        assert!(user_can_view_path_via_album(
-            &mounts,
-            "member",
-            false,
-            "home",
-            "secret/pic.jpg"
-        ));
-        assert!(!user_can_view_path_via_album(
-            &mounts,
-            "stranger",
-            false,
-            "home",
-            "secret/pic.jpg"
-        ));
-        assert!(user_can_view_path_via_album(
-            &mounts,
-            "stranger",
-            true,
-            "home",
-            "secret/pic.jpg"
-        ));
+        // An access-member row on the other album makes it visible to u1.
+        let mut member_ids = std::collections::HashMap::new();
+        member_ids.insert(
+            "home".to_string(),
+            std::collections::HashSet::from([b.id.clone()]),
+        );
+        let joined = list_albums(&mounts, "u1", &member_ids, false).unwrap();
+        assert_eq!(joined.len(), 2);
     }
 
     #[test]
@@ -3642,32 +3391,6 @@ mod tests {
     }
 
     #[test]
-    fn list_invites_returns_created_invites() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        adopt(root, "d1");
-        let album = create_album(root, "d1", "user1", "Beach").unwrap();
-        let inv1 = create_invite(root, &album.id, "viewer", None, None).unwrap();
-        let inv2 = create_invite(root, &album.id, "contributor", Some(9999999999), None).unwrap();
-
-        let list = list_invites(root, &album.id).unwrap();
-        assert_eq!(list.len(), 2);
-        assert!(
-            list.iter()
-                .any(|i| i.token == inv1.token && i.role == "viewer")
-        );
-        assert!(
-            list.iter()
-                .any(|i| i.token == inv2.token && i.role == "contributor")
-        );
-
-        delete_invite(root, &inv1.id).unwrap();
-        let list2 = list_invites(root, &album.id).unwrap();
-        assert_eq!(list2.len(), 1);
-        assert_eq!(list2[0].token, inv2.token);
-    }
-
-    #[test]
     fn place_label_for_nearest_city_or_coords() {
         assert_eq!(place_label_for(48.86, 2.35), "Paris");
         assert_eq!(place_label_for(40.71, -74.01), "New York City");
@@ -3779,63 +3502,120 @@ mod tests {
     }
 
     #[test]
-    fn archive_hides_from_library_and_lists_archived() {
-        let dir = tempfile::tempdir().unwrap();
-        let photos_dir = dir.path().join("photos");
-        std::fs::create_dir(&photos_dir).unwrap();
-        let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([2, 2, 2, 255]));
-        png.save(photos_dir.join("a.png")).unwrap();
-        png.save(photos_dir.join("b.png")).unwrap();
-        scan("d1", &photos_dir).unwrap();
-        set_archived(&photos_dir, "u1", "a.png", true).unwrap();
-        let mounts = vec![("d1".into(), photos_dir.clone())];
-        let library = list_photos(
-            &mounts,
-            None,
-            &ListFilter {
-                exclude_archived_user: Some("u1".into()),
-                user_id: Some("u1".into()),
-                ..Default::default()
-            },
-            10,
-            0,
-        )
-        .unwrap();
-        assert_eq!(library.items.len(), 1);
-        assert_eq!(library.items[0].name, "b.png");
-        let archived = list_photos(
-            &mounts,
-            None,
-            &ListFilter {
-                archived_user: Some("u1".into()),
-                user_id: Some("u1".into()),
-                ..Default::default()
-            },
-            10,
-            0,
-        )
-        .unwrap();
-        assert_eq!(archived.items.len(), 1);
-        assert_eq!(archived.items[0].name, "a.png");
-    }
-
-    #[test]
-    fn update_album_unshare_deletes_invites() {
+    fn q_parses_natural_language_dates() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         adopt(root, "d1");
-        let album = create_album(root, "d1", "user1", "Secret").unwrap();
-        let _ = create_invite(root, &album.id, "viewer", None, None).unwrap();
-        assert_eq!(list_invites(root, &album.id).unwrap().len(), 1);
-        update_album(root, &album.id, None, Some(false), None, None, None).unwrap();
-        assert!(list_invites(root, &album.id).unwrap().is_empty());
-
+        {
+            let conn = open_drive_db(root).unwrap();
+            let rows: &[(&str, i64)] = &[
+                ("sep19-2023.jpg", 1_695_081_600),  // 2023-09-19 UTC
+                ("sep19-2024.jpg", 1_726_704_000),  // 2024-09-19 UTC
+                ("sep20-2024.jpg", 1_726_790_400),  // 2024-09-20 UTC
+                ("easter-2024.jpg", 1_711_843_200), // 2024-03-31 UTC
+            ];
+            for (path, taken) in rows {
+                conn.execute(
+                    "INSERT INTO photos (path, name, size, mtime, taken_at, kind)
+                     VALUES (?1, ?1, 100, ?2, ?2, 'image')",
+                    params![path, taken],
+                )
+                .unwrap();
+            }
+        }
         let mounts = vec![("d1".into(), root.to_path_buf())];
-        let inv = create_invite(root, &album.id, "viewer", None, None).unwrap();
-        update_album(root, &album.id, None, Some(true), None, None, None).unwrap();
-        assert!(find_invite(&mounts, &inv.token).unwrap().is_some());
-        update_album(root, &album.id, None, Some(false), None, None, None).unwrap();
-        assert!(find_invite(&mounts, &inv.token).unwrap().is_none());
+        let names = |q: &str| -> Vec<String> {
+            let mut v: Vec<String> = list_photos(
+                &mounts,
+                None,
+                &ListFilter {
+                    q: Some(q.into()),
+                    ..Default::default()
+                },
+                50,
+                0,
+            )
+            .unwrap()
+            .items
+            .iter()
+            .map(|p| p.path.clone())
+            .collect();
+            v.sort();
+            v
+        };
+
+        // "september 19" is month+day, not a filename substring — every
+        // year's Sep 19 matches.
+        let sep19 = ["sep19-2023.jpg", "sep19-2024.jpg"];
+        assert_eq!(names("september 19"), sep19);
+        assert_eq!(names("sep 19th"), sep19);
+        assert_eq!(names("the 19th of september"), sep19);
+        assert_eq!(names("the 19th"), sep19);
+        assert_eq!(names("9/19"), sep19);
+        // With a year it narrows to one date.
+        assert_eq!(names("september 19 2024"), ["sep19-2024.jpg"]);
+        assert_eq!(names("19/9/2024"), ["sep19-2024.jpg"]);
+        assert_eq!(names("easter 2024"), ["easter-2024.jpg"]);
+    }
+
+    #[test]
+    fn month_day_matches_same_day_across_years() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        adopt(root, "d1");
+        {
+            let conn = open_drive_db(root).unwrap();
+            // (path, mtime, taken_at) — same UTC month-day across years, one
+            // neighbor day, and an undated row whose mtime falls on the day.
+            let rows: &[(&str, i64, i64)] = &[
+                ("pi-2022.jpg", 1_647_216_000, 1_647_216_000), // 2022-03-14 UTC
+                ("pi-2024.jpg", 1_710_417_600, 1_710_417_600), // 2024-03-14 12:00 UTC
+                ("other.jpg", 1_678_838_400, 1_678_838_400),   // 2023-03-15 UTC
+                ("undated.png", 1_710_374_400, 0),             // mtime 2024-03-14
+            ];
+            for (path, mtime, taken) in rows {
+                conn.execute(
+                    "INSERT INTO photos (path, name, size, mtime, taken_at, kind)
+                     VALUES (?1, ?1, 100, ?2, ?3, 'image')",
+                    params![path, mtime, taken],
+                )
+                .unwrap();
+            }
+        }
+        let mounts = vec![("d1".into(), root.to_path_buf())];
+        let paths = |month_day: Option<&str>| -> Vec<String> {
+            let mut v: Vec<String> = list_photos(
+                &mounts,
+                None,
+                &ListFilter {
+                    month_day: month_day.map(str::to_string),
+                    ..Default::default()
+                },
+                50,
+                0,
+            )
+            .unwrap()
+            .items
+            .iter()
+            .map(|p| p.path.clone())
+            .collect();
+            v.sort();
+            v
+        };
+
+        assert_eq!(
+            paths(Some("03-14")),
+            ["pi-2022.jpg", "pi-2024.jpg", "undated.png"]
+        );
+        assert_eq!(paths(Some("03-15")), ["other.jpg"]);
+        // Garbage is ignored rather than narrowing the list to nothing.
+        assert_eq!(
+            paths(Some("3-14")).len(),
+            4,
+            "invalid month_day must not filter"
+        );
+        assert_eq!(paths(Some("13-40")).len(), 4);
+        assert_eq!(paths(None).len(), 4);
     }
 
     #[test]
@@ -3873,32 +3653,12 @@ mod tests {
             &album.id,
             None,
             None,
-            None,
-            None,
             Some(("d1".into(), "cover.png".into())),
         )
         .unwrap();
         let got = get_album(&photos_dir, "d1", &album.id).unwrap().unwrap();
         assert_eq!(got.cover_path, "cover.png");
         assert_eq!(got.cover_drive_id, "d1");
-    }
-
-    #[test]
-    fn viewer_member_cannot_contribute() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        adopt(root, "d1");
-        let album = create_album(root, "d1", "owner", "Trip").unwrap();
-        upsert_member(root, &album.id, "viewer1", "viewer").unwrap();
-        assert!(user_can_access_album(root, &album, "viewer1").unwrap());
-        assert!(!user_can_contribute(root, &album, "viewer1").unwrap());
-        upsert_member(root, &album.id, "helper", "contributor").unwrap();
-        // allow_uploads still false — contribute stays false until uploads enabled
-        assert!(!user_can_contribute(root, &album, "helper").unwrap());
-        update_album(root, &album.id, None, None, Some(true), None, None).unwrap();
-        let album = get_album(root, "d1", &album.id).unwrap().unwrap();
-        assert!(user_can_contribute(root, &album, "helper").unwrap());
-        assert!(!user_can_contribute(root, &album, "viewer1").unwrap());
     }
 }
 

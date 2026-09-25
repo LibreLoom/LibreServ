@@ -41,4 +41,14 @@ export const OPEN_SOURCE_LICENSES = [
     copyright: "ONLYOFFICE core; WebAssembly build by the CryptPad project",
     source: "https://github.com/cryptpad/onlyoffice-x2t-wasm",
   },
+  {
+    id: "drawio",
+    name: "draw.io (diagrams.net)",
+    what: "The diagram editor that runs in your browser when you open .drawio files.",
+    license: "Apache-2.0",
+    licenseFile: "/licenses/apache-2.0.txt",
+    copyright: "JGraph Holdings Ltd / draw.io AG",
+    source: "https://github.com/jgraph/drawio",
+    notices: "Attribution also ships inside the pack at /drawio.",
+  },
 ];

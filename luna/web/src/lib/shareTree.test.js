@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { KIND_ALBUM } from "./access.js";
 import {
-  canWriteOnPath,
-  dedupeIdenticalGrants,
-  hasWriteOnDrive,
+  CAP,
+  capsOnPath,
+  hasCapOnDrive,
   memberAccessRoots,
   pathContains,
   pathKey,
@@ -15,38 +16,57 @@ describe("shareTree", () => {
     expect(pathContains("album/dcim", "album")).toBe(false);
   });
 
-  it("hides a nested read when a parent already covers it", () => {
+  it("hides a nested row when a parent already covers its caps", () => {
     const roots = memberAccessRoots([
-      { id: "p", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
-      { id: "c", user_id: "2", drive_id: "d1", path: "album/print", permission: "read" },
+      { id: "p", kind: "path", drive_id: "d1", path: "album", caps: "view" },
+      { id: "c", kind: "path", drive_id: "d1", path: "album/print", caps: "view" },
     ]);
     expect(roots.map((g) => g.id)).toEqual(["p"]);
   });
 
-  it("keeps a write folder under a read parent", () => {
+  it("keeps a stronger folder under a weaker parent", () => {
     const roots = memberAccessRoots([
-      { id: "drive", user_id: "2", drive_id: "d1", path: "", permission: "read" },
-      { id: "dcim", user_id: "2", drive_id: "d1", path: "DCIM", permission: "write" },
+      { id: "drive", kind: "path", drive_id: "d1", path: "", caps: "view" },
+      { id: "dcim", kind: "path", drive_id: "d1", path: "DCIM", caps: "full" },
     ]);
     expect(roots.map((g) => g.id)).toEqual(["drive", "dcim"]);
   });
 
-  it("dedupes identical rows and allows write on the current object or a parent", () => {
-    const grants = dedupeIdenticalGrants([
-      { id: "a", user_id: "2", drive_id: "d1", path: "/photos/", permission: "write" },
-      { id: "b", user_id: "2", drive_id: "d1", path: "photos", permission: "write" },
+  it("drops a child whose caps the widened parent now covers", () => {
+    const roots = memberAccessRoots([
+      { id: "p", kind: "path", drive_id: "d1", path: "album", caps: "full" },
+      { id: "c", kind: "path", drive_id: "d1", path: "album/print", caps: "view+upload" },
     ]);
-    expect(grants).toHaveLength(1);
-    expect(canWriteOnPath(grants, "d1", "photos/dcim/x.jpg")).toBe(true);
-    expect(canWriteOnPath(grants, "d1", "other")).toBe(false);
+    expect(roots.map((g) => g.id)).toEqual(["p"]);
   });
 
-  it("detects write access anywhere on a drive", () => {
-    const grants = [
-      { id: "r", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
-      { id: "w", user_id: "2", drive_id: "d2", path: "notes", permission: "write" },
+  it("unions caps across containing rows and ignores other drives", () => {
+    const rows = [
+      { id: "a", kind: "path", drive_id: "d1", path: "photos", caps: "view" },
+      { id: "b", kind: "path", drive_id: "d1", path: "", caps: "upload" },
+      { id: "c", kind: "path", drive_id: "d2", path: "", caps: "full" },
     ];
-    expect(hasWriteOnDrive(grants, "d1")).toBe(false);
-    expect(hasWriteOnDrive(grants, "d2")).toBe(true);
+    expect(capsOnPath(rows, "d1", "photos/dcim/x.jpg") & (CAP.VIEW | CAP.UPLOAD)).toBe(
+      CAP.VIEW | CAP.UPLOAD,
+    );
+    expect(capsOnPath(rows, "d1", "other")).toBe(CAP.UPLOAD);
+    expect(capsOnPath(rows, "d2", "anything")).toBe(CAP.VIEW | CAP.UPLOAD | CAP.EDIT);
+  });
+
+  it("detects a capability anywhere on a drive", () => {
+    const rows = [
+      { id: "r", kind: "path", drive_id: "d1", path: "album", caps: "view" },
+      { id: "w", kind: "path", drive_id: "d2", path: "notes", caps: "full" },
+    ];
+    expect(hasCapOnDrive(rows, "d1", CAP.EDIT)).toBe(false);
+    expect(hasCapOnDrive(rows, "d2", CAP.EDIT)).toBe(true);
+  });
+
+  it("album rows are roots of their own, never hidden by path rows", () => {
+    const roots = memberAccessRoots([
+      { id: "p", kind: "path", drive_id: "d1", path: "", caps: "full" },
+      { id: "a", kind: KIND_ALBUM, drive_id: "d1", album_id: "alb-1", caps: "view" },
+    ]);
+    expect(roots.map((g) => g.id)).toEqual(["p", "a"]);
   });
 });

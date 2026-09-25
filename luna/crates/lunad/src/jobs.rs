@@ -264,6 +264,22 @@ fn run_job(
         match files::try_rename_move(&prepared.src, &prepared.dest) {
             Ok(true) => {
                 if let Ok(conn) = db.lock() {
+                    // Shares follow the file: subject rows point at the new
+                    // drive/path before the job reports done.
+                    let leaf = prepared
+                        .dest
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let new_rel =
+                        crate::gallery::gallery_indexer::join_rel(&prepared.row.to_path, &leaf);
+                    let _ = crate::access::repath_subjects_move(
+                        &conn,
+                        &prepared.row.from_drive,
+                        &prepared.row.from_path,
+                        &prepared.row.to_drive,
+                        &new_rel,
+                    );
                     let _ = db::update_job_progress(
                         &conn,
                         &prepared.row.id,
@@ -327,6 +343,23 @@ fn run_job(
 
         if prepared.row.kind == "move" {
             let conn = db.lock().unwrap();
+            // Retarget the subject rows to the destination BEFORE trashing
+            // the source — delete_to_trash revokes whatever still points at
+            // the old path, so shares must already live at the new one.
+            let leaf = prepared
+                .dest
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let new_rel = crate::gallery::gallery_indexer::join_rel(&prepared.row.to_path, &leaf);
+            crate::access::repath_subjects_move(
+                &conn,
+                &prepared.row.from_drive,
+                &prepared.row.from_path,
+                &prepared.row.to_drive,
+                &new_rel,
+            )
+            .map_err(JobError::Db)?;
             files::delete_to_trash(&conn, &prepared.row.from_drive, &prepared.row.from_path)?;
         }
         let conn = db.lock().unwrap();

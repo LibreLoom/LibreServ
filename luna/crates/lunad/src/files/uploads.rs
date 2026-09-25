@@ -379,6 +379,8 @@ pub fn complete(
         modified,
         hidden: false,
         saving: false,
+        original_name: None,
+        original_path: None,
     })
 }
 

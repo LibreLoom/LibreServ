@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Pencil, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import FileViewer from "./FileViewer.jsx";
 import FolderPickerModal from "./FolderPickerModal.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
 import NewItemMenu from "./NewItemMenu.jsx";
-import AccessSheet, { AccessButton } from "./AccessSheet.jsx";
+import ShareSheet, { ShareButton } from "../share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "./ProtectSheet.jsx";
 import useCanProtect from "../../hooks/useCanProtect.js";
 import useDriveMove from "../../hooks/useDriveMove.js";
@@ -23,31 +23,29 @@ import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import {
   apiErrorMessage,
-  deleteJson,
   getDrives,
   getJson,
-  postForm,
-  postFormProgress,
   postJson,
-  putBinaryProgress,
 } from "../../lib/api.js";
+import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
+import UploadFilesPanel from "./UploadFilesPanel.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { canWriteOnPath, hasWriteOnDrive } from "../../lib/shareTree.js";
+import { CAP, CAP_FULL, capsOnPath, hasCapOnDrive } from "../../lib/shareTree.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
 import { parseCreateName } from "../../lib/createName.js";
 import { blankOfficeStub } from "../../lib/officeStubs.js";
 import {
-  downloadHref,
   fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
   fmtSize,
+  isTrashPath,
   joinPath,
+  parentPath,
   pathBasename,
+  TRASH_PATH,
 } from "../../lib/paths.js";
 
-const CHUNK_SIZE = 8 * 1024 * 1024;
-const MULTIPART_LIMIT = 32 * 1024 * 1024;
 /** Parallel uploads — enough for multi-select without saturating the link. */
 const UPLOAD_PARALLEL = 2;
 
@@ -57,9 +55,10 @@ function jobBusy(job) {
 
 /**
  * Icon button that downloads a file or folder (folders arrive as a zip).
- * @param {{ driveId: string, path: string, label: string }} props
+ * @param {{ driveId: string, path: string, label: string, kind?: string }} props
  */
-function DownloadButton({ driveId, path, label }) {
+function DownloadButton({ driveId, path, label, kind }) {
+  const source = useFileSource();
   return (
     <Tooltip content="Download">
       <Button
@@ -69,7 +68,7 @@ function DownloadButton({ driveId, path, label }) {
         asChild
         aria-label={`Download ${label}`}
       >
-        <a href={downloadHref(driveId, path)}>
+        <a href={source.downloadHref(driveId, path, kind)}>
           <Download size={ICON_SIZE.sm} />
         </a>
       </Button>
@@ -81,6 +80,7 @@ DownloadButton.propTypes = {
   driveId: PropTypes.string.isRequired,
   path: PropTypes.string.isRequired,
   label: PropTypes.string.isRequired,
+  kind: PropTypes.string,
 };
 
 /**
@@ -102,7 +102,7 @@ DownloadButton.propTypes = {
  *   onCancel: (id: string) => void,
  * }} props
  */
-function UploadProgressList({ uploads, onCancel }) {
+export function UploadProgressList({ uploads, onCancel }) {
   if (!uploads.length) return null;
 
   return (
@@ -228,6 +228,9 @@ async function mapPool(items, limit, worker) {
  *   headerExtra?: import("react").ReactNode,
  *   viewerPath?: string | null,
  *   onViewerPathChange?: (next: string | null) => void,
+ *   emptyTitle?: string,
+ *   emptyDescription?: string,
+ *   emptyIcon?: import("react").ComponentType<{ size?: number, className?: string }>,
  * }} props
  */
 export default function DriveFileExplorer({
@@ -247,7 +250,16 @@ export default function DriveFileExplorer({
   headerExtra = null,
   viewerPath: controlledViewerPath,
   onViewerPathChange,
+  emptyTitle = "This drive is empty",
+  emptyDescription = "Upload files or create folders to get started.",
+  emptyIcon = HardDrive,
 }) {
+  const source = useFileSource();
+  // Link guests run this same explorer over /s/{token} — the source carries
+  // the link's caps; drive-only surfaces (share, protect, copy, trash, jobs,
+  // cross-drive pickers) hide, everything else is identical.
+  const guest = source.guest === true;
+  const guestCaps = source.capsBits || 0;
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [innerPath, setInnerPath] = useState("");
@@ -272,21 +284,27 @@ export default function DriveFileExplorer({
     if (controlledViewerPath === undefined) setInnerViewerPath(next);
     onViewerPathChange?.(next);
   }
-  const [accessTarget, setAccessTarget] = useState(/** @type {null|{ path: string, kind: string }} */ (null));
+  const [accessTarget, setAccessTarget] = useState(/** @type {null|{ path: string }} */ (null));
   const [protectTarget, setProtectTarget] = useState(/** @type {null|{ path: string }} */ (null));
   const [createKind, setCreateKind] = useState(/** @type {import("../../lib/createKinds.js").CreateKind|null} */ (null));
   const [createName, setCreateName] = useState("");
   const selectedRef = useRef(/** @type {string[]} */ ([]));
+  const [restoreTarget, setRestoreTarget] = useState(/** @type {null|{ fullPath: string, displayName: string, originalPath: string }} */ (null));
+  const [restoreName, setRestoreName] = useState("");
+  const [purgeTarget, setPurgeTarget] = useState(/** @type {null|{ paths: string[], label: string }} */ (null));
+  const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
 
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, initialData: propDrives });
+  const drivesQuery = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: !guest });
   const availableDrives = useMemo(() => {
-    return (drives.data || []).filter(isPresentDrive);
-  }, [drives.data]);
+    const data = guest ? (propDrives || []) : (drivesQuery.data || propDrives || []);
+    return data.filter(isPresentDrive);
+  }, [guest, propDrives, drivesQuery.data]);
   const writableDrives = useMemo(() => availableDrives.filter(isWritableDrive), [availableDrives]);
 
   const jobs = useQuery({
     queryKey: ["jobs"],
     queryFn: () => getJson("/api/v1/jobs"),
+    enabled: !guest,
     refetchInterval: (q) => ((q.state.data || []).some(jobBusy) ? 1000 : false),
   });
   const prevBusyJobIds = useRef(new Set());
@@ -309,15 +327,45 @@ export default function DriveFileExplorer({
     prevBusyJobIds.current = busyIds;
   }, [jobs.data, queryClient]);
 
-  const grants = useQuery({
-    queryKey: ["grants"],
-    queryFn: () => getJson("/api/v1/grants"),
-    enabled: !isAdmin,
+  const access = useQuery({
+    queryKey: ["my-access"],
+    queryFn: () => getJson("/api/v1/me/access"),
+    enabled: !guest && !isAdmin,
   });
-  const protectAvailable = useCanProtect();
-  const showProtect = isAdmin && protectAvailable;
-  const folderWritable = isAdmin || canWriteOnPath(grants.data, driveId, path);
-  const trashVisible = isAdmin || hasWriteOnDrive(grants.data, driveId);
+  const protectAvailable = useCanProtect(!guest && isAdmin);
+  const showProtect = !guest && isAdmin && protectAvailable;
+  // Trash is a normal folder to look at — but strictly read-only. Every
+  // write affordance (upload, rename, move, delete-to-trash) stays off.
+  const inTrash = !guest && isTrashPath(path);
+  const myFolderCaps = guest ? guestCaps : isAdmin ? CAP_FULL : capsOnPath(access.data, driveId, path);
+  const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
+  const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
+  const folderCanEdit = !inTrash && (myFolderCaps & CAP.EDIT) !== 0;
+  // Upload-only links can write but never read — downloads stay hidden.
+  const canView = inTrash ? trashVisible : (myFolderCaps & CAP.VIEW) !== 0;
+
+  // The crumb trail inside trash reads "Trash / <where it was>" — the stat
+  // endpoint reports the folder's pre-trash path ("" at the trash root).
+  const trashStat = useQuery({
+    queryKey: ["file-stat", fileSourceScope(source, driveId), path],
+    queryFn: () => source.stat(driveId, path),
+    enabled: inTrash,
+  });
+  const segmentLabel = useMemo(() => {
+    if (!inTrash) return undefined;
+    const origin = String(trashStat.data?.trashed_from || "");
+    const labels = ["Trash", ...origin.split("/").filter(Boolean)];
+    return (/** @type {string} */ segment, /** @type {number} */ i) => labels[i] ?? segment;
+  }, [inTrash, trashStat.data]);
+
+  // The trash listing — same query key as FileBrowser's, so this shares the
+  // cache rather than refetching. Drives "Empty trash" being disabled when
+  // there's nothing to remove.
+  const trashListing = useQuery({
+    queryKey: fileListKey(source, driveId, TRASH_PATH),
+    queryFn: () => source.listDir(driveId, TRASH_PATH),
+    enabled: inTrash && path === TRASH_PATH,
+  });
 
   function setUploadRows(next) {
     uploadsRef.current = next;
@@ -335,86 +383,20 @@ export default function DriveFileExplorer({
   }
 
   function invalidate(paths = [path]) {
+    // FileBrowser keys its listing on the source scope — a share token for
+    // guests, the drive id signed in — so both sides invalidate the same key.
     const folders = new Set(paths.map((p) => {
       const idx = p.lastIndexOf("/");
       return idx < 0 ? "" : p.slice(0, idx);
     }));
     folders.add(path);
     for (const folder of folders) {
-      queryClient.invalidateQueries({ queryKey: ["files", driveId, folder] });
+      queryClient.invalidateQueries({ queryKey: fileListKey(source, driveId, folder) });
     }
-    queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    queryClient.invalidateQueries({ queryKey: ["trash", driveId] });
-  }
-
-  /**
-   * @param {UploadRow} row
-   * @param {File} file
-   * @param {string} destPath
-   * @param {string} name
-   */
-  async function uploadMultipart(row, file, destPath, name) {
-    const form = new FormData();
-    form.append("path", destPath);
-    // Keep the leaf name the server expects; File may carry a relative path.
-    const blob = file.name === name ? file : new File([file], name, { type: file.type });
-    form.append("file", blob);
-    await postFormProgress(
-      `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(destPath)}`,
-      form,
-      {
-        signal: row.abort.signal,
-        onProgress: (loaded, total) => {
-          const size = total > 0 ? total : file.size;
-          patchUpload(row.id, { received: Math.min(loaded, size), size });
-        },
-      },
-    );
-  }
-
-  /**
-   * @param {UploadRow} row
-   * @param {File} file
-   * @param {string} destPath
-   * @param {string} name
-   */
-  async function uploadChunked(row, file, destPath, name) {
-    const session = await postJson(
-      "/api/v1/uploads",
-      {
-        drive_id: driveId,
-        path: destPath,
-        name,
-        size: file.size,
-      },
-      { signal: row.abort.signal },
-    );
-    patchUpload(row.id, { uploadId: session.upload_id });
-
-    for (let start = 0; start < file.size; start += CHUNK_SIZE) {
-      if (row.abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
-      const end = Math.min(start + CHUNK_SIZE, file.size) - 1;
-      const chunk = file.slice(start, end + 1);
-      const progress = await putBinaryProgress(
-        `/api/v1/uploads/${session.upload_id}`,
-        chunk,
-        {
-          signal: row.abort.signal,
-          headers: { "Content-Range": `bytes ${start}-${end}/${file.size}` },
-          onProgress: (loaded) => {
-            patchUpload(row.id, {
-              received: Math.min(file.size, start + loaded),
-              size: file.size,
-            });
-          },
-        },
-      );
-      patchUpload(row.id, {
-        received: Number(progress.received) || end + 1,
-        size: file.size,
-      });
+    if (!guest) {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["trash", driveId] });
     }
-    await postJson(`/api/v1/uploads/${session.upload_id}/complete`, {}, { signal: row.abort.signal });
   }
 
   function cancelUpload(id) {
@@ -422,7 +404,7 @@ export default function DriveFileExplorer({
     if (!row) return;
     row.abort.abort();
     if (row.uploadId) {
-      void deleteJson(`/api/v1/uploads/${row.uploadId}`).catch(() => {});
+      void source.cancelUpload(driveId, row.uploadId).catch(() => {});
     }
     removeUpload(id);
   }
@@ -436,6 +418,10 @@ export default function DriveFileExplorer({
     const list = filesFromFileList(files);
     if (!list.length) return;
     setActionError(null);
+    if (source.isFile && list.length > 1) {
+      setActionError("Choose one file to replace this file.");
+      return;
+    }
 
     /** @type {Array<UploadRow & { file: File, destPath: string, leafName: string }>} */
     const batch = list.map((file) => {
@@ -462,11 +448,13 @@ export default function DriveFileExplorer({
     await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
       const row = uploadsRef.current.find((u) => u.id === item.id) || item;
       try {
-        if (item.file.size <= MULTIPART_LIMIT) {
-          await uploadMultipart(row, item.file, item.destPath, item.leafName);
-        } else {
-          await uploadChunked(row, item.file, item.destPath, item.leafName);
-        }
+        await source.uploadFile(driveId, item.file, item.destPath, item.leafName, {
+          signal: row.abort.signal,
+          onSession: (uploadId) => patchUpload(item.id, { uploadId }),
+          onProgress: (loaded, total) => {
+            patchUpload(item.id, { received: Math.min(loaded, total), size: total });
+          },
+        });
         completed += 1;
         removeUpload(item.id);
       } catch (err) {
@@ -480,7 +468,7 @@ export default function DriveFileExplorer({
     });
 
     invalidate([...touched]);
-    if (!hadError && completed > 0) {
+    if (completed > 0) {
       addToast({
         type: "success",
         message: completed === 1 ? "1 file uploaded." : `${completed} files uploaded.`,
@@ -491,7 +479,7 @@ export default function DriveFileExplorer({
   const removeMutation = useMutation({
     mutationFn: async (/** @type {string[]} */ paths) => {
       for (const p of paths) {
-        await deleteJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(p)}`);
+        await source.remove(driveId, p);
       }
     },
     // Modal dismisses via ModalCard close() so exit animation can play.
@@ -510,7 +498,7 @@ export default function DriveFileExplorer({
 
   const mkdirMutation = useMutation({
     mutationFn: (/** @type {string} */ fullPath) =>
-      postJson(`/api/v1/drives/${driveId}/files/mkdir`, { path: fullPath }),
+      source.mkdir(driveId, fullPath),
     onSuccess: () => {
       addToast({ type: "success", message: "Folder created." });
       invalidate();
@@ -523,23 +511,19 @@ export default function DriveFileExplorer({
 
   const createFileMutation = useMutation({
     mutationFn: async (/** @type {string} */ fullPath) => {
-      if (createKind?.stub) {
+      if (createKind?.stub || createKind?.initialContent) {
         const folder = fullPath.includes("/")
           ? fullPath.slice(0, fullPath.lastIndexOf("/"))
           : "";
         const name = fullPath.split("/").pop() || fullPath;
-        const blob = blankOfficeStub(createKind.stub);
+        const blob = createKind.initialContent
+          ? new Blob([createKind.initialContent()], { type: "application/json" })
+          : blankOfficeStub(createKind.stub);
         const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
-        const form = new FormData();
-        form.append("path", folder);
-        form.append("file", file);
-        await postForm(
-          `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=0`,
-          form,
-        );
+        await source.uploadFile(driveId, file, folder, name);
         return fullPath;
       }
-      await postJson(`/api/v1/drives/${driveId}/files/create`, { path: fullPath });
+      await source.createFile(driveId, fullPath);
       return fullPath;
     },
     onSuccess: (_data, fullPath) => {
@@ -565,7 +549,7 @@ export default function DriveFileExplorer({
     if (!createKind) return Promise.reject(new Error("Choose what to create."));
     const parsed = parseCreateName(
       createName,
-      createKind.stub
+      createKind.stub || createKind.initialContent
         ? { forceExt: createKind.defaultExt || `.${createKind.stub}` }
         : createKind.defaultExt
           ? { defaultExt: createKind.defaultExt }
@@ -576,18 +560,13 @@ export default function DriveFileExplorer({
       return Promise.reject(new Error(parsed.error));
     }
     const fullPath = joinPath(path, parsed.name);
-    if (createKind.action === "create-file") {
-      return createFileMutation.mutateAsync(fullPath);
-    }
-    return mkdirMutation.mutateAsync(fullPath);
+    const mutation = createKind.action === "create-file" ? createFileMutation : mkdirMutation;
+    return mutation.mutateAsync(fullPath).then(() => undefined);
   }
 
   const renameMutation = useMutation({
     mutationFn: (/** @type {{ fullPath: string, newName: string }} */ { fullPath, newName }) =>
-      postJson(`/api/v1/drives/${driveId}/files/rename`, {
-        path: fullPath,
-        new_name: newName,
-      }),
+      source.rename(driveId, fullPath, newName),
     onSuccess: () => {
       addToast({ type: "success", message: "Renamed." });
       invalidate();
@@ -601,6 +580,12 @@ export default function DriveFileExplorer({
   const transferMutation = useMutation({
     mutationFn: async (/** @type {{ driveId: string, path: string }} */ { driveId: toDrive, path: toPath }) => {
       if (!transfer) return;
+      // Guests move synchronously inside the link — no job queue.
+      if (guest) {
+        await source.move(driveId, transfer.paths, toPath);
+        queryClient.invalidateQueries({ queryKey: fileListKey(source, driveId) });
+        return;
+      }
       for (const fromPath of transfer.paths) {
         await postJson("/api/v1/jobs", {
           kind: transfer.kind,
@@ -615,7 +600,7 @@ export default function DriveFileExplorer({
       addToast({
         type: "success",
         message: transfer?.kind === "move"
-          ? "Luna is moving those files."
+          ? guest ? "Moved." : "Luna is moving those files."
           : "Luna is copying those files.",
       });
       invalidate();
@@ -631,6 +616,63 @@ export default function DriveFileExplorer({
 
   const internalMoveMutation = useDriveMove({ driveId, onError: setActionError });
 
+  const shareMoveMutation = useMutation({
+    mutationFn: (/** @type {{ paths: string[], dest: string }} */ { paths, dest }) =>
+      source.move(driveId, paths, dest),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: fileListKey(source, driveId) });
+      addToast({ type: "success", message: "Files moved." });
+    },
+    onError: (err) =>
+      setActionError(apiErrorMessage(err, "Couldn't move those files. Try again.")),
+  });
+
+  // Trash's two writes: restore a whole entry, or delete it permanently.
+  // Both stay top-level — the API only accepts `{trash}/{entry}` paths.
+  const restoreMutation = useMutation({
+    mutationFn: (/** @type {{ path: string, dest: string }} */ vars) =>
+      postJson(`/api/v1/drives/${driveId}/files/restore`, vars),
+    onSuccess: (_d, vars) => {
+      addToast({ type: "success", message: "Restored." });
+      invalidate([vars.dest, vars.path]);
+    },
+    onError: (err) =>
+      setActionError(apiErrorMessage(err, "Couldn't restore that. Try again.")),
+  });
+
+  const purgeMutation = useMutation({
+    mutationFn: async (/** @type {string[]} */ paths) => {
+      for (const p of paths) {
+        await postJson(`/api/v1/drives/${driveId}/files/purge`, { path: p });
+      }
+    },
+    onSuccess: (_d, paths) => {
+      addToast({
+        type: "success",
+        message: paths.length === 1 ? "Deleted permanently." : `Deleted ${paths.length} items permanently.`,
+      });
+      invalidate(paths);
+    },
+    onError: (err) =>
+      setActionError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
+  });
+
+  /** Purge the whole trash — the API removes every entry the caller can see. */
+  const emptyTrashMutation = useMutation({
+    mutationFn: () =>
+      postJson(`/api/v1/drives/${driveId}/files/purge`, { path: TRASH_PATH }),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Trash emptied." });
+      invalidate([TRASH_PATH]);
+    },
+    onError: (err) =>
+      setActionError(apiErrorMessage(err, "Couldn't empty the trash. Try again.")),
+  });
+
+  const restoreDestFolder = restoreTarget
+    ? parentPath(restoreTarget.originalPath) || ""
+    : "";
+
   const deleteSnapRef = useRef(/** @type {string[]|null} */ (null));
   if (deletePaths) deleteSnapRef.current = deletePaths;
   const shownDeletePaths = deletePaths ?? deleteSnapRef.current;
@@ -642,8 +684,14 @@ export default function DriveFileExplorer({
   if (renameTarget) renameSnapRef.current = renameTarget;
   const shownRename = renameTarget ?? renameSnapRef.current;
   const nameModalOpen = createKind != null || renameTarget != null;
-  const actionModalOpen = deletePaths != null || transfer != null || nameModalOpen;
-  useStrandedErrorToast(actionError, actionModalOpen, () => setActionError(null));
+  const actionModalOpen =
+    deletePaths != null || transfer != null || nameModalOpen
+    || restoreTarget != null || purgeTarget != null || emptyTrashOpen;
+  useStrandedErrorToast(
+    actionError,
+    actionModalOpen || (!canView && folderCanUpload),
+    () => setActionError(null),
+  );
 
   return (
     <>
@@ -651,6 +699,40 @@ export default function DriveFileExplorer({
         <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
       )}
 
+      {!guest && !isAdmin && access.isPending ? (
+        <div className="flex justify-center py-16">
+          <Spinner size="sm" decorative className="text-primary" />
+        </div>
+      ) : !canView && folderCanUpload ? (
+        <UploadFilesPanel
+          onUploadFiles={(files) => uploadFiles(files, path)}
+          onMovePaths={
+            // Guests never hold EDIT under an upload-only link, so the only
+            // in-Luna drags that can land here come from a signed-in window.
+            !guest && !source.isFile
+              ? (paths, sourceDriveId) => {
+                  const sameDrive = !sourceDriveId || sourceDriveId === driveId;
+                  const filtered = paths.filter((p) => {
+                    if (!p) return false;
+                    if (!sameDrive) return true;
+                    if (p === path || path.startsWith(`${p}/`)) return false;
+                    if (parentPath(p) === path) return false;
+                    return true;
+                  });
+                  if (filtered.length) {
+                    internalMoveMutation.mutate({
+                      paths: filtered,
+                      destFolder: path,
+                      destDriveId: driveId,
+                      fromDriveId: sourceDriveId,
+                    });
+                  }
+                }
+              : undefined
+          }
+          error={actionError}
+        />
+      ) : (
       <FileBrowser
         driveId={driveId}
         driveLabel={driveLabel}
@@ -659,53 +741,69 @@ export default function DriveFileExplorer({
         linkNavigation={linkNavigation}
         folderHref={folderHref}
         fileHref={fileHref}
-        enableDownload
-        enableUploadDrop={folderWritable}
+        enableDownload={canView}
+        enableUploadDrop={!inTrash && folderCanUpload}
         dense={dense}
         multiSelect
         selectPath={selectPath}
         onSelectPathApplied={onSelectPathApplied}
         onSelectedPathsChange={(paths) => { selectedRef.current = paths; }}
-        onUploadFiles={folderWritable ? uploadFiles : undefined}
-        onInternalMove={folderWritable ? (paths, destFolder, destDriveId, sourceDriveId) =>
-          internalMoveMutation.mutate({ paths, destFolder, destDriveId, fromDriveId: sourceDriveId }) : undefined}
+        onUploadFiles={folderCanUpload ? uploadFiles : undefined}
+        onInternalMove={folderCanEdit && !source.isFile ? (paths, destFolder, destDriveId, sourceDriveId) =>
+          guest
+            ? shareMoveMutation.mutate({ paths, dest: destFolder })
+            : internalMoveMutation.mutate({ paths, destFolder, destDriveId, fromDriveId: sourceDriveId }) : undefined}
         onOpenFile={(ctx) => setViewerPath(ctx.fullPath)}
-        onShare={(ctx) => setAccessTarget({
+        onShare={guest || inTrash ? undefined : (ctx) => setAccessTarget({
           path: ctx.fullPath,
-          kind: ctx.entry.kind === "dir" ? "folder" : "file",
         })}
-        onCopy={(paths) => setTransfer({ kind: "copy", paths })}
-        onMove={folderWritable ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
-        onRename={folderWritable ? (ctx) => {
+        onCopy={guest || inTrash ? undefined : (paths) => setTransfer({ kind: "copy", paths })}
+        onMove={folderCanEdit && !source.isFile ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
+        onRename={folderCanEdit && !source.isFile ? (ctx) => {
           setActionError(null);
           setRenameTarget({ fullPath: ctx.fullPath, name: ctx.entry.name });
           setRenameValue(ctx.entry.name);
         } : undefined}
-        onDelete={folderWritable ? setDeletePaths : undefined}
-        trashHref={showTrashLink && trashVisible ? `/drives/${driveId}?view=trash` : null}
-        folderActions={folderWritable ? <NewItemMenu onPick={openCreate} /> : null}
-        emptyTitle="This drive is empty"
-        emptyDescription="Upload files or create folders to get started."
-        emptyIcon={HardDrive}
-        emptyAction={folderWritable ? (
+        onDelete={folderCanEdit && !source.isFile ? setDeletePaths : undefined}
+        trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
+        segmentLabel={segmentLabel}
+        folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} /> : null}
+        emptyTitle={inTrash ? "Trash is empty" : emptyTitle}
+        emptyDescription={inTrash
+          ? "Things you delete on this drive land here. Restore them or delete them permanently."
+          : emptyDescription}
+        emptyIcon={inTrash ? Trash2 : emptyIcon}
+        emptyAction={folderCanUpload && !source.isFile ? (
           <div className="flex justify-center">
             <NewItemMenu onPick={openCreate} />
           </div>
         ) : null}
-        breadcrumbExtra={(
-          <>
-            <AccessButton
-              label={path || driveLabel || "this folder"}
-              onClick={() => setAccessTarget({
-                path,
-                kind: path ? "folder" : "drive",
-              })}
-            />
+        breadcrumbExtra={inTrash ? (
+          canView && !source.isFile ? (
             <DownloadButton
               driveId={driveId}
               path={path}
-              label={path || driveLabel || "this folder"}
+              kind="dir"
+              label="Trash"
             />
+          )
+            : null
+        ) : (
+          <>
+            {!guest && (
+              <ShareButton
+                label={path || driveLabel || "this folder"}
+                onClick={() => setAccessTarget({ path })}
+              />
+            )}
+            {canView && !source.isFile && (
+              <DownloadButton
+                driveId={driveId}
+                path={path}
+                kind="dir"
+                label={path || driveLabel || "this folder"}
+              />
+            )}
             {showProtect && (
               <ProtectButton
                 label={path || driveLabel || "this folder"}
@@ -714,40 +812,109 @@ export default function DriveFileExplorer({
             )}
           </>
         )}
-        headerExtra={headerExtra}
-        renderRowActions={(ctx) => (
+        headerExtra={inTrash && path === TRASH_PATH ? (
+          <>
+            <Button
+              variant="outline"
+              surface="secondary"
+              size="sm"
+              disabled={!trashListing.data?.length}
+              onClick={() => {
+                setActionError(null);
+                setEmptyTrashOpen(true);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              Empty trash
+            </Button>
+            {headerExtra}
+          </>
+        ) : headerExtra}
+        renderRowActions={inTrash ? (ctx) => (
           <ActionTooltipGroup>
             <div className="flex items-center gap-0.5 flex-wrap justify-end">
-              <AccessButton
-                label={ctx.entry.name}
-                onClick={() => setAccessTarget({
-                  path: ctx.fullPath,
-                  kind: ctx.entry.kind === "dir" ? "folder" : "file",
-                })}
+              <DownloadButton
+                driveId={driveId}
+                path={ctx.fullPath}
+                kind={ctx.entry.kind}
+                label={ctx.displayName}
               />
+              {ctx.path === TRASH_PATH && (
+                <>
+                  <Tooltip content="Restore">
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      aria-label={`Restore ${ctx.displayName}`}
+                      onClick={() => {
+                        setActionError(null);
+                        setRestoreTarget({
+                          fullPath: ctx.fullPath,
+                          displayName: ctx.displayName,
+                          originalPath: ctx.entry.original_path || "",
+                        });
+                        setRestoreName(ctx.displayName);
+                      }}
+                    >
+                      <RotateCcw size={ICON_SIZE.sm} />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Delete permanently">
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      aria-label={`Delete ${ctx.displayName} permanently`}
+                      onClick={() => setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })}
+                    >
+                      <Trash2 size={ICON_SIZE.sm} />
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
+            </div>
+          </ActionTooltipGroup>
+        ) : (ctx) => (
+          <ActionTooltipGroup>
+            <div className="flex items-center gap-0.5 flex-wrap justify-end">
+              {!guest && (
+                <ShareButton
+                  label={ctx.entry.name}
+                  onClick={() => setAccessTarget({ path: ctx.fullPath })}
+                />
+              )}
               {showProtect && ctx.entry.kind === "dir" && (
                 <ProtectButton
                   label={ctx.entry.name}
                   onClick={() => setProtectTarget({ path: ctx.fullPath })}
                 />
               )}
-              <DownloadButton
-                driveId={driveId}
-                path={ctx.fullPath}
-                label={ctx.entry.name}
-              />
-              <Tooltip content="Copy">
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  aria-label={`Copy ${ctx.entry.name}`}
-                  onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath] })}
-                >
-                  <Copy size={ICON_SIZE.sm} />
-                </Button>
-              </Tooltip>
-              {(isAdmin || canWriteOnPath(grants.data, driveId, ctx.fullPath)) && (
+              {canView && (
+                <DownloadButton
+                  driveId={driveId}
+                  path={ctx.fullPath}
+                  kind={ctx.entry.kind}
+                  label={ctx.entry.name}
+                />
+              )}
+              {!guest && (
+                <Tooltip content="Copy">
+                  <Button
+                    variant="ghost"
+                    surface="secondary"
+                    size="iconSm"
+                    aria-label={`Copy ${ctx.entry.name}`}
+                    onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath] })}
+                  >
+                    <Copy size={ICON_SIZE.sm} />
+                  </Button>
+                </Tooltip>
+              )}
+              {(guest
+                ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
+                : isAdmin || (capsOnPath(access.data, driveId, ctx.fullPath) & CAP.EDIT) !== 0
+              ) && (
                 <>
                   <Tooltip content="Move">
                     <Button
@@ -792,12 +959,16 @@ export default function DriveFileExplorer({
           </ActionTooltipGroup>
         )}
       />
+      )}
 
       <FileViewer
         open={viewerPath != null}
         driveId={driveId}
         path={viewerPath || ""}
-        canWrite={isAdmin || canWriteOnPath(grants.data, driveId, viewerPath || "")}
+        name={viewerPath === "" && source.isFile ? driveLabel : undefined}
+        canWrite={!inTrash && (guest
+          ? (guestCaps & CAP.EDIT) !== 0
+          : isAdmin || (capsOnPath(access.data, driveId, viewerPath || "") & CAP.EDIT) !== 0)}
         onClose={() => setViewerPath(null)}
         onSaved={() => viewerPath && invalidate([viewerPath])}
         onOpenPath={(next) => {
@@ -864,6 +1035,120 @@ export default function DriveFileExplorer({
         )}
       </ModalCard>
 
+      <ModalCard
+        open={restoreTarget != null}
+        title="Restore this?"
+        onClose={() => {
+          setActionError(null);
+          setRestoreTarget(null);
+        }}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              Luna will move it out of Trash
+              to {restoreDestFolder ? `“${restoreDestFolder}”` : `the top of ${driveLabel}`}.
+              Choose the name it should have.
+            </p>
+            <ShakeTarget shake={actionError}>
+              <input
+                className="mt-3 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
+                value={restoreName}
+                maxLength={255}
+                onChange={(e) => setRestoreName(e.target.value)}
+                aria-label="Restored file name"
+              />
+            </ShakeTarget>
+            <ModalErrorNotice error={actionError} />
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="primary"
+                loading={restoreMutation.isPending}
+                onClick={() => {
+                  if (!restoreTarget) return;
+                  restoreMutation.mutateAsync({
+                    path: restoreTarget.fullPath,
+                    dest: joinPath(restoreDestFolder, restoreName.trim()),
+                  })
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Restore
+              </Button>
+              <Button variant="outline" onClick={close}>Not now</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
+
+      <ModalCard
+        open={purgeTarget != null}
+        title="Delete permanently?"
+        onClose={() => {
+          setActionError(null);
+          setPurgeTarget(null);
+        }}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              <span className="font-mono">{purgeTarget?.label}</span> will be
+              deleted permanently. Luna cannot get it back after this.
+            </p>
+            <ModalErrorNotice error={actionError} />
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="danger"
+                loading={purgeMutation.isPending}
+                onClick={() => {
+                  if (!purgeTarget) return;
+                  purgeMutation.mutateAsync(purgeTarget.paths)
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Delete permanently
+              </Button>
+              <Button variant="outline" onClick={close}>Keep in trash</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
+
+      <ModalCard
+        open={emptyTrashOpen}
+        title="Empty trash?"
+        onClose={() => {
+          setActionError(null);
+          setEmptyTrashOpen(false);
+        }}
+      >
+        {({ close }) => (
+          <>
+            <p className="text-primary text-sm">
+              Everything in Trash will be deleted permanently. Luna cannot get
+              any of it back after this.
+            </p>
+            <ModalErrorNotice error={actionError} />
+            <div className="mt-4 flex gap-3">
+              <Button
+                variant="danger"
+                loading={emptyTrashMutation.isPending}
+                onClick={() => {
+                  emptyTrashMutation.mutateAsync()
+                    .then(() => close())
+                    .catch(() => {});
+                }}
+              >
+                Empty trash
+              </Button>
+              <Button variant="outline" onClick={close}>Keep it all</Button>
+            </div>
+          </>
+        )}
+      </ModalCard>
+
       <CreateNameModal
         open={createKind != null}
         title={createKind?.title || "New"}
@@ -922,19 +1207,25 @@ export default function DriveFileExplorer({
         )}
       </ModalCard>
 
-      <AccessSheet
-        open={accessTarget != null}
-        driveId={driveId}
-        path={accessTarget?.path || ""}
-        kind={accessTarget?.kind || "folder"}
-        onClose={() => setAccessTarget(null)}
-      />
-      <ProtectSheet
-        open={protectTarget != null}
-        driveId={driveId}
-        path={protectTarget?.path || ""}
-        onClose={() => setProtectTarget(null)}
-      />
+      {!guest && (
+        <>
+          <ShareSheet
+            open={accessTarget != null}
+            subject={
+              accessTarget
+                ? { kind: "path", driveId, path: accessTarget.path || "" }
+                : null
+            }
+            onClose={() => setAccessTarget(null)}
+          />
+          <ProtectSheet
+            open={protectTarget != null}
+            driveId={driveId}
+            path={protectTarget?.path || ""}
+            onClose={() => setProtectTarget(null)}
+          />
+        </>
+      )}
     </>
   );
 }
@@ -956,4 +1247,7 @@ DriveFileExplorer.propTypes = {
   headerExtra: PropTypes.node,
   viewerPath: PropTypes.string,
   onViewerPathChange: PropTypes.func,
+  emptyTitle: PropTypes.string,
+  emptyDescription: PropTypes.string,
+  emptyIcon: PropTypes.elementType,
 };

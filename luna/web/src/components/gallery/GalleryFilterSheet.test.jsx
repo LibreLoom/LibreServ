@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GalleryFilterSheet, {
   EMPTY_FILTERS,
+  clearFilterChip,
+  countActiveFilters,
   datePresetRange,
+  filterChipList,
+  monthDayLabel,
 } from "./GalleryFilterSheet.jsx";
 
 vi.mock("../../lib/api", () => ({
@@ -89,6 +93,30 @@ describe("GalleryFilterSheet", () => {
     expect(await screen.findByText(/Album membership/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^In an album$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Not in an album$/i })).toBeInTheDocument();
+  });
+
+  it("toggles the On this day filter from the When section", async () => {
+    const onApply = vi.fn();
+    render(
+      <GalleryFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^On this day$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
+    expect(onApply.mock.calls[0][0].monthDay).toBe("today");
+  });
+
+  it("counts, labels, and clears the monthDay filter like any other", () => {
+    const f = { ...EMPTY_FILTERS, monthDay: "today" };
+    expect(countActiveFilters(f)).toBe(1);
+    expect(filterChipList(f)).toEqual([{ id: "monthDay", label: "On this day" }]);
+    expect(clearFilterChip(f, "monthDay").monthDay).toBe("");
+    expect(monthDayLabel("today")).toBe("On this day");
+    expect(monthDayLabel("03-14")).toMatch(/^Every /);
   });
 
   it("applies Undated preset into onApply payload", async () => {

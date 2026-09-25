@@ -10,8 +10,8 @@
 //! upload temps) shares it. `open` locates the marker by name shape, so the
 //! prefix never needs to be threaded through callers.
 //!
-//! Central `luna.db` still owns users, grants, shares, protection *rules*,
-//! jobs, and the thin drives registry.
+//! Central `luna.db` still owns users, access members/links, protection
+//! *rules*, jobs, and the thin drives registry.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -425,8 +425,6 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             created_at INTEGER NOT NULL,
             cover_path TEXT NOT NULL DEFAULT '',
             cover_drive_id TEXT NOT NULL DEFAULT '',
-            shared INTEGER NOT NULL DEFAULT 0,
-            allow_uploads INTEGER NOT NULL DEFAULT 0,
             contrib_path TEXT NOT NULL DEFAULT '',
             locked INTEGER NOT NULL DEFAULT 0
          );
@@ -436,28 +434,6 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             path TEXT NOT NULL,
             added_at INTEGER NOT NULL,
             PRIMARY KEY (album_id, drive_id, path)
-         );
-         CREATE TABLE IF NOT EXISTS album_members (
-            album_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            PRIMARY KEY (album_id, user_id)
-         );
-         CREATE TABLE IF NOT EXISTS album_invites (
-            id TEXT PRIMARY KEY,
-            album_id TEXT NOT NULL,
-            token TEXT NOT NULL UNIQUE,
-            role TEXT NOT NULL,
-            expires_at INTEGER,
-            password_hash TEXT,
-            created_at INTEGER NOT NULL
-         );
-         CREATE INDEX IF NOT EXISTS album_invites_token ON album_invites(token);
-         CREATE TABLE IF NOT EXISTS archive (
-            user_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            PRIMARY KEY (user_id, path)
          );
          CREATE TABLE IF NOT EXISTS trash_meta (
             entry_name TEXT PRIMARY KEY NOT NULL,
@@ -482,6 +458,14 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             PRIMARY KEY (upload_id, start)
          );",
     )?;
+    // Legacy album sharing tables — replaced by access_members/access_links
+    // in the central DB. `archive` held per-user archived photos; the Photos
+    // archive feature is gone.
+    let _ = conn.execute_batch(
+        "DROP TABLE IF EXISTS album_members;
+         DROP TABLE IF EXISTS album_invites;
+         DROP TABLE IF EXISTS archive;",
+    );
     // Additive columns for existing drive DBs (CREATE TABLE IF NOT EXISTS
     // does not alter already-created tables).
     ensure_column(conn, "albums", "cover_drive_id", "TEXT NOT NULL DEFAULT ''")?;

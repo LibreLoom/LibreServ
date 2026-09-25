@@ -115,6 +115,16 @@ describe("recentItemFromLocation", () => {
         search: "?path=X&view=trash",
       }),
     ).toBeNull();
+    // Trash browses as the `.luna-trash` folder — still not a recent item.
+    expect(
+      recentItemFromLocation({ pathname: "/drives/d1", search: "?path=.luna-trash" }),
+    ).toBeNull();
+    expect(
+      recentItemFromLocation({
+        pathname: "/drives/d1",
+        search: "?path=.luna-trash/171-note.txt&file=171-note.txt",
+      }),
+    ).toBeNull();
   });
 
   it("records the folder for a search-select link", () => {

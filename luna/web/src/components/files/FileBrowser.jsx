@@ -28,7 +28,8 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { getJson } from "../../lib/api.js";
+import { fileListKey, useFileSource } from "../../lib/fileSource.jsx";
+import { CAP } from "../../lib/access.js";
 
 const UNPLUGGED_DRIVE_MESSAGE =
   "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.";
@@ -67,11 +68,13 @@ import {
   readLunaPaths,
 } from "../../lib/dnd.js";
 import { canViewerOpen } from "../../lib/officeConvert.js";
+import { isFormFile, viewerNeedsSession } from "../../lib/fileKinds.js";
+import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
 import {
-  downloadHref,
   fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
+  isTrashPath,
   joinPath,
   parentPath,
 } from "../../lib/paths.js";
@@ -124,15 +127,20 @@ function extensionOf(name) {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
+/** What the user sees for this row — trash entries carry `original_name`. */
+function displayNameOf(entry) {
+  return entry?.original_name || entry?.name || "";
+}
+
 /** Folders always lead; the chosen key orders within each group. */
 function compareEntries(a, b, sortKey) {
   const aDir = a.kind === "dir" ? 0 : 1;
   const bDir = b.kind === "dir" ? 0 : 1;
   if (aDir !== bDir) return aDir - bDir;
-  const byName = NAME_COLLATOR.compare(a.name, b.name);
+  const byName = NAME_COLLATOR.compare(displayNameOf(a), displayNameOf(b));
   switch (sortKey) {
     case "name-desc":
-      return NAME_COLLATOR.compare(b.name, a.name);
+      return NAME_COLLATOR.compare(displayNameOf(b), displayNameOf(a));
     case "date-desc":
       return (Number(b.modified) || 0) - (Number(a.modified) || 0) || byName;
     case "date-asc":
@@ -142,7 +150,10 @@ function compareEntries(a, b, sortKey) {
     case "size-asc":
       return (Number(a.size) || 0) - (Number(b.size) || 0) || byName;
     case "kind": {
-      const byExtension = NAME_COLLATOR.compare(extensionOf(a.name), extensionOf(b.name));
+      const byExtension = NAME_COLLATOR.compare(
+        extensionOf(displayNameOf(a)),
+        extensionOf(displayNameOf(b)),
+      );
       return byExtension || byName;
     }
     default:
@@ -151,8 +162,8 @@ function compareEntries(a, b, sortKey) {
 }
 
 /**
- * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean }} FileEntry
- * @typedef {{ entry: FileEntry, path: string, fullPath: string }} FileBrowserRowContext
+ * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean, original_name?: string, original_path?: string }} FileEntry
+ * @typedef {{ entry: FileEntry, path: string, fullPath: string, displayName: string }} FileBrowserRowContext
  */
 
 /**
@@ -184,6 +195,7 @@ function compareEntries(a, b, sortKey) {
  *   onUploadFiles?: (files: File[], destPath: string) => void | Promise<void>,
  *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string, sourceDriveId?: string) => void | Promise<void>,
  *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
+ *   renderSelectionActions?: (paths: string[], rows: FileBrowserRowContext[]) => import("react").ReactNode,
  *   enableDownload?: boolean,
  *   enableUploadDrop?: boolean,
  *   linkNavigation?: boolean,
@@ -191,6 +203,7 @@ function compareEntries(a, b, sortKey) {
  *   fileHref?: (driveId: string, filePath: string) => string,
  *   showBreadcrumbs?: boolean,
  *   showUpButton?: boolean,
+ *   segmentLabel?: (segment: string, index: number) => string,
  *   breadcrumbExtra?: import("react").ReactNode,
  *   headerExtra?: import("react").ReactNode,
  *   trashHref?: string | null,
@@ -229,6 +242,7 @@ export default function FileBrowser({
   onUploadFiles,
   onInternalMove,
   renderRowActions,
+  renderSelectionActions,
   enableDownload = true,
   enableUploadDrop = false,
   linkNavigation = false,
@@ -236,6 +250,7 @@ export default function FileBrowser({
   fileHref = defaultFileHref,
   showBreadcrumbs = true,
   showUpButton = true,
+  segmentLabel = null,
   breadcrumbExtra = null,
   headerExtra = null,
   trashHref = null,
@@ -270,10 +285,14 @@ export default function FileBrowser({
   const folderChromeProbeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const [measuredFolderChromeSplit, setMeasuredFolderChromeSplit] = useState(false);
   const navigate = useNavigate();
+  const source = useFileSource();
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
   const isPicker = Boolean(pickerMode);
+  // Trash browses through this same browser — read-only by wiring, so rows
+  // keep their pre-trash names and session-backed editors stay closed.
+  const trashView = isTrashPath(path);
   const multiSelect = multiSelectProp ?? (!isPicker);
   const hasFolderActions = Boolean(folderActions || (enableUploadDrop && !isPicker));
   const folderChromeSplit = hasFolderActions && showBreadcrumbs && measuredFolderChromeSplit;
@@ -293,9 +312,8 @@ export default function FileBrowser({
   }
 
   const listing = useQuery({
-    queryKey: ["files", driveId, path],
-    queryFn: () =>
-      getJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(path)}`),
+    queryKey: fileListKey(source, driveId, path),
+    queryFn: () => source.listDir(driveId, path),
     enabled: !!driveId,
     // Keep the previous folder visible while the next listing loads so the list
     // card does not collapse empty and pop back in.
@@ -339,7 +357,7 @@ export default function FileBrowser({
     return entries
       .filter((e) => (
         (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
-        && (!query || e.name.toLowerCase().includes(query))
+        && (!query || displayNameOf(e).toLowerCase().includes(query))
       ))
       .sort((a, b) => compareEntries(a, b, sortKey));
   }, [entries, kindFilter, filterText, sortKey]);
@@ -542,7 +560,8 @@ export default function FileBrowser({
    * and drop into `destFolder`.
    */
   function folderDropProps(key, destFolder) {
-    if (isPicker || (!onInternalMove && !onUploadFiles)) return {};
+    // Trash rows/crumbs never accept drops — trash is read-only.
+    if (isPicker || trashView || (!onInternalMove && !onUploadFiles)) return {};
     return {
       onDragOver: (e) => {
         const isLuna = hasLunaPaths(e);
@@ -570,6 +589,7 @@ export default function FileBrowser({
       entry,
       path,
       fullPath: joinPath(path, entry.name),
+      displayName: displayNameOf(entry),
     };
   }
 
@@ -623,13 +643,20 @@ export default function FileBrowser({
     setLastClicked(null);
   }
 
+  /** Can this row open in the viewer? Trash keeps session kinds closed. */
+  function canOpenEntry(ctx) {
+    if (ctx.entry.kind !== "file" || !canViewerOpen(ctx.displayName)) return false;
+    if (trashView && viewerNeedsSession(ctx.displayName)) return false;
+    return true;
+  }
+
   function openEntry(ctx) {
     haptic("medium");
     if (ctx.entry.kind === "dir") {
       openFolder(ctx.fullPath, { feedback: false });
       return;
     }
-    if (onOpenFile && canViewerOpen(ctx.entry.name)) {
+    if (onOpenFile && canOpenEntry(ctx)) {
       onOpenFile(ctx);
     }
   }
@@ -648,7 +675,7 @@ export default function FileBrowser({
   }
 
   function onRowDragStart(ctx, event) {
-    if (isPicker || !onInternalMove) return;
+    if (isPicker || trashView || !onInternalMove) return;
     const origin = event.target;
     if (origin instanceof Element && origin.closest("[data-no-row-drag]")) {
       event.preventDefault();
@@ -709,7 +736,7 @@ export default function FileBrowser({
           variant={selected ? "primary" : "outline"}
           surface="secondary"
           size="sm"
-          aria-label={selected ? `Selected ${ctx.entry.name}` : `Select ${ctx.entry.name}`}
+          aria-label={selected ? `Selected ${ctx.displayName}` : `Select ${ctx.displayName}`}
           aria-pressed={selected}
           onClick={() => onSelect?.(ctx)}
         >
@@ -740,7 +767,7 @@ export default function FileBrowser({
             variant="ghost"
             surface="secondary"
             size="iconSm"
-            aria-label={`Copy ${ctx.entry.name}`}
+            aria-label={`Copy ${ctx.displayName}`}
             onClick={() => onCopy([ctx.fullPath])}
           >
             <Copy size={14} />
@@ -755,7 +782,7 @@ export default function FileBrowser({
             variant="ghost"
             surface="secondary"
             size="iconSm"
-            aria-label={`Move ${ctx.entry.name}`}
+            aria-label={`Move ${ctx.displayName}`}
             onClick={() => onMove([ctx.fullPath])}
           >
             <FolderInput size={14} />
@@ -770,7 +797,7 @@ export default function FileBrowser({
             variant="ghost"
             surface="secondary"
             size="iconSm"
-            aria-label={`Rename ${ctx.entry.name}`}
+            aria-label={`Rename ${ctx.displayName}`}
             onClick={() => onRename(ctx)}
           >
             <Pencil size={14} />
@@ -785,7 +812,7 @@ export default function FileBrowser({
             variant="ghost"
             surface="secondary"
             size="iconSm"
-            aria-label={`Move ${ctx.entry.name} to trash`}
+            aria-label={`Move ${ctx.displayName} to trash`}
             onClick={() => onDelete([ctx.fullPath])}
           >
             <Trash2 size={14} />
@@ -801,9 +828,9 @@ export default function FileBrowser({
             surface="secondary"
             size="iconSm"
             asChild
-            aria-label={`Download ${ctx.entry.name}`}
+            aria-label={`Download ${ctx.displayName}`}
           >
-            <a href={downloadHref(driveId, ctx.fullPath)}>
+            <a href={source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind)}>
               <Download size={14} />
             </a>
           </Button>
@@ -820,7 +847,7 @@ export default function FileBrowser({
   const padY = dense ? "py-2" : "py-2.5";
   const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedPaths.includes(p));
   const selectedCount = selectedPaths.length;
-  const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
+  const showSelectionToolbar = !isPicker && multiSelect && !trashView && selectedCount > 0;
   // The browser background is itself a drop target ("::current") for the
   // folder being browsed — no visible highlight, only the a11y status.
   const currentFolderDrop = dropTarget === "::current";
@@ -830,7 +857,7 @@ export default function FileBrowser({
   // leave dragPathsRef empty, so they're always treated as from elsewhere.
   const lunaDragFromElsewhere = dragPathsRef.current.length === 0
     || dragPathsRef.current.some((p) => parentPath(p) !== path);
-  const showHereDrop = lunaDragActive && !isPicker && Boolean(onInternalMove) && lunaDragFromElsewhere;
+  const showHereDrop = lunaDragActive && !isPicker && !trashView && Boolean(onInternalMove) && lunaDragFromElsewhere;
 
   // The chip stays mounted through its slide-out — same exit-delay pattern as
   // the fullscreen overlays. Reduced motion unmounts it immediately.
@@ -911,7 +938,7 @@ export default function FileBrowser({
       className={className}
       data-slot="file-browser"
       onDragOver={(e) => {
-        if (isPicker) return;
+        if (isPicker || trashView) return;
         const isLuna = Boolean(onInternalMove) && hasLunaPaths(e);
         const isOsFiles = Boolean(enableUploadDrop) && hasOsFiles(e);
         if (!isOsFiles && !isLuna) return;
@@ -933,7 +960,7 @@ export default function FileBrowser({
         setLunaDragActive(false);
       }}
       onDrop={(e) => {
-        if (isPicker) return;
+        if (isPicker || trashView) return;
         setLunaDragActive(false);
         const isLuna = hasLunaPaths(e);
         // The browser background is a drop target for the folder being
@@ -979,7 +1006,7 @@ export default function FileBrowser({
                     {segments.map((segment, i) => (
                       <span key={`probe-${segment}-${i}`} className="flex items-center gap-2">
                         <span aria-hidden="true">/</span>
-                        <span>{segment}</span>
+                        <span>{segmentLabel ? segmentLabel(segment, i) : segment}</span>
                       </span>
                     ))}
                     {breadcrumbExtra}
@@ -1073,7 +1100,7 @@ export default function FileBrowser({
                             draggable={false}
                             {...segDropProps}
                           >
-                            {segment}
+                            {segmentLabel ? segmentLabel(segment, i) : segment}
                           </TextLink>
                         ) : (
                           <button
@@ -1085,7 +1112,7 @@ export default function FileBrowser({
                             )}
                             onClick={() => openFolder(segPath)}
                           >
-                            {segment}
+                            {segmentLabel ? segmentLabel(segment, i) : segment}
                           </button>
                         )}
                       </span>
@@ -1221,6 +1248,7 @@ export default function FileBrowser({
                 entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
                 path: parentPath(path) || "",
                 fullPath: path,
+                displayName: pathBasenameSafe(path) || driveLabel,
               })}
             >
               {selectedPath === path ? "Using this folder" : "Use this folder"}
@@ -1269,7 +1297,7 @@ export default function FileBrowser({
             role={showSelectionToolbar ? "toolbar" : "group"}
             aria-label={showSelectionToolbar ? "Actions for selected files" : "Sort and filter this folder"}
           >
-            {!isPicker && multiSelect ? (
+            {!isPicker && multiSelect && !trashView ? (
               <AnimatedCheckbox
                 checked={allSelected}
                 onChange={(next) => (next ? selectAllVisible() : clearSelection())}
@@ -1312,7 +1340,7 @@ export default function FileBrowser({
                       const name = fullPath.split("/").pop() || fullPath;
                       const entry = entries.find((e) => joinPath(path, e.name) === fullPath)
                         || { name, kind: "file" };
-                      onShare({ entry, path, fullPath });
+                      onShare({ entry, path, fullPath, displayName: displayNameOf(entry) });
                     }}
                   >
                     Sharing
@@ -1327,7 +1355,7 @@ export default function FileBrowser({
                     style={{ animationFillMode: "backwards" }}
                     asChild
                   >
-                    <a href={downloadHref(driveId, selectedPaths[0])}>Download</a>
+                    <a href={source.downloadHref(driveId, selectedPaths[0])}>Download</a>
                   </Button>
                 ) : null}
                 {onCopy ? (
@@ -1365,6 +1393,13 @@ export default function FileBrowser({
                     Trash
                   </Button>
                 ) : null}
+                {renderSelectionActions?.(
+                  selectedPaths,
+                  selectedPaths
+                    .map((p) => entries.find((e) => joinPath(path, e.name) === p))
+                    .filter(Boolean)
+                    .map((e) => rowContext(e)),
+                )}
                 {toolbarExtra}
               </div>
             ) : (
@@ -1511,8 +1546,8 @@ export default function FileBrowser({
               const ctx = rowContext(entry);
               const isSelected = selectedPaths.includes(ctx.fullPath);
               const isDrop = dropTarget === ctx.fullPath;
-              const openable = entry.kind === "file" && canViewerOpen(entry.name);
-              const canDragRow = !isPicker && Boolean(onInternalMove);
+              const openable = canOpenEntry(ctx);
+              const canDragRow = !isPicker && !trashView && Boolean(onInternalMove);
 
               return (
                 <li
@@ -1538,7 +1573,7 @@ export default function FileBrowser({
                   onDragStart={(e) => onRowDragStart(ctx, e)}
                   {...(entry.kind === "dir" ? folderDropProps(ctx.fullPath, ctx.fullPath) : {})}
                 >
-                  {!isPicker && multiSelect ? (
+                  {!isPicker && multiSelect && !trashView ? (
                     <div
                       data-no-row-drag
                       draggable={false}
@@ -1562,7 +1597,7 @@ export default function FileBrowser({
                           );
                           setLastClicked(ctx.fullPath);
                         }}
-                        aria-label={`Select ${entry.name}`}
+                        aria-label={`Select ${ctx.displayName}`}
                         surface="secondary"
                       />
                     </div>
@@ -1577,7 +1612,7 @@ export default function FileBrowser({
                           className="flex items-center gap-2 min-w-0 text-primary hover:underline"
                         >
                           <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </Link>
                       ) : (
                         <button
@@ -1587,7 +1622,7 @@ export default function FileBrowser({
                           onClick={() => openEntry(ctx)}
                         >
                           <Folder size={16} className="text-accent shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </button>
                       )
                     ) : openable ? (
@@ -1602,7 +1637,7 @@ export default function FileBrowser({
                           }}
                         >
                           <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </Link>
                       ) : (
                         <button
@@ -1612,19 +1647,22 @@ export default function FileBrowser({
                           onClick={() => openEntry(ctx)}
                         >
                           <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
-                          <span className="font-mono text-sm truncate">{entry.name}</span>
+                          <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                         </button>
                       )
                     ) : (
                       <div className="flex items-center gap-2 min-w-0 text-primary" draggable={false}>
                         <FileIcon size={16} className="text-accent shrink-0" aria-hidden="true" />
-                        <span className="font-mono text-sm truncate">{entry.name}</span>
+                        <span className="font-mono text-sm truncate">{ctx.displayName}</span>
                       </div>
                     )}
                     {entry.saving ? (
                       <span className="text-xs text-accent shrink-0" aria-live="polite">
                         Saving…
                       </span>
+                    ) : null}
+                    {!isPicker && !trashView && (!source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0) && entry.kind === "file" && isFormFile(entry.name) ? (
+                      <FormResponseBadge driveId={driveId} formPath={ctx.fullPath} />
                     ) : null}
                   </div>
 
@@ -1637,7 +1675,7 @@ export default function FileBrowser({
                     {rowActions(ctx)}
                     {!isPicker && (
                       <PropertiesButton
-                        label={entry.name}
+                        label={ctx.displayName}
                         onClick={() => setPropertiesCtx(ctx)}
                       />
                     )}
@@ -1685,7 +1723,8 @@ export default function FileBrowser({
         driveLabel={driveLabel}
         path={propertiesCtx?.fullPath || ""}
         parent={propertiesCtx?.path || ""}
-        entry={propertiesCtx?.entry || null}
+        entry={propertiesCtx ? { ...propertiesCtx.entry, name: propertiesCtx.displayName } : null}
+        inTrash={trashView}
         onClose={() => setPropertiesCtx(null)}
       />
     </div>
@@ -1721,6 +1760,7 @@ FileBrowser.propTypes = {
   onUploadFiles: PropTypes.func,
   onInternalMove: PropTypes.func,
   renderRowActions: PropTypes.func,
+  renderSelectionActions: PropTypes.func,
   enableDownload: PropTypes.bool,
   enableUploadDrop: PropTypes.bool,
   linkNavigation: PropTypes.bool,
@@ -1728,6 +1768,7 @@ FileBrowser.propTypes = {
   fileHref: PropTypes.func,
   showBreadcrumbs: PropTypes.bool,
   showUpButton: PropTypes.bool,
+  segmentLabel: PropTypes.func,
   breadcrumbExtra: PropTypes.node,
   headerExtra: PropTypes.node,
   trashHref: PropTypes.string,

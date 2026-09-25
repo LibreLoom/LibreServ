@@ -3,9 +3,10 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 DS_IMAGE ?= ghcr.io/euro-office/documentserver:latest
+DRAWIO_VERSION ?= v31.5.2
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack
+.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack
 
 web:
 	cd ../shared/ui && npm install --no-audit --no-fund
@@ -34,6 +35,8 @@ dev: build-daemon
 	@echo "    Tip: spawn test drives with: make mock-drive ARGS=\"spawn <name> <preset>\""
 	@[ -d "$(DATA_DIR)/eurooffice" ] || \
 	  echo "    Tip: office editing needs the EuroOffice pack: make eurooffice"
+	@[ -d "$(DATA_DIR)/drawio" ] || \
+	  echo "    Tip: diagram editing needs the draw.io pack: make drawio"
 	@trap 'kill 0' INT TERM EXIT; \
 	  if [ -p /dev/stdin ]; then \
 	    ( while read -r _; do :; done; kill 0 2>/dev/null ) <&0 & \
@@ -75,6 +78,20 @@ eurooffice-assets:
 # present (EUROOFFICE_DIR to point elsewhere); fetches it otherwise.
 eurooffice-pack:
 	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-eurooffice-pack.sh
+
+# draw.io dev pack (Apache-2.0, never committed): downloads draw.war from a
+# pinned jgraph/drawio GitHub release and unpacks the static webapp into
+# $(DATA_DIR)/drawio — lunad serves it at /drawio for the embedded editor.
+# See docs/drawio.md.
+drawio:
+	LUNA_DATA_DIR="$(DATA_DIR)" DRAWIO_VERSION="$(DRAWIO_VERSION)" \
+		bash scripts/install-drawio-assets.sh
+
+# Release pack: os/dist/drawio-pack.tar.zst, baked into the install ISO and
+# extracted onto LUNA_DATA by rapidinstall. Reuses the dev pack when present
+# (DRAWIO_DIR to point elsewhere); fetches it otherwise.
+drawio-pack:
+	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-drawio-pack.sh
 
 dev-daemon: build-daemon
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)

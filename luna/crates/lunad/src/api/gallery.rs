@@ -1,10 +1,10 @@
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Extension, Multipart, Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -16,7 +16,6 @@ use crate::api::response::json_error;
 use crate::gallery::{self, ListFilter};
 
 const THUMB_CACHE_CONTROL: &str = "private, max-age=3600, must-revalidate";
-const PUBLIC_ALBUM_ZIP_MAX: usize = 500;
 const GALLERY_DOWNLOAD_ZIP_MAX: usize = 200;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -26,29 +25,50 @@ fn is_admin(user: &crate::auth::CurrentUser) -> bool {
     user.role == "admin"
 }
 
+/// The capabilities `user` holds on this album through the universal access
+/// model: everything for admins and the owner, member rows otherwise.
+fn album_caps(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    home: &str,
+    album: &gallery::Album,
+) -> crate::access::Caps {
+    if is_admin(user) || album.owner_user_id == user.id {
+        return crate::access::CAP_ALL;
+    }
+    let Ok(conn) = state.db.lock() else {
+        return 0;
+    };
+    let Ok(rows) = crate::db::list_access_members_for_user(&conn, &user.id) else {
+        return 0;
+    };
+    crate::access::member_caps_on_album(&rows, home, &album.id)
+}
+
 fn can_manage_album(user: &crate::auth::CurrentUser, album: &gallery::Album) -> bool {
     is_admin(user) || album.owner_user_id == user.id
 }
 
-fn can_view_album(user: &crate::auth::CurrentUser, root: &FsPath, album: &gallery::Album) -> bool {
-    if is_admin(user) {
-        return true;
-    }
-    gallery::user_can_access_album(root, album, &user.id).unwrap_or(false)
+fn can_view_album(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    home: &str,
+    album: &gallery::Album,
+) -> bool {
+    album_caps(state, user, home, album) & crate::access::CAP_VIEW != 0
 }
 
 fn can_contribute_album(
+    state: &AppState,
     user: &crate::auth::CurrentUser,
-    root: &FsPath,
+    home: &str,
     album: &gallery::Album,
 ) -> bool {
-    if is_admin(user) {
-        return true;
-    }
-    gallery::user_can_contribute(root, album, &user.id).unwrap_or(false)
+    album_caps(state, user, home, album) & crate::access::CAP_UPLOAD != 0
 }
 
-/// Path prefixes per drive for Members. `None` means Admin (unrestricted).
+/// Viewable path prefixes per drive for Members. `None` means Admin
+/// (unrestricted); a missing drive key denies every path on that drive.
 fn path_grants_for_user(
     state: &AppState,
     user: &crate::auth::CurrentUser,
@@ -62,44 +82,57 @@ fn path_grants_for_user(
             "Luna's index is busy. Try again.",
         )
     })?;
-    let grants = crate::db::list_grants_for_user(&conn, &user.id).map_err(|_| {
+    let rows = crate::db::list_access_members_for_user(&conn, &user.id).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't check your folder access.",
         )
     })?;
     let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    for g in grants {
-        map.entry(g.drive_id).or_default().push(g.path);
+    for r in rows {
+        if r.subject_kind == crate::access::KIND_PATH && r.caps & crate::access::CAP_VIEW != 0 {
+            map.entry(r.drive_id).or_default().push(r.path);
+        }
     }
     Ok(Some(map))
 }
 
-/// Folder grant, Admin, or album membership (for viewing shared album photos).
+/// Path access, Admin, or album membership (for viewing shared album photos).
 fn can_view_gallery_path(
     state: &AppState,
     user: &crate::auth::CurrentUser,
     drive_id: &str,
     path: &str,
 ) -> Result<bool, ApiError> {
-    {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        if crate::auth::can_access(user, &conn, drive_id, path, false) {
-            return Ok(true);
-        }
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if crate::auth::has_cap(user, &conn, drive_id, path, crate::access::CAP_VIEW) {
+        return Ok(true);
     }
-    let mounts = all_mounted(state)?;
-    Ok(gallery::user_can_view_path_via_album(
-        &mounts,
+    // Album members see items (and contribution folders) through the album
+    // even without a filesystem grant — the album itself is the access.
+    Ok(crate::access::path_visible_via_album(
+        &conn,
         &user.id,
-        is_admin(user),
         drive_id,
         path,
+        |home, album_id| {
+            let Ok(Some(drive)) = crate::db::get_drive(&conn, home) else {
+                return false;
+            };
+            if drive.mount_point.is_empty() {
+                return false;
+            }
+            let root = PathBuf::from(&drive.mount_point);
+            let Ok(Some(album)) = gallery::get_album(&root, home, album_id) else {
+                return false;
+            };
+            album_item_allowed(home, &root, &album, drive_id, path)
+        },
     ))
 }
 
@@ -115,8 +148,6 @@ struct GalleryQuery {
     to: Option<i64>,
     #[serde(default)]
     favorites: Option<bool>,
-    #[serde(default)]
-    archived: Option<bool>,
     #[serde(default)]
     album_id: Option<String>,
     #[serde(default)]
@@ -157,6 +188,10 @@ struct GalleryQuery {
     /// `"none"` | `"any"` — album membership on the same drive DB only.
     #[serde(default)]
     album_membership: Option<String>,
+    /// `MM-DD` match on the capture date — "on this day" across years. Pair
+    /// with `to` to keep today's own photos out.
+    #[serde(default)]
+    month_day: Option<String>,
 }
 
 fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
@@ -194,10 +229,6 @@ struct PatchAlbumBody {
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
-    shared: Option<bool>,
-    #[serde(default)]
-    allow_uploads: Option<bool>,
-    #[serde(default)]
     locked: Option<bool>,
     /// Optional album cover path (relative to the cover drive).
     #[serde(default)]
@@ -216,36 +247,6 @@ struct AlbumItemsBody {
 struct AlbumItemRef {
     drive_id: String,
     path: String,
-}
-
-#[derive(Deserialize)]
-struct MemberBody {
-    user_id: String,
-    #[serde(default = "contributor_role")]
-    role: String,
-}
-
-fn contributor_role() -> String {
-    "contributor".into()
-}
-
-#[derive(Deserialize)]
-struct InviteBody {
-    #[serde(default = "viewer_role")]
-    role: String,
-    expires_in_days: Option<i64>,
-    #[serde(default)]
-    allow_uploads: Option<bool>,
-}
-
-fn viewer_role() -> String {
-    "viewer".into()
-}
-
-#[derive(Deserialize)]
-struct PublicAlbumQuery {
-    limit: Option<u32>,
-    offset: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -270,10 +271,6 @@ pub fn router() -> Router<AppState> {
             put(put_favorite).delete(delete_favorite),
         )
         .route(
-            "/api/v1/gallery/archive",
-            put(put_archive).delete(delete_archive),
-        )
-        .route(
             "/api/v1/gallery/albums",
             get(list_albums).post(create_album),
         )
@@ -284,34 +281,6 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/gallery/albums/{home}/{id}/items",
             get(list_items).post(add_items).delete(remove_item),
-        )
-        .route(
-            "/api/v1/gallery/albums/{home}/{id}/members",
-            get(list_members).put(put_member),
-        )
-        .route(
-            "/api/v1/gallery/albums/{home}/{id}/members/{user_id}",
-            delete(delete_member),
-        )
-        .route(
-            "/api/v1/gallery/albums/{home}/{id}/invites",
-            get(list_invites).post(create_invite),
-        )
-        .route(
-            "/api/v1/gallery/albums/{home}/{id}/invites/{invite_id}",
-            delete(delete_invite),
-        )
-        .route("/api/v1/public/albums/{token}", get(public_album))
-        .route("/api/v1/public/albums/{token}/thumb", get(public_thumb))
-        .route("/api/v1/public/albums/{token}/content", get(public_content))
-        .route(
-            "/api/v1/public/albums/{token}/download",
-            get(public_download),
-        )
-        .route("/api/v1/public/albums/{token}/zip", get(public_zip))
-        .route(
-            "/api/v1/public/albums/{token}/upload",
-            post(public_upload).layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
         )
 }
 
@@ -461,7 +430,7 @@ async fn timeline(
                 .ok_or_else(|| {
                     json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album.")
                 })?;
-            if !can_view_album(&user, &root, &album) {
+            if !can_view_album(&state, &user, home, &album) {
                 return Err(json_error(
                     StatusCode::FORBIDDEN,
                     "You don't have permission to view this album.",
@@ -503,7 +472,6 @@ async fn timeline(
     };
     let limit = query.limit.unwrap_or(80).clamp(1, 500);
     let offset = query.offset.unwrap_or(0);
-    let archived = query.archived.unwrap_or(false);
     let filter = ListFilter {
         q: query.q.filter(|s| !s.trim().is_empty()),
         from: query.from,
@@ -518,17 +486,6 @@ async fn timeline(
         place: query.place,
         place_bbox: query.place_bbox.as_deref().and_then(parse_place_bbox),
         user_id: Some(user.id.clone()),
-        archived_user: if archived {
-            Some(user.id.clone())
-        } else {
-            None
-        },
-        // Library and favorites hide archived; album view still shows album items.
-        exclude_archived_user: if !archived && !viewing_album {
-            Some(user.id.clone())
-        } else {
-            None
-        },
         kind: query
             .kind
             .as_deref()
@@ -563,6 +520,7 @@ async fn timeline(
             .map(str::trim)
             .map(str::to_ascii_lowercase)
             .filter(|s| s == "none" || s == "any"),
+        month_day: query.month_day.filter(|s| !s.trim().is_empty()),
     };
 
     // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
@@ -588,7 +546,13 @@ async fn timeline(
             if viewing_album {
                 return true;
             }
-            crate::auth::can_access(&user, &conn, &photo.drive_id, &photo.path, false)
+            crate::auth::has_cap(
+                &user,
+                &conn,
+                &photo.drive_id,
+                &photo.path,
+                crate::access::CAP_VIEW,
+            )
         }));
         drop(conn);
         next_offset = page.next_offset;
@@ -633,7 +597,7 @@ async fn places(
             let Some((drive_id, path)) = m.id.split_once(':') else {
                 return false;
             };
-            crate::auth::can_access(&user, &conn, drive_id, path, false)
+            crate::auth::has_cap(&user, &conn, drive_id, path, crate::access::CAP_VIEW)
         })
         .collect::<Vec<_>>();
     Ok(Json(markers))
@@ -696,9 +660,9 @@ async fn duplicates(
         )
     })?;
     for group in &mut groups {
-        group
-            .items
-            .retain(|p| crate::auth::can_access(&user, &conn, &p.drive_id, &p.path, false));
+        group.items.retain(|p| {
+            crate::auth::has_cap(&user, &conn, &p.drive_id, &p.path, crate::access::CAP_VIEW)
+        });
     }
     groups.retain(|g| g.items.len() > 1);
     Ok(Json(json!({ "groups": groups })))
@@ -902,7 +866,7 @@ fn serve_thumb_bytes(
         .into_response())
 }
 
-async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>)> {
+pub(crate) async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>)> {
     // Public album thumbs still use the on-disk path; validators without RAM.
     let meta = std::fs::metadata(&path)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
@@ -930,7 +894,7 @@ async fn serve_thumb(path: PathBuf) -> Result<Response, (StatusCode, Json<Value>
 }
 
 /// Guest may see this file when it is in album_items or under the contrib folder.
-fn album_item_allowed(
+pub(crate) fn album_item_allowed(
     home: &str,
     root: &FsPath,
     album: &gallery::Album,
@@ -956,35 +920,8 @@ fn album_item_allowed(
     in_album || under_contrib
 }
 
-fn public_media_urls(token: &str, drive_id: &str, path: &str) -> (String, String, String) {
-    let enc = urlencoding_lite(path);
-    let thumb = format!("/api/v1/public/albums/{token}/thumb?drive_id={drive_id}&path={enc}");
-    let content = format!("/api/v1/public/albums/{token}/content?drive_id={drive_id}&path={enc}");
-    let download = format!("/api/v1/public/albums/{token}/download?drive_id={drive_id}&path={enc}");
-    (thumb, content, download)
-}
-
-fn resolve_public_invite(
-    state: &AppState,
-    token: &str,
-) -> Result<(String, PathBuf, gallery::AlbumInvite, gallery::Album), ApiError> {
-    let mounts = all_mounted(state)?;
-    let found = gallery::find_invite(&mounts, token).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open that shared album.",
-        )
-    })?;
-    found.ok_or_else(|| {
-        json_error(
-            StatusCode::NOT_FOUND,
-            "This shared album link is not valid or has expired.",
-        )
-    })
-}
-
 /// Browser-safe media path: HEIC → JPEG preview; everything else → original.
-async fn resolve_browser_safe_file(
+pub(crate) async fn resolve_browser_safe_file(
     mount: &FsPath,
     drive_id: &str,
     rel: &str,
@@ -1035,7 +972,7 @@ async fn resolve_browser_safe_file(
     Ok((src, mime, original_name))
 }
 
-async fn serve_media_path(
+pub(crate) async fn serve_media_path(
     abs: PathBuf,
     content_type: &str,
     filename: &str,
@@ -1179,7 +1116,7 @@ impl futures_util::Stream for ZipBody {
     }
 }
 
-async fn stream_zip_response(
+pub(crate) async fn stream_zip_response(
     zip_name: &str,
     build: impl FnOnce(&std::path::Path) -> Result<(), ApiError> + Send + 'static,
 ) -> Result<Response, ApiError> {
@@ -1226,7 +1163,7 @@ async fn stream_zip_response(
         .unwrap())
 }
 
-fn zip_entry_name(drive_id: &str, path: &str) -> String {
+pub(crate) fn zip_entry_name(drive_id: &str, path: &str) -> String {
     let clean = path.trim().replace('\\', "/").trim_matches('/').to_string();
     format!("{drive_id}/{clean}")
 }
@@ -1344,7 +1281,13 @@ async fn put_favorite(
                 "Luna's index is busy. Try again.",
             )
         })?;
-        if !crate::auth::can_access(&user, &conn, &body.drive_id, &body.path, false) {
+        if !crate::auth::has_cap(
+            &user,
+            &conn,
+            &body.drive_id,
+            &body.path,
+            crate::access::CAP_VIEW,
+        ) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "You don't have permission to favorite this.",
@@ -1376,50 +1319,6 @@ async fn delete_favorite(
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn put_archive(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<FavoriteBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    {
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        if !crate::auth::can_access(&user, &conn, &body.drive_id, &body.path, false) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to archive this.",
-            ));
-        }
-    }
-    let root = resolve_mount(&state, &body.drive_id)?;
-    gallery::set_archived(&root, &user.id, &body.path, true).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't archive that photo.",
-        )
-    })?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn delete_archive(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<FavoriteBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &body.drive_id)?;
-    gallery::set_archived(&root, &user.id, &body.path, false).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't unarchive that photo.",
-        )
-    })?;
-    Ok(Json(json!({ "ok": true })))
-}
-
 async fn list_albums(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -1427,12 +1326,36 @@ async fn list_albums(
     // Scan every mounted drive so Members still see albums they own or joined
     // even without a folder grant on that drive. SQL still filters by membership.
     let mounts = all_mounted(&state)?;
-    let albums = gallery::list_albums(&mounts, &user.id, is_admin(&user)).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't list albums.",
-        )
-    })?;
+    let member_ids = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let rows = crate::db::list_access_members_for_user(&conn, &user.id).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't check your album access.",
+            )
+        })?;
+        let mut map: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for r in rows {
+            if r.subject_kind == crate::access::KIND_ALBUM && r.caps & crate::access::CAP_VIEW != 0
+            {
+                map.entry(r.drive_id).or_default().insert(r.album_id);
+            }
+        }
+        map
+    };
+    let albums =
+        gallery::list_albums(&mounts, &user.id, &member_ids, is_admin(&user)).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't list albums.",
+            )
+        })?;
     Ok(Json(albums))
 }
 
@@ -1493,7 +1416,7 @@ async fn get_album(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_view_album(&user, &root, &album) {
+    if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to view this album.",
@@ -1550,8 +1473,6 @@ async fn patch_album(
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty()),
-        body.shared,
-        body.allow_uploads,
         body.locked,
         cover,
     )
@@ -1590,6 +1511,11 @@ async fn delete_album(
             "Luna couldn't delete that album.",
         )
     })?;
+    // Members and links on this album die with it.
+    if let Ok(conn) = state.db.lock() {
+        let _ =
+            crate::db::delete_access_for_subject(&conn, crate::access::KIND_ALBUM, &home, "", &id);
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1608,7 +1534,7 @@ async fn add_items(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    let can_add = can_contribute_album(&user, &root, &album);
+    let can_add = can_contribute_album(&state, &user, &home, &album);
     if !can_add {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1624,7 +1550,13 @@ async fn add_items(
     let mut allowed = Vec::new();
     let mut forbidden = 0usize;
     for item in body.items {
-        if crate::auth::can_access(&user, &conn, &item.drive_id, &item.path, false) {
+        if crate::auth::has_cap(
+            &user,
+            &conn,
+            &item.drive_id,
+            &item.path,
+            crate::access::CAP_VIEW,
+        ) {
             allowed.push((item.drive_id, item.path));
         } else {
             forbidden += 1;
@@ -1665,7 +1597,7 @@ async fn remove_item(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_contribute_album(&user, &root, &album) {
+    if !can_contribute_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to change this album.",
@@ -1696,7 +1628,7 @@ async fn list_items(
             )
         })?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_view_album(&user, &root, &album) {
+    if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to view this album.",
@@ -1714,542 +1646,6 @@ async fn list_items(
             .map(|(drive_id, path)| json!({ "drive_id": drive_id, "path": path }))
             .collect::<Vec<_>>()
     )))
-}
-
-async fn list_members(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((home, id)): Path<(String, String)>,
-) -> Result<Json<Vec<gallery::AlbumMember>>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &home)?;
-    let album = gallery::get_album(&root, &home, &id)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open that album.",
-            )
-        })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_view_album(&user, &root, &album) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have permission to view this album.",
-        ));
-    }
-    let members = gallery::list_members(&root, &id).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't list album members.",
-        )
-    })?;
-    Ok(Json(members))
-}
-
-async fn put_member(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((home, id)): Path<(String, String)>,
-    Json(body): Json<MemberBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &home)?;
-    let album = gallery::get_album(&root, &home, &id)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open that album.",
-            )
-        })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_manage_album(&user, &album) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only the album owner or an Admin can invite people.",
-        ));
-    }
-    let role = if body.role == "contributor" {
-        "contributor"
-    } else {
-        "viewer"
-    };
-    gallery::upsert_member(&root, &id, &body.user_id, role).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't update album members.",
-        )
-    })?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn delete_member(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((home, id, user_id)): Path<(String, String, String)>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &home)?;
-    let album = gallery::get_album(&root, &home, &id)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open that album.",
-            )
-        })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_manage_album(&user, &album) && user.id != user_id {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only the album owner or an Admin can remove members.",
-        ));
-    }
-    gallery::remove_member(&root, &id, &user_id).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't remove that member.",
-        )
-    })?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn list_invites(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((home, id)): Path<(String, String)>,
-) -> Result<Json<Vec<gallery::AlbumInvite>>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &home)?;
-    let album = gallery::get_album(&root, &home, &id)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open that album.",
-            )
-        })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_manage_album(&user, &album) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only the album owner or an Admin can view invite links.",
-        ));
-    }
-    let invites = gallery::list_invites(&root, &id).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't list invite links.",
-        )
-    })?;
-    Ok(Json(invites))
-}
-
-async fn create_invite(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((home, id)): Path<(String, String)>,
-    Json(body): Json<InviteBody>,
-) -> Result<Json<gallery::AlbumInvite>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &home)?;
-    let album = gallery::get_album(&root, &home, &id)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open that album.",
-            )
-        })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_manage_album(&user, &album) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only the album owner or an Admin can create invite links.",
-        ));
-    }
-    let role = if body.role == "contributor" {
-        "contributor"
-    } else {
-        "viewer"
-    };
-    let days = body.expires_in_days.unwrap_or(30).max(1);
-    let expires = Some(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|t| t.as_secs() as i64 + days * 86400)
-            .unwrap_or(0),
-    );
-    // Mark album shared when creating an invite. Only touch allow_uploads when
-    // the client sends it — do not infer uploads from contributor role alone.
-    let _ = gallery::update_album(&root, &id, None, Some(true), body.allow_uploads, None, None);
-    let invite = gallery::create_invite(&root, &id, role, expires, None).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't create that invite link.",
-        )
-    })?;
-    Ok(Json(invite))
-}
-
-async fn delete_invite(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((home, id, invite_id)): Path<(String, String, String)>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let root = resolve_mount(&state, &home)?;
-    let album = gallery::get_album(&root, &home, &id)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't open that album.",
-            )
-        })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
-    if !can_manage_album(&user, &album) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only the album owner or an Admin can remove invite links.",
-        ));
-    }
-    gallery::delete_invite(&root, &invite_id).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't remove that invite link.",
-        )
-    })?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn public_album(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    Query(query): Query<PublicAlbumQuery>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mounts = all_mounted(&state)?;
-    let (home, root, invite, album) = resolve_public_invite(&state, &token)?;
-    let limit = query.limit.unwrap_or(80).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0);
-    let filter = ListFilter {
-        album_id: Some(album.id.clone()),
-        album_home_drive: Some(home.clone()),
-        ..Default::default()
-    };
-    let page = gallery::list_photos(&mounts, None, &filter, limit, offset).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't load photos for this album.",
-        )
-    })?;
-    let can_upload = album.allow_uploads && invite.role == "contributor";
-    let items: Vec<Value> = page
-        .items
-        .into_iter()
-        .map(|mut p| {
-            let (thumb, content, download) = public_media_urls(&token, &p.drive_id, &p.path);
-            p.thumb = thumb;
-            let mut v = json!(p);
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert("content".into(), json!(content));
-                obj.insert("download".into(), json!(download));
-            }
-            v
-        })
-        .collect();
-    Ok(Json(json!({
-        "album": album,
-        "home_drive_id": home,
-        "invite_role": invite.role,
-        "can_upload": can_upload,
-        "contrib_path": album.contrib_path,
-        "items": items,
-        "has_more": page.has_more,
-        "next_offset": page.next_offset,
-        "mount_exists": root.exists(),
-    })))
-}
-
-fn urlencoding_lite(input: &str) -> String {
-    let mut out = String::new();
-    for byte in input.as_bytes() {
-        match *byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*byte as char)
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
-}
-
-#[derive(Deserialize)]
-struct PublicThumbQuery {
-    drive_id: String,
-    path: String,
-}
-
-async fn public_thumb(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    Query(query): Query<PublicThumbQuery>,
-) -> Result<Response, (StatusCode, Json<Value>)> {
-    let (home, root, _invite, album) = resolve_public_invite(&state, &token)?;
-    if !album_item_allowed(&home, &root, &album, &query.drive_id, &query.path) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "That photo is not part of this shared album.",
-        ));
-    }
-    let mount = resolve_mount(&state, &query.drive_id)?;
-    let Some(thumb_path) = gallery::thumb_path(&mount, &query.drive_id, &query.path) else {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "That photo is not part of this shared album.",
-        ));
-    };
-    if !thumb_path.exists() {
-        let drive_id = query.drive_id.clone();
-        let path = query.path.clone();
-        let mount2 = mount.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            let src = luna_core::path::resolve_child(&mount2, &path).ok()?;
-            let dest = gallery::thumb_path(&mount2, &drive_id, &path)?;
-            let kind = if gallery::is_video(&src) {
-                "video"
-            } else {
-                "image"
-            };
-            gallery::ensure_thumb(&src, &dest, kind).ok()
-        })
-        .await;
-    }
-    serve_thumb(thumb_path).await
-}
-
-async fn public_content(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    Query(query): Query<PublicThumbQuery>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let (home, root, _invite, album) = resolve_public_invite(&state, &token)?;
-    if !album_item_allowed(&home, &root, &album, &query.drive_id, &query.path) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "That photo is not part of this shared album.",
-        ));
-    }
-    let mount = resolve_mount(&state, &query.drive_id)?;
-    let (abs, content_type, filename) =
-        resolve_browser_safe_file(&mount, &query.drive_id, &query.path).await?;
-    serve_media_path(abs, &content_type, &filename, "inline", &headers).await
-}
-
-async fn public_download(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    Query(query): Query<PublicThumbQuery>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let (home, root, _invite, album) = resolve_public_invite(&state, &token)?;
-    if !album_item_allowed(&home, &root, &album, &query.drive_id, &query.path) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "That photo is not part of this shared album.",
-        ));
-    }
-    let mount = resolve_mount(&state, &query.drive_id)?;
-    let abs = luna_core::path::resolve_child(&mount, &query.path)
-        .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
-    let name = abs
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "download".into());
-    let mime = mime_guess::from_path(&name)
-        .first_or_octet_stream()
-        .essence_str()
-        .to_string();
-    serve_media_path(abs, &mime, &name, "attachment", &headers).await
-}
-
-async fn public_zip(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-) -> Result<Response, ApiError> {
-    let (home, root, _invite, album) = resolve_public_invite(&state, &token)?;
-    let refs = gallery::list_album_item_refs(&root, &album.id).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open that album.",
-        )
-    })?;
-    if refs.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "This album has no photos to download yet.",
-        ));
-    }
-    if refs.len() > PUBLIC_ALBUM_ZIP_MAX {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            format!(
-                "This album has too many photos to download as one zip (limit {PUBLIC_ALBUM_ZIP_MAX})."
-            ),
-        ));
-    }
-
-    let mut entries: Vec<(String, PathBuf)> = Vec::with_capacity(refs.len());
-    for (drive_id, path) in refs {
-        if !album_item_allowed(&home, &root, &album, &drive_id, &path) {
-            continue;
-        }
-        let Ok(mount) = resolve_mount(&state, &drive_id) else {
-            continue;
-        };
-        let Ok(abs) = luna_core::path::resolve_child(&mount, &path) else {
-            continue;
-        };
-        if !abs.is_file() {
-            continue;
-        }
-        entries.push((zip_entry_name(&drive_id, &path), abs));
-    }
-    if entries.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "This album has no photos to download yet.",
-        ));
-    }
-
-    let zip_name = {
-        let base = crate::files::content_disposition_filename(&album.name);
-        if base == "download" || base.is_empty() {
-            "album.zip".into()
-        } else {
-            format!("{base}.zip")
-        }
-    };
-
-    stream_zip_response(&zip_name, move |tmp_path| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(tmp_path)
-            .map_err(|_| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't prepare that download. Try again.",
-                )
-            })?;
-        gallery::write_items_zip(&entries, &mut file, PUBLIC_ALBUM_ZIP_MAX).map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("too many files") {
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    format!(
-                        "This album has too many photos to download as one zip (limit {PUBLIC_ALBUM_ZIP_MAX})."
-                    ),
-                )
-            } else {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't prepare that download. Try again.",
-                )
-            }
-        })?;
-        Ok(())
-    })
-    .await
-}
-
-async fn public_upload(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-    mut multipart: Multipart,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mounts = all_mounted(&state)?;
-    let found = gallery::find_invite(&mounts, &token).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open that shared album.",
-        )
-    })?;
-    let Some((home, root, invite, album)) = found else {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "This shared album link is not valid or has expired.",
-        ));
-    };
-    if !(album.allow_uploads && invite.role == "contributor") {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This shared album does not allow uploads.",
-        ));
-    }
-    let contrib_path = if album.contrib_path.trim().is_empty() {
-        gallery::allocate_contrib_dir(&root, &album.id, &album.name).map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't prepare the upload folder.",
-            )
-        })?
-    } else {
-        album.contrib_path.clone()
-    };
-    let contrib = root.join(&contrib_path);
-    std::fs::create_dir_all(&contrib).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't prepare the upload folder.",
-        )
-    })?;
-    let mut saved = Vec::new();
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|_| json_error(StatusCode::BAD_REQUEST, "Could not read the upload."))?
-    {
-        let name = field
-            .file_name()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "photo.jpg".into());
-        let safe: String = name
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' '))
-            .take(120)
-            .collect();
-        let safe = if safe.is_empty() {
-            "photo.jpg".into()
-        } else {
-            safe
-        };
-        if !gallery::is_media(std::path::Path::new(&safe)) {
-            continue;
-        }
-        let bytes = field.bytes().await.map_err(|_| {
-            json_error(StatusCode::BAD_REQUEST, "Could not read the uploaded file.")
-        })?;
-        let unique = format!("{}_{}", uuid::Uuid::new_v4(), safe);
-        let dest_rel = format!("{}/{}", contrib_path, unique);
-        let dest = root.join(&dest_rel);
-        if let Some(parent) = dest.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        tokio::fs::write(&dest, &bytes).await.map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save the upload.",
-            )
-        })?;
-        match gallery::index_one(&home, &root, &dest_rel) {
-            Ok(Some(photo)) => {
-                let _ =
-                    gallery::add_album_items(&root, &album.id, &[(home.clone(), dest_rel.clone())]);
-                saved.push(photo);
-            }
-            _ => {
-                let _ = std::fs::remove_file(&dest);
-            }
-        }
-    }
-    if saved.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "No photos or videos were uploaded. Try again with a picture or video file.",
-        ));
-    }
-    Ok(Json(json!({ "ok": true, "items": saved })))
 }
 
 #[cfg(test)]

@@ -119,8 +119,86 @@ async fn list(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
+    let rel = rel.trim().trim_matches('/').to_string();
+    if rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS)) {
+        return list_trash_view(&state, &user, &id, &rel);
+    }
     check_browse(&state, &user, &id, &rel)?;
     Ok(Json(visible_entries(&state, &user, &id, &rel)?))
+}
+
+/// `GET files?path=.luna-trash…` — trash browses like a regular folder.
+/// The root needs a write grant somewhere on the drive (same as the trash
+/// endpoint); deeper paths need edit rights on the item's original
+/// location. Entries are annotated with `original_name`/`original_path`
+/// and, for non-admins, filtered to origins they could have edited.
+fn list_trash_view(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    id: &str,
+    rel: &str,
+) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
+    if rel == files::TRASH_API_ALIAS {
+        check_trash_list(state, user, id)?;
+    } else {
+        check_trash_item(state, user, id, rel)?;
+    }
+    let mut entries =
+        with_db(state, |conn| files::list_trash_dir(conn, id, rel)).map_err(map_files_err)?;
+
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let root = files::drive_root(&conn, id)
+        .map(|d| std::path::PathBuf::from(d.mount_point))
+        .unwrap_or_default();
+    let meta = files::trash_meta_map(&root);
+    let top_level = rel == files::TRASH_API_ALIAS;
+    // Path under the trash root this listing represents ("" at the root).
+    let under_root = rel
+        .strip_prefix(&format!("{}/", files::TRASH_API_ALIAS))
+        .unwrap_or("");
+
+    entries.retain_mut(|entry| {
+        // The child's trash-root-relative path: `{entry}` at the top,
+        // `{entry}/sub/...` deeper. trash_meta is keyed on `{entry}`; the
+        // rest inherits the entry's original path.
+        let child = if under_root.is_empty() {
+            entry.name.clone()
+        } else {
+            format!("{under_root}/{}", entry.name)
+        };
+        let (entry_name, rest) = match child.split_once('/') {
+            Some((e, r)) => (e, Some(r)),
+            None => (child.as_str(), None),
+        };
+        let original = meta.get(entry_name).map(|orig| match rest {
+            Some(rest) => format!("{orig}/{rest}"),
+            None => orig.clone(),
+        });
+        if user.role != "admin"
+            && !original
+                .as_deref()
+                .is_some_and(|o| crate::auth::has_cap(user, &conn, id, o, crate::access::CAP_EDIT))
+        {
+            return false;
+        }
+        entry.original_path = original;
+        if top_level {
+            // The on-disk name carries a `{nonce}-` prefix; the original
+            // path's basename is the true pre-trash name, with the
+            // nonce-strip as fallback when metadata is gone.
+            entry.original_name = Some(match entry.original_path.as_deref() {
+                Some(orig) => orig.rsplit('/').next().unwrap_or(orig).to_string(),
+                None => files::original_name_from_trash(&entry.name),
+            });
+        }
+        true
+    });
+    Ok(Json(entries))
 }
 
 /// One folder's entries filtered to what `user` may browse — the same rows
@@ -142,15 +220,12 @@ fn visible_entries(
                 "Luna's index is busy. Try again.",
             )
         })?;
+        let parent = crate::access::normalize_subject_path(rel);
         entries.retain(|entry| {
-            let child = if crate::grants::normalize_grant_path(rel).is_empty() {
+            let child = if parent.is_empty() {
                 entry.name.clone()
             } else {
-                format!(
-                    "{}/{}",
-                    crate::grants::normalize_grant_path(rel),
-                    entry.name
-                )
+                format!("{parent}/{}", entry.name)
             };
             crate::auth::can_browse_path(user, &conn, id, &child)
         });
@@ -171,7 +246,13 @@ fn can_write(
             "Luna's index is busy. Try again.",
         )
     })?;
-    Ok(crate::auth::can_access(user, &conn, drive_id, path, true))
+    Ok(crate::auth::has_cap(
+        user,
+        &conn,
+        drive_id,
+        path,
+        crate::access::CAP_EDIT,
+    ))
 }
 
 async fn stat_entry(
@@ -181,7 +262,9 @@ async fn stat_entry(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<files::FileStat>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
-    let in_trash = rel.starts_with(".luna-trash/");
+    let rel = rel.trim().trim_matches('/').to_string();
+    let in_trash =
+        rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
 
     // Luna's own bookkeeping (index db, gallery, trash root, protected
     // copies) is not a user file — never stat it.
@@ -197,7 +280,7 @@ async fn stat_entry(
     // An upload still in RAM may not exist on the drive yet — answer from the
     // dirty overlay first, same as content serving does.
     if let Some(dirty) = state.ram_cache.get_dirty(&id, &rel) {
-        check_access(&state, &user, &id, &rel, false)?;
+        check_access(&state, &user, &id, &rel, crate::access::CAP_VIEW)?;
         let writable = can_write(&state, &user, &id, &rel)?;
         return Ok(Json(files::FileStat {
             hidden: dirty.name.starts_with('.'),
@@ -211,6 +294,7 @@ async fn stat_entry(
             saving: true,
             writable,
             trashed_from: None,
+            original_name: None,
             totals: None,
         }));
     }
@@ -219,11 +303,15 @@ async fn stat_entry(
     // kind: folders need browse, everything else needs read.
     let mut stat = with_db(&state, |conn| files::stat(conn, &id, &rel)).map_err(map_files_err)?;
     if in_trash {
-        check_trash_item(&state, &user, &id, &rel)?;
+        if rel == files::TRASH_API_ALIAS {
+            check_trash_list(&state, &user, &id)?;
+        } else {
+            check_trash_item(&state, &user, &id, &rel)?;
+        }
     } else if stat.kind == "dir" {
         check_browse(&state, &user, &id, &rel)?;
     } else {
-        check_access(&state, &user, &id, &rel, false)?;
+        check_access(&state, &user, &id, &rel, crate::access::CAP_VIEW)?;
     }
 
     // A browsed folder counts only the children this user can see — the
@@ -258,11 +346,33 @@ async fn stat_entry(
         stat.trashed_from = original.filter(|p| !p.is_empty());
         // Restoring needs write access where the item originally lived.
         stat.writable = match &stat.trashed_from {
-            Some(orig) => crate::auth::can_access(&user, &conn, &id, orig, true),
+            Some(orig) => crate::auth::has_cap(&user, &conn, &id, orig, crate::access::CAP_EDIT),
             None => user.role == "admin",
         };
+        // Top-level trash entries show their pre-trash name, not the
+        // on-disk `{nonce}-` form.
+        if rel
+            .strip_prefix(&format!("{}/", files::TRASH_API_ALIAS))
+            .is_some_and(|rest| !rest.contains('/'))
+        {
+            stat.original_name = Some(match stat.trashed_from.as_deref() {
+                Some(orig) => orig.rsplit('/').next().unwrap_or(orig).to_string(),
+                None => files::original_name_from_trash(&stat.name),
+            });
+        }
+        // `stat.name` is the display name everywhere trash browses like a
+        // folder: the alias root reads "Trash", a top-level entry its
+        // pre-trash name, nested paths their real leaf name.
+        stat.name = match rel.strip_prefix(&format!("{}/", files::TRASH_API_ALIAS)) {
+            None => String::from("Trash"),
+            Some(rest) if rest.contains('/') => rest.rsplit('/').next().unwrap_or(rest).to_string(),
+            Some(rest) => stat
+                .original_name
+                .clone()
+                .unwrap_or_else(|| files::original_name_from_trash(rest)),
+        };
     } else {
-        stat.writable = crate::auth::can_access(&user, &conn, &id, &rel, true);
+        stat.writable = crate::auth::has_cap(&user, &conn, &id, &rel, crate::access::CAP_EDIT);
     }
 
     // Recursive totals for folders. The index answers instantly when every
@@ -270,8 +380,9 @@ async fn stat_entry(
     // (trash is never indexed, so it always walks). Either way only the
     // directories this user may read count toward the total.
     if stat.kind == "dir" {
-        let mut include =
-            |p: &str| in_trash || crate::auth::can_access(&user, &conn, &id, p, false);
+        let mut include = |p: &str| {
+            in_trash || crate::auth::has_cap(&user, &conn, &id, p, crate::access::CAP_VIEW)
+        };
         stat.totals = if in_trash {
             files::folder_totals(&conn, &id, &rel, &mut include)
                 .ok()
@@ -308,9 +419,23 @@ async fn content(
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
-    check_access(&state, &user, &id, &rel, false)?;
-    let (_path, meta) =
-        with_db(&state, |conn| files::resolve_any(conn, &id, &rel)).map_err(map_files_err)?;
+    let rel = rel.trim().trim_matches('/').to_string();
+    let in_trash = rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
+    // Trash is read-only, not unreadable: items open and download, gated by
+    // edit rights on the path they were deleted from.
+    if in_trash {
+        check_trash_item(&state, &user, &id, &rel)?;
+    } else {
+        check_access(&state, &user, &id, &rel, crate::access::CAP_VIEW)?;
+    }
+    let (_path, meta) = with_db(&state, |conn| {
+        if in_trash {
+            files::resolve_any_including_trash(conn, &id, &rel)
+        } else {
+            files::resolve_any(conn, &id, &rel)
+        }
+    })
+    .map_err(map_files_err)?;
     if meta.is_dir() {
         if query.download.as_deref() != Some("1") {
             return Err(json_error(
@@ -318,7 +443,7 @@ async fn content(
                 "That's a folder. Use Download to save it as a zip file.",
             ));
         }
-        return serve_folder_zip(state, user, id, rel).await;
+        return serve_folder_zip(state, user, id, rel, in_trash).await;
     }
     if !meta.is_file() {
         return Err(json_error(
@@ -326,7 +451,7 @@ async fn content(
             "Luna can only download files and folders.",
         ));
     }
-    serve_file_content(state, id, rel, query.download.as_deref(), headers).await
+    serve_file_content(state, id, rel, query.download.as_deref(), headers, in_trash).await
 }
 
 async fn serve_folder_zip(
@@ -334,6 +459,7 @@ async fn serve_folder_zip(
     user: crate::auth::CurrentUser,
     id: String,
     rel: String,
+    in_trash: bool,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let archive_base = files::zip_archive_basename(&rel);
     let zip_name = format!("{archive_base}.zip");
@@ -362,9 +488,15 @@ async fn serve_folder_zip(
                 .db
                 .lock()
                 .map_err(|_| files::FilesError::UnknownDrive)?;
-            files::write_folder_zip(&conn, &id, &rel, &mut file, |child| {
-                is_admin || crate::auth::can_browse_path(&user, &conn, &id, child)
-            })
+            if in_trash {
+                // The entry-point check already gated the trashed folder —
+                // everything inside shares its origin.
+                files::write_folder_zip_including_trash(&conn, &id, &rel, &mut file, |_| true)
+            } else {
+                files::write_folder_zip(&conn, &id, &rel, &mut file, |child| {
+                    is_admin || crate::auth::can_browse_path(&user, &conn, &id, child)
+                })
+            }
         }
     })
     .await
@@ -439,6 +571,7 @@ async fn serve_file_content(
     rel: String,
     download: Option<&str>,
     headers: HeaderMap,
+    in_trash: bool,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     // Read-your-writes: prefer in-flight dirty bytes over USB.
     if let Some(dirty) = state.ram_cache.get_dirty(&id, &rel) {
@@ -482,8 +615,21 @@ async fn serve_file_content(
             .unwrap());
     }
 
-    let (path, meta) =
-        with_db(&state, |conn| files::file_path(conn, &id, &rel)).map_err(map_files_err)?;
+    let (path, meta) = with_db(&state, |conn| {
+        if in_trash {
+            files::file_path_including_trash(conn, &id, &rel)
+        } else {
+            files::file_path(conn, &id, &rel)
+        }
+    })
+    .map_err(map_files_err)?;
+    // open_verified works on real on-disk paths — the `.luna-trash` API
+    // alias does not exist on the drive.
+    let real_rel = if in_trash {
+        with_db(&state, |conn| files::real_rel_path(conn, &id, &rel)).map_err(map_files_err)?
+    } else {
+        rel.clone()
+    };
     let total = meta.len();
     let modified = meta
         .modified()
@@ -511,7 +657,7 @@ async fn serve_file_content(
         let root = std::path::PathBuf::from(&drive.mount_point);
         // Open the file against a re-verified descriptor so a mid-request
         // symlink swap on the drive cannot read outside the jail.
-        let (file, _) = luna_core::path::open_verified(&root, &rel).map_err(|_| {
+        let (file, _) = luna_core::path::open_verified(&root, &real_rel).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't open this file. Try again.",
@@ -554,10 +700,13 @@ async fn serve_file_content(
     }
 
     let stream = ReaderStream::new(file.take(stream_len));
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| String::from("download"));
+    let name = if in_trash {
+        files::trash_display_name(&real_rel).unwrap_or_else(|| String::from("download"))
+    } else {
+        path.file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| String::from("download"))
+    };
     if files::is_internal_temp(&name) {
         return Err(json_error(
             StatusCode::NOT_FOUND,
@@ -605,7 +754,7 @@ async fn delete_entry(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
-    check_access(&state, &user, &id, &rel, true)?;
+    check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
     state.gallery.remove(&id, &rel);
@@ -640,7 +789,7 @@ async fn mkdir_entry(
             "Choose a name for the new folder.",
         ));
     }
-    check_access(&state, &user, &id, &rel, true)?;
+    check_access(&state, &user, &id, &rel, crate::access::CAP_UPLOAD)?;
     with_db(&state, |conn| files::mkdir(conn, &id, &rel)).map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
@@ -670,7 +819,7 @@ async fn create_entry(
             "Choose a name for the new file.",
         ));
     }
-    check_access(&state, &user, &id, &rel, true)?;
+    check_access(&state, &user, &id, &rel, crate::access::CAP_UPLOAD)?;
     with_db(&state, |conn| files::create(conn, &id, &rel)).map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
@@ -696,7 +845,7 @@ async fn rename_entry(
     Path(id): Path<String>,
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_access(&state, &user, &id, &body.path, true)?;
+    check_access(&state, &user, &id, &body.path, crate::access::CAP_EDIT)?;
     let parent = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
     with_db(&state, |conn| {
@@ -748,7 +897,13 @@ async fn list_trash(
             .into_iter()
             .filter(|entry| {
                 !entry.original_path.is_empty()
-                    && crate::auth::can_access(&user, &conn, &id, &entry.original_path, true)
+                    && crate::auth::has_cap(
+                        &user,
+                        &conn,
+                        &id,
+                        &entry.original_path,
+                        crate::access::CAP_EDIT,
+                    )
             })
             .collect()
     };
@@ -777,7 +932,7 @@ async fn restore_entry(
     Json(body): Json<RestoreBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     check_trash_item(&state, &user, &id, &body.path)?;
-    check_access(&state, &user, &id, &body.dest, true)?;
+    check_access(&state, &user, &id, &body.dest, crate::access::CAP_UPLOAD)?;
     with_db(&state, |conn| {
         files::restore_from_trash(conn, &id, &body.path, &body.dest)
     })
@@ -804,6 +959,16 @@ async fn purge_entry(
     Path(id): Path<String>,
     Json(body): Json<PurgeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if body.path == files::TRASH_API_ALIAS {
+        // Empty trash: permanently removes every entry the caller can see —
+        // the same rows the trash folder view lists.
+        let Json(entries) = list_trash_view(&state, &user, &id, &body.path)?;
+        for entry in entries {
+            let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
+            with_db(&state, |conn| files::purge_trash(conn, &id, &rel)).map_err(map_files_err)?;
+        }
+        return Ok(Json(json!({ "ok": true })));
+    }
     check_trash_item(&state, &user, &id, &body.path)?;
     with_db(&state, |conn| files::purge_trash(conn, &id, &body.path)).map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
@@ -820,11 +985,12 @@ async fn upload(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<UploadQuery>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<FileEntry>, (StatusCode, Json<Value>)> {
     let query_path = query.path.unwrap_or_default();
     let mut dest_rel = query_path.clone();
-    check_access(&state, &user, &id, &dest_rel, true)?;
+    check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
 
     while let Some(mut field) = multipart
@@ -841,10 +1007,10 @@ async fn upload(
                         "You don't have permission to change this folder.",
                     ));
                 }
-                check_access(&state, &user, &id, &dest_rel, true)?;
+                check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
             }
             Some("file") => {
-                check_access(&state, &user, &id, &dest_rel, true)?;
+                check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
                 let original = field.file_name().unwrap_or("file").to_string();
                 let name = files::safe_name(&original).map_err(|_| {
                     json_error(
@@ -863,6 +1029,17 @@ async fn upload(
                 }
 
                 let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                // HACK (api::diagram_locks): while another session holds a
+                // live advisory lock on this .drawio file, refuse the save
+                // so a stale editor can't clobber their work. The session
+                // header ties the save to the holding editor instance.
+                crate::api::diagram_locks::check_save_allowed(
+                    &state,
+                    &user.id,
+                    &crate::api::diagram_locks::session_header(&headers),
+                    &id,
+                    &rel,
+                )?;
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
@@ -925,6 +1102,8 @@ async fn upload(
                                 modified,
                                 hidden: false,
                                 saving: true,
+                                original_name: None,
+                                original_path: None,
                             }));
                         }
                         // Dirty accept refused — durable write of the buffered bytes.
@@ -995,6 +1174,8 @@ async fn upload(
                     modified,
                     hidden: false,
                     saving: false,
+                    original_name: None,
+                    original_path: None,
                 }));
             }
             _ => {}
@@ -1088,7 +1269,13 @@ fn check_trash_item(
             "Luna can't find that file or folder.",
         ));
     };
-    if crate::auth::can_access(user, &conn, drive_id, &original_path, true) {
+    if crate::auth::has_cap(
+        user,
+        &conn,
+        drive_id,
+        &original_path,
+        crate::access::CAP_EDIT,
+    ) {
         Ok(())
     } else {
         Err(json_error(
@@ -1125,7 +1312,7 @@ fn check_access(
     user: &crate::auth::CurrentUser,
     drive_id: &str,
     path: &str,
-    write: bool,
+    cap: crate::access::Caps,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -1133,9 +1320,9 @@ fn check_access(
             "Luna's index is busy. Try again.",
         )
     })?;
-    if crate::auth::can_access(user, &conn, drive_id, path, write) {
+    if crate::auth::has_cap(user, &conn, drive_id, path, cap) {
         Ok(())
-    } else if write {
+    } else if cap != crate::access::CAP_VIEW {
         Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to change this folder.",
@@ -1172,6 +1359,10 @@ fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             luna_core::path::PathError::Absolute | luna_core::path::PathError::Escape,
         ) => json_error(StatusCode::BAD_REQUEST, "Luna can't open that path."),
         FilesError::Path(luna_core::path::PathError::NotFound(_)) => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find that file or folder.",
+        ),
+        FilesError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => json_error(
             StatusCode::NOT_FOUND,
             "Luna can't find that file or folder.",
         ),
@@ -1419,7 +1610,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         let res = call(
@@ -1460,7 +1664,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         let res = call(
@@ -1518,7 +1735,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         let boundary = "----luna";
@@ -1550,7 +1780,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         let boundary = "----luna";
@@ -1669,7 +1912,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "read").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_VIEW,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
         let mut http = HttpReq::builder()
             .method(Method::GET)
@@ -1706,7 +1962,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         let admin_login = call(
@@ -1779,7 +2048,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "read").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_VIEW,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
         let mut http = HttpReq::builder()
             .method(Method::GET)
@@ -1908,7 +2190,20 @@ mod http_tests {
         let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
         {
             let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-            crate::db::insert_grant(&conn, "g1", &sam_id, "photos", "family", "write").unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         // Chunked-upload create (POST /api/v1/uploads).
@@ -1969,5 +2264,354 @@ mod http_tests {
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert!(!mount.path().join("secret/a").exists());
+    }
+
+    async fn admin_cookie(app: &axum::Router) -> (String, String) {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&res);
+        (cookie_header(&session, &csrf), csrf)
+    }
+
+    async fn delete_path(app: &axum::Router, cookie: &str, csrf: &str, path: &str) -> String {
+        let mut http = HttpReq::builder()
+            .method(Method::DELETE)
+            .uri(format!("/api/v1/drives/photos/files?path={path}"))
+            .header("cookie", cookie)
+            .header("x-csrf-token", csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(app, http).await;
+        assert_eq!(res.status(), 200, "delete {path}");
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        v["trash_path"].as_str().unwrap().to_string()
+    }
+
+    async fn get_files(
+        app: &axum::Router,
+        cookie: &str,
+        csrf: &str,
+        path: &str,
+    ) -> axum::response::Response {
+        let mut http = HttpReq::builder()
+            .method(Method::GET)
+            .uri(format!(
+                "/api/v1/drives/photos/files?path={}",
+                urlencoding(path)
+            ))
+            .header("cookie", cookie)
+            .header("x-csrf-token", csrf)
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        call(app, http).await
+    }
+
+    fn urlencoding(path: &str) -> String {
+        path.replace('%', "%25")
+            .replace('/', "%2F")
+            .replace(' ', "%20")
+    }
+
+    #[tokio::test]
+    async fn trash_browses_like_a_folder() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("docs/sub")).unwrap();
+        std::fs::write(mount.path().join("docs/report.txt"), b"hi").unwrap();
+        std::fs::write(mount.path().join("docs/sub/deep.txt"), b"deep").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+
+        let docs_trash = delete_path(&app, &cookie, &csrf, "docs").await;
+        assert!(docs_trash.starts_with(".luna-trash/"));
+
+        // The trash root lists like a folder, annotated with origins.
+        let res = get_files(&app, &cookie, &csrf, ".luna-trash").await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let entries = entries.as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert_eq!(entry["kind"], "dir");
+        assert_eq!(entry["original_name"], "docs");
+        assert_eq!(entry["original_path"], "docs");
+        assert!(entry["name"].as_str().unwrap() != "docs");
+
+        // Trashed folders open and keep their real names inside.
+        let res = get_files(&app, &cookie, &csrf, &docs_trash).await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let entries = entries.as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        let sub = entries
+            .iter()
+            .find(|e| e["name"] == "sub")
+            .expect("sub dir listed by its real name");
+        assert_eq!(sub["original_path"], "docs/sub");
+
+        // Nested listing works too.
+        let res = get_files(&app, &cookie, &csrf, &format!("{docs_trash}/sub")).await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(entries.as_array().unwrap()[0]["name"], "deep.txt");
+
+        // Stat and content serve trash items read-only.
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                &format!(
+                    "/api/v1/drives/photos/files/stat?path={}",
+                    urlencoding(&format!("{docs_trash}/report.txt"))
+                ),
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let stat: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(stat["trashed_from"], "docs/report.txt");
+
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                &format!(
+                    "/api/v1/drives/photos/files/content?path={}&download=1",
+                    urlencoding(&format!("{docs_trash}/report.txt"))
+                ),
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let disposition = res
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        assert!(disposition.contains("report.txt"), "{disposition}");
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"hi");
+
+        // A trashed folder still downloads as a zip under its old name.
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                &format!(
+                    "/api/v1/drives/photos/files/content?path={}&download=1",
+                    urlencoding(&docs_trash)
+                ),
+                "",
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let disposition = res
+            .headers()
+            .get(axum::http::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        assert!(disposition.contains("docs.zip"), "{disposition}");
+
+        // Writes into trash stay refused.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/mkdir",
+                r#"{"path":".luna-trash/newdir"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_ne!(res.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn trash_folder_view_filters_by_origin_grant() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("family")).unwrap();
+        std::fs::create_dir_all(mount.path().join("secret")).unwrap();
+        std::fs::write(mount.path().join("family/a.txt"), b"a").unwrap();
+        std::fs::write(mount.path().join("secret/b.txt"), b"b").unwrap();
+        let (dir, app) = test_app(mount.path());
+        let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+        {
+            let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g1".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: "family".into(),
+                    album_id: String::new(),
+                    user_id: sam_id,
+                    caps: crate::access::CAP_ALL,
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
+        }
+        let admin_login = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter1"}"#,
+                None,
+                None,
+            ),
+        )
+        .await;
+        let (admin_session, admin_csrf) = auth_cookies(&admin_login);
+        let admin_cookie = cookie_header(&admin_session, &admin_csrf);
+        delete_path(&app, &admin_cookie, &admin_csrf, "family/a.txt").await;
+        let secret_trash = delete_path(&app, &admin_cookie, &admin_csrf, "secret/b.txt").await;
+
+        // Sam sees only the entry whose origin she could edit.
+        let res = get_files(&app, &sam_cookie, &sam_csrf, ".luna-trash").await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let entries = entries.as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["original_path"], "family/a.txt");
+
+        // And she cannot open or read the other entry.
+        let res = get_files(&app, &sam_cookie, &sam_csrf, &secret_trash).await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let res = call(
+            &app,
+            json_req(
+                Method::GET,
+                &format!(
+                    "/api/v1/drives/photos/files/content?path={}",
+                    urlencoding(&secret_trash)
+                ),
+                "",
+                Some(&sam_cookie),
+                Some(&sam_csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn trash_root_lists_empty_when_never_used() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+        let res = get_files(&app, &cookie, &csrf, ".luna-trash").await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(entries.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn purging_the_trash_root_empties_it() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(mount.path().join("a.txt"), b"a").unwrap();
+        std::fs::write(mount.path().join("b.txt"), b"b").unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+        let trash_a = delete_path(&app, &cookie, &csrf, "a.txt").await;
+        let trash_b = delete_path(&app, &cookie, &csrf, "b.txt").await;
+
+        // Purging the trash root itself removes every entry.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/purge",
+                r#"{"path":".luna-trash"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let res = get_files(&app, &cookie, &csrf, ".luna-trash").await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(entries.as_array().unwrap().len(), 0);
+        for entry in [&trash_a, &trash_b] {
+            let res = get_files(&app, &cookie, &csrf, entry).await;
+            assert_eq!(res.status(), StatusCode::NOT_FOUND, "{entry} is gone");
+        }
+
+        // Emptying an already-empty trash is a quiet no-op.
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/drives/photos/files/purge",
+                r#"{"path":".luna-trash"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
     }
 }

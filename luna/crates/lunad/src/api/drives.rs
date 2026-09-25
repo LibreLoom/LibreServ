@@ -402,15 +402,20 @@ async fn drive_summary(
                 "You don't have permission to view this drive.",
             ));
         }
-        let can_list_root = crate::auth::can_access(&user, &conn, &id, "", false);
+        let can_list_root = crate::auth::has_cap(&user, &conn, &id, "", crate::access::CAP_VIEW);
         let grant_shortcuts = if can_list_root {
             Vec::new()
         } else {
-            crate::db::list_grants_for_user(&conn, &user.id)
+            crate::db::list_access_members_for_user(&conn, &user.id)
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|g| g.drive_id == id && !g.path.is_empty())
-                .map(|g| g.path)
+                .filter(|r| {
+                    r.subject_kind == crate::access::KIND_PATH
+                        && r.drive_id == id
+                        && !r.path.is_empty()
+                        && r.caps & crate::access::CAP_VIEW != 0
+                })
+                .map(|r| r.path)
                 .take(6)
                 .collect::<Vec<_>>()
         };

@@ -1,14 +1,8 @@
 /** Strip slashes so `/photos/` and `photos` are the same folder. */
+import { CAP, KIND_ALBUM, capsBits } from "./access.js";
+
 export function pathKey(value) {
   return String(value ?? "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
-
-export function permRank(permission) {
-  return permission === "write" ? 2 : permission === "read" ? 1 : 0;
-}
-
-export function permGe(next, previous) {
-  return permRank(next) >= permRank(previous);
 }
 
 /** Parent (or same folder, or whole drive) contains the child path. */
@@ -24,50 +18,64 @@ function driveIdOf(row) {
   return row.drive_id || row.driveId || "";
 }
 
-function grantIdentity(grant) {
-  const perm = grant.permission === "write" ? "write" : "read";
-  return `${grant.user_id || ""}|${driveIdOf(grant)}|${pathKey(grant.path)}|${perm}`;
-}
-
-/** Same person, drive, folder, and access — keep the first row. */
-export function dedupeIdenticalGrants(grants) {
-  const list = Array.isArray(grants) ? grants : [];
-  const seen = new Set();
-  return list.filter((grant) => {
-    const key = grantIdentity(grant);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+/** True when `parent`'s capabilities cover everything in `child`. */
+function capsGe(parent, child) {
+  const p = capsBits(parent);
+  const c = capsBits(child);
+  return c !== 0 && (p & c) === c;
 }
 
 /**
- * Highest folders a member can open, plus a child that has stronger access
- * than its parent (write under a read parent).
+ * A member row is redundant when another row on the same subject (or a
+ * containing folder, for path rows) already covers all of its capabilities.
  */
-export function memberAccessRoots(grants) {
-  const unique = dedupeIdenticalGrants(grants);
-  return unique.filter((grant) => !unique.some((parent) => (
-    parent !== grant
-    && (parent.user_id || "") === (grant.user_id || "")
-    && driveIdOf(parent) === driveIdOf(grant)
-    && pathContains(parent.path, grant.path)
-    && permGe(parent.permission, grant.permission)
-  )));
+function rowCovers(parent, row) {
+  if (parent === row) return false;
+  if (driveIdOf(parent) !== driveIdOf(row)) return false;
+  if (!capsGe(parent.caps, row.caps)) return false;
+  if (row.kind === KIND_ALBUM || parent.kind === KIND_ALBUM) {
+    return row.kind === KIND_ALBUM
+      && parent.kind === KIND_ALBUM
+      && row.album_id === parent.album_id;
+  }
+  return pathContains(parent.path, row.path);
 }
 
-/** Write is allowed on this file or folder, or on a parent that includes it. */
-export function canWriteOnPath(grants, driveId, path) {
-  const list = Array.isArray(grants) ? grants : [];
-  return list.some((grant) => (
-    driveIdOf(grant) === driveId
-    && grant.permission === "write"
-    && pathContains(grant.path, path)
+/**
+ * Highest subjects a member can open, plus any child that has capabilities
+ * its parent lacks (e.g. full access on a folder under a view-only parent).
+ */
+export function memberAccessRoots(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  return list.filter((row) => !list.some((parent) => rowCovers(parent, row)));
+}
+
+/**
+ * Union of capability bits covering `path` on `driveId` — a row on the path
+ * itself or on any containing folder/drive counts. Album rows don't apply
+ * to filesystem paths.
+ */
+export function capsOnPath(rows, driveId, path) {
+  const list = Array.isArray(rows) ? rows : [];
+  const target = pathKey(path);
+  let bits = 0;
+  for (const row of list) {
+    if (row.kind === KIND_ALBUM) continue;
+    if (driveIdOf(row) !== driveId) continue;
+    if (pathContains(row.path, target)) bits |= capsBits(row.caps);
+  }
+  return bits;
+}
+
+/** True when any path row on this drive grants `bit` somewhere. */
+export function hasCapOnDrive(rows, driveId, bit) {
+  const list = Array.isArray(rows) ? rows : [];
+  return list.some((row) => (
+    row.kind !== KIND_ALBUM
+    && driveIdOf(row) === driveId
+    && (capsBits(row.caps) & bit) !== 0
   ));
 }
 
-/** True when the member may change anything on this drive (any write grant). */
-export function hasWriteOnDrive(grants, driveId) {
-  const list = Array.isArray(grants) ? grants : [];
-  return list.some((grant) => driveIdOf(grant) === driveId && grant.permission === "write");
-}
+export { CAP };
+export const CAP_FULL = CAP.VIEW | CAP.UPLOAD | CAP.EDIT;

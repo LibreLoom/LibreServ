@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
 import FileViewer from "./FileViewer.jsx";
+import { FileSourceProvider } from "../../lib/fileSource.jsx";
 
 vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
   ToastProvider: ({ children }) => children,
@@ -25,6 +26,31 @@ vi.mock("./office/EuroOfficeHost.jsx", () => ({
   default: (props) => {
     officeMocks.editorProps = props;
     return <div data-testid="office-editor" />;
+  },
+}));
+
+// FormBuilder owns react-query + fetch — the frame tests only need to know
+// the form subtree mounted. The mock captures props like the office mock.
+const formMocks = vi.hoisted(() => ({
+  editorProps: /** @type {Record<string, any>} */ ({}),
+}));
+vi.mock("./forms/FormBuilder.jsx", () => ({
+  default: (props) => {
+    formMocks.editorProps = props;
+    return <div data-testid="form-builder" />;
+  },
+}));
+
+// DiagramEditor probes the pack, fetches the file, and owns the draw.io
+// iframe handshake — the fullscreen chrome tests only need the subtree to
+// mount. The mock captures props like the office mock does.
+const diagramMocks = vi.hoisted(() => ({
+  editorProps: /** @type {Record<string, any>} */ ({}),
+}));
+vi.mock("./diagram/DiagramEditor.jsx", () => ({
+  default: (props) => {
+    diagramMocks.editorProps = props;
+    return <div data-testid="diagram-editor" />;
   },
 }));
 
@@ -1085,6 +1111,56 @@ describe("FileViewer fullscreen office overlay", () => {
   });
 });
 
+describe("FileViewer fullscreen diagram overlay", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function findFullscreenOverlay() {
+    await waitFor(() => {
+      expect(document.querySelector('[data-slot="file-viewer-overlay"]')).toBeInTheDocument();
+    });
+    return document.querySelector('[data-slot="file-viewer-overlay"]');
+  }
+
+  it("opens .drawio files in the fullscreen diagram editor", async () => {
+    const { rerender } = render(
+      <FileViewer open driveId="d1" path="diagrams/flow.drawio" onClose={() => {}} />,
+    );
+    await findFullscreenOverlay();
+    expect(screen.getByTestId("diagram-editor")).toBeInTheDocument();
+    expect(diagramMocks.editorProps.path).toBe("diagrams/flow.drawio");
+
+    // The embedded-preview variants are diagrams, not image previews.
+    for (const path of ["diagrams/arch.drawio.svg", "diagrams/arch.drawio.png"]) {
+      rerender(
+        <FileViewer open driveId="d1" path={path} onClose={() => {}} />,
+      );
+      await findFullscreenOverlay();
+      expect(screen.getByTestId("diagram-editor"), path).toBeInTheDocument();
+      expect(diagramMocks.editorProps.path, path).toBe(path);
+    }
+  });
+
+  it("still opens diagram files fullscreen without write permission", async () => {
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="diagrams/flow.drawio"
+        canWrite={false}
+        onClose={() => {}}
+      />,
+    );
+    await findFullscreenOverlay();
+    expect(screen.getByTestId("diagram-editor")).toBeInTheDocument();
+    expect(diagramMocks.editorProps.canWrite).toBe(false);
+    // Read-only session: no Save affordance in the rail.
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+});
+
 describe("FileViewer conversion hints", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -1269,5 +1345,145 @@ describe("FileViewer conversion hints", () => {
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("FileViewer guest office bridge", () => {
+  /** Minimal share-shaped source — the office path never calls its fetches. */
+  function guestSource(overrides = {}) {
+    return /** @type {any} */ ({
+      kind: "share",
+      guest: true,
+      collab: false,
+      token: "tok",
+      isFile: true,
+      fetch: vi.fn(async () => new Response("x")),
+      contentHref: () => "/s/tok/file",
+      downloadHref: () => "/s/tok/file?download=1",
+      ...overrides,
+    });
+  }
+
+  it("mounts the real office frame for a view-only link guest", async () => {
+    render(
+      <FileSourceProvider source={guestSource()}>
+        <FileViewer
+          open
+          driveId="tok"
+          path="Report.docx"
+          canWrite={false}
+          onClose={() => {}}
+        />
+      </FileSourceProvider>,
+    );
+    expect(await screen.findByTestId("office-editor")).toBeInTheDocument();
+    expect(officeMocks.editorProps.canWrite).toBe(false);
+  });
+
+  it("mounts the real office frame for a full link guest with write", async () => {
+    render(
+      <FileSourceProvider source={guestSource()}>
+        <FileViewer
+          open
+          driveId="tok"
+          path="Report.docx"
+          canWrite
+          onClose={() => {}}
+        />
+      </FileSourceProvider>,
+    );
+    expect(await screen.findByTestId("office-editor")).toBeInTheDocument();
+    expect(officeMocks.editorProps.canWrite).toBe(true);
+  });
+});
+
+describe("FileViewer form overlay", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function findFullscreenOverlay() {
+    await waitFor(() => {
+      expect(document.querySelector('[data-slot="file-viewer-overlay"]')).toBeInTheDocument();
+    });
+  }
+
+  it("mounts the form builder fullscreen for members, write or read-only", async () => {
+    const { rerender } = render(
+      <FileViewer open driveId="d1" path="forms/rsvp.lunaform" onClose={() => {}} />,
+    );
+    await findFullscreenOverlay();
+    expect(screen.getByTestId("form-builder")).toBeInTheDocument();
+    expect(formMocks.editorProps.canWrite).toBe(true);
+
+    rerender(
+      <FileViewer
+        open
+        driveId="d1"
+        path="forms/rsvp.lunaform"
+        canWrite={false}
+        onClose={() => {}}
+      />,
+    );
+    await findFullscreenOverlay();
+    expect(screen.getByTestId("form-builder")).toBeInTheDocument();
+    expect(formMocks.editorProps.canWrite).toBe(false);
+  });
+
+  it("mounts the form builder for a view link guest", async () => {
+    const source = {
+      kind: "share",
+      guest: true,
+      collab: false,
+      token: "tok",
+      isFile: true,
+      capsBits: 1,
+      fetch: vi.fn(async () => new Response("x")),
+      contentHref: () => "/s/tok/file",
+      downloadHref: () => "/s/tok/file?download=1",
+    };
+    render(
+      <FileSourceProvider source={/** @type {any} */ (source)}>
+        <FileViewer
+          open
+          driveId="tok"
+          path="rsvp.lunaform"
+          canWrite={false}
+          onClose={() => {}}
+        />
+      </FileSourceProvider>,
+    );
+    await findFullscreenOverlay();
+    expect(screen.getByTestId("form-builder")).toBeInTheDocument();
+    expect(formMocks.editorProps.canWrite).toBe(false);
+  });
+
+  it("mounts the diagram frame for a view link guest", async () => {
+    const source = {
+      kind: "share",
+      guest: true,
+      collab: false,
+      token: "tok",
+      isFile: true,
+      capsBits: 1,
+      fetch: vi.fn(async () => new Response("x")),
+      contentHref: () => "/s/tok/file",
+      downloadHref: () => "/s/tok/file?download=1",
+    };
+    render(
+      <FileSourceProvider source={/** @type {any} */ (source)}>
+        <FileViewer
+          open
+          driveId="tok"
+          path="flow.drawio"
+          canWrite={false}
+          onClose={() => {}}
+        />
+      </FileSourceProvider>,
+    );
+    await findFullscreenOverlay();
+    expect(screen.getByTestId("diagram-editor")).toBeInTheDocument();
+    expect(diagramMocks.editorProps.canWrite).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-//! Rate limits for unauthenticated public album routes (Photos guest uploads).
+//! Rate limits for unauthenticated public link routes (guest uploads on /s/ links).
 
 use axum::Json;
 use axum::extract::{ConnectInfo, Request, State};
@@ -16,16 +16,15 @@ fn public_upload_key(ip: &str) -> String {
     format!("public_upload:{ip}")
 }
 
-/// Limit guest `POST .../public/albums/{token}/upload` by client IP.
+/// Limit guest `POST /s/{token}/upload` (new upload session) by client IP.
 pub async fn limit_public_album_uploads(
     State(state): State<AppState>,
     req: Request,
     next: Next,
 ) -> Response {
     let path = req.uri().path();
-    let is_public_upload = *req.method() == Method::POST
-        && path.starts_with("/api/v1/public/albums/")
-        && path.ends_with("/upload");
+    let is_public_upload =
+        *req.method() == Method::POST && path.starts_with("/s/") && path.ends_with("/upload");
     if is_public_upload {
         // ConnectInfo only (not X-Forwarded-For): behind cloudflared this may be
         // the proxy IP, so the limiter can act as a coarse global cap.

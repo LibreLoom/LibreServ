@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
+import { useFileSource } from "../../../lib/fileSource.jsx";
 
 /**
  * Sandboxed PDF preview via blob URL (never served inline at the Luna
@@ -9,6 +10,7 @@ import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
  * fallback when EuroOffice is missing.
  */
 export default function PdfViewer({ driveId, path, fill = false }) {
+  const source = useFileSource();
   const [url, setUrl] = useState(/** @type {string|null} */ (null));
   const [error, setError] = useState(/** @type {string|null} */ (null));
 
@@ -17,7 +19,7 @@ export default function PdfViewer({ driveId, path, fill = false }) {
     let objectUrl = /** @type {string|null} */ (null);
     (async () => {
       try {
-        objectUrl = await fetchDriveBlobUrl(driveId, path, "application/pdf");
+        objectUrl = await fetchDriveBlobUrl(source, driveId, path, "application/pdf");
         if (!revoked) setUrl(objectUrl);
       } catch {
         if (!revoked) setError("Luna couldn't open this PDF. Try downloading it.");
@@ -27,7 +29,7 @@ export default function PdfViewer({ driveId, path, fill = false }) {
       revoked = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [driveId, path]);
+  }, [source, driveId, path]);
 
   const textTone = fill ? "text-secondary" : "text-primary";
   if (error) return <p className={`${textTone} text-sm`}>{error}</p>;

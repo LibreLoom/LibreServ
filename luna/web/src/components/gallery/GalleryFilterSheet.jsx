@@ -14,7 +14,9 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
  *   dateFrom?: string,
  *   dateTo?: string,
  *   undated?: boolean,
+ *   monthDay?: ""|"today"|string,
  *   placeBbox?: [number, number, number, number]|null,
+ *   place?: {key?: string, label?: string, place_bbox?: number[]|null}|null,
  *   cameraMake?: string,
  *   cameraModel?: string,
  *   lens?: string,
@@ -40,7 +42,9 @@ export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
   dateFrom: "",
   dateTo: "",
   undated: false,
+  monthDay: "",
   placeBbox: null,
+  place: null,
   cameraMake: "",
   cameraModel: "",
   lens: "",
@@ -71,7 +75,9 @@ export function countActiveFilters(filters) {
   let n = 0;
   if (filters.undated) n += 1;
   else if (filters.dateFrom || filters.dateTo) n += 1;
+  if (filters.monthDay) n += 1;
   if (filters.placeBbox?.length === 4) n += 1;
+  if (filters.place) n += 1;
   if (filters.cameraMake || filters.cameraModel) n += 1;
   if (filters.lens) n += 1;
   if (filters.isoMin || filters.isoMax) n += 1;
@@ -95,6 +101,19 @@ export function countActiveFilters(filters) {
 }
 
 /**
+ * Display label for the `monthDay` filter: "today" is the dynamic
+ * On-this-day value; an explicit MM-DD reads as a yearly date.
+ * @param {string} [value]
+ */
+export function monthDayLabel(value) {
+  if (!value) return "";
+  if (value === "today") return "On this day";
+  const [m, d] = value.split("-").map(Number);
+  if (!m || !d || m > 12 || d > 31) return "On this day";
+  return `Every ${new Date(2000, m - 1, d).toLocaleDateString(undefined, { month: "long", day: "numeric" })}`;
+}
+
+/**
  * @param {GalleryFilters} filters
  * @returns {Array<{ id: string, label: string }>}
  */
@@ -109,8 +128,14 @@ export function filterChipList(filters) {
     const b = filters.dateTo || "…";
     chips.push({ id: "dates", label: a === b ? a : `${a} → ${b}` });
   }
+  if (filters.monthDay) {
+    chips.push({ id: "monthDay", label: monthDayLabel(filters.monthDay) });
+  }
   if (filters.placeBbox?.length === 4) {
     chips.push({ id: "placeBbox", label: "Map area" });
+  }
+  if (filters.place) {
+    chips.push({ id: "place", label: filters.place.label || "Place" });
   }
   if (filters.cameraMake || filters.cameraModel) {
     chips.push({
@@ -191,8 +216,14 @@ export function clearFilterChip(filters, chipId) {
       next.dateTo = "";
       next.undated = false;
       break;
+    case "monthDay":
+      next.monthDay = "";
+      break;
     case "placeBbox":
       next.placeBbox = null;
+      break;
+    case "place":
+      next.place = null;
       break;
     case "camera":
       next.cameraMake = "";
@@ -330,6 +361,12 @@ export default function GalleryFilterSheet({
       ...value,
       formats: [...(value?.formats || [])],
       placeBbox: value?.placeBbox ? [...value.placeBbox] : null,
+      place: value?.place
+        ? {
+            ...value.place,
+            place_bbox: value.place.place_bbox ? [...value.place.place_bbox] : null,
+          }
+        : null,
       undated: !!value?.undated,
       albumMembership: value?.albumMembership || "",
     });
@@ -511,6 +548,15 @@ export default function GalleryFilterSheet({
             >
               Undated
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={draft.monthDay ? "accent" : "outline"}
+              surface="primary"
+              onClick={() => patch({ monthDay: draft.monthDay ? "" : "today" })}
+            >
+              On this day
+            </Button>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="block text-sm flex-1 min-w-[8rem]">
@@ -583,7 +629,9 @@ export default function GalleryFilterSheet({
           <GeozoneMap
             places={places}
             value={draft.placeBbox || null}
-            onChange={(bbox) => patch({ placeBbox: bbox })}
+            onChange={(bbox) =>
+              patch(bbox ? { placeBbox: bbox, place: null } : { placeBbox: null })
+            }
           />
         </section>
 

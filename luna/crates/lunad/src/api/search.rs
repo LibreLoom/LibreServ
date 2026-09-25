@@ -65,7 +65,7 @@ async fn search(
         {
             continue;
         }
-        if crate::auth::can_access(&user, &conn, &hit.drive_id, &full, false) {
+        if crate::auth::has_cap(&user, &conn, &hit.drive_id, &full, crate::access::CAP_VIEW) {
             out.push(json!({
                 "drive_id": hit.drive_id,
                 "path": full,

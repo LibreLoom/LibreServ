@@ -6,7 +6,14 @@
  */
 
 import { canViewerOpen } from "./officeConvert.js";
-import { fileHref, folderHref, joinPath, parentPath, pathBasename } from "./paths.js";
+import {
+  fileHref,
+  folderHref,
+  isTrashPath,
+  joinPath,
+  parentPath,
+  pathBasename,
+} from "./paths.js";
 
 /** At most this many items are remembered per user. */
 export const RECENT_ITEMS_LIMIT = 10;
@@ -98,6 +105,9 @@ export function recentItemFromLocation({ pathname, search = "", hash = "" }) {
   if (params.get("view") === "trash") return null;
 
   const path = params.get("path") || "";
+  // Trash rows carry generated on-disk names (`{nonce}-file`) — a recent
+  // link to one would read as noise and rots on put-back or purge anyway.
+  if (isTrashPath(path)) return null;
   const fileParam = params.get("file") || params.get("open") || "";
   const rawHash = hash ? decodeURIComponent(String(hash).replace(/^#/, "")) : "";
   const hashCandidate = rawHash && rawHash !== "main-content" ? rawHash : "";

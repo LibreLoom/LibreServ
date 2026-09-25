@@ -7,7 +7,6 @@ const SEGMENTS = [
   { value: "library", label: "Library" },
   { value: "albums", label: "Albums" },
   { value: "places", label: "Places" },
-  { value: "archive", label: "Archive" },
 ];
 
 function renderToolbar(overrides = {}) {

@@ -860,6 +860,172 @@ describe("FileBrowser", () => {
     expect(await screen.findByText("inner.txt")).toBeInTheDocument();
     expect(onInternalMove).not.toHaveBeenCalled();
   });
+
+  it("in trash shows pre-trash names and crumb labels", async () => {
+    stubListing({
+      ".luna-trash": [
+        {
+          name: "171-photo.jpg",
+          original_name: "photo.jpg",
+          original_path: "photo.jpg",
+          kind: "file",
+          size: 12,
+          modified: 0,
+          hidden: false,
+        },
+      ],
+    });
+    renderBrowser({
+      path: ".luna-trash",
+      segmentLabel: (segment, i) => (i === 0 ? "Trash" : segment),
+      multiSelect: false,
+      linkNavigation: true,
+    });
+    expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
+    expect(screen.queryByText("171-photo.jpg")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute(
+      "href",
+      "/drives/d1?path=.luna-trash",
+    );
+    // Up one folder returns to the drive root.
+    expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute(
+      "href",
+      "/drives/d1",
+    );
+  });
+
+  it("in trash has no checkboxes but renders the caller's row actions", async () => {
+    const onRestore = vi.fn();
+    const onPurge = vi.fn();
+    stubListing({
+      ".luna-trash": [
+        {
+          name: "171-photo.jpg",
+          original_name: "photo.jpg",
+          original_path: "photo.jpg",
+          kind: "file",
+          size: 12,
+          modified: 0,
+          hidden: false,
+        },
+      ],
+    });
+    renderBrowser({
+      path: ".luna-trash",
+      multiSelect: true,
+      renderRowActions: (ctx) => (
+        <>
+          <button type="button" onClick={() => onRestore(ctx)}>
+            {`Restore ${ctx.displayName}`}
+          </button>
+          <button type="button" onClick={() => onPurge(ctx)}>
+            {`Delete ${ctx.displayName} permanently`}
+          </button>
+        </>
+      ),
+    });
+    expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
+    // Trash rows are never selectable — no row or select-all checkboxes.
+    expect(screen.queryByLabelText("Select photo.jpg")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restore photo.jpg" }));
+    expect(onRestore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fullPath: ".luna-trash/171-photo.jpg",
+        displayName: "photo.jpg",
+        entry: expect.objectContaining({ name: "171-photo.jpg" }),
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete photo.jpg permanently" }));
+    expect(onPurge).toHaveBeenCalledWith(
+      expect.objectContaining({ fullPath: ".luna-trash/171-photo.jpg" }),
+    );
+  });
+
+  it("hands row contexts to renderSelectionActions", async () => {
+    const onAct = vi.fn();
+    stubListing({
+      "": [{ name: "a.txt", kind: "file", size: 1, hidden: false }],
+    });
+    renderBrowser({
+      multiSelect: true,
+      renderSelectionActions: (paths, rows) => (
+        <button type="button" onClick={() => onAct(rows)}>
+          Act on them
+        </button>
+      ),
+    });
+    fireEvent.click(await screen.findByLabelText("Select a.txt"));
+    fireEvent.click(screen.getByRole("button", { name: "Act on them" }));
+    expect(onAct).toHaveBeenCalledWith([
+      expect.objectContaining({ fullPath: "a.txt", displayName: "a.txt" }),
+    ]);
+  });
+
+  it("in trash does not drag rows, accept drops, or open session-backed files", async () => {
+    const onOpenFile = vi.fn();
+    const onInternalMove = vi.fn();
+    stubListing({
+      ".luna-trash": [
+        {
+          name: "171-docs",
+          original_name: "docs",
+          original_path: "docs",
+          kind: "dir",
+          size: 0,
+          modified: 0,
+          hidden: false,
+        },
+        {
+          name: "171-doc.docx",
+          original_name: "doc.docx",
+          original_path: "doc.docx",
+          kind: "file",
+          size: 12,
+          modified: 0,
+          hidden: false,
+        },
+        {
+          name: "171-note.txt",
+          original_name: "note.txt",
+          original_path: "note.txt",
+          kind: "file",
+          size: 12,
+          modified: 0,
+          hidden: false,
+        },
+      ],
+    });
+    renderBrowser({
+      path: ".luna-trash",
+      onOpenFile,
+      onInternalMove,
+      multiSelect: true,
+    });
+    expect(await screen.findByText("doc.docx")).toBeInTheDocument();
+    // Office files need an edit session trash can't provide — not openable.
+    expect(screen.queryByRole("button", { name: "doc.docx" })).not.toBeInTheDocument();
+    // Text files still preview read-only.
+    fireEvent.click(screen.getByRole("button", { name: "note.txt" }));
+    expect(onOpenFile).toHaveBeenCalledWith(
+      expect.objectContaining({ fullPath: ".luna-trash/171-note.txt" }),
+    );
+    // Rows don't drag, and trash folders aren't drop targets.
+    const noteRow = document.querySelector('[data-file-path=".luna-trash/171-note.txt"]');
+    expect(noteRow?.getAttribute("draggable")).not.toBe("true");
+    const setData = vi.fn();
+    fireEvent.dragStart(noteRow, { dataTransfer: { setData, effectAllowed: "", types: [] } });
+    expect(setData).not.toHaveBeenCalled();
+    const dirRow = document.querySelector('[data-file-path=".luna-trash/171-docs"]');
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      getData: vi.fn(() => JSON.stringify(["other/x.txt"])),
+    };
+    fireEvent.dragOver(dirRow, { dataTransfer });
+    fireEvent.drop(dirRow, { dataTransfer });
+    await act(async () => {});
+    expect(onInternalMove).not.toHaveBeenCalled();
+  });
 });
 
 describe("FileBrowser folder chrome auto-split", () => {

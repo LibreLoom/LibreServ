@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
+import { Download, ImageOff, VideoOff } from "lucide-react";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { isHeicFile } from "../../lib/fileKinds.js";
 
 function prefersReducedMotion() {
   return typeof window !== "undefined"
@@ -18,15 +21,45 @@ const THUMB_STAGE_CAP = "max-h-[45%] max-w-[45%]";
  * from the thumbnail's footprint to the fitted full-size view, so the wait
  * reads as one continuous motion instead of a pop-in.
  *
- * @param {{ photo: object, src: string, autoPlay?: boolean }} props
+ * `lite` panes (carousel panes being swept past) render the thumbnail only,
+ * so rapid navigation never downloads full media for every photo passed.
+ *
+ * Media the browser can't decode — a video codec it doesn't support, or a
+ * corrupt file — swaps to a notice with a download link instead of hanging
+ * forever on the thumbnail. HEIC stills whose transcoded preview isn't
+ * ready are the one exception: they fall back to the drive thumbnail and
+ * say so, since a stretched thumb beats a dead pane but is still a preview.
+ *
+ * @param {{ photo: object, src: string, downloadSrc?: string, autoPlay?: boolean, lite?: boolean }} props
  */
-export default function LightboxMedia({ photo, src, autoPlay = true }) {
+export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = false }) {
   // "loading" (thumbnail only) → "primed" (media at thumbnail scale) → "grown".
   const [phase, setPhase] = useState("loading");
+  const [failed, setFailed] = useState(false);
+  const [thumbFallback, setThumbFallback] = useState(false);
   const [reduced] = useState(() => prefersReducedMotion());
   const scaleFrom = useRef(1);
   const thumbRef = useRef(/** @type {HTMLImageElement|null} */ (null));
   const mediaRef = useRef(/** @type {HTMLElement|null} */ (null));
+
+  // A new src means new media to decode — replay the reveal and clear any
+  // stale failure left by the previous source.
+  const [seenSrc, setSeenSrc] = useState(src);
+  if (seenSrc !== src) {
+    setSeenSrc(src);
+    setPhase("loading");
+    setFailed(false);
+    setThumbFallback(false);
+  }
+
+  // Off-center carousel panes mount with autoPlay=false — pause a video that
+  // kept playing after sliding away from center.
+  useEffect(() => {
+    const el = /** @type {HTMLMediaElement|null} */ (mediaRef.current);
+    if (!autoPlay && typeof el?.pause === "function") {
+      el.pause();
+    }
+  }, [autoPlay]);
 
   useEffect(() => {
     if (phase !== "primed") return undefined;
@@ -56,6 +89,15 @@ export default function LightboxMedia({ photo, src, autoPlay = true }) {
     setPhase("primed");
   }
 
+  const isVideo = photo.kind === "video";
+  // The thumb swap exists for HEIC previews that 404 until the backend
+  // preview lands. For anything else a failed load is a real failure — a
+  // stretched thumbnail standing in for the photo reads as a broken render
+  // with no explanation. Already showing the thumb src (or out of retries)
+  // counts as a failure too.
+  const canThumbFallback =
+    !isVideo && !thumbFallback && isHeicFile(photo.name)
+    && photo.thumb && photo.thumb !== src;
   const mediaStyle =
     phase === "primed"
       ? {
@@ -81,16 +123,42 @@ export default function LightboxMedia({ photo, src, autoPlay = true }) {
           src={photo.thumb}
           alt=""
           aria-hidden="true"
+          draggable={false}
           className={`${THUMB_STAGE_CAP} rounded-large-element object-contain`}
           style={{
-            opacity: phase === "grown" ? 0 : 1,
+            opacity: phase === "grown" || failed ? 0 : 1,
             transition: reduced
               ? "none"
               : "opacity var(--motion-duration-medium1) var(--motion-easing-standard) var(--motion-duration-short3)",
           }}
         />
       ) : null}
-      {photo.kind === "video" ? (
+      {lite ? null : failed ? (
+        <div
+          role="alert"
+          data-slot="lightbox-media-error"
+          className="absolute inset-0 m-auto flex h-fit w-fit max-w-[min(22rem,85%)] flex-col items-center gap-3 rounded-large-element bg-secondary px-8 py-6 text-center text-primary motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95"
+        >
+          {isVideo ? (
+            <VideoOff size={28} aria-hidden="true" />
+          ) : (
+            <ImageOff size={28} aria-hidden="true" />
+          )}
+          <p className="text-sm">
+            {isVideo
+              ? "This video can't play in the browser. Download it to watch on your device."
+              : "This photo can't be displayed in the browser. Download it to try opening it on your device."}
+          </p>
+          {downloadSrc ? (
+            <Button variant="primary" size="sm" asChild>
+              <a href={downloadSrc} download>
+                <Download size={16} />
+                Download
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      ) : isVideo ? (
         <video
           key={src}
           ref={(el) => {
@@ -103,9 +171,8 @@ export default function LightboxMedia({ photo, src, autoPlay = true }) {
           style={mediaStyle}
           src={src}
           onLoadedData={handleReady}
-        >
-          Your browser cannot play this video. Download it instead.
-        </video>
+          onError={() => setFailed(true)}
+        />
       ) : (
         <img
           key={src}
@@ -115,19 +182,25 @@ export default function LightboxMedia({ photo, src, autoPlay = true }) {
           }}
           src={src}
           alt={photo.name}
+          draggable={false}
           className="absolute inset-0 m-auto max-h-full max-w-full object-contain"
           style={mediaStyle}
           onLoad={handleReady}
           onError={(e) => {
-            // HEIC preview may 404 until backend lands — fall back to thumb.
-            if (photo.thumb && e.currentTarget.src !== photo.thumb) {
+            if (canThumbFallback) {
+              setThumbFallback(true);
               e.currentTarget.src = photo.thumb;
             } else {
-              setPhase("grown");
+              setFailed(true);
             }
           }}
         />
       )}
+      {thumbFallback && !failed ? (
+        <p className="absolute inset-x-0 bottom-4 mx-auto w-fit max-w-[85%] rounded-pill bg-secondary px-4 py-2 text-center text-xs text-primary motion-safe:animate-in motion-safe:fade-in">
+          The full-size photo couldn't load — this is a small preview.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -139,9 +212,13 @@ LightboxMedia.propTypes = {
     thumb: PropTypes.string,
   }).isRequired,
   src: PropTypes.string.isRequired,
+  downloadSrc: PropTypes.string,
   autoPlay: PropTypes.bool,
+  lite: PropTypes.bool,
 };
 
 LightboxMedia.defaultProps = {
+  downloadSrc: "",
   autoPlay: true,
+  lite: false,
 };

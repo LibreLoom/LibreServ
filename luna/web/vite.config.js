@@ -65,12 +65,28 @@ export default defineConfig({
     proxy: {
       "/api": lunaProxy({ ws: true }),
       "/health": lunaProxy(),
+      // Public share links live on lunad under /s/{token}. Navigations to the
+      // link root stay on Vite so the dev build renders the share page; data
+      // fetches (Accept: json) and sub-resources (list/file/media/zip/upload/
+      // respond) always proxy through.
+      "/s/": lunaProxy({
+        bypass: (req) => {
+          const pathname = (req.url || "").split("?")[0];
+          const isRootNav = /^\/s\/[^/]+$/.test(pathname);
+          return isRootNav && req.headers.accept?.includes("text/html")
+            ? req.url
+            : undefined;
+        },
+      }),
       // Static EuroOffice pack + the docstorage socket from lunad. The editor
       // runs client-side; every asset and the WS live under /eurooffice.
       "/eurooffice": { target: "http://localhost:8090", changeOrigin: false, ws: true },
       // The editor iframe resolves ../../sdkjs/ against the site root
       // (Document Server's nginx layout) — lunad serves it from the pack.
       "/sdkjs": { target: "http://localhost:8090", changeOrigin: false },
+      // Static draw.io webapp pack from lunad (self-hosted diagrams.net —
+      // the editor iframe is same-origin, no websocket needed).
+      "/drawio": { target: "http://localhost:8090", changeOrigin: false },
       // sdkjs loads font metrics from site-root /fonts (same nginx layout).
       // Luna's brand fonts live in public/fonts — serve local files first;
       // only paths missing from public/ go to lunad's pack fonts dir.

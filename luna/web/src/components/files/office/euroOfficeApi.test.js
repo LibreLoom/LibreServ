@@ -11,6 +11,7 @@ import {
   restoreEuroOfficeEditing,
   x2tConvert,
   ensureOfficeBundle,
+  saveEuroOfficeDocument,
   EuroOfficeUnavailableError,
 } from "./euroOfficeApi.js";
 import { apiFetch, putBinary } from "../../../lib/api.js";
@@ -52,6 +53,19 @@ describe("bundleUrl", () => {
     expect(bundleUrl("k-1", "Editor.bin")).toBe("/api/v1/office/bundle/k-1/Editor.bin");
     expect(bundleUrl("k 2", "media/my image.png")).toBe(
       "/api/v1/office/bundle/k%202/media/my%20image.png",
+    );
+  });
+
+  it("uses the session's scoped bundle_url when present", () => {
+    const session = /** @type {any} */ ({
+      key: "k1",
+      bundle_url: "/s/office-bundle/k1",
+      token: "jwt",
+    });
+    expect(bundleUrl(session, "Editor.bin")).toBe("/s/office-bundle/k1/Editor.bin");
+    // A session without bundle_url falls back to the legacy cookie route.
+    expect(bundleUrl(/** @type {any} */ ({ key: "k1" }), "Editor.bin")).toBe(
+      "/api/v1/office/bundle/k1/Editor.bin",
     );
   });
 });
@@ -711,5 +725,53 @@ describe("ensureOfficeBundle", () => {
     await expect(
       ensureOfficeBundle("d1", "a/Letter.rtf", session),
     ).rejects.toThrow("Couldn't reach Luna");
+  });
+});
+
+describe("saveEuroOfficeDocument source roundtrip", () => {
+  const session = /** @type {any} */ ({
+    key: "k1",
+    file_type: "docx",
+    bundle_url: "/s/office-bundle/k1",
+    token: "jwt-1",
+  });
+  const iframe = /** @type {any} */ ({
+    contentWindow: {
+      Asc: { editor: { asc_nativeGetFile: () => new Uint8Array([1, 2, 3]) } },
+    },
+  });
+
+  afterEach(() => {
+    vi.mocked(putBinary).mockReset();
+    MockWorker.fail = null;
+    MockWorker.reply = { out: new Uint8Array([7, 7, 7]), media: {} };
+    delete globalThis.Worker;
+  });
+
+  it("writes the file through the given source and refreshes the scoped bundle", async () => {
+    globalThis.Worker = /** @type {any} */ (MockWorker);
+    MockWorker.reply = { out: new Uint8Array([5, 5]), media: { "image1.png": new Uint8Array([9]) } };
+    const saveFile = vi.fn(async () => {});
+    const source = /** @type {any} */ ({ saveFile });
+
+    await expect(
+      saveEuroOfficeDocument(iframe, "d1", session, "Report.docx", "docs", 7, source),
+    ).resolves.toEqual({ bytes: 2 });
+
+    expect(saveFile).toHaveBeenCalledWith(
+      "d1",
+      "docs/Report.docx",
+      "Report.docx",
+      expect.any(Blob),
+    );
+    const puts = vi.mocked(putBinary).mock.calls;
+    // media + origin + Editor.bin all land on the session's scoped base with
+    // the office token header — never the cookie-only member route.
+    expect(puts).toHaveLength(3);
+    for (const [url, , opts] of puts) {
+      expect(String(url)).toMatch(/^\/s\/office-bundle\/k1\//);
+      expect(opts?.headers?.["X-Office-Token"]).toBe("jwt-1");
+    }
+    expect(String(puts[puts.length - 1][0])).toContain("Editor.bin?coverage=7");
   });
 });

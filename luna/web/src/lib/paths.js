@@ -1,3 +1,11 @@
+/** Public API alias for a drive's trash folder — browses like a real path. */
+export const TRASH_PATH = ".luna-trash";
+
+/** Is `path` the trash folder itself or somewhere inside it? */
+export function isTrashPath(path) {
+  return path === TRASH_PATH || path.startsWith(`${TRASH_PATH}/`);
+}
+
 /** Join a relative drive path with a child name. */
 export function joinPath(base, name) {
   return base ? `${base}/${name}` : name;

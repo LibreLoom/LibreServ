@@ -76,9 +76,12 @@ export class CollabDocSync {
    *   onStatus?: (status: string) => void,
    *   onPeerSaved?: (peerId: number) => void,
    *   socket?: CollabSocketLike | (() => CollabSocketLike),
+   *   solo?: boolean,
    * }} opts `socket` is injectable for tests — an instance or a factory.
+   * `solo` skips the hub entirely (link guests have no session): the doc
+   * seeds straight from the file and never syncs peers.
    */
-  constructor({ driveId, path, onPeers, onStatus, onPeerSaved, socket }) {
+  constructor({ driveId, path, onPeers, onStatus, onPeerSaved, socket, solo = false }) {
     this.ydoc = new Y.Doc();
     this.ytext = this.ydoc.getText("file");
     this.awareness = new Awareness(this.ydoc);
@@ -92,7 +95,8 @@ export class CollabDocSync {
     this._pendingContent = null;
     this._destroyed = false;
     this._welcomed = false;
-    this._offline = false;
+    // Solo sessions seed immediately — adoptContent alone unlocks the doc.
+    this._offline = solo;
     this._seeded = false;
     this._seedContent = null;
     this._seedTimer = null;
@@ -127,6 +131,11 @@ export class CollabDocSync {
   /** Open (or re-open after close) the room socket and wire handlers. */
   connect() {
     if (this._destroyed) return;
+    if (this._offline && !this.socket) {
+      // Solo: no hub. Report open so the editor doesn't show "Connecting…".
+      this._onStatus?.("open");
+      return;
+    }
     if (this.socket && !this.socket._closed) return;
     const sock = this._socketFactory();
     this.socket = sock;

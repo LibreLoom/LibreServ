@@ -22,7 +22,8 @@ use dav_server::fs::{
 use luna_core::path::{PathError, resolve_child_nofollow, resolve_for_create_nofollow};
 use rusqlite::Connection;
 
-use crate::auth::{CurrentUser, can_access, can_browse_path};
+use crate::access::{CAP_EDIT, CAP_UPLOAD, CAP_VIEW};
+use crate::auth::{CurrentUser, can_browse_path, has_cap};
 
 #[derive(Clone)]
 pub struct JailedFs {
@@ -87,22 +88,33 @@ impl GrantFs {
         }
     }
 
-    fn require_read(&self, rel: &str) -> FsResult<()> {
+    fn require_cap(&self, rel: &str, cap: crate::access::Caps) -> FsResult<()> {
         let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
-        if can_access(&self.user, &conn, &self.drive_id, rel, false) {
+        if has_cap(&self.user, &conn, &self.drive_id, rel, cap) {
             Ok(())
         } else {
             Err(FsError::Forbidden)
         }
     }
 
-    fn require_write(&self, rel: &str) -> FsResult<()> {
-        let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
-        if can_access(&self.user, &conn, &self.drive_id, rel, true) {
-            Ok(())
-        } else {
-            Err(FsError::Forbidden)
+    /// Gate a write-mode `open`: brand-new files are an upload into their
+    /// folder; rewriting an existing file is an edit (upload-only members
+    /// must not overwrite what they can only add).
+    fn require_open_caps(&self, rel: &str, options: &OpenOptions) -> FsResult<()> {
+        if !open_write_requested(options) {
+            return self.require_cap(rel, CAP_VIEW);
         }
+        if options.create_new {
+            return self.require_cap(rel, CAP_UPLOAD);
+        }
+        if options.create {
+            return match resolve_child_nofollow(&self.inner.root, rel) {
+                Ok(_) => self.require_cap(rel, CAP_EDIT),
+                Err(PathError::NotFound(_)) => self.require_cap(rel, CAP_UPLOAD),
+                Err(e) => Err(JailedFs::map_err(e)),
+            };
+        }
+        self.require_cap(rel, CAP_EDIT)
     }
 
     fn require_browse(&self, rel: &str) -> FsResult<()> {
@@ -377,11 +389,7 @@ impl DavFileSystem for GrantFs {
     ) -> FsFuture<'a, Box<dyn DavFile>> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
-            if open_write_requested(&options) {
-                self.require_write(&rel)?;
-            } else {
-                self.require_read(&rel)?;
-            }
+            self.require_open_caps(&rel, &options)?;
             self.inner.open(path, options).await
         })
     }
@@ -429,7 +437,7 @@ impl DavFileSystem for GrantFs {
     fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
-            self.require_write(&rel)?;
+            self.require_cap(&rel, CAP_UPLOAD)?;
             self.inner.create_dir(path).await
         })
     }
@@ -437,7 +445,7 @@ impl DavFileSystem for GrantFs {
     fn remove_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
-            self.require_write(&rel)?;
+            self.require_cap(&rel, CAP_EDIT)?;
             self.inner.remove_dir(path).await
         })
     }
@@ -445,7 +453,7 @@ impl DavFileSystem for GrantFs {
     fn remove_file<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let rel = Self::rel(path)?;
-            self.require_write(&rel)?;
+            self.require_cap(&rel, CAP_EDIT)?;
             self.inner.remove_file(path).await
         })
     }
@@ -454,8 +462,8 @@ impl DavFileSystem for GrantFs {
         Box::pin(async move {
             let from_rel = Self::rel(from)?;
             let to_rel = Self::rel(to)?;
-            self.require_write(&from_rel)?;
-            self.require_write(&to_rel)?;
+            self.require_cap(&from_rel, CAP_EDIT)?;
+            self.require_cap(&to_rel, CAP_UPLOAD)?;
             self.inner.rename(from, to).await
         })
     }
@@ -464,8 +472,8 @@ impl DavFileSystem for GrantFs {
         Box::pin(async move {
             let from_rel = Self::rel(from)?;
             let to_rel = Self::rel(to)?;
-            self.require_read(&from_rel)?;
-            self.require_write(&to_rel)?;
+            self.require_cap(&from_rel, CAP_VIEW)?;
+            self.require_cap(&to_rel, CAP_UPLOAD)?;
             self.inner.copy(from, to).await
         })
     }

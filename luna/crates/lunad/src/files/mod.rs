@@ -23,6 +23,15 @@ pub struct FileEntry {
     /// writing it to the drive. UI may show "Saving…".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub saving: bool,
+    /// The name the item had before it was trashed — only set on rows
+    /// listed inside `.luna-trash`, whose on-disk names carry a
+    /// `{nonce}-` prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_name: Option<String>,
+    /// Drive-relative path the item lived at before it was trashed, when
+    /// `trash_meta` still knows it. Only set inside `.luna-trash`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
 }
 
 /// How many items sit directly inside a folder — folders, files, anything else.
@@ -75,6 +84,10 @@ pub struct FileStat {
     /// Original drive-relative path for items sitting in `.luna-trash`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trashed_from: Option<String>,
+    /// The pre-trash name for top-level trash entries (nonce prefix
+    /// stripped) — the UI shows this instead of the on-disk name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_name: Option<String>,
     /// Recursive size + counts for folders — `None` when the tree was too
     /// large to count quickly, or for non-folders.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,6 +278,8 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             size: meta.len(),
             modified,
             saving: false,
+            original_name: None,
+            original_path: None,
         });
     }
 
@@ -298,10 +313,29 @@ pub fn resolve_any(
     drive_id: &str,
     rel: &str,
 ) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
+    resolve_any_ex(conn, drive_id, rel, false)
+}
+
+/// Like [`resolve_any`], but the `.luna-trash` alias resolves into the
+/// drive's real trash dir. Read paths only — writes stay rejected.
+pub fn resolve_any_including_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
+    resolve_any_ex(conn, drive_id, rel, true)
+}
+
+fn resolve_any_ex(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    allow_trash: bool,
+) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let rel = real_rel(&root, rel).into_owned();
-    if is_internal_temp(&rel) {
+    if is_internal_temp(&rel) && !(allow_trash && is_trash_rel(&rel)) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "not found",
@@ -386,6 +420,7 @@ pub fn stat(
         saving: false,
         writable: false,
         trashed_from: None,
+        original_name: None,
         totals: None,
     })
 }
@@ -548,6 +583,37 @@ pub fn file_path(
     Ok((path, meta))
 }
 
+/// Like [`file_path`], but `.luna-trash` alias paths resolve — reading a
+/// trashed file is allowed; writing is not.
+pub fn file_path_including_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
+    let (path, meta) = resolve_any_including_trash(conn, drive_id, rel)?;
+    if !meta.is_file() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a file",
+        )));
+    }
+    Ok((path, meta))
+}
+
+/// The real on-drive rel path for an API path — translates the
+/// `.luna-trash` alias into this drive's `{prefix}-trash` name. Callers
+/// that open the filesystem directly (open_verified) need the real name;
+/// the alias exists only in the API.
+pub fn real_rel_path(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<String, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    Ok(real_rel(&root, rel).into_owned())
+}
+
 /// Cap how many files a folder zip may include (walk DoS guard).
 pub const ZIP_MAX_FILES: usize = 50_000;
 
@@ -581,13 +647,36 @@ pub fn write_folder_zip(
     drive_id: &str,
     rel: &str,
     writer: impl std::io::Write + std::io::Seek,
+    include_rel: impl FnMut(&str) -> bool,
+) -> Result<usize, FilesError> {
+    write_folder_zip_ex(conn, drive_id, rel, writer, include_rel, false)
+}
+
+/// Like [`write_folder_zip`], but `.luna-trash` alias paths resolve — a
+/// trashed folder can be downloaded before it is purged or put back.
+pub fn write_folder_zip_including_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    writer: impl std::io::Write + std::io::Seek,
+    include_rel: impl FnMut(&str) -> bool,
+) -> Result<usize, FilesError> {
+    write_folder_zip_ex(conn, drive_id, rel, writer, include_rel, true)
+}
+
+fn write_folder_zip_ex(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    writer: impl std::io::Write + std::io::Seek,
     mut include_rel: impl FnMut(&str) -> bool,
+    allow_trash: bool,
 ) -> Result<usize, FilesError> {
     use std::io::{Read, Write};
     use zip::write::SimpleFileOptions;
     use zip::{CompressionMethod, ZipWriter};
 
-    let (folder, meta) = resolve_any(conn, drive_id, rel)?;
+    let (folder, meta) = resolve_any_ex(conn, drive_id, rel, allow_trash)?;
     if !meta.is_dir() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -595,7 +684,17 @@ pub fn write_folder_zip(
         )));
     }
 
-    let archive_root = zip_archive_basename(rel);
+    // A top-level trash entry's on-disk name carries a `{nonce}-` prefix —
+    // the zip should be named after what the folder used to be called.
+    let archive_root = match rel
+        .trim_matches('/')
+        .strip_prefix(&format!("{TRASH_API_ALIAS}/"))
+    {
+        Some(rest) if !rest.contains('/') => {
+            content_disposition_filename(&original_name_from_trash(rest))
+        }
+        _ => zip_archive_basename(rel),
+    };
     let mut zip = ZipWriter::new(writer);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut file_count = 0usize;
@@ -1101,6 +1200,9 @@ pub fn delete_to_trash(
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     write_trash_meta(&root, &trash_entry_name, &trash_rel)?;
+    // Trash is a revoke, not a move: grants on the trashed subject die here
+    // and restoring the file never brings them back.
+    crate::access::drop_subjects_under(conn, drive_id, &trash_rel).map_err(FilesError::Db)?;
     // Return the API-alias path (`trash_meta` keeps the real entry name, which
     // is shared by both forms since the alias only swaps the dir prefix).
     let real = dest
@@ -1159,6 +1261,18 @@ fn trash_entry_name(trash_rel: &str) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
+/// The leaf name a trash path should display as. `trash_rel` is the real
+/// `{prefix}-trash/...` form. Top-level entries strip their `{nonce}-`
+/// prefix; deeper paths already carry real names. `None` when `trash_rel`
+/// is not inside a trash dir.
+pub fn trash_display_name(trash_rel: &str) -> Option<String> {
+    let (entry, rest) = trash_entry_parts(trash_rel)?;
+    Some(match rest {
+        None => original_name_from_trash(entry),
+        Some(rest) => rest.rsplit('/').next().unwrap_or(rest).to_string(),
+    })
+}
+
 /// Best-effort original name: trash files are `{unix}-{name}` or `{unix}-{n}-{name}`.
 pub fn original_name_from_trash(trash_name: &str) -> String {
     let Some((first, rest)) = trash_name.split_once('-') else {
@@ -1174,6 +1288,49 @@ pub fn original_name_from_trash(trash_name: &str) -> String {
         return original.to_string();
     }
     rest.to_string()
+}
+
+/// List a directory inside the drive's trash — the `.luna-trash` API alias
+/// or the real `{prefix}-trash` name, at any depth. Trash is never indexed
+/// or listing-cached, so this is always a fresh `read_dir`. A drive with
+/// nothing deleted has no trash dir at all: the root then lists as empty
+/// rather than "not found".
+pub fn list_trash_dir(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<Vec<FileEntry>, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let rel = real_rel(&root, rel).into_owned();
+    if !is_trash_rel(&rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        )));
+    }
+    let dir = match resolve_child(&root, rel.as_ref()) {
+        Ok(dir) => dir,
+        Err(luna_core::path::PathError::NotFound(_)) => {
+            let is_root =
+                crate::drives::layout::Layout::detect(&root).is_some_and(|l| rel == l.trash_name());
+            if is_root {
+                return Ok(Vec::new());
+            }
+            return Err(FilesError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "not found",
+            )));
+        }
+        Err(e) => return Err(FilesError::Path(e)),
+    };
+    if !dir.is_dir() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotADirectory,
+            "not a directory",
+        )));
+    }
+    read_dir_entries(&dir)
 }
 
 /// List items sitting in the drive's `{prefix}-trash` dir.
@@ -1203,9 +1360,43 @@ pub fn list_trash(
         .collect())
 }
 
+/// Every `trash_meta` row for the drive rooted at `drive_root`:
+/// trash entry name → drive-relative original path.
+pub fn trash_meta_map(drive_root: &Path) -> std::collections::HashMap<String, String> {
+    let Ok(conn) = crate::drives::drive_db::open(drive_root) else {
+        return Default::default();
+    };
+    let Ok(mut stmt) = conn.prepare("SELECT entry_name, original_path FROM trash_meta") else {
+        return Default::default();
+    };
+    stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
+}
+
+/// Split a real `{prefix}-trash/...` rel path into its top-level trash
+/// entry name and the path inside that entry (if any).
+fn trash_entry_parts(trash_rel: &str) -> Option<(&str, Option<&str>)> {
+    if !is_trash_rel(trash_rel) {
+        return None;
+    }
+    let after_root = trash_rel.split_once('/')?.1;
+    if after_root.is_empty() {
+        return None;
+    }
+    match after_root.split_once('/') {
+        Some((entry, rest)) => Some((entry, Some(rest))),
+        None => Some((after_root, None)),
+    }
+}
+
 /// Drive-relative path the trashed item came from, if metadata exists.
 /// `trash_rel` may use the `.luna-trash` API alias or the real
-/// `{prefix}-trash` name.
+/// `{prefix}-trash` name, and may point inside a trashed folder — a nested
+/// path inherits its top-level entry's origin (`docs` trashed →
+/// `docs/sub/file` is the origin of `.luna-trash/{entry}/sub/file`).
 pub fn trash_original_path(
     conn: &rusqlite::Connection,
     drive_id: &str,
@@ -1214,13 +1405,13 @@ pub fn trash_original_path(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let trash_rel = real_rel(&root, trash_rel);
-    if !is_trash_rel(&trash_rel) {
-        return Ok(None);
-    }
-    let Some(entry_name) = trash_entry_name(&trash_rel) else {
+    let Some((entry_name, rest)) = trash_entry_parts(&trash_rel) else {
         return Ok(None);
     };
-    Ok(read_trash_meta(&root, entry_name))
+    Ok(read_trash_meta(&root, entry_name).map(|orig| match rest {
+        Some(rest) => format!("{orig}/{rest}"),
+        None => orig,
+    }))
 }
 
 /// Move an item out of trash onto the same drive (atomic rename).
@@ -1235,7 +1426,10 @@ pub fn restore_from_trash(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let trash_rel = real_rel(&root, trash_rel);
-    if !is_trash_rel(&trash_rel) {
+    // Only whole top-level entries restore — a nested move-out would orphan
+    // the parent's trash_meta (its original path is still needed to put the
+    // rest back).
+    if trash_entry_parts(&trash_rel).is_none_or(|(_, rest)| rest.is_some()) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a trash item",
@@ -1299,7 +1493,9 @@ pub fn purge_trash(
     let drive = drive_root(conn, drive_id)?;
     let root = PathBuf::from(&drive.mount_point);
     let trash_rel = real_rel(&root, trash_rel);
-    if !is_trash_rel(&trash_rel) {
+    // Top-level entries only, same as restore: purging a child inside a
+    // trashed folder would silently mutate what "put back" restores.
+    if trash_entry_parts(&trash_rel).is_none_or(|(_, rest)| rest.is_some()) {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a trash item",
@@ -1440,7 +1636,72 @@ pub fn rename(
     if let Ok(dir) = std::fs::File::open(parent) {
         let _ = dir.sync_all();
     }
+    // Shares follow the file: member and link rows keep pointing at the
+    // renamed subject (and anything under it, for folders).
+    let parent_rel = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    let new_rel = crate::gallery::gallery_indexer::join_rel(parent_rel, &new_name);
+    crate::access::repath_subjects(conn, drive_id, rel.trim_matches('/'), &new_rel)
+        .map_err(FilesError::Db)?;
     Ok(())
+}
+
+/// Move `from_rel` to `to_rel` (full destination path, leaf included) within
+/// one drive. Same-filesystem rename only, never overwrites. Cross-device
+/// copy+trash lives in the jobs engine; in-drive moves always rename.
+pub fn move_rel(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    from_rel: &str,
+    to_rel: &str,
+) -> Result<(), FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let from_rel = real_rel(&root, from_rel).into_owned();
+    let to_rel = real_rel(&root, to_rel).into_owned();
+    if is_internal_temp(&from_rel) || is_internal_temp(&to_rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "that name is reserved for Luna",
+        )));
+    }
+    let from = resolve_child(&root, &from_rel)?;
+    // Reject moving a folder into itself before resolving the destination.
+    if to_rel == from_rel || to_rel.starts_with(&format!("{from_rel}/")) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "can't move an item into itself",
+        )));
+    }
+    let to = luna_core::path::resolve_for_create_nofollow(&root, &to_rel)?;
+    let to_parent = to.parent().ok_or_else(|| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no parent",
+        ))
+    })?;
+    if !to_parent.is_dir() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "destination folder does not exist",
+        )));
+    }
+    match try_rename_move(&from, &to)? {
+        true => {
+            // Shares follow the file to its new location.
+            crate::access::repath_subjects(
+                conn,
+                drive_id,
+                from_rel.trim_matches('/'),
+                to_rel.trim_matches('/'),
+            )
+            .map_err(FilesError::Db)?;
+            Ok(())
+        }
+        false => Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::CrossesDevices,
+            "can't move across filesystems",
+        ))),
+    }
 }
 
 /// Temp upload path inside `dir` on the drive `drive_id` — named inside the

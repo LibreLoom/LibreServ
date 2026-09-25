@@ -1,10 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import PlacesMap, { PlacePopupContent } from "./PlacesMap.jsx";
 
+const mocks = vi.hoisted(() => ({ closePopup: vi.fn() }));
+
 vi.mock("react-leaflet", () => {
   const mapStub = {
+    closePopup: mocks.closePopup,
     setView: () => {},
     fitBounds: () => {},
     invalidateSize: () => {},
@@ -161,5 +164,36 @@ describe("PlacesMap", () => {
 
     await user.click(cancelBtn);
     expect(onDrawModeChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Escape closes an open place popup and cancels an in-progress draw", () => {
+    const onDrawModeChange = vi.fn();
+    render(
+      <PlacesMap
+        places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
+        drawMode={true}
+        onDrawModeChange={onDrawModeChange}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(mocks.closePopup).toHaveBeenCalled();
+    expect(onDrawModeChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Escape does not cancel a draw that is not active", () => {
+    const onDrawModeChange = vi.fn();
+    render(
+      <PlacesMap
+        places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
+        drawMode={false}
+        onDrawModeChange={onDrawModeChange}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onDrawModeChange).not.toHaveBeenCalled();
   });
 });

@@ -35,9 +35,10 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { apiErrorMessage, getJson } from "../../lib/api.js";
+import { apiErrorMessage } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
-import { downloadHref, fmtSize, parentPath, pathBasename } from "../../lib/paths.js";
+import { fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
+import { fmtSize, parentPath, pathBasename } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const TYPE_LABELS = {
@@ -239,10 +240,10 @@ export default function PropertiesSheet({
   entry = null,
   inTrash = false,
 }) {
+  const source = useFileSource();
   const stat = useQuery({
-    queryKey: ["file-stat", driveId, path],
-    queryFn: () =>
-      getJson(`/api/v1/drives/${driveId}/files/stat?path=${encodeURIComponent(path)}`),
+    queryKey: ["file-stat", fileSourceScope(source, driveId), path],
+    queryFn: () => source.stat(driveId, path),
     enabled: open && Boolean(driveId),
   });
 
@@ -260,7 +261,9 @@ export default function PropertiesSheet({
   const totals = kind === "dir" && data?.totals ? data.totals : null;
   const totalsComplete = totals?.complete !== false;
   const emptyFolder = totalsComplete && totals && !totals.dirs && !totals.files && !totals.other;
-  const canDownload = !inTrash && kind !== "other";
+  // Trash is read-only, not unreadable — downloads stay on; "other" (fifo,
+  // socket…) has nothing to fetch.
+  const canDownload = kind !== "other";
 
   return (
     <ModalCard
@@ -434,7 +437,7 @@ export default function PropertiesSheet({
 
           {canDownload ? (
             <Button variant="outline" surface="secondary" size="sm" asChild>
-              <a href={downloadHref(driveId, path)}>
+              <a href={source.downloadHref(driveId, path)}>
                 <Download size={ICON_SIZE.sm} aria-hidden="true" />
                 Download
               </a>

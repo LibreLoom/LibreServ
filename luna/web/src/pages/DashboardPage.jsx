@@ -19,6 +19,7 @@ import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import { ApiError, apiErrorMessage, getDrives, getHealth, getJson, postJson } from "../lib/api.js";
 import { folderHref as driveFolderHref } from "../lib/paths.js";
+import { KIND_ALBUM, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import {
   formatRecentAgo,
@@ -636,11 +637,6 @@ export default function DashboardPage() {
     queryFn: () => getJson("/api/v1/me/access"),
     enabled: !isAdmin,
   });
-  const sharedAlbums = useQuery({
-    queryKey: ["gallery-albums"],
-    queryFn: () => getJson("/api/v1/gallery/albums"),
-    enabled: !isAdmin,
-  });
 
   // "Add drive" modal state — shown when user clicks the dashboard banner button.
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
@@ -724,10 +720,10 @@ export default function DashboardPage() {
     () => readRecentItems(user?.username),
     [user?.username],
   );
-  const grants = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
-  const albumsShared = Array.isArray(sharedAlbums.data) ? sharedAlbums.data : [];
-  const memberSharesLoading =
-    !isAdmin && (access.isLoading || sharedAlbums.isLoading || sharedAlbums.isPending);
+  const myShares = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
+  const grants = myShares.filter((row) => row.kind !== KIND_ALBUM);
+  const albumsShared = myShares.filter((row) => row.kind === KIND_ALBUM);
+  const memberSharesLoading = !isAdmin && access.isLoading;
   const memberHasNothingShared =
     !isAdmin &&
     !drives.isLoading &&
@@ -842,35 +838,41 @@ export default function DashboardPage() {
           )}
 
           {!isAdmin && grants.length > 0 && (
-            <Card title="Folders shared with you">
+            <Card title="Shared with you">
               <ul className="space-y-3">
                 {grants.map((grant) => (
                   <li key={grant.id} className="flex items-center justify-between gap-3">
-                    <span className="text-primary text-sm">
-                      {grant.drive_label}
-                      {grant.path ? ` · ${grant.path}` : ""}
+                    <span className="min-w-0">
+                      <span className="block text-primary text-sm truncate">
+                        {grant.name || grant.drive_label}
+                      </span>
+                      <span className="block text-primary text-xs truncate">
+                        {grant.path ? `${grant.drive_label} · ${grant.path}` : "Whole drive"}
+                      </span>
                     </span>
-                    <TextLink surface="secondary" to={driveFolderHref(grant.drive_id, grant.path || "")}>
-                      Open
-                    </TextLink>
+                    <Button size="sm" variant="primary" asChild>
+                      <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
+                    </Button>
                   </li>
                 ))}
               </ul>
+              <div className="mt-3">
+                <TextLink surface="secondary" to="/shared">
+                  See all shared items
+                </TextLink>
+              </div>
             </Card>
           )}
 
-          {!isAdmin && !sharedAlbums.isLoading && albumsShared.length > 0 && (
+          {!isAdmin && !memberSharesLoading && albumsShared.length > 0 && (
             <Card title="Albums shared with you">
               <ul className="space-y-3">
                 {albumsShared.slice(0, 8).map((album) => (
-                  <li key={`${album.home_drive_id}:${album.id}`} className="flex items-center justify-between gap-3">
+                  <li key={album.id} className="flex items-center justify-between gap-3">
                     <span className="text-primary text-sm">{album.name}</span>
-                    <TextLink
-                      surface="secondary"
-                      to={`/gallery#albums/${album.home_drive_id}/${album.id}`}
-                    >
-                      Open
-                    </TextLink>
+                    <Button size="sm" variant="primary" asChild>
+                      <Link to={sharedItemHref(album)}>{sharedItemAction(album)}</Link>
+                    </Button>
                   </li>
                 ))}
               </ul>

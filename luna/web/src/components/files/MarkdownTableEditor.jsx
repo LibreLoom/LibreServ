@@ -199,8 +199,11 @@ function TableGrid({ controller, snap, gridRef, expanded = false }) {
     });
   };
 
-  // Expose imperative bits the controller can't reach through state.
-  useEffect(() => {
+  // Expose imperative bits the controller can't reach through state. This is a
+  // layout effect, not a passive one: passive effects flush on a later task,
+  // leaving a window after every commit where controller.ui is null and an F6
+  // keydown dispatched in it is silently dropped.
+  useLayoutEffect(() => {
     controller.attachUI({
       focusCell: (r, c) => {
         /** @type {HTMLElement | null} */ (
@@ -213,10 +216,11 @@ function TableGrid({ controller, snap, gridRef, expanded = false }) {
         // .md-table-body (not .md-table-root) so the expanded workspace's
         // portalled dialog is found too.
         controller.takeFocusRequest();
+        const dock = gridRef.current
+          ?.closest(".md-table-body")
+          ?.querySelector(".md-table-dock");
         /** @type {HTMLElement | null} */ (
-          gridRef.current
-            ?.closest(".md-table-body")
-            ?.querySelector(".md-table-dock button, .md-table-dock [data-slot='dropdown-trigger']")
+          dock?.querySelector("button, [data-slot='dropdown-trigger']") ?? dock
         )?.focus();
       },
       wrapTextarea,
@@ -930,6 +934,7 @@ function DockBar({ controller, snap }) {
       className="md-table-dock"
       role="toolbar"
       aria-label="Table tools"
+      tabIndex={-1}
       onMouseDown={(e) => {
         // Keep the open cell editor's text selection alive while a dock
         // control is clicked — formatting reads the live textarea range.

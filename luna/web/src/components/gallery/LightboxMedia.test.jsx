@@ -10,7 +10,7 @@ const photo = {
 const FULL_SRC = "/api/v1/content/beach.jpg";
 
 /**
- * @param {{ photo?: object }} [options]
+ * @param {{ photo?: object, lite?: boolean }} [options]
  */
 function renderMedia({ photo: photoOverrides, ...props } = {}) {
   const utils = render(
@@ -93,17 +93,100 @@ describe("LightboxMedia progressive reveal", () => {
     }
   });
 
+  it("thumbnail-only in lite mode — no full image request", () => {
+    const { thumb, full } = renderMedia({ lite: true });
+    expect(thumb).toBeInTheDocument();
+    expect(full).toBeNull();
+  });
+
   it("keeps the HEIC fallback: swaps to the thumbnail src on error", () => {
-    const { full } = renderMedia();
+    const { full } = renderMedia({ photo: { name: "beach.heic" } });
 
     fireEvent.error(full);
     expect(full.src).toBe(new URL(photo.thumb, window.location.href).href);
   });
 
-  it("reveals anyway when the full image errors and no thumb fallback applies", async () => {
-    const { full } = renderMedia({ photo: { thumb: undefined } });
+  it("does not fall back to the thumbnail for ordinary photos — error wins", async () => {
+    const { full, getByText } = renderMedia();
 
     fireEvent.error(full);
-    await waitFor(() => expect(full).toHaveStyle({ opacity: "1" }));
+
+    await waitFor(() =>
+      expect(getByText(/can't be displayed in the browser/)).toBeInTheDocument());
+    expect(full.src).toBe(new URL(FULL_SRC, window.location.href).href);
+  });
+
+  it("labels the HEIC thumbnail fallback as a small preview", async () => {
+    const { full, getByText } = renderMedia({ photo: { name: "beach.heic" } });
+
+    fireEvent.error(full);
+    fireEvent.load(full); // the swapped-in thumbnail resolves
+
+    await waitFor(() =>
+      expect(getByText(/small preview/)).toBeInTheDocument());
+  });
+
+  it("shows a can't-play notice with a download link when the video errors", async () => {
+    const { container, getByRole, getByText } = render(
+      <LightboxMedia
+        photo={{ name: "clip.mp4", kind: "video", thumb: "/t.jpg" }}
+        src="/api/v1/content/clip.mp4"
+        downloadSrc="/api/v1/download/clip.mp4"
+      />,
+    );
+    const video = /** @type {HTMLVideoElement} */ (container.querySelector("video"));
+
+    fireEvent.error(video);
+
+    await waitFor(() =>
+      expect(getByText(/can't play in the browser/)).toBeInTheDocument());
+    const link = getByRole("link", { name: /download/i });
+    expect(link).toHaveAttribute("href", "/api/v1/download/clip.mp4");
+    expect(link).toHaveAttribute("download");
+    // The dead player unmounts — no controls hanging over the notice.
+    expect(container.querySelector("video")).toBeNull();
+    // The thumbnail fades out, leaving the notice on its own.
+    expect(container.querySelector('img[aria-hidden="true"]')).toHaveStyle({ opacity: "0" });
+  });
+
+  it("shows a can't-display notice when the image errors and no thumb fallback applies", async () => {
+    const { full, getByText, container } = renderMedia({ photo: { thumb: undefined } });
+
+    fireEvent.error(full);
+
+    await waitFor(() =>
+      expect(getByText(/can't be displayed in the browser/)).toBeInTheDocument());
+    expect(container.querySelector(`img[src="${FULL_SRC}"]`)).toBeNull();
+  });
+
+  it("shows the notice when the thumbnail fallback also fails", async () => {
+    const { full, getByText } = renderMedia({ photo: { name: "beach.heic" } });
+
+    fireEvent.error(full); // full image fails → swaps to thumbnail src
+    fireEvent.error(full); // thumbnail fails too → notice
+
+    await waitFor(() =>
+      expect(getByText(/can't be displayed in the browser/)).toBeInTheDocument());
+  });
+
+  it("clears the failure state when src changes", async () => {
+    const { container, getByText, queryByText, rerender } = render(
+      <LightboxMedia
+        photo={{ name: "clip.mp4", kind: "video" }}
+        src="/api/v1/content/clip.mp4"
+      />,
+    );
+    fireEvent.error(/** @type {HTMLVideoElement} */ (container.querySelector("video")));
+    await waitFor(() => expect(getByText(/can't play/)).toBeInTheDocument());
+
+    rerender(
+      <LightboxMedia
+        photo={{ name: "clip.mp4", kind: "video" }}
+        src="/api/v1/content/clip-fixed.mp4"
+      />,
+    );
+
+    await waitFor(() => expect(queryByText(/can't play/)).toBeNull());
+    expect(container.querySelector("video")).not.toBeNull();
   });
 });

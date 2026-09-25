@@ -13,9 +13,13 @@ const VIDEO_EXT = new Set([
   "mp4", "webm", "ogv", "mov", "m4v",
 ]);
 
+// HEIC/HEIF stills — no browser we target decodes them; lunad serves a
+// transcoded JPEG preview/thumb instead.
+const HEIC_EXT = new Set(["heic", "heif"]);
+
 /** Plaintext we let people edit in Luna (saved via upload). */
 const TEXT_EXT = new Set([
-  "txt", "text", "json", "jsonc",
+  "txt", "text", "json", "jsonc", "jsonl",
   "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "log",
   "css", "scss", "less", "html", "htm", "svg",
   "js", "jsx", "mjs", "cjs", "ts", "tsx",
@@ -98,6 +102,15 @@ export const OFFICE_SAVE_EXT = new Set([
 // converter error screen.
 const CSV_EXT = new Set(["csv", "tsv"]);
 
+// Luna Forms documents — they open in the fullscreen builder, not a viewer.
+const FORM_EXT = new Set(["lunaform"]);
+
+// diagrams.net documents — the Google Drawings replacement. Plain `.drawio`
+// is XML; `.drawio.svg`/`.drawio.png` are self-describing previews that embed
+// the diagram XML inside an image, so they edit in the same editor instead of
+// landing in the image kind.
+const DIAGRAM_EXT = new Set(["drawio"]);
+
 // There is deliberately no "cad" kind: nothing in Luna can render 3D
 // formats, so stl/obj/gltf/etc. are simply unopenable.
 
@@ -122,6 +135,11 @@ export function isImageFile(name) {
 /** @param {string} name */
 export function isVideoFile(name) {
   return VIDEO_EXT.has(fileExtension(name));
+}
+
+/** @param {string} name */
+export function isHeicFile(name) {
+  return HEIC_EXT.has(fileExtension(name));
 }
 
 /** @param {string} name */
@@ -202,8 +220,35 @@ export function isCsvFile(name) {
   return CSV_EXT.has(fileExtension(name));
 }
 
+/** @param {string} name */
+export function isFormFile(name) {
+  return FORM_EXT.has(fileExtension(name));
+}
+
+/** @param {string} name */
+export function isDiagramFile(name) {
+  const base = (String(name || "").split("/").pop() || "").toLowerCase();
+  return (
+    DIAGRAM_EXT.has(fileExtension(base)) ||
+    base.endsWith(".drawio.svg") ||
+    base.endsWith(".drawio.png")
+  );
+}
+
 /**
- * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"} OpenableKind
+ * Does opening this name need a server-side editor session (EuroOffice,
+ * forms builder, diagrams)? Session endpoints only resolve writable file
+ * paths, so these kinds can't open from read-only Trash.
+ *
+ * @param {string} name
+ */
+export function viewerNeedsSession(name) {
+  const kind = openableKind(name);
+  return kind === "office" || kind === "form" || kind === "diagram";
+}
+
+/**
+ * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"|"form"|"diagram"} OpenableKind
  */
 
 /**
@@ -211,6 +256,12 @@ export function isCsvFile(name) {
  * @returns {OpenableKind | null}
  */
 export function openableKind(name) {
+  // Form documents are JSON under the hood; classify them before anything
+  // text-adjacent can claim them.
+  if (isFormFile(name)) return "form";
+  // Before image: `x.drawio.svg`/`.png` are diagrams that happen to render —
+  // the editor is the point, the embedded image is just its preview.
+  if (isDiagramFile(name)) return "diagram";
   if (isImageFile(name)) return "image";
   if (isVideoFile(name)) return "video";
   if (isOfficeFile(name)) return "office";

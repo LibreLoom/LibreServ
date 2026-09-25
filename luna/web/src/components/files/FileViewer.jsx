@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Code, Download, Eye, FileOutput, Maximize2, X } from "lucide-react";
+import { Code, Download, Eye, FileOutput, ImageOff, Maximize2, VideoOff, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -12,12 +12,15 @@ import ImagePreviewPanel from "./ImagePreviewPanel.jsx";
 import MarkdownPreview from "./MarkdownPreview.jsx";
 import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
 import TextFileEditor from "./TextFileEditor.jsx";
+import FormBuilder from "./forms/FormBuilder.jsx";
 import KindViewer from "./viewers/KindViewer.jsx";
 import OfficeEditor from "./office/OfficeEditor.jsx";
-import { ApiError, apiErrorMessage, apiFetch, postForm } from "../../lib/api.js";
+import DiagramEditor from "./diagram/DiagramEditor.jsx";
+import { ApiError, apiErrorMessage, postForm } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
-import { contentHref, downloadHref, joinPath, parentPath, pathBasename } from "../../lib/paths.js";
+import { useFileSource } from "../../lib/fileSource.jsx";
+import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -93,22 +96,31 @@ function useOverlayPresence(active) {
  *   onOpenPath?: (path: string) => void,
  *   open?: boolean,
  *   canWrite?: boolean,
+ *   name?: string,
  * }} props
  */
-export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath, open = true, canWrite = true }) {
+export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath, open = true, canWrite = true, name: nameProp = "" }) {
   const { addToast } = useToast();
-  const name = pathBasename(path) || path;
+  const source = useFileSource();
+  const guest = source.guest === true;
+  const name = nameProp || pathBasename(path) || path;
   const kind = openableKind(name);
   // Office-adjacent files get a conversion hint; ones we can convert in the
   // browser also get a Convert & open button that writes a copy next to the
   // original and opens it in the editing view.
   const conversion = officeConversionFor(name, kind);
   const isOffice = kind === "office";
+  const isForm = kind === "form";
+  const isDiagram = kind === "diagram";
   const isMarkdown = kind === "markdown";
   const isTextLike = kind === "text" || isMarkdown;
   // Writable text/markdown gets the fullscreen editor; without write
   // permission the same file is a preview-only kind and stays in the modal.
-  const fullscreenEditor = isOffice || (isTextLike && canWrite);
+  // Office, forms, and diagrams always take the fullscreen frame — they keep
+  // a useful read-only view when the opener can't write, and link guests
+  // reach all three through the scoped /s endpoints.
+  const fullscreenEditor =
+    isOffice || isForm || isDiagram || (isTextLike && canWrite);
   // Set when EuroOfficeHost reports the DocsAPI script failed to load —
   // OfficeEditor swaps to its "can't open office files" card inside the
   // same fullscreen frame.
@@ -124,6 +136,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const [converting, setConverting] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [mediaFailed, setMediaFailed] = useState(false);
   const previewKey = `${driveId}:${path}:${open}`;
   const [expandedScope, setExpandedScope] = useState(previewKey);
   const exitButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
@@ -135,11 +148,12 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // open→false reset clears `path` to "", which would otherwise swap the
   // office editor for a TextFileEditor on an empty path — a bogus content
   // fetch and an error flash for the last 250ms.
-  const frameViewRef = useRef({ path, name, isOffice, isMarkdown });
+  const frameViewRef = useRef({ path, name, isOffice, isForm, isDiagram, isMarkdown });
 
   if (expandedScope !== previewKey) {
     setExpandedScope(previewKey);
     setExpanded(false);
+    setMediaFailed(false);
     setError(null);
     setConverting(false);
     setOfficeMissing(false);
@@ -185,13 +199,15 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // Read-only text/markdown preview — writable opens mount TextFileEditor
   // inside the fullscreen frame and load their own copy.
   useEffect(() => {
-    if (!open || !path || !isTextLike || canWrite) return undefined;
+    // A file link's path is legitimately "" — the source resolves it to the
+    // shared file. Only a missing path on a drive source means "nothing open".
+    if (!open || (!path && !source.isFile) || !isTextLike || canWrite) return undefined;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await apiFetch(contentHref(driveId, path));
+        const res = await source.fetch(source.contentHref(driveId, path));
         if (!res.ok) throw new Error("Luna couldn't open this file.");
         const body = await res.text();
         if (!cancelled) setText(body);
@@ -204,7 +220,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
       }
     })();
     return () => { cancelled = true; };
-  }, [driveId, path, isTextLike, canWrite, open]);
+  }, [source, driveId, path, isTextLike, canWrite, open]);
 
   /** Convert to the adjacent office format, upload the copy, open it. */
   async function convertAndOpen() {
@@ -212,7 +228,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setConverting(true);
     setError(null);
     try {
-      const res = await apiFetch(contentHref(driveId, path));
+      const res = await source.fetch(source.contentHref(driveId, path));
       if (!res.ok) throw new Error("Luna couldn't open this file.");
       const bytes = await res.arrayBuffer();
       const blob = await conversion.convert(bytes, fileExtension(name));
@@ -273,7 +289,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // which would trade the mounted editor for a fresh one on an empty path.
   if (!editorOverlay.isClosing) {
     officeMissingViewRef.current = officeMissing;
-    frameViewRef.current = { path, name, isOffice, isMarkdown };
+    frameViewRef.current = { path, name, isOffice, isForm, isDiagram, isMarkdown };
   }
   const officeMissingView = editorOverlay.isClosing
     ? officeMissingViewRef.current
@@ -287,10 +303,10 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         sessionKey={previewKey}
         isClosing={editorOverlay.isClosing}
         canWrite={canWrite}
-        editorKind={frameView.isOffice ? "office" : "text"}
+        editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : "text"}
         onClose={onClose}
       >
-        {({ onRegisterSave, onSaveStateChange }) =>
+        {({ onRegisterSave, onSaveStateChange, requestClose }) =>
           frameView.isOffice ? (
             <OfficeEditor
               driveId={driveId}
@@ -303,6 +319,27 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onRegisterSave={onRegisterSave}
               onUnavailable={handleOfficeUnavailable}
               missing={officeMissingView}
+            />
+          ) : frameView.isDiagram ? (
+            <DiagramEditor
+              driveId={driveId}
+              path={frameView.path}
+              canWrite={canWrite}
+              onSaved={onSaved}
+              onClose={onClose}
+              onSaveStateChange={onSaveStateChange}
+              onRegisterSave={onRegisterSave}
+              requestClose={requestClose}
+            />
+          ) : frameView.isForm ? (
+            <FormBuilder
+              driveId={driveId}
+              path={frameView.path}
+              name={frameView.name}
+              canWrite={canWrite}
+              onSaved={onSaved}
+              onRegisterSave={onRegisterSave}
+              onSaveStateChange={onSaveStateChange}
             />
           ) : (
             <TextFileEditor
@@ -335,22 +372,27 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
 
             {kind === "image" && (
               <ImagePreviewPanel
-                key={contentHref(driveId, path)}
-                src={contentHref(driveId, path)}
+                key={source.contentHref(driveId, path)}
+                src={source.contentHref(driveId, path)}
                 alt={name}
               />
             )}
 
             {kind === "video" && (
-              <div className="rounded-large-element bg-primary text-secondary p-2">
-                <video
-                  controls
-                  className="w-full max-h-[65vh] rounded-large-element"
-                  src={contentHref(driveId, path)}
-                >
-                  Your browser cannot play this video. Download it instead.
-                </video>
-              </div>
+              mediaFailed ? (
+                <PageNotice variant="error">
+                  This video can't play in the browser. Download it to watch on your device.
+                </PageNotice>
+              ) : (
+                <div className="rounded-large-element bg-primary text-secondary p-2">
+                  <video
+                    controls
+                    className="w-full max-h-[65vh] rounded-large-element"
+                    src={source.contentHref(driveId, path)}
+                    onError={() => setMediaFailed(true)}
+                  />
+                </div>
+              )
             )}
 
             {isTextLike && !canWrite && (
@@ -398,7 +440,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               )
             )}
 
-            {open && kind && kind !== "image" && kind !== "video" && !isTextLike && kind !== "office" && (
+            {open && kind && kind !== "image" && kind !== "video" && !isTextLike && kind !== "office" && kind !== "form" && kind !== "diagram" && (
               <KindViewer
                 kind={kind}
                 driveId={driveId}
@@ -415,7 +457,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               </p>
             )}
 
-            {conversion && (
+            {conversion && !guest && (
               <p className="mt-3 text-sm text-primary">
                 You can open this file in the editing view by converting it to a{" "}
                 <span className="font-mono">.{conversion.targetExt}</span> file.
@@ -453,7 +495,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                   className="self-center"
                 />
               )}
-              {conversion?.convert && canWrite && (
+              {conversion?.convert && canWrite && !guest && (
                 <Button
                   variant="accent"
                   surface="secondary"
@@ -465,7 +507,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                 </Button>
               )}
               <Button variant="outline" surface="secondary" asChild>
-                <a href={downloadHref(driveId, path)}>
+                <a href={source.downloadHref(driveId, path)}>
                   <Download size={ICON_SIZE.sm} aria-hidden="true" />
                   Download
                 </a>
@@ -507,20 +549,42 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           </button>
 
           <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-4 md:p-6">
-            {kind === "video" ? (
+            {mediaFailed ? (
+              <div
+                role="alert"
+                className="flex max-w-sm flex-col items-center gap-3 rounded-large-element bg-secondary px-8 py-6 text-center text-primary"
+              >
+                {kind === "video" ? (
+                  <VideoOff size={28} aria-hidden="true" />
+                ) : (
+                  <ImageOff size={28} aria-hidden="true" />
+                )}
+                <p className="text-sm">
+                  {kind === "video"
+                    ? "This video can't play in the browser. Download it to watch on your device."
+                    : "This photo can't be displayed in the browser. Download it to try opening it on your device."}
+                </p>
+                <Button variant="primary" size="sm" asChild>
+                  <a href={source.downloadHref(driveId, path)} download>
+                    <Download size={ICON_SIZE.sm} aria-hidden="true" />
+                    Download
+                  </a>
+                </Button>
+              </div>
+            ) : kind === "video" ? (
               <video
                 controls
                 autoPlay
-                className="max-h-full max-w-full rounded-large-element"
-                src={contentHref(driveId, path)}
-              >
-                Your browser cannot play this video. Download it instead.
-              </video>
+                className="h-full w-full rounded-large-element object-contain"
+                src={source.contentHref(driveId, path)}
+                onError={() => setMediaFailed(true)}
+              />
             ) : (
               <img
-                src={contentHref(driveId, path)}
+                src={source.contentHref(driveId, path)}
                 alt={name}
-                className="max-h-full max-w-full object-contain select-none motion-safe:animate-page-enter"
+                className="h-full w-full object-contain select-none motion-safe:animate-page-enter"
+                onError={() => setMediaFailed(true)}
               />
             )}
           </div>
@@ -539,4 +603,5 @@ FileViewer.propTypes = {
   onOpenPath: PropTypes.func,
   open: PropTypes.bool,
   canWrite: PropTypes.bool,
+  name: PropTypes.string,
 };

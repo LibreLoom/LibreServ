@@ -12,6 +12,7 @@ import {
   Share2,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -31,16 +32,17 @@ import GalleryFilterSheet, {
   clearFilterChip,
   countActiveFilters,
   filterChipList,
+  monthDayLabel,
   readSavedFilters,
 } from "../components/gallery/GalleryFilterSheet.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
-import CreateShareModal from "../components/files/CreateShareModal";
+import ShareSheet from "../components/share/ShareSheet.jsx";
 import PhotoTimeline, { dayKey } from "../components/gallery/PhotoTimeline.jsx";
 import PhotoLightbox, {
   ABOVE_LIGHTBOX_OVERLAY_CLASS,
 } from "../components/gallery/PhotoLightbox.jsx";
 import AddToAlbumModal from "../components/gallery/AddToAlbumModal.jsx";
-import ShareAlbumModal from "../components/gallery/ShareAlbumModal.jsx";
+
 import SelectionActionBar from "../components/gallery/SelectionActionBar.jsx";
 import DayJumpModal, {
   dayBoundsLocal,
@@ -76,12 +78,47 @@ const SEGMENTS = [
   { value: "albums", label: "Albums" },
   { value: "places", label: "Places" },
   { value: "favorites", label: "Favorites" },
-  { value: "archive", label: "Archive" },
 ];
 
 const SEGMENT_IDS = SEGMENTS.map((s) => s.value);
 const DEFAULT_SEGMENT = "library";
 const GRID_COLS_KEY = "luna.photos.gridCols";
+const ON_THIS_DAY_DISMISS_KEY = "luna.photos.onThisDay.dismissed";
+
+/**
+ * Today's `MM-DD` plus a `to` bound (last second of yesterday) that keeps
+ * today's own photos out — "On this day" is for previous years.
+ * @param {Date} [now]
+ */
+export function onThisDayFilter(now = new Date()) {
+  const ymd = dayKey(Math.floor(now.getTime() / 1000));
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return { mmdd: ymd.slice(5), to: Math.floor(startOfToday.getTime() / 1000) - 1 };
+}
+
+/**
+ * Resolve a `monthDay` filter value to the `MM-DD` lunad expects: "today"
+ * tracks the current date (a saved "On this day" filter always means today),
+ * an explicit "MM-DD" passes through.
+ * @param {string} [value]
+ * @param {Date} [now]
+ */
+export function resolveMonthDay(value, now = new Date()) {
+  if (!value) return "";
+  if (value === "today") return onThisDayFilter(now).mmdd;
+  return /^\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+function readOnThisDayDismissed() {
+  try {
+    return (
+      localStorage.getItem(ON_THIS_DAY_DISMISS_KEY) ===
+      dayKey(Math.floor(Date.now() / 1000))
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Build the gallery list URL. Bool query flags must be `true`/`false` —
@@ -90,7 +127,6 @@ const GRID_COLS_KEY = "luna.photos.gridCols";
  * @param {{
  *   q?: string,
  *   favorites?: boolean,
- *   archived?: boolean,
  *   albumId?: string,
  *   albumHome?: string,
  *   place?: string,
@@ -116,13 +152,14 @@ const GRID_COLS_KEY = "luna.photos.gridCols";
  *   lens?: string,
  *   undated?: boolean,
  *   albumMembership?: string,
+ *   monthDay?: string,
+ *   limit?: number,
  *   offset?: number,
  * }} opts
  */
 export function galleryUrl({
   q,
   favorites,
-  archived,
   albumId,
   albumHome,
   place,
@@ -148,14 +185,15 @@ export function galleryUrl({
   lens,
   undated,
   albumMembership,
+  monthDay,
+  limit,
   offset,
 } = {}) {
   const params = new URLSearchParams();
-  params.set("limit", "80");
+  params.set("limit", String(limit || 80));
   params.set("offset", String(offset || 0));
   if (q) params.set("q", q);
   if (favorites) params.set("favorites", "true");
-  if (archived) params.set("archived", "true");
   if (albumId) params.set("album_id", albumId);
   if (albumHome) params.set("album_home", albumHome);
   if (placeBbox) params.set("place_bbox", placeBbox);
@@ -188,27 +226,64 @@ export function galleryUrl({
   if (albumMembership === "any" || albumMembership === "none") {
     params.set("album_membership", albumMembership);
   }
+  if (monthDay) params.set("month_day", monthDay);
   return `/api/v1/gallery?${params}`;
 }
 
 /**
- * Parse Photos deep-link hash without breaking segment ids.
+ * Encode a photoSelectionKey ("drive\0path") for the `p` hash param. `|` never
+ * survives encodeURIComponent, so it is a safe separator.
+ * @param {string} key
+ */
+export function photoHashParam(key) {
+  const i = (key || "").indexOf("\0");
+  const drive = i >= 0 ? key.slice(0, i) : key;
+  const path = i >= 0 ? key.slice(i + 1) : "";
+  return `${encodeURIComponent(drive)}|${encodeURIComponent(path)}`;
+}
+
+/**
+ * Parse Photos deep-link hash without breaking segment ids. Any head may carry
+ * `?y=<scrollY>` and `p=<drive>|<path>` so reloads restore scroll + open photo.
  * @param {string} hash
+ * @returns {{ segment: string, day?: string, albumHome?: string, albumId?: string, onThisDay?: boolean, y?: number, photo?: string }}
  */
 export function parseGalleryHash(hash) {
   const raw = (hash || "").replace(/^#/, "");
   if (!raw) return { segment: DEFAULT_SEGMENT };
-  if (raw.startsWith("day/")) {
-    const day = raw.slice(4);
-    return { segment: "library", day };
+  const qIdx = raw.indexOf("?");
+  const head = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+  const query = qIdx >= 0 ? raw.slice(qIdx + 1) : "";
+  const extra = /** @type {{ y?: number, photo?: string }} */ ({});
+  for (const part of query.split("&")) {
+    if (part.startsWith("y=")) {
+      const n = Number(part.slice(2));
+      if (Number.isFinite(n) && n > 0) extra.y = Math.round(n);
+    } else if (part.startsWith("p=")) {
+      const v = part.slice(2);
+      const sep = v.indexOf("|");
+      try {
+        extra.photo =
+          sep >= 0
+            ? `${decodeURIComponent(v.slice(0, sep))}\0${decodeURIComponent(v.slice(sep + 1))}`
+            : decodeURIComponent(v);
+      } catch {
+        /* ignore */
+      }
+    }
   }
-  if (raw.startsWith("albums/")) {
-    const rest = raw.slice("albums/".length);
+  if (head.startsWith("day/")) {
+    const day = head.slice(4);
+    return { segment: "library", day, ...extra };
+  }
+  if (head === "onthisday") return { segment: "library", onThisDay: true, ...extra };
+  if (head.startsWith("albums/")) {
+    const rest = head.slice("albums/".length);
     const [home, id] = rest.split("/");
-    if (home && id) return { segment: "albums", albumHome: home, albumId: id };
-    return { segment: "albums" };
+    if (home && id) return { segment: "albums", albumHome: home, albumId: id, ...extra };
+    return { segment: "albums", ...extra };
   }
-  if (SEGMENT_IDS.includes(raw)) return { segment: raw };
+  if (SEGMENT_IDS.includes(head)) return { segment: head, ...extra };
   return { segment: DEFAULT_SEGMENT };
 }
 
@@ -244,23 +319,26 @@ export default function GalleryPage() {
   const [filterFocus, setFilterFocus] = useState("");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [duplicatesView, setDuplicatesView] = useState(false);
-  const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS }));
-  const [place, setPlace] = useState(null);
+  const [filters, setFilters] = useState(() => {
+    const init =
+      /** @type {import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters} */ ({
+        ...EMPTY_FILTERS,
+        monthDay: initialHash.onThisDay ? "today" : "",
+      });
+    // `#day/YYYY-MM-DD` is just a single-day date range.
+    if (initialHash.day && dayBoundsLocal(initialHash.day)) {
+      init.dateFrom = initialHash.day;
+      init.dateTo = initialHash.day;
+    }
+    return init;
+  });
   const [placesDrawMode, setPlacesDrawMode] = useState(false);
   const [albumView, setAlbumView] = useState(null);
-  const [smartView, setSmartView] = useState(
-    /** @type {{ key: string, label: string }|null} */ (null),
-  );
-  const [dayFilter, setDayFilter] = useState(
-    /** @type {{ ymd: string, from: number, to: number, label: string }|null} */ (
-      initialHash.day ? (() => {
-        const b = dayBoundsLocal(initialHash.day);
-        return b ? { ymd: initialHash.day, ...b } : null;
-      })() : null
-    ),
-  );
+  // Cosmetic only — a smart album IS its filters; this just keeps its name
+  // in the detail chrome and album-name prefill.
+  const [viewLabel, setViewLabel] = useState(/** @type {string|null} */ (null));
+  const [onThisDayDismissed, setOnThisDayDismissed] = useState(readOnThisDayDismissed);
   const [lightbox, setLightbox] = useState(/** @type {{ key: string }|null} */ (null));
-  const [lightboxOverride, setLightboxOverride] = useState(/** @type {object[]|null} */ (null));
   const [slideshow, setSlideshow] = useState(false);
   const [sharePhoto, setSharePhoto] = useState(null);
   const [trashPhoto, setTrashPhoto] = useState(null);
@@ -282,6 +360,59 @@ export default function GalleryPage() {
   const [columns, setColumns] = useState(readGridCols);
   const [lockedGate, setLockedGate] = useState(null);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const scrollPosRef = useRef(0);
+  const restoreRef = useRef({
+    y: initialHash.y || 0,
+    photo: initialHash.photo || null,
+    pages: 0,
+    done: !(initialHash.y > 0 || initialHash.photo),
+  });
+  const hashStateRef = useRef(
+    /** @type {{ activeSegment: string, albumView: object|null, viewLabel: string|null, filters: import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters, duplicatesView: boolean, lightbox: object|null }|null} */ (null),
+  );
+  hashStateRef.current = {
+    activeSegment,
+    albumView,
+    viewLabel,
+    filters,
+    duplicatesView,
+    lightbox,
+  };
+
+  // Compose + write the deep-link hash. `?y=`/`p=` ride on list views only and
+  // always replaceState — scrolling must not flood history.
+  const writeHash = useCallback(() => {
+    const s = hashStateRef.current;
+    if (!s) return;
+    let base = `#${s.activeSegment}`;
+    // A single-day range on a timeline segment deep-links as `#day/`.
+    const singleDay =
+      s.filters?.dateFrom &&
+      s.filters.dateFrom === s.filters.dateTo &&
+      ["library", "favorites"].includes(s.activeSegment) &&
+      dayBoundsLocal(s.filters.dateFrom)
+        ? s.filters.dateFrom
+        : null;
+    if (singleDay) base = `#day/${singleDay}`;
+    else if (s.filters?.monthDay && s.activeSegment === "library") base = "#onthisday";
+    else if (s.albumView?.home_drive_id && s.albumView?.id) {
+      base = `#albums/${s.albumView.home_drive_id}/${s.albumView.id}`;
+    }
+    const listView =
+      !s.duplicatesView
+      && (s.activeSegment === "library"
+        || s.activeSegment === "favorites"
+        || (s.activeSegment === "albums"
+          && (s.albumView || s.viewLabel || countActiveFilters(s.filters) > 0)));
+    const params = [];
+    if (listView) {
+      const y = Math.round(scrollPosRef.current);
+      if (y > 0) params.push(`y=${y}`);
+      if (s.lightbox) params.push(`p=${photoHashParam(s.lightbox.key)}`);
+    }
+    const next = params.length ? `${base}?${params.join("&")}` : base;
+    if (window.location.hash !== next) window.history.replaceState(null, "", next);
+  }, []);
 
   useEffect(() => {
     try {
@@ -291,40 +422,40 @@ export default function GalleryPage() {
     }
   }, [columns]);
 
-  // Hash sync — segments, day filters, album deep links.
+  // Hash sync — segments, day filters, album deep links, scroll, open photo.
   useEffect(() => {
-    let next = `#${activeSegment}`;
-    if (dayFilter?.ymd) next = `#day/${dayFilter.ymd}`;
-    else if (albumView?.home_drive_id && albumView?.id) {
-      next = `#albums/${albumView.home_drive_id}/${albumView.id}`;
-    }
-    if (window.location.hash === next) return;
-    // Prefer replace for segment-only chrome so we don't flood history on first paint.
-    if (next === `#${activeSegment}` && !window.location.hash.slice(1)) {
-      window.history.replaceState(null, "", next);
-      return;
-    }
-    if (window.location.hash.slice(1) === activeSegment && next === `#${activeSegment}`) return;
-    window.history.replaceState(null, "", next);
-  }, [activeSegment, dayFilter, albumView]);
+    if (!restoreRef.current.done) return;
+    writeHash();
+  }, [activeSegment, albumView, viewLabel, filters, duplicatesView, lightbox, writeHash]);
 
   useEffect(() => {
     const onHashChange = () => {
       const parsed = parseGalleryHash(window.location.hash);
       if (SEGMENT_IDS.includes(parsed.segment)) setSegment(parsed.segment);
-      if (parsed.day) {
-        const b = dayBoundsLocal(parsed.day);
-        if (b) setDayFilter({ ymd: parsed.day, ...b });
-      } else {
-        setDayFilter(null);
-      }
+      setFilters((prev) => {
+        const next = { ...prev, monthDay: parsed.onThisDay ? "today" : "" };
+        if (parsed.day) {
+          if (dayBoundsLocal(parsed.day)) {
+            next.dateFrom = parsed.day;
+            next.dateTo = parsed.day;
+            next.undated = false;
+          }
+        } else if (prev.dateFrom && prev.dateFrom === prev.dateTo) {
+          // Leaving a `#day/` view clears the single-day range.
+          next.dateFrom = "";
+          next.dateTo = "";
+        }
+        // A named-place view only lives on the Places segment; a drawn
+        // `placeBbox` is an ordinary filter and rides along anywhere.
+        if (parsed.segment !== "places") next.place = null;
+        return next;
+      });
       if (!parsed.albumId) {
         // leave albumView; segment switch clears below
       }
-      if (parsed.segment !== "places") setPlace(null);
       if (parsed.segment !== "albums") {
         setAlbumView(null);
-        setSmartView(null);
+        setViewLabel(null);
       }
     };
     window.addEventListener("hashchange", onHashChange);
@@ -334,17 +465,15 @@ export default function GalleryPage() {
   const handleSegmentChange = useCallback(
     (next) => {
       if (!SEGMENT_IDS.includes(next) || next === activeSegment) return;
-      setPlace(null);
       setPlacesDrawMode(false);
       setAlbumView(null);
-      setSmartView(null);
-      setDayFilter(null);
+      setViewLabel(null);
       setDuplicatesView(false);
       setFilters({ ...EMPTY_FILTERS });
       window.location.hash = next;
       setSegment(next);
     },
-    [activeSegment, setPlace, setPlacesDrawMode, setAlbumView, setSmartView, setDayFilter, setDuplicatesView, setFilters, setSegment],
+    [activeSegment, setPlacesDrawMode, setAlbumView, setViewLabel, setDuplicatesView, setFilters, setSegment],
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
@@ -372,7 +501,8 @@ export default function GalleryPage() {
     enabled: activeSegment === "places" || filtersOpen,
   });
 
-  // Toolbar / filter sheet dates → unix range (day filter wins when set).
+  // Toolbar / filter sheet dates → unix range. A day click sets a single-day
+  // range (`dateFrom === dateTo`), which deep-links back out as `#day/`.
   const rangeFromFilters = useMemo(() => {
     if (filters.undated) return null;
     if (!filters.dateFrom && !filters.dateTo) return null;
@@ -389,10 +519,18 @@ export default function GalleryPage() {
     };
   }, [filters.dateFrom, filters.dateTo, filters.undated]);
 
-  const effectiveFrom = filters.undated ? undefined : dayFilter?.from ?? rangeFromFilters?.from;
-  const effectiveTo = filters.undated ? undefined : dayFilter?.to ?? rangeFromFilters?.to;
+  // Today's MM-DD + end-of-yesterday bound for the `monthDay` filter and the
+  // "On this day" probe — one snapshot per mount.
+  const todaySpec = useMemo(() => onThisDayFilter(), []);
+  const monthDayParam = resolveMonthDay(filters.monthDay);
+
+  const effectiveFrom = filters.undated ? undefined : rangeFromFilters?.from;
+  const rangeTo = filters.undated ? undefined : rangeFromFilters?.to;
+  const effectiveTo = monthDayParam
+    ? Math.min(rangeTo ?? Infinity, todaySpec.to)
+    : rangeTo;
   const filterPlaceBbox = filters.placeBbox?.length === 4 ? filters.placeBbox.join(",") : "";
-  const placeBboxParam = filterPlaceBbox || place?.place_bbox?.join(",") || "";
+  const placeBboxParam = filterPlaceBbox || filters.place?.place_bbox?.join(",") || "";
   const filterActiveCount = countActiveFilters(filters);
   const filterChips = filterChipList(filters);
 
@@ -401,7 +539,7 @@ export default function GalleryPage() {
       "gallery",
       activeSegment,
       search,
-      place?.key || "",
+      filters.place?.key || "",
       placeBboxParam,
       albumView ? `${albumView.home_drive_id}:${albumView.id}` : "",
       effectiveFrom ?? "",
@@ -425,16 +563,17 @@ export default function GalleryPage() {
       filters.minDuration || "",
       filters.maxDuration || "",
       filters.lens || "",
+      monthDayParam,
     ],
     [
       activeSegment,
       search,
-      place,
       placeBboxParam,
       albumView,
       effectiveFrom,
       effectiveTo,
       filters,
+      monthDayParam,
     ],
   );
 
@@ -446,10 +585,9 @@ export default function GalleryPage() {
         galleryUrl({
           q: search || undefined,
           favorites: activeSegment === "favorites",
-          archived: activeSegment === "archive",
           albumId: albumView?.id,
           albumHome: albumView?.home_drive_id,
-          place: placeBboxParam ? undefined : place?.key,
+          place: placeBboxParam ? undefined : filters.place?.key,
           placeBbox: placeBboxParam || undefined,
           from: effectiveFrom,
           to: effectiveTo,
@@ -472,11 +610,12 @@ export default function GalleryPage() {
           lens: filters.lens || undefined,
           undated: filters.undated || undefined,
           albumMembership: filters.albumMembership || undefined,
+          monthDay: monthDayParam || undefined,
           offset: pageParam,
         }),
       ),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
-    enabled: (activeSegment !== "places" || !!place || !!filterPlaceBbox) && !duplicatesView,
+    enabled: (activeSegment !== "places" || filterActiveCount > 0) && !duplicatesView,
   });
 
   const duplicates = useQuery({
@@ -545,35 +684,6 @@ export default function GalleryPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selection]);
 
-  const memories = useQuery({
-    queryKey: ["gallery-memories"],
-    queryFn: async () => {
-      const now = new Date();
-      const yearsBack = 8;
-      const start = new Date(now.getFullYear() - yearsBack, 0, 1);
-      const data = await getJson(
-        galleryUrl({
-          from: Math.floor(start.getTime() / 1000),
-          to: Math.floor(now.getTime() / 1000),
-          offset: 0,
-        }).replace("limit=80", "limit=200"),
-      );
-      const md = `${now.getMonth()}-${now.getDate()}`;
-      return (data.items || []).filter((p) => {
-        if (!p.taken_at) return false;
-        const d = new Date(p.taken_at * 1000);
-        return `${d.getMonth()}-${d.getDate()}` === md && d.getFullYear() !== now.getFullYear();
-      });
-    },
-    enabled:
-      activeSegment === "library" &&
-      !dayFilter &&
-      !albumView &&
-      !place &&
-      !search &&
-      filterActiveCount === 0,
-  });
-
   const indexing = !!galleryStatus.data?.busy;
   const foundCount = Number(galleryStatus.data?.found_count) || 0;
   const indexingDriveLabel =
@@ -641,9 +751,7 @@ export default function GalleryPage() {
     driveList.length > 0 &&
     activeSegment === "library" &&
     !search &&
-    !place &&
     !albumView &&
-    !dayFilter &&
     filterActiveCount === 0;
   const albumOnlyLibraryEmpty =
     memberAlbumOnly &&
@@ -652,9 +760,7 @@ export default function GalleryPage() {
     photos.length === 0 &&
     activeSegment === "library" &&
     !search &&
-    !place &&
     !albumView &&
-    !dayFilter &&
     filterActiveCount === 0;
   // Empty states are mutually exclusive: layered search+filters gets its own
   // card, then search alone, filters alone, then the bare context cards.
@@ -664,30 +770,21 @@ export default function GalleryPage() {
     photos.length === 0 &&
     (activeSegment === "library" ||
       activeSegment === "favorites" ||
-      activeSegment === "archive" ||
       !!albumView ||
-      !!smartView ||
-      !!place);
+      !!viewLabel ||
+      filterActiveCount > 0);
   const searchAndFiltersEmpty = scopedEmpty && !!search && filterActiveCount > 0;
   const filtersEmpty =
     scopedEmpty &&
     !search &&
     filterActiveCount > 0 &&
-    (driveList.length > 0 || !!albumView || !!smartView);
+    (driveList.length > 0 || !!albumView || !!viewLabel || activeSegment === "albums" || activeSegment === "places");
   const noFavorites =
     !gallery.isLoading &&
     !gallery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "favorites" &&
-    !search &&
-    filterActiveCount === 0;
-  const noArchive =
-    !gallery.isLoading &&
-    !gallery.isError &&
-    photos.length === 0 &&
-    driveList.length > 0 &&
-    activeSegment === "archive" &&
     !search &&
     filterActiveCount === 0;
   const searchEmpty = scopedEmpty && !!search && filterActiveCount === 0;
@@ -698,13 +795,6 @@ export default function GalleryPage() {
     !!albumView &&
     !search &&
     filterActiveCount === 0;
-  const placeEmpty =
-    !gallery.isLoading &&
-    !gallery.isError &&
-    photos.length === 0 &&
-    !!place &&
-    filterActiveCount === 0;
-
   const indexingProgress =
     indexing && foundCount > 0
       ? indexingDriveLabel
@@ -726,27 +816,6 @@ export default function GalleryPage() {
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["gallery"] }),
-    onError: (err) => setError(apiErrorMessage(err)),
-  });
-
-  const archiveMut = useMutation({
-    /** @param {object[]} items */
-    mutationFn: async (items) => {
-      for (const photo of items) {
-        await putJson("/api/v1/gallery/archive", {
-          drive_id: photo.drive_id,
-          path: photo.path,
-        });
-      }
-    },
-    onSuccess: (_d, items) => {
-      selection.exit();
-      addToast({
-        type: "success",
-        message: items.length === 1 ? "Moved to Archive." : `Moved ${items.length} items to Archive.`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-    },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
@@ -1037,11 +1106,10 @@ export default function GalleryPage() {
   }
 
   const openPhoto = useCallback((photo) => {
-    setLightboxOverride(null);
     setLightbox({ key: photoSelectionKey(photo) });
   }, []);
 
-  const lightboxPhotos = lightboxOverride || photos;
+  const lightboxPhotos = photos;
   const lightboxIndex = lightbox
     ? Math.max(0, lightboxPhotos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
     : 0;
@@ -1094,10 +1162,9 @@ export default function GalleryPage() {
       const next = e.target.value;
       setQ(next);
       if (!next.trim()) return;
-      setPlace(null);
       if (activeSegment === "places") handleSegmentChange("library");
     },
-    [activeSegment, handleSegmentChange, setQ, setPlace],
+    [activeSegment, handleSegmentChange, setQ],
   );
 
   function tryOpenAlbum(album) {
@@ -1118,7 +1185,7 @@ export default function GalleryPage() {
 
   // Page-level drag-drop upload on library.
   useEffect(() => {
-    if (activeSegment !== "library" || albumView || place) return undefined;
+    if (activeSegment !== "library" || albumView || filters.place) return undefined;
     function onDragOver(e) {
       e.preventDefault();
     }
@@ -1136,17 +1203,68 @@ export default function GalleryPage() {
       node.removeEventListener("dragover", onDragOver);
       node.removeEventListener("drop", onDrop);
     };
-  }, [activeSegment, albumView, place, uploadFiles]);
+  }, [activeSegment, albumView, filters.place, uploadFiles]);
 
   const showTimeline =
     !duplicatesView &&
     (activeSegment === "library" ||
       activeSegment === "favorites" ||
-      activeSegment === "archive" ||
-      (activeSegment === "places" && place) ||
-      (activeSegment === "albums" && (albumView || smartView)));
+      (activeSegment === "places" && filterActiveCount > 0) ||
+      (activeSegment === "albums" &&
+        (albumView || viewLabel || filterActiveCount > 0)));
 
-  const placesMapOverview = activeSegment === "places" && !place && !duplicatesView;
+  const placesMapOverview =
+    activeSegment === "places" && filterActiveCount === 0 && !duplicatesView;
+
+  // Track window scroll into the hash (`?y=`) so a reload lands back here.
+  useEffect(() => {
+    if (!showTimeline || placesMapOverview) return undefined;
+    scrollPosRef.current = window.scrollY;
+    let t;
+    const onScroll = () => {
+      scrollPosRef.current = window.scrollY;
+      if (!restoreRef.current.done) return;
+      clearTimeout(t);
+      t = setTimeout(writeHash, 150);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      clearTimeout(t);
+    };
+  }, [showTimeline, placesMapOverview, writeHash]);
+
+  // Restore `#…?y=&p=` on load: keep paging until the saved depth is reachable
+  // and the photo is in the list, then scroll and reopen the lightbox.
+  useEffect(() => {
+    const r = restoreRef.current;
+    if (r.done || gallery.isLoading) return;
+    const photoHit = r.photo
+      ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
+      : -1;
+    const needY =
+      r.y > 0
+      && document.documentElement.scrollHeight < r.y + window.innerHeight;
+    const needPhoto = !!r.photo && photoHit < 0;
+    if ((needY || needPhoto) && gallery.hasNextPage && r.pages < 60) {
+      if (!gallery.isFetchingNextPage) {
+        r.pages += 1;
+        gallery.fetchNextPage();
+      }
+      return;
+    }
+    r.done = true;
+    if (r.y > 0) {
+      const max = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+      );
+      scrollPosRef.current = Math.min(r.y, max);
+      window.scrollTo(0, scrollPosRef.current);
+    }
+    if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
+    writeHash();
+  }, [photos, gallery, writeHash]);
 
   const actionModalOpen =
     newAlbumOpen
@@ -1163,16 +1281,39 @@ export default function GalleryPage() {
     || shortcutsOpen;
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
+  // One rail for every scoped view: albums, smart albums, and any active
+  // filter (dates, places, kind, month-day…) show the same Back + label +
+  // Save-as-album bar.
   const detailChrome =
-    dayFilter ||
-    place ||
-    albumView ||
-    smartView ||
-    rangeFromFilters ||
-    filters.kind ||
-    filters.undated ||
-    filters.albumMembership ||
-    duplicatesView;
+    albumView || viewLabel || duplicatesView || filterActiveCount > 0;
+
+  // Cheap probe: does the library hold photos taken on today's month-day in
+  // previous years? It only drives the dismissable "On this day" pill — the
+  // view itself is just the monthDay filter.
+  const showOnThisDayPeek =
+    activeSegment === "library" &&
+    !detailChrome &&
+    !search &&
+    !onThisDayDismissed;
+  const memories = useQuery({
+    queryKey: ["gallery-memories", todaySpec.mmdd],
+    queryFn: () =>
+      getJson(
+        galleryUrl({ monthDay: todaySpec.mmdd, to: todaySpec.to, limit: 80 }),
+      ),
+    enabled: showOnThisDayPeek,
+  });
+  const memoriesCount = memories.data?.items?.length || 0;
+  const memoriesThumb =
+    (memories.data?.items || []).find((p) => p.thumb)?.thumb || "";
+
+  // Prefill name for "Save as album" from whichever detail view is open.
+  const detailAlbumName =
+    viewLabel ||
+    filters.place?.label ||
+    monthDayLabel(filters.monthDay) ||
+    rangeFromFilters?.label ||
+    "Filtered photos";
 
   if (noDrives && !memberAlbumOnly) {
     if (memberAlbumsGatePending) {
@@ -1243,7 +1384,11 @@ export default function GalleryPage() {
         onOpenShortcuts={() => setShortcutsOpen(true)}
       />
       {filterChips.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2" data-slot="gallery-filter-chips">
+        <div
+          key={filterChips.map((c) => c.id).join(",")}
+          className="mb-4 flex flex-wrap gap-2 animate-nav-slide-in"
+          data-slot="gallery-filter-chips"
+        >
           {filterChips.map((chip) => (
             <button
               key={chip.id}
@@ -1252,7 +1397,6 @@ export default function GalleryPage() {
               onClick={() => {
                 haptic("light");
                 setFilters((prev) => clearFilterChip(prev, chip.id));
-                if (chip.id === "dates") setDayFilter(null);
               }}
               aria-label={`Remove filter ${chip.label}`}
             >
@@ -1268,7 +1412,6 @@ export default function GalleryPage() {
             onClick={() => {
               haptic("light");
               setFilters({ ...EMPTY_FILTERS });
-              setDayFilter(null);
             }}
           >
             Clear filters
@@ -1290,11 +1433,11 @@ export default function GalleryPage() {
       {detailChrome && (
         <div
           key={
-            dayFilter?.ymd
-            || place?.key
+            filters.place?.key
+            || filters.monthDay
             || (albumView ? `${albumView.home_drive_id}:${albumView.id}` : "detail")
             || (duplicatesView ? "duplicates" : null)
-            || smartView?.key
+            || viewLabel
             || filters.kind
             || rangeFromFilters?.label
             || "filter"
@@ -1308,10 +1451,8 @@ export default function GalleryPage() {
               surface="primary"
               size="sm"
               onClick={() => {
-                setPlace(null);
                 setAlbumView(null);
-                setSmartView(null);
-                setDayFilter(null);
+                setViewLabel(null);
                 setDuplicatesView(false);
                 setFilters({ ...EMPTY_FILTERS });
                 setQ("");
@@ -1323,73 +1464,46 @@ export default function GalleryPage() {
             <p className="font-mono text-sm truncate">
               {duplicatesView
                 ? "Possible duplicates"
-                : dayFilter?.label
-                || place?.label
+                : filters.place?.label
+                || monthDayLabel(filters.monthDay)
                 || albumView?.name
-                || smartView?.label
+                || viewLabel
                 || rangeFromFilters?.label
                 || (filters.undated ? "Undated" : null)
                 || (filters.albumMembership === "none" ? "Not in an album" : null)
                 || (filters.albumMembership === "any" ? "In an album" : null)
                 || (filters.kind === "video" ? "Videos" : null)
                 || (filters.kind === "image" ? "Photos" : null)
+                || filterChips.map((c) => c.label).join(" · ")
                 || search}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {smartView && photos.length > 0 && (
+            {!albumView && photos.length > 0 && (
               <Button
                 variant="secondary"
                 surface="primary"
                 size="sm"
                 onClick={() => {
                   setNewAlbumSeed(photos);
-                  setNewAlbumName(smartView.label);
+                  setNewAlbumName(detailAlbumName);
                   setNewAlbumOpen(true);
                 }}
               >
                 Save as album
               </Button>
             )}
-            {place && (
-              <>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setNewAlbumSeed(photos);
-                    setNewAlbumName(place.label || "Place");
-                    setNewAlbumOpen(true);
-                  }}
-                >
-                  Album from place
-                </Button>
-                <Button
-                  variant="outline"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setFilterFocus("where");
-                    setFiltersOpen(true);
-                  }}
-                >
-                  Draw a custom area…
-                </Button>
-              </>
-            )}
-            {dayFilter && (
+            {filters.place && (
               <Button
-                variant="secondary"
+                variant="outline"
                 surface="primary"
                 size="sm"
                 onClick={() => {
-                  setNewAlbumSeed(photos);
-                  setNewAlbumName(dayFilter.label);
-                  setNewAlbumOpen(true);
+                  setFilterFocus("where");
+                  setFiltersOpen(true);
                 }}
               >
-                Album from day
+                Draw a custom area…
               </Button>
             )}
             {albumView && canManageAlbum(albumView, user) && (
@@ -1442,44 +1556,53 @@ export default function GalleryPage() {
         </p>
       )}
 
-      {activeSegment === "library" && !detailChrome && (memories.data?.length || 0) > 0 && (
-        <Card className="mb-4" data-slot="memories-card">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Sparkles size={16} aria-hidden="true" />
-              <p className="font-mono text-sm">On this day</p>
-            </div>
-            <Button
+      {showOnThisDayPeek && memoriesCount > 0 && (
+        <div className="mb-4 animate-nav-slide-in" data-slot="memories-pill">
+          <div className="inline-flex items-center rounded-pill border-2 border-primary/20 bg-secondary text-primary transition-colors hover:border-accent">
+            <button
               type="button"
-              size="sm"
-              variant="secondary"
-              surface="secondary"
+              className="inline-flex items-center gap-2 py-1.5 pl-1.5 pr-3 font-mono text-sm"
               onClick={() => {
-                const list = memories.data || [];
-                const first = list[0];
-                if (!first) return;
-                setLightboxOverride(list);
-                setLightbox({ key: photoSelectionKey(first) });
-                setSlideshow(true);
+                haptic("selection");
+                setFilters({ ...EMPTY_FILTERS, monthDay: "today" });
               }}
             >
-              Play
-            </Button>
+              {memoriesThumb ? (
+                <img
+                  src={memoriesThumb}
+                  alt=""
+                  className="h-6 w-6 rounded-full object-cover"
+                />
+              ) : (
+                <Sparkles size={14} aria-hidden="true" />
+              )}
+              <span>
+                On this day · {memoriesCount}
+                {memories.data?.has_more ? "+" : ""}{" "}
+                {memoriesCount === 1 && !memories.data?.has_more ? "photo" : "photos"}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss On this day"
+              className="mr-1.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-secondary"
+              onClick={() => {
+                haptic("light");
+                try {
+                  localStorage.setItem(
+                    ON_THIS_DAY_DISMISS_KEY,
+                    dayKey(Math.floor(Date.now() / 1000)),
+                  );
+                } catch {
+                  /* ignore */
+                }
+                setOnThisDayDismissed(true);
+              }}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
           </div>
-          <div className="grid grid-cols-4 gap-1 sm:grid-cols-6">
-            {memories.data.slice(0, 12).map((photo, index) => (
-              <PhotoThumb
-                key={photoSelectionKey(photo)}
-                photo={photo}
-                index={index}
-                onOpen={(p) => {
-                  setLightboxOverride(memories.data || []);
-                  setLightbox({ key: photoSelectionKey(p) });
-                }}
-              />
-            ))}
-          </div>
-        </Card>
+        </div>
       )}
 
       {noPhotos && (
@@ -1523,7 +1646,6 @@ export default function GalleryPage() {
                 variant="primary"
                 onClick={() => {
                   setFilters({ ...EMPTY_FILTERS });
-                  setDayFilter(null);
                 }}
               >
                 Clear filters
@@ -1562,15 +1684,7 @@ export default function GalleryPage() {
         />
       )}
 
-      {noArchive && (
-        <EmptyState
-          icon={ImageIcon}
-          title="Archive is empty"
-          description="Archived photos are hidden from Library. Select photos and choose Archive to move them here."
-        />
-      )}
-
-      {activeSegment === "albums" && !albumView && !smartView && !duplicatesView && (
+      {activeSegment === "albums" && !albumView && !viewLabel && !duplicatesView && filterActiveCount === 0 && (
         <AlbumsPanel
           albums={albums.data || []}
           loading={albums.isLoading}
@@ -1592,13 +1706,11 @@ export default function GalleryPage() {
           onLock={(album) => lockAlbumMut.mutate({ album, locked: !album.locked })}
           onSmart={(smart, saved) => {
             setAlbumView(null);
-            setPlace(null);
-            setDayFilter(null);
             setQ("");
             setSearch("");
             setSearchOpen(false);
             if (smart === "duplicates") {
-              setSmartView(null);
+              setViewLabel(null);
               setFilters({ ...EMPTY_FILTERS });
               setDuplicatesView(true);
               setSegment("albums");
@@ -1607,13 +1719,14 @@ export default function GalleryPage() {
             const labels = {
               videos: "Videos",
               last30: "Last 30 days",
+              onthisday: "On this day",
               screenshots: "Screenshots",
               unalbumed: "Not in an album",
               undated: "No date",
             };
             setDuplicatesView(false);
             if (smart === "saved" && saved?.filters) {
-              setSmartView({ key: `saved:${saved.id}`, label: saved.name || "Saved filter" });
+              setViewLabel(saved.name || "Saved filter");
               setFilters({
                 ...EMPTY_FILTERS,
                 ...saved.filters,
@@ -1621,9 +1734,12 @@ export default function GalleryPage() {
               });
               return;
             }
-            setSmartView({ key: smart, label: labels[smart] || "Smart album" });
+            setViewLabel(labels[smart] || "Smart album");
             if (smart === "videos") {
               setFilters({ ...EMPTY_FILTERS, kind: "video" });
+            }
+            if (smart === "onthisday") {
+              setFilters({ ...EMPTY_FILTERS, monthDay: "today" });
             }
             if (smart === "screenshots") {
               setFilters({ ...EMPTY_FILTERS });
@@ -1660,8 +1776,20 @@ export default function GalleryPage() {
             drawMode={placesDrawMode}
             onDrawModeChange={setPlacesDrawMode}
             onSelect={(p) => {
-              setPlace(p);
               setPlacesDrawMode(false);
+              setFilters((prev) =>
+                p.drawn
+                  ? { ...prev, place: null, placeBbox: p.place_bbox || null }
+                  : {
+                      ...prev,
+                      placeBbox: null,
+                      place: {
+                        key: p.key,
+                        label: p.label,
+                        place_bbox: p.place_bbox || null,
+                      },
+                    },
+              );
             }}
           />
         </div>
@@ -1674,14 +1802,6 @@ export default function GalleryPage() {
           description="Add photos from the library, or share the album so others can contribute."
         />
       )}
-      {placeEmpty && (
-        <EmptyState
-          icon={ImageIcon}
-          title="No photos here"
-          description="Luna didn't find photos for this place yet."
-        />
-      )}
-
       {filtersEmpty && (
         <EmptyState
           icon={ImageIcon}
@@ -1692,7 +1812,6 @@ export default function GalleryPage() {
               variant="primary"
               onClick={() => {
                 setFilters({ ...EMPTY_FILTERS });
-                setDayFilter(null);
               }}
             >
               Clear filters
@@ -1715,11 +1834,9 @@ export default function GalleryPage() {
             selection.enter();
             selection.toggle(photo);
           }}
-          onDayClick={(ymd, label) => {
-            const b = dayBoundsLocal(ymd);
-            if (!b) return;
-            setDayFilter({ ymd, ...b, label: label || b.label });
-            setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "", undated: false }));
+          onDayClick={(ymd) => {
+            if (!dayBoundsLocal(ymd)) return;
+            setFilters((prev) => ({ ...prev, dateFrom: ymd, dateTo: ymd, undated: false }));
           }}
           onSelectDay={(dayPhotos) => selection.selectItems(dayPhotos)}
           onDeselectDay={(dayPhotos) => selection.deselectItems(dayPhotos)}
@@ -1787,7 +1904,6 @@ export default function GalleryPage() {
         visible={selection.selectMode}
         onSelectAll={selection.selectAllInView}
         favoriting={bulkFavorite.isPending}
-        archiving={archiveMut.isPending}
         busy={trashMany.isPending || removeFromAlbum.isPending || applyAlbumPick.isPending}
         onClear={selection.clear}
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
@@ -1813,7 +1929,6 @@ export default function GalleryPage() {
           setNewAlbumOpen(true);
         }}
         onDownload={() => downloadSelected(selection.selectedItems)}
-        onArchive={() => archiveMut.mutate(selection.selectedItems)}
         onTrash={() => setTrashBulk(selection.selectedItems)}
       />
 
@@ -1824,7 +1939,6 @@ export default function GalleryPage() {
           index={lightboxIndex}
           onClose={() => {
             setLightbox(null);
-            setLightboxOverride(null);
             setSlideshow(false);
           }}
           onIndexChange={(i) => {
@@ -1843,12 +1957,9 @@ export default function GalleryPage() {
       )}
 
       {sharePhoto && (
-        <CreateShareModal
-          driveId={sharePhoto.drive_id}
-          path={sharePhoto.path}
+        <ShareSheet
+          subject={{ kind: "path", driveId: sharePhoto.drive_id, path: sharePhoto.path }}
           onClose={() => setSharePhoto(null)}
-          onDone={() => setSharePhoto(null)}
-          onError={setError}
           overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         />
       )}
@@ -2020,9 +2131,13 @@ export default function GalleryPage() {
         }}
       />
 
-      <ShareAlbumModal
+      <ShareSheet
         open={!!shareAlbum}
-        album={shareAlbum}
+        subject={
+          shareAlbum
+            ? { kind: "album", driveId: shareAlbum.home_drive_id, albumId: shareAlbum.id }
+            : null
+        }
         overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
         onClose={() => setShareAlbum(null)}
       />
@@ -2033,9 +2148,13 @@ export default function GalleryPage() {
         onJump={(ymd) => {
           jumpPagesRef.current = 0;
           const bounds = dayBoundsLocal(ymd);
-          // Jumping scrolls the timeline — leave single-day/duplicates views
-          // first so there is a timeline position to land on.
-          setDayFilter(null);
+          // Jumping scrolls the timeline — leave single-day/duplicates/month-day
+          // views first so there is a timeline position to land on.
+          setFilters((prev) =>
+            prev.monthDay || (prev.dateFrom && prev.dateFrom === prev.dateTo)
+              ? { ...prev, monthDay: "", dateFrom: "", dateTo: "" }
+              : prev,
+          );
           setDuplicatesView(false);
           if (!showTimeline) handleSegmentChange("library");
           setJumpTarget({ ymd, label: bounds?.label || ymd });
@@ -2067,14 +2186,10 @@ export default function GalleryPage() {
           setJumpOpen(true);
         }}
         onApply={(next) => {
-          setDayFilter(null);
           setDuplicatesView(false);
           setFilters({ ...EMPTY_FILTERS, ...next, formats: [...(next.formats || [])] });
           setFiltersOpen(false);
           setFilterFocus("");
-          if (activeSegment === "places" && next.placeBbox?.length === 4) {
-            setPlace(null);
-          }
         }}
       />
 
@@ -2176,6 +2291,7 @@ function AlbumsPanel({
           options={[
             { value: "videos", label: "Videos" },
             { value: "last30", label: "Last 30 days" },
+            { value: "onthisday", label: "On this day" },
             { value: "screenshots", label: "Screenshots" },
             { value: "duplicates", label: "Possible duplicates" },
             { value: "unalbumed", label: "Not in an album" },
@@ -2268,7 +2384,6 @@ function AlbumsPanel({
                   <p className="font-mono text-sm truncate">{album.name}</p>
                   <p className="text-xs mt-1">
                     {album.item_count} {album.item_count === 1 ? "item" : "items"}
-                    {album.shared ? " · Shared" : ""}
                     {!manage ? " · Shared with you" : ""}
                   </p>
                 </div>

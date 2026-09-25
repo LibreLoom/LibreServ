@@ -1100,9 +1100,21 @@ export default function OnboardingPage() {
 
   const renderCode = () => (
     <StepShell icon={Key} title="Enter your device token">
-      <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
+      <p className="text-muted-foreground text-sm leading-relaxed mb-5 text-pretty">
         Enter the device token from the card in your Luna's box (five groups like ****-****-****-****-****).
       </p>
+      <div className="mb-8 flex items-start gap-3 rounded-large-element border border-border bg-muted p-4 text-left">
+        <Plug className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="space-y-1.5">
+          <p className="text-sm leading-relaxed text-foreground text-pretty">
+            Plug your Luna into power using the adapter in the box, and connect it to your router or
+            modem with the included RJ45 (ethernet) cable. We will continue once Luna is online.
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground text-pretty">
+            If Luna does not seem to turn on, press the power button once.
+          </p>
+        </div>
+      </div>
       <form
         className="space-y-5 text-left"
         onSubmit={async (e) => {

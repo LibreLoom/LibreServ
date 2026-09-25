@@ -9,7 +9,8 @@ import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.j
 import FileBrowser from "./FileBrowser.jsx";
 import CreateNameModal from "./CreateNameModal.jsx";
 import NewItemMenu from "./NewItemMenu.jsx";
-import { apiErrorMessage, postJson } from "../../lib/api.js";
+import { apiErrorMessage } from "../../lib/api.js";
+import { fileListKey, useFileSource } from "../../lib/fileSource.jsx";
 import { parseCreateName } from "../../lib/createName.js";
 import { joinPath } from "../../lib/paths.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -44,6 +45,7 @@ export default function FolderPickerModal({
   error = null,
 }) {
   const queryClient = useQueryClient();
+  const source = useFileSource();
   const { addToast } = useToast();
   const activeDrives = useMemo(() => {
     return (drives || []).filter((d) => (
@@ -91,8 +93,8 @@ export default function FolderPickerModal({
     setCreateError(null);
     try {
       const fullPath = joinPath(path, parsed.name);
-      await postJson(`/api/v1/drives/${drive.id}/files/mkdir`, { path: fullPath });
-      await queryClient.invalidateQueries({ queryKey: ["files", drive.id, path] });
+      await source.mkdir(drive.id, fullPath);
+      await queryClient.invalidateQueries({ queryKey: fileListKey(source, drive.id, path) });
       addToast({ type: "success", message: "Folder created." });
     } catch (err) {
       haptic("error");

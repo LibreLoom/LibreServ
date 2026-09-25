@@ -311,14 +311,20 @@ async function request(path, options = {}) {
   if (!res.ok) {
     let message = "";
     let code = null;
+    let data;
     try {
-      const data = await res.json();
+      data = await res.json();
       message = data.error || "";
       if (typeof data.code === "string" && data.code) code = data.code;
     } catch {
       // fall through to status text
     }
-    throw new ApiError(res.status, message || `Request failed (${res.status})`, code);
+    throw new ApiError(
+      res.status,
+      message || `Request failed (${res.status})`,
+      code,
+      data,
+    );
   }
   // Some DELETE handlers return an empty body; treat that as success.
   const text = await res.text();
@@ -343,11 +349,13 @@ export class ApiError extends Error {
    * @param {number} status
    * @param {string} [message]
    * @param {string | null} [code] Stable machine-readable error code from the API body.
+   * @param {object} [data] The parsed error body — extra fields like `holder`.
    */
-  constructor(status, message, code = null) {
+  constructor(status, message, code = null, data = undefined) {
     super(message || `Request failed (${status})`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }

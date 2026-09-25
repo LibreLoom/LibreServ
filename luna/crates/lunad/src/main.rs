@@ -475,6 +475,14 @@ async fn main() -> anyhow::Result<()> {
                 axum::routing::any(lunad::api::office_ws::fonts_dispatch),
             );
     }
+    // Self-hosted diagrams.net webapp — a plain static pack, no dispatcher
+    // tricks (unlike EuroOffice the pack's URLs are unversioned and there's
+    // no socket). The editor iframe is same-origin and speaks postMessage.
+    let drawio_dir = cfg.data_dir.join("drawio");
+    if drawio_dir.is_dir() {
+        tracing::info!(dir = %drawio_dir.display(), "serving draw.io assets");
+        app = app.route("/drawio/{*tail}", axum::routing::any(drawio_dispatch));
+    }
     let app =
         app.with_state(state)
             .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
@@ -491,6 +499,27 @@ async fn main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await?;
     Ok(())
+}
+
+/// Static draw.io pack — every `/drawio/**` request serves from
+/// `{data_dir}/drawio`. Missing files 404 rather than falling through to the
+/// SPA fallback, so the web app's pack probe (`/drawio/pack.json`) can tell
+/// "pack present, file absent" from "no pack".
+async fn drawio_dispatch(
+    axum::extract::State(state): axum::extract::State<lunad::AppState>,
+    axum::extract::Path(tail): axum::extract::Path<String>,
+    mut req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use tower::ServiceExt;
+    let dir = state.data_dir.join("drawio");
+    if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
+        *req.uri_mut() = uri;
+    }
+    match tower_http::services::ServeDir::new(dir).oneshot(req).await {
+        Ok(res) => res.into_response(),
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 async fn touch_io_activity(

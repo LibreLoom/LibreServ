@@ -49,6 +49,18 @@ else
 	echo "         Run scripts/build-eurooffice-pack.sh (or make eurooffice-pack) first." >&2
 fi
 
+# Same for the draw.io pack (scripts/build-drawio-pack.sh) — extracted to
+# LUNA_DATA/drawio by rapidinstall; missing = diagram editing unavailable.
+if [ -f "$OUT/drawio-pack.tar.zst" ]; then
+	cp "$OUT/drawio-pack.tar.zst" "$BINL/drawio-pack.tar.zst"
+	if [ -f "$OUT/drawio-pack.tar.zst.sha256" ]; then
+		cp "$OUT/drawio-pack.tar.zst.sha256" "$BINL/drawio-pack.tar.zst.sha256"
+	fi
+else
+	echo "WARNING: no drawio-pack.tar.zst in $OUT — installed devices will lack diagram editing." >&2
+	echo "         Run scripts/build-drawio-pack.sh (or make drawio-pack) first." >&2
+fi
+
 cp "$ROOT/os/iso/find-media.sh" "$CHROOT_LIB/find-media.sh"
 chmod +x "$CHROOT_LIB/find-media.sh" "$DL/config/includes.chroot/usr/lib/luna-installer/start.sh"
 

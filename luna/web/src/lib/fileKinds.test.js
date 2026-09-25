@@ -4,6 +4,8 @@ import {
   isAudioFile,
   isComicFile,
   isCsvFile,
+  isDiagramFile,
+  isFormFile,
   isImageFile,
   isMarkdownFile,
   isOfficeFile,
@@ -53,6 +55,33 @@ describe("fileKinds", () => {
     expect(openableKind("font.woff2")).toBe("font");
     expect(openableKind("map.geojson")).toBe("geo");
     expect(openableKind("mystery.bin")).toBe(null);
+  });
+
+  it("classifies .lunaform files as forms, never text", () => {
+    expect(isFormFile("RSVP.lunaform")).toBe(true);
+    expect(isFormFile("forms/family reunion.LunaForm")).toBe(true);
+    expect(isFormFile("notes.txt")).toBe(false);
+    expect(openableKind("rsvp.lunaform")).toBe("form");
+    expect(isTextFile("rsvp.lunaform")).toBe(false);
+    // The sibling answers file stays a readable text file.
+    expect(openableKind("rsvp.responses.jsonl")).toBe("text");
+  });
+
+  it("classifies drawio files — including the self-previewing variants — as diagrams", () => {
+    expect(isDiagramFile("flow.drawio")).toBe(true);
+    expect(isDiagramFile("net/Map.DRAWIO")).toBe(true);
+    expect(isDiagramFile("arch.drawio.svg")).toBe(true);
+    expect(isDiagramFile("arch.drawio.png")).toBe(true);
+    expect(openableKind("flow.drawio")).toBe("diagram");
+    // The embedded-image variants must win over the image/text kinds they
+    // would otherwise land in — the diagram is the document.
+    expect(openableKind("arch.drawio.svg")).toBe("diagram");
+    expect(openableKind("arch.drawio.png")).toBe("diagram");
+    // A plain .svg/.png is still just an image/source file.
+    expect(isDiagramFile("icon.svg")).toBe(false);
+    expect(isDiagramFile("photo.png")).toBe(false);
+    expect(openableKind("icon.svg")).toBe("text");
+    expect(openableKind("photo.png")).toBe("image");
   });
 
   it("routes exactly the verified EuroOffice formats to the office editor", () => {

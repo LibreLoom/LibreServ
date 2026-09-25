@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { createPortal } from "react-dom";
 import {
-  Archive,
   ChevronUp,
   Download,
   Heart,
@@ -47,12 +46,10 @@ const BAR_DURATION_REDUCED_MS = 150; // --motion-duration-short3
  *   onNewAlbum?: () => void,
  *   onShare?: () => void,
  *   onDownload?: () => void,
- *   onArchive?: () => void,
  *   onTrash?: () => void,
  *   onRemoveFromAlbum?: () => void,
  *   onClear?: () => void,
  *   favoriting?: boolean,
- *   archiving?: boolean,
  *   busy?: boolean,
  * }} props
  */
@@ -65,12 +62,10 @@ export default function SelectionActionBar({
   onNewAlbum,
   onShare,
   onDownload,
-  onArchive,
   onTrash,
   onRemoveFromAlbum,
   onClear,
   favoriting = false,
-  archiving = false,
   busy = false,
 }) {
   // Stay mounted through the exit: the entrance animation object is kept and
@@ -135,7 +130,6 @@ export default function SelectionActionBar({
     onRemoveFromAlbum && { key: "remove", icon: Minus, label: "Remove from album", onClick: onRemoveFromAlbum, needsSelection: true },
     onShare && { key: "share", icon: Link2, label: "Share", onClick: onShare, needsSelection: true },
     onDownload && { key: "download", icon: Download, label: "Download", onClick: onDownload, needsSelection: true },
-    onArchive && { key: "archive", icon: Archive, label: "Archive", onClick: onArchive, loading: archiving, needsSelection: true },
     onTrash && { key: "trash", icon: Trash2, label: "Trash", onClick: onTrash, needsSelection: true },
   ].filter(Boolean);
 
@@ -303,11 +297,9 @@ SelectionActionBar.propTypes = {
   onNewAlbum: PropTypes.func,
   onShare: PropTypes.func,
   onDownload: PropTypes.func,
-  onArchive: PropTypes.func,
   onTrash: PropTypes.func,
   onRemoveFromAlbum: PropTypes.func,
   onClear: PropTypes.func,
   favoriting: PropTypes.bool,
-  archiving: PropTypes.bool,
   busy: PropTypes.bool,
 };

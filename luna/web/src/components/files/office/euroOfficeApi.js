@@ -9,9 +9,10 @@
  * script fails to load (or serves HTML without `window.DocsAPI`).
  */
 
-import { apiFetch, postForm, postJson, putBinary } from "../../../lib/api.js";
+import { apiFetch, putBinary } from "../../../lib/api.js";
 import { OFFICE_FORMATS, OFFICE_SAVE_EXT, fileExtension } from "../../../lib/fileKinds.js";
-import { contentHref } from "../../../lib/paths.js";
+import { joinPath } from "../../../lib/paths.js";
+import { driveSource } from "../../../lib/fileSource.jsx";
 
 export const EUROOFFICE_API_SRC = "/eurooffice/web-apps/apps/api/documents/api.js";
 // The worker lives inside the pack: x2t.js resolves x2t.wasm relative to the
@@ -107,15 +108,14 @@ export async function loadEuroOfficeDocsApi() {
 
 /**
  * Ask lunad for a doc key + office token bound to this file. The key also
- * names the bundle dir and the docstorage room.
+ * names the bundle dir and the docstorage room. `source` decides whether
+ * the request is a member session or a scoped link-guest one.
  * @param {string} driveId
  * @param {string} path
+ * @param {import("../../../lib/fileSource.jsx").FileSource} [source]
  */
-export async function createEuroOfficeSession(driveId, path) {
-  return postJson("/api/v1/office/session", {
-    drive_id: driveId,
-    path,
-  });
+export async function createEuroOfficeSession(driveId, path, source = driveSource) {
+  return source.officeSession(driveId, path);
 }
 
 // ---------- x2t.wasm conversion (Web Worker) ----------
@@ -215,15 +215,34 @@ export function x2tConvert(inName, outName, bytes) {
 
 // ---------- bundle (converted document storage on lunad) ----------
 
-export function bundleUrl(key, name) {
-  return `/api/v1/office/bundle/${encodeURIComponent(key)}/${name
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}`;
+/**
+ * URL of one bundle file. Sessions minted after the scoped bridge carry a
+ * `bundle_url` (`/s/office-bundle/{key}`, authorized by the token); older
+ * callers pass a bare key and get the session-cookie route.
+ * @param {string | { key: string, bundle_url?: string }} sessionOrKey
+ * @param {string} name
+ */
+export function bundleUrl(sessionOrKey, name) {
+  const base =
+    typeof sessionOrKey === "string"
+      ? `/api/v1/office/bundle/${encodeURIComponent(sessionOrKey)}`
+      : sessionOrKey.bundle_url || `/api/v1/office/bundle/${encodeURIComponent(sessionOrKey.key)}`;
+  return `${base}/${name.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-async function bundleHas(key, name) {
-  const res = await apiFetch(bundleUrl(key, name), { method: "HEAD" });
+/**
+ * Credential header for scoped bundle endpoints. Only sent when the session
+ * actually carries a `bundle_url` — legacy callers keep the cookie route.
+ */
+function bundleHeaders(session) {
+  return session?.bundle_url ? { "X-Office-Token": session.token } : {};
+}
+
+async function bundleHas(session, name) {
+  const res = await apiFetch(bundleUrl(session, name), {
+    method: "HEAD",
+    headers: bundleHeaders(session),
+  });
   if (!res.ok) return false;
   // A 0-byte Editor.bin is a poisoned bundle — it exists on disk so HEAD
   // succeeds, but the editor can't open it. Treat it as missing so the
@@ -234,7 +253,7 @@ async function bundleHas(key, name) {
   return true;
 }
 
-async function putBundle(key, name, bytes, coverage) {
+async function putBundle(session, name, bytes, coverage) {
   // A bundle file is never legitimately empty. An empty body here means the
   // buffer was emptied before send (e.g. a detached typed array) — writing
   // it would poison the bundle while the server still compacts the replay
@@ -250,9 +269,9 @@ async function putBundle(key, name, bytes, coverage) {
   // tracking can't tell a received broadcast from a dead socket).
   const url =
     coverage == null
-      ? bundleUrl(key, name)
-      : `${bundleUrl(key, name)}?coverage=${coverage}`;
-  await putBinary(url, bytes);
+      ? bundleUrl(session, name)
+      : `${bundleUrl(session, name)}?coverage=${coverage}`;
+  await putBinary(url, bytes, { headers: bundleHeaders(session) });
 }
 
 /**
@@ -261,11 +280,10 @@ async function putBundle(key, name, bytes, coverage) {
  * `media/*`; joiners skip straight to the editor.
  * @returns {Promise<{ converted: boolean }>}
  */
-export async function ensureOfficeBundle(driveId, path, session) {
-  const key = session.key;
-  if (await bundleHas(key, "Editor.bin")) return { converted: false };
+export async function ensureOfficeBundle(driveId, path, session, source = driveSource) {
+  if (await bundleHas(session, "Editor.bin")) return { converted: false };
 
-  const res = await apiFetch(contentHref(driveId, path));
+  const res = await source.fetch(source.contentHref(driveId, path));
   if (!res.ok) throw new Error("Luna couldn't read this file for conversion.");
   const src = new Uint8Array(await res.arrayBuffer());
   let conv;
@@ -295,10 +313,10 @@ export async function ensureOfficeBundle(driveId, path, session) {
         "password-protected. You can still download it.",
     );
   }
-  await putBundle(key, "Editor.bin", conv.out);
-  await putBundle(key, `origin.${session.file_type}`, src);
+  await putBundle(session, "Editor.bin", conv.out);
+  await putBundle(session, `origin.${session.file_type}`, src);
   for (const [name, bytes] of Object.entries(conv.media)) {
-    await putBundle(key, `media/${name}`, bytes);
+    await putBundle(session, `media/${name}`, bytes);
   }
   return { converted: true };
 }
@@ -341,7 +359,15 @@ function nativeGetFileBytes(iframe) {
   return bytes;
 }
 
-export async function saveEuroOfficeDocument(iframe, driveId, session, fileName, folder, coverage) {
+export async function saveEuroOfficeDocument(
+  iframe,
+  driveId,
+  session,
+  fileName,
+  folder,
+  coverage,
+  source = driveSource,
+) {
   const bytes = nativeGetFileBytes(iframe);
   const ext = session.file_type;
   let conv;
@@ -354,26 +380,24 @@ export async function saveEuroOfficeDocument(iframe, driveId, session, fileName,
     );
   }
 
-  // 1) Write the user-facing file through the normal upload path (overwrite).
-  const file = new File([/** @type {BlobPart} */ (conv.out)], fileName, {
-    type: "application/octet-stream",
-  });
-  const form = new FormData();
-  form.append("path", folder);
-  form.append("file", file);
-  // postForm throws ApiError on non-2xx.
-  await postForm(
-    `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=1`,
-    form,
+  // 1) Write the user-facing file through the source's overwrite path —
+  //    member upload for drives, the scoped link upload for guests.
+  await source.saveFile(
+    driveId,
+    joinPath(folder, fileName),
+    fileName,
+    new Blob([/** @type {BlobPart} */ (conv.out)], {
+      type: "application/octet-stream",
+    }),
   );
 
   // 2) Refresh the bundle so joiners open the saved state; Editor.bin last so
   //    the base-advance only happens once every member is in place.
   for (const [name, b] of Object.entries(conv.media)) {
-    await putBundle(session.key, `media/${name}`, b);
+    await putBundle(session, `media/${name}`, b);
   }
-  await putBundle(session.key, `origin.${ext}`, conv.out);
-  await putBundle(session.key, "Editor.bin", bytes, coverage);
+  await putBundle(session, `origin.${ext}`, conv.out);
+  await putBundle(session, "Editor.bin", bytes, coverage);
   return { bytes: conv.out.length };
 }
 

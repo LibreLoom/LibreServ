@@ -1,28 +1,31 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
-import { Download, File as FileIcon, Folder, Lock, UploadCloud, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, Image as ImageIcon, Lock } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import { cn } from "@libreloom/ui/lib/utils.js";
-import { apiErrorMessage, deleteJson, postJson, putBinaryProgress } from "../lib/api";
-import { filesFromDataTransfer } from "../lib/collectUploadFiles";
-import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { apiErrorMessage, getJson } from "../lib/api";
+import { CAP, hasCap } from "../lib/access.js";
+import { FileSourceProvider, shareSource } from "../lib/fileSource.jsx";
+import { parentPath, pathBasename } from "../lib/paths.js";
+import DriveFileExplorer, { UploadProgressList } from "../components/files/DriveFileExplorer.jsx";
+import UploadFilesPanel from "../components/files/UploadFilesPanel.jsx";
+import useFileNavigation from "../hooks/useFileNavigation.js";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import FormResponder from "../components/files/forms/FormResponder.jsx";
+import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
+import PhotoLightbox, {
+  resolveDisplaySrc,
+  resolveDownloadSrc,
+} from "../components/gallery/PhotoLightbox.jsx";
+import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 
-const CHUNK_SIZE = 8 * 1024 * 1024;
+
 const UPLOAD_PARALLEL = 2;
-
-function joinRel(base, name) {
-  return base ? `${base}/${name}` : name;
-}
-
-function parentRel(path) {
-  if (!path) return "";
-  const idx = path.lastIndexOf("/");
-  return idx < 0 ? "" : path.slice(0, idx);
-}
 
 function isAbortError(err) {
   return err?.name === "AbortError" || err?.code === 20;
@@ -40,38 +43,35 @@ async function mapPool(items, limit, worker) {
   await Promise.all(runners);
 }
 
-function fmtSize(bytes) {
-  if (!Number.isFinite(bytes)) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+function isMediaName(name) {
+  return /\.(jpe?g|png|gif|webp|avif|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i.test(name || "");
 }
 
 export default function PublicSharePage() {
   const { token } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const rel = searchParams.get("path") || "";
+  return <PublicShareSession key={token} />;
+}
+
+function PublicShareSession() {
+  const { token } = useParams();
+  const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
   const [submittedPassword, setSubmittedPassword] = useState("");
   const [error, setError] = useState("");
-  const [listing, setListing] = useState(null);
-  const [fileMeta, setFileMeta] = useState(null);
-  const [uploadOnly, setUploadOnly] = useState(false);
+  /** The link's meta payload: { kind, name?, size?, item_count?, caps }. */
+  const [meta, setMeta] = useState(null);
+  /** Resolved `kind: "form"` payload — a respond link mounts the responder. */
+  const [formDoc, setFormDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploads, setUploads] = useState(/** @type {any[]} */ ([]));
   const [uploadError, setUploadError] = useState("");
-  const [dragOver, setDragOver] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [batchDone, setBatchDone] = useState(false);
+  const [lightbox, setLightbox] = useState(/** @type {{ key: string }|null} */ (null));
   const uploadsRef = useRef(/** @type {any[]} */ ([]));
-  const fileInputRef = useRef(null);
-  const replaceInputRef = useRef(null);
+  const [passwordRetry, setPasswordRetry] = useState(0);
+  const sentinel = useRef(null);
 
   function authHeaders(extra = {}) {
     const headers = { ...extra };
@@ -79,50 +79,99 @@ export default function PublicSharePage() {
     return headers;
   }
 
-  const downloadHref = (childRel, asDownload) => {
-    const params = new URLSearchParams();
-    if (childRel) params.set("path", childRel);
-    if (asDownload) params.set("download", "1");
-    const q = params.toString();
-    return `/s/${token}${q ? `?${q}` : ""}`;
-  };
+  const kind = meta?.kind || "";
+  const caps = meta?.caps || "";
+  const canView = hasCap(caps, CAP.VIEW);
+  const canUpload = hasCap(caps, CAP.UPLOAD);
+  const isDropbox = kind === "dropbox";
+  const isFolder = kind === "folder";
+  const isFile = kind === "file";
+  const isAlbum = kind === "album";
+
+  const {
+    path: rel,
+    selectPath,
+    viewerPath,
+    onPathChange: openRel,
+    onViewerPathChange: handleViewerPathChange,
+    clearSelectParam,
+  } = useFileNavigation({ defaultFile: meta?.name || null, singleFile: isFile });
+
+  const source = useMemo(
+    () =>
+      shareSource({
+        token: token || "",
+        password: submittedPassword,
+        kind: kind || "folder",
+        fileName: meta?.name || "",
+        caps,
+      }),
+    [token, submittedPassword, kind, meta?.name, caps],
+  );
+
+  // Album items page in separately — they paginate.
+  const album = useInfiniteQuery({
+    queryKey: ["public-link-items", token],
+    initialPageParam: 0,
+    enabled: isAlbum && canView && !needPassword,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams();
+      params.set("limit", "80");
+      params.set("offset", String(pageParam || 0));
+      return getJson(`/s/${token}/items?${params}`, { headers: authHeaders() });
+    },
+    getNextPageParam: (last) =>
+      last?.has_more ? (last.next_offset ?? (last.items?.length || 0)) : undefined,
+  });
+  const albumPages = useMemo(() => album.data?.pages || [], [album.data?.pages]);
+  const albumItems = useMemo(() => albumPages.flatMap((p) => p.items || []), [albumPages]);
+  const selection = useMultiSelect({ items: albumItems });
+
+  const loadMore = useCallback(() => {
+    if (album.hasNextPage && !album.isFetchingNextPage) album.fetchNextPage();
+  }, [album]);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !album.hasNextPage) return undefined;
+    const io = new IntersectionObserver(
+      (list) => {
+        if (list.some((e) => e.isIntersecting)) loadMore();
+      },
+      { rootMargin: "400px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [album.hasNextPage, loadMore, albumItems.length]);
 
   useEffect(() => {
     let alive = true;
     async function load() {
       setLoading(true);
       setError("");
-      setFileMeta(null);
-      setUploadOnly(false);
+      setMeta(null);
+      setFormDoc(null);
       try {
-        const params = new URLSearchParams();
-        if (rel) params.set("path", rel);
-        params.set("meta", "1");
-        const q = params.toString();
-        const res = await fetch(`/s/${token}${q ? `?${q}` : ""}`, {
+        // Meta describes the link, not the folder you're standing in — fetch
+        // it once so navigating never remounts the explorer (that remount is
+        // what killed the browser's transition animation).
+        const params = new URLSearchParams({ meta: "1" });
+        const res = await fetch(`/s/${token}?${params}`, {
           headers: { Accept: "application/json", ...authHeaders() },
         });
         const type = res.headers.get("content-type") || "";
         if (res.status === 401) {
           if (alive) {
             setNeedPassword(true);
-            setListing(null);
             setError(submittedPassword ? "That password is wrong. Try again." : "This link needs its password.");
           }
           return;
         }
         if (res.status === 410) {
-          if (alive) {
-            setListing(null);
-            setError("This link has expired. Ask the person who sent it to make a new one.");
-          }
+          if (alive) setError("This link has expired. Ask the person who sent it to make a new one.");
           return;
         }
         if (res.status === 404) {
-          if (alive) {
-            setListing(null);
-            setError("This link doesn't exist, or the files aren't on Luna right now.");
-          }
+          if (alive) setError("This link doesn't exist, or the files aren't on Luna right now.");
           return;
         }
         if (!res.ok) {
@@ -130,41 +179,48 @@ export default function PublicSharePage() {
           if (alive) setError(data.error || "Luna couldn't open this link.");
           return;
         }
-        if (type.includes("json")) {
-          const data = await res.json();
+        if (!type.includes("json")) {
+          // Non-JSON means the link streamed bytes — treat as a file.
           if (alive) {
             setNeedPassword(false);
-            if (data.kind === "upload") {
-              setUploadOnly(true);
-              setListing(null);
-            } else if (data.kind === "file") {
-              setFileMeta(data);
-              setListing(null);
-            } else {
-              setListing(data);
-            }
+            setMeta({ kind: "file", name: "download", caps });
           }
-        } else if (alive) {
-          setNeedPassword(false);
-          setFileMeta({ name: "download" });
-          setListing(null);
+          return;
         }
+        const data = await res.json();
+        if (!alive) return;
+        setNeedPassword(false);
+        if (data.kind === "form") {
+          setFormDoc(data);
+          return;
+        }
+        setMeta(data);
       } catch {
-        if (alive) setError("Couldn't reach Luna. For access from anywhere, turn on Luna Connect in Settings → External Services. Otherwise check you're on the same network as Luna.");
+        if (alive) setError("Could not reach Luna. Check your connection and try again.");
       } finally {
         if (alive) setLoading(false);
       }
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, rel, submittedPassword, reloadKey]);
+  }, [token, submittedPassword, passwordRetry]);
 
-  function openRel(next) {
-    const nextParams = new URLSearchParams(searchParams);
-    if (next) nextParams.set("path", next);
-    else nextParams.delete("path");
-    setSearchParams(nextParams);
-  }
+  // URL builders so the real browser's links stay on /s/{token}.
+  const shareFolderHref = useCallback(
+    (_driveId, folderPath) =>
+      `/s/${token}${folderPath ? `?path=${encodeURIComponent(folderPath)}` : ""}`,
+    [token],
+  );
+  const shareFileHref = useCallback(
+    (_driveId, filePath) => {
+      const dir = parentPath(filePath) ?? "";
+      const params = new URLSearchParams();
+      if (dir) params.set("path", dir);
+      params.set("file", pathBasename(filePath));
+      return `/s/${token}?${params}`;
+    },
+    [token],
+  );
 
   function patchUpload(id, patch) {
     uploadsRef.current = uploadsRef.current.map((row) => (row.id === id ? { ...row, ...patch } : row));
@@ -176,62 +232,39 @@ export default function PublicSharePage() {
     setUploads([...uploadsRef.current]);
   }
 
-  /**
-   * @param {{ id: string, name: string, uploadName: string, size: number, abort: AbortController, file: File }} item
-   */
   async function uploadOne(item) {
-    const destPath = uploadOnly ? undefined : rel || undefined;
-    const session = await postJson(
-      `/s/${token}/upload`,
-      {
-        name: item.uploadName,
-        size: item.size,
-        ...(destPath ? { path: destPath } : {}),
-      },
-      { headers: authHeaders(), signal: item.abort.signal },
-    );
-    patchUpload(item.id, { uploadId: session.upload_id });
-    for (let start = 0; start < item.size; start += CHUNK_SIZE) {
-      if (item.abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
-      const end = Math.min(start + CHUNK_SIZE, item.size) - 1;
-      const chunk = item.file.slice(start, end + 1);
-      const progress = await putBinaryProgress(
-        `/s/${token}/upload/${session.upload_id}`,
-        chunk,
-        {
-          signal: item.abort.signal,
-          headers: authHeaders({ "Content-Range": `bytes ${start}-${end}/${item.size}` }),
-          onProgress: (loaded) => {
-            patchUpload(item.id, { received: Math.min(item.size, start + loaded) });
-          },
-        },
-      );
-      patchUpload(item.id, { received: Number(progress.received) || end + 1 });
-    }
-    const overwrite = fileMeta ? "1" : undefined;
-    await postJson(
-      `/s/${token}/upload/${session.upload_id}/complete${overwrite ? `?overwrite=${overwrite}` : ""}`,
-      {},
-      { headers: authHeaders(), signal: item.abort.signal },
-    );
+    await source.uploadFile(token || "", item.file, "", item.uploadName, {
+      signal: item.abort.signal,
+      onSession: (uploadId) => patchUpload(item.id, { uploadId }),
+      onProgress: (received) => patchUpload(item.id, { received }),
+    });
   }
 
   async function addFiles(fileList) {
     const allFiles = Array.from(fileList || []);
-    const files = allFiles.filter((f) => f.size > 0);
-    const skipped = allFiles.length - files.length;
+    // Album links only take photos and videos — the server enforces it too,
+    // but skipping early keeps the error readable.
+    const eligible = isAlbum ? allFiles.filter((f) => isMediaName(f.name)) : allFiles;
+    const skippedMedia = allFiles.length - eligible.length;
+    const files = eligible.filter((f) => f.size > 0);
+    const skippedEmpty = eligible.length - files.length;
     setUploadError("");
-    if (!files.length) {
-      if (skipped) setUploadError("Luna can't add empty files.");
+    setBatchDone(false);
+    if (skippedMedia > 0) {
+      setUploadError("Only photos and videos can go in this album.");
       return;
     }
-    if (skipped > 0) {
-      setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"} — Luna can't add empty files.`);
+    if (!files.length) {
+      if (skippedEmpty) setUploadError("Luna can't add empty files.");
+      return;
+    }
+    if (skippedEmpty > 0) {
+      setUploadError(`Skipped ${skippedEmpty} empty file${skippedEmpty === 1 ? "" : "s"} — Luna can't add empty files.`);
     }
     const batch = files.map((file) => ({
       id: crypto.randomUUID(),
       name: file.name,
-      uploadName: fileMeta ? fileMeta.name || file.name : file.name,
+      uploadName: file.name,
       received: 0,
       size: file.size,
       uploadId: null,
@@ -242,12 +275,12 @@ export default function PublicSharePage() {
     setUploads([...uploadsRef.current]);
 
     let hadError = false;
-    let succeeded = false;
+    let completed = 0;
     await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
       try {
         await uploadOne(item);
         removeUpload(item.id);
-        succeeded = true;
+        completed += 1;
       } catch (err) {
         removeUpload(item.id);
         if (isAbortError(err) || item.abort.signal.aborted) return;
@@ -257,14 +290,16 @@ export default function PublicSharePage() {
         }
       }
     });
-    // A read-write folder link should show what just landed without a full
-    // page refresh. Upload-only drop boxes deliberately can't see anything,
-    // and a replaced file link keeps its name, so only folders reload.
-    if (succeeded && listing && listing.permission === "write") {
-      setReloadKey((k) => k + 1);
+    if (completed > 0) {
+      setBatchDone(true);
+      addToast({
+        type: "success",
+        message: completed === 1 ? "1 file uploaded." : `${completed} files uploaded.`,
+      });
+      if (isAlbum) {
+        queryClient.invalidateQueries({ queryKey: ["public-link-items", token] });
+      }
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (replaceInputRef.current) replaceInputRef.current.value = "";
   }
 
   function cancelUpload(id) {
@@ -272,22 +307,190 @@ export default function PublicSharePage() {
     if (!row) return;
     row.abort.abort();
     if (row.uploadId) {
-      void deleteJson(`/s/${token}/upload/${row.uploadId}`, { headers: authHeaders() }).catch(() => {});
+      void source.cancelUpload(token || "", row.uploadId).catch(() => {});
     }
     removeUpload(id);
   }
 
-  const canSeeFiles = listing != null;
-  const showUploadZone = uploadOnly || (listing && listing.permission === "write");
+  function albumContentSrc(photo) {
+    return photo?.content || photo?.thumb || "";
+  }
+  function albumDownloadSrc(photo) {
+    return photo?.download || photo?.content || photo?.thumb || "";
+  }
+  function downloadSelected() {
+    for (const photo of selection.selectedItems) {
+      const href = albumDownloadSrc(photo);
+      if (!href) continue;
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = photo.name || "photo";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  }
+
+  // Respond links take over the whole page — one question per screen.
+  if (formDoc && !needPassword) {
+    return (
+      <div className="flex min-h-screen flex-col bg-primary text-secondary">
+        {error && (
+          <div className="p-4">
+            <PageNotice variant="error">{error}</PageNotice>
+          </div>
+        )}
+        {loading ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center" role="status">
+            <p className="font-mono text-sm uppercase tracking-widest text-secondary">Opening</p>
+          </div>
+        ) : (
+          <FormResponder
+            token={token}
+            form={formDoc.form && typeof formDoc.form === "object" ? formDoc.form : {}}
+            sharePassword={submittedPassword}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (isAlbum && !needPassword) {
+    const title = meta?.name || "Shared album";
+    const lightboxIndex = lightbox
+      ? Math.max(0, albumItems.findIndex((p) => photoSelectionKey(p) === lightbox.key))
+      : 0;
+    const lightboxPhoto = albumItems[lightboxIndex];
+    return (
+      <div className="min-h-screen bg-primary text-secondary">
+        <Page title={title} titleId="public-album-title">
+          {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
+          {loading || album.isLoading ? (
+            <p className="text-sm">Opening album…</p>
+          ) : (
+            <>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm">
+                  {meta?.item_count ?? albumItems.length} {(meta?.item_count ?? albumItems.length) === 1 ? "item" : "items"}
+                  {canUpload ? " · You can add photos and videos" : " · View only"}
+                  {album.hasNextPage ? " · More available" : ""}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={selection.selectMode ? "accent" : "outline"}
+                    surface="primary"
+                    size="sm"
+                    onClick={() => (selection.selectMode ? selection.exit() : selection.enter())}
+                  >
+                    {selection.selectMode ? "Cancel" : "Select"}
+                  </Button>
+                  {selection.selectMode && selection.selectedCount > 0 && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      surface="primary"
+                      size="sm"
+                      onClick={downloadSelected}
+                    >
+                      <Download size={16} />
+                      Download selected ({selection.selectedCount})
+                    </Button>
+                  )}
+                  <Button variant="secondary" surface="primary" size="sm" asChild>
+                    <a href={`/s/${token}/zip`}>
+                      <Download size={16} />
+                      Download album
+                    </a>
+                  </Button>
+                </div>
+              </div>
+              {canUpload && (
+                <UploadFilesPanel
+                  title="Add photos"
+                  accept="image/*,video/*"
+                  onUploadFiles={addFiles}
+                  error={uploadError || null}
+                  busy={uploads.length > 0}
+                >
+                  <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
+                </UploadFilesPanel>
+              )}
+              {albumItems.length === 0 ? (
+                <EmptyState
+                  icon={ImageIcon}
+                  title="No photos yet"
+                  description={
+                    canUpload
+                      ? "Be the first to add a photo or video to this album."
+                      : "Nothing has been added to this album yet."
+                  }
+                />
+              ) : (
+                <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
+                  {albumItems.map((photo, index) => (
+                    <PhotoThumb
+                      key={photoSelectionKey(photo) || `${photo.drive_id}/${photo.path}`}
+                      photo={photo}
+                      index={index}
+                      selectMode={selection.selectMode}
+                      selected={selection.selected.has(photoSelectionKey(photo))}
+                      onToggle={selection.toggle}
+                      onLongPress={(p) => {
+                        selection.enter();
+                        selection.toggle(p);
+                      }}
+                      onOpen={() => setLightbox({ key: photoSelectionKey(photo) })}
+                    />
+                  ))}
+                </div>
+              )}
+              <div ref={sentinel} className="h-8" aria-hidden="true" />
+              {album.isFetchingNextPage && (
+                <p className="py-4 text-center font-mono text-sm">Loading more…</p>
+              )}
+            </>
+          )}
+          {lightbox && lightboxPhoto && (
+            <PhotoLightbox
+              mode="guest"
+              photos={albumItems}
+              photoKey={lightbox.key}
+              index={lightboxIndex}
+              contentSrc={resolveDisplaySrc(lightboxPhoto, {
+                contentSrc: albumContentSrc(lightboxPhoto),
+              })}
+              srcFor={albumContentSrc}
+              downloadSrc={resolveDownloadSrc(lightboxPhoto, {
+                downloadSrc: albumDownloadSrc(lightboxPhoto),
+              })}
+              onClose={() => setLightbox(null)}
+              onIndexChange={(i) => {
+                const next = albumItems[i];
+                if (next) setLightbox({ key: photoSelectionKey(next) });
+              }}
+            />
+          )}
+        </Page>
+      </div>
+    );
+  }
+
+  // Folders and single files mount the same explorer the signed-in Files
+  // page uses — the share source carries the link's caps, so only the
+  // permission-scoped affordances differ. Drop boxes get the minimal
+  // upload-only surface: no listing, no New, no browsing.
+  const driveLike = isFolder || isFile;
 
   return (
-    <div className="min-h-screen bg-primary text-secondary px-4 py-12 flex flex-col items-center">
-      <div className="w-full max-w-lg">
-        <h1 className="font-mono text-2xl text-center mb-6">
-          {uploadOnly ? "Add files" : "Shared with you"}
-        </h1>
+    <div className="min-h-screen bg-primary text-secondary">
+      <Page
+        title={meta?.name || "Shared with you"}
+        titleId="public-share-title"
+      >
         {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
-        {uploadError && <PageNotice variant="error" className="mb-4">{uploadError}</PageNotice>}
+        {uploadError && !isDropbox && <PageNotice variant="error" className="mb-4">{uploadError}</PageNotice>}
 
         {needPassword && (
           <Card icon={Lock} title="This link is locked">
@@ -299,6 +502,7 @@ export default function PublicSharePage() {
               onSubmit={(e) => {
                 e.preventDefault();
                 setSubmittedPassword(password);
+                setPasswordRetry((n) => n + 1);
               }}
             >
               <ShakeTarget shake={error}>
@@ -306,6 +510,7 @@ export default function PublicSharePage() {
                   type="password"
                   className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
                   placeholder="Password for this link"
+                  aria-label="Password for this link"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="off"
@@ -322,186 +527,40 @@ export default function PublicSharePage() {
           </Card>
         )}
 
-        {fileMeta && !loading && (
-          <Card icon={FileIcon} title="A file was shared with you">
-            <p className="text-primary text-sm">Tap download to save it on this device.</p>
-            <div className="mt-4 flex gap-3">
-              <Button variant="primary" asChild>
-                <a href={downloadHref(rel, true)}>
-                  <Download size={16} /> Download
-                </a>
-              </Button>
-              {fileMeta.permission === "write" && (
-                <Button variant="outline" onClick={() => replaceInputRef.current?.click()}>
-                  <UploadCloud size={16} /> Replace file
-                </Button>
-              )}
-            </div>
-            <input
-              ref={replaceInputRef}
-              type="file"
-              className="hidden"
-              aria-label="Replace this file"
-              onChange={(e) => addFiles(e.target.files)}
+        {isDropbox && meta && !needPassword && !loading && (
+          <UploadFilesPanel
+            onUploadFiles={(files) => addFiles(files)}
+            error={uploadError || null}
+            busy={uploads.length > 0}
+          >
+            <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
+            {batchDone && uploads.length === 0 && (
+              <p className="text-primary text-sm mt-3">Files uploaded.</p>
+            )}
+          </UploadFilesPanel>
+        )}
+
+        {driveLike && meta && !needPassword && !loading && (
+          <FileSourceProvider source={source}>
+            <DriveFileExplorer
+              driveId={token || ""}
+              driveLabel={meta.name || "Shared files"}
+              drives={[{ id: token || "", label: meta.name || "Shared files" }]}
+              path={rel}
+              onPathChange={openRel}
+              viewerPath={viewerPath}
+              onViewerPathChange={handleViewerPathChange}
+              selectPath={selectPath || null}
+              onSelectPathApplied={clearSelectParam}
+              linkNavigation
+              folderHref={shareFolderHref}
+              fileHref={shareFileHref}
+              emptyTitle="This folder is empty"
+              emptyDescription={canUpload ? "Add files to get started." : "There's nothing here to download."}
             />
-          </Card>
+          </FileSourceProvider>
         )}
-
-        {uploadOnly && !loading && (
-          <Card icon={UploadCloud} title="Add files to this folder">
-            <p className="text-primary text-sm">
-              Drop files here. People with this link can add files, but can't see what's already in the folder.
-            </p>
-            <label
-              className={cn(
-                "mt-4 flex flex-col items-center justify-center gap-2 rounded-large-element border-2 border-dashed p-8 cursor-pointer motion-safe:transition-colors motion-safe:duration-150",
-                dragOver
-                  ? "border-accent bg-accent/20 text-secondary"
-                  : "border-secondary/30 bg-primary text-secondary hover:border-accent",
-              )}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "copy";
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={async (e) => {
-                e.preventDefault();
-                setDragOver(false);
-                const files = await filesFromDataTransfer(e.dataTransfer);
-                addFiles(files);
-              }}
-            >
-              <UploadCloud size={22} className="text-accent" />
-              <span className="text-sm">Choose files or drop them here</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                aria-label="Add files"
-                onChange={(e) => addFiles(e.target.files)}
-              />
-            </label>
-          </Card>
-        )}
-
-        {listing && (
-          <div className="space-y-3">
-            {listing.permission === "write" && (
-              <Card padding={false} noPopIn noHeightAnim>
-                <label
-                  className={cn(
-                    "flex items-center justify-center gap-2 rounded-large-element border-2 border-dashed p-4 cursor-pointer motion-safe:transition-colors motion-safe:duration-150",
-                    dragOver
-                      ? "border-accent bg-accent/20 text-primary"
-                      : "border-secondary/30 bg-secondary text-primary hover:border-accent",
-                  )}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "copy";
-                    setDragOver(true);
-                  }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={async (e) => {
-                    e.preventDefault();
-                    setDragOver(false);
-                    haptic("heavy");
-                    const files = await filesFromDataTransfer(e.dataTransfer);
-                    addFiles(files);
-                  }}
-                >
-                  <UploadCloud size={18} className="text-accent" />
-                  <span className="text-sm">Add files to this folder</span>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    aria-label="Add files"
-                    onChange={(e) => addFiles(e.target.files)}
-                  />
-                </label>
-              </Card>
-            )}
-            {rel && (
-              <Button
-                variant="outline"
-                surface="primary"
-                size="sm"
-                onClick={() => {
-                  haptic("medium");
-                  openRel(parentRel(rel));
-                }}
-              >
-                ↑ Up one folder
-              </Button>
-            )}
-            {(listing.entries || []).map((entry) => (
-              <Card key={entry.name} padding={false} noPopIn noHeightAnim>
-                <div className="flex items-center justify-between p-4 gap-2">
-                  {entry.kind === "dir" ? (
-                    <button
-                      type="button"
-                      className="flex items-center gap-3 text-left flex-1 min-w-0 text-primary"
-                      onClick={() => {
-                        haptic("medium");
-                        openRel(joinRel(rel, entry.name));
-                      }}
-                    >
-                      <Folder size={18} className="text-accent shrink-0" />
-                      <span className="font-mono text-sm truncate">{entry.name}</span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <FileIcon size={18} className="text-accent shrink-0" />
-                      <span className="text-primary font-mono text-sm truncate">{entry.name}</span>
-                    </div>
-                  )}
-                  {entry.kind !== "dir" && (
-                    <Button size="sm" variant="outline" asChild>
-                      <a href={downloadHref(joinRel(rel, entry.name), true)}>Download</a>
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            ))}
-            {!loading && canSeeFiles && (listing.entries || []).length === 0 && (
-              <EmptyState
-                icon={Folder}
-                title="This folder is empty"
-                description="There's nothing here to download."
-              />
-            )}
-          </div>
-        )}
-
-        {showUploadZone && uploads.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {uploads.map((item) => (
-              <Card key={item.id} padding={false} noPopIn noHeightAnim>
-                <div className="flex items-center justify-between gap-3 p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-primary font-mono text-sm truncate">{item.name}</p>
-                    <div className="mt-1 h-1.5 rounded-pill bg-primary overflow-hidden">
-                      <div
-                        className="h-full rounded-pill bg-accent motion-safe:transition-all motion-safe:duration-200"
-                        style={{ width: `${item.size ? Math.min(100, Math.round((item.received / item.size) * 100)) : 0}%` }}
-                      />
-                    </div>
-                    <p className="text-primary text-xs mt-1">
-                      {fmtSize(item.received)} of {fmtSize(item.size)}
-                    </p>
-                  </div>
-                  <Button size="iconSm" variant="ghost" aria-label={`Cancel ${item.name}`} onClick={() => cancelUpload(item.id)}>
-                    <X size={14} />
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
+      </Page>
     </div>
   );
 }

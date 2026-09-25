@@ -415,8 +415,24 @@ mod tests {
 
         {
             let conn = state.db.lock().unwrap();
-            crate::db::insert_grant(&conn, "g-sam", &sam_id, "photos", grant_path, permission)
-                .unwrap();
+            crate::db::insert_access_member(
+                &conn,
+                &crate::db::AccessMemberRow {
+                    id: "g-sam".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: "photos".into(),
+                    path: grant_path.into(),
+                    album_id: String::new(),
+                    user_id: sam_id.clone(),
+                    caps: if permission == "write" {
+                        crate::access::CAP_ALL
+                    } else {
+                        crate::access::CAP_VIEW
+                    },
+                    created_by: "test".into(),
+                },
+            )
+            .unwrap();
         }
 
         let member_token = login_and_token(app, "sam", "hunter22hunter1", "Sam's laptop").await;

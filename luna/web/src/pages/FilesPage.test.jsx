@@ -88,25 +88,52 @@ function stubFilesApi(byPath) {
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/files/stat")) {
+      const path = filesPath(u);
+      const stat = byPath.__stat?.[path] ?? {
+        name: path.split("/").pop() || "Photos Drive",
+        kind: "dir",
+        size: 0,
+        modified: 0,
+        writable: true,
+        trashed_from: null,
+      };
+      return new Response(JSON.stringify(stat), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/files?")) {
       const listing = byPath[filesPath(u)] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (u.endsWith("/users")) {
+    if (u.endsWith("/users") || u.includes("/users/directory")) {
       return new Response(JSON.stringify(byPath.__users || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (u.endsWith("/grants")) {
-      return new Response(JSON.stringify(byPath.__grants || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (u.includes("/api/v1/me/access")) {
+      return new Response(JSON.stringify(byPath.__access || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (u.endsWith("/shares") && method === "POST") {
-      if (byPath.__postShare) return byPath.__postShare(String(init.body || ""));
+    if (u.includes("/api/v1/access/subject")) {
+      const parsed = new URL(u, "http://luna.test");
+      const path = parsed.searchParams.get("path") || "";
+      return new Response(JSON.stringify({
+        subject: {
+          kind: "path",
+          drive_id: parsed.searchParams.get("drive_id") || "d1",
+          path,
+          album_id: "",
+          is_file: Boolean(byPath.__subjectIsFile),
+          exists: true,
+          name: path.split("/").pop() || "Photos Drive",
+        },
+        my_caps: byPath.__myCaps || "full",
+        members: byPath.__members || [],
+        links: byPath.__links || [],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/api/v1/access/links") && method === "POST") {
+      if (byPath.__postLink) return byPath.__postLink(String(init.body || ""));
       return new Response(JSON.stringify({ error: "Luna can't find that file or folder." }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
-    }
-    if (u.endsWith("/shares")) {
-      return new Response(JSON.stringify(byPath.__shares || []), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return new Response("{}", { status: 500 });
   });
@@ -137,7 +164,7 @@ describe("FilesPage", () => {
     renderFiles();
     expect(await screen.findByRole("button", { name: /Upload/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/drives/d1?view=trash");
+    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/drives/d1?path=.luna-trash");
     expect(screen.queryByRole("link", { name: /Open trash/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("Current folder").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Sharing for photo.jpg" })).toBeInTheDocument();
@@ -145,6 +172,20 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: "Protect Photos Drive" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Share this folder/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Open as a folder on a computer/i })).not.toBeInTheDocument();
+  });
+
+  it("shows only the upload surface for an upload-only member grant", async () => {
+    stubFilesApi({
+      __role: "user",
+      __access: [
+        { id: "g1", kind: "path", drive_id: "d1", path: "", caps: "upload", name: "Photos Drive" },
+      ],
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+    });
+    renderFiles();
+    expect(await screen.findByText("Upload files")).toBeInTheDocument();
+    expect(screen.queryByText("photo.jpg")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Find in this folder")).not.toBeInTheDocument();
   });
 
   it("shows a drive menu when more than one drive is ready", async () => {
@@ -300,29 +341,75 @@ describe("FilesPage", () => {
     );
   });
 
-  it("opens trash and can start a restore", async () => {
+  it("opens trash like a folder and can start a restore", async () => {
     stubFilesApi({
-      "": [],
-      __trash: [{
+      ".luna-trash": [{
         name: "171-photo.jpg",
         original_name: "photo.jpg",
+        original_path: "photo.jpg",
         kind: "file",
         size: 12,
-        path: ".luna-trash/171-photo.jpg",
+        modified: 0,
+        hidden: false,
       }],
     });
     renderFiles("/drives/d1?view=trash");
+    // The regular browser renders the trash entry under its pre-trash name.
     expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to files" })).toHaveAttribute("href", "/drives/d1");
-    fireEvent.click(screen.getByRole("button", { name: "Put photo.jpg back" }));
-    const dialog = await screen.findByRole("dialog", { name: "Put this back?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Put it back" }));
+    expect(screen.queryByText("171-photo.jpg")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Trash" })).toBeInTheDocument();
+    // Up and the root crumb lead back to the drive, like any folder.
+    expect(screen.getByRole("link", { name: "↑ Up one folder" })).toHaveAttribute("href", "/drives/d1");
+    expect(screen.getByRole("link", { name: "Photos Drive" })).toHaveAttribute("href", "/drives/d1");
+    // Read-only: no upload/create/mutate affordances — and no selection.
+    expect(screen.queryByRole("button", { name: /Upload/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Move photo.jpg/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Rename photo.jpg/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Select photo.jpg")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Select all in this folder")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download photo.jpg" })).toHaveAttribute(
+      "href",
+      "/api/v1/drives/d1/files/content?path=.luna-trash%2F171-photo.jpg&download=1",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore photo.jpg" }));
+    const dialog = await screen.findByRole("dialog", { name: "Restore this?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore" }));
     expect(await within(dialog).findByText("Request failed (500)")).toBeInTheDocument();
     expect(screen.getAllByText("Request failed (500)")).toHaveLength(1);
     fireEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
     await waitFor(() => {
       expect(screen.queryByText("Request failed (500)")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows the trash empty state through the regular browser", async () => {
+    stubFilesApi({ ".luna-trash": [] });
+    renderFiles("/drives/d1?path=.luna-trash");
+    expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
+    // Nothing to empty — the button stays disabled beside "Up one folder".
+    expect(screen.getByRole("button", { name: "Empty trash" })).toBeDisabled();
+  });
+
+  it("offers Empty trash beside Up one folder with a danger modal", async () => {
+    stubFilesApi({
+      ".luna-trash": [{
+        name: "171-photo.jpg",
+        original_name: "photo.jpg",
+        original_path: "photo.jpg",
+        kind: "file",
+        size: 12,
+        modified: 0,
+        hidden: false,
+      }],
+    });
+    renderFiles("/drives/d1?path=.luna-trash");
+    const emptyBtn = await screen.findByRole("button", { name: "Empty trash" });
+    expect(emptyBtn).toBeEnabled();
+    fireEvent.click(emptyBtn);
+    const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
+    expect(await within(dialog).findByText("Request failed (500)")).toBeInTheDocument();
   });
 
   it("shows copy/move progress and cancel", async () => {
@@ -482,16 +569,17 @@ describe("FilesPage", () => {
       __users: [
         { id: "1", role: "admin", username: "admin", display_name: "Admin" },
         { id: "2", role: "user", username: "sam", display_name: "Sam" },
+        { id: "3", role: "user", username: "jo", display_name: "Jo" },
       ],
-      __grants: [{ id: "g1", user_id: "2", drive_id: "d1", path: "album", permission: "read" }],
-      __shares: [],
+      __members: [{ id: "m1", user_id: "2", name: "Sam", caps: "view" }],
+      __links: [],
     });
     renderFiles();
     fireEvent.click(await screen.findByRole("button", { name: "Sharing for Photos Drive" }));
     const dialog = await screen.findByRole("dialog", { name: "Sharing" });
     expect(await within(dialog).findByText(/Sam/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Access for Sam/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Grant access" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "New link" })).toBeInTheDocument();
   });
 
@@ -499,13 +587,13 @@ describe("FilesPage", () => {
     stubFilesApi({
       "": [{ name: "album", kind: "dir", size: 0, modified: 0, hidden: false }],
       __users: [{ id: "1", role: "admin", username: "admin", display_name: "Admin" }],
-      __grants: [],
-      __shares: [],
+      __members: [],
+      __links: [],
     });
     renderFiles();
     fireEvent.click(await screen.findByRole("button", { name: "Sharing for album" }));
     const sharing = await screen.findByRole("dialog", { name: "Sharing" });
-    fireEvent.click(within(sharing).getByRole("button", { name: "New link" }));
+    fireEvent.click(await within(sharing).findByRole("button", { name: "New link" }));
     const linkDialog = await screen.findByRole("dialog", { name: "New link" });
     fireEvent.click(within(linkDialog).getByRole("button", { name: "Create link" }));
     expect(await within(linkDialog).findByText("Luna can't find that file or folder.")).toBeInTheDocument();
@@ -516,9 +604,9 @@ describe("FilesPage", () => {
     const grants = {
       __role: "user",
       __userId: "2",
-      __grants: [
-        { id: "g-album", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
-        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "album/dcim", permission: "write" },
+      __access: [
+        { id: "m-album", kind: "path", drive_id: "d1", path: "album", caps: "view" },
+        { id: "m-dcim", kind: "path", drive_id: "d1", path: "album/dcim", caps: "full" },
       ],
       album: [{ name: "dcim", kind: "dir", size: 0, modified: 0, hidden: false }],
       "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
@@ -535,9 +623,9 @@ describe("FilesPage", () => {
     stubFilesApi({
       __role: "user",
       __userId: "2",
-      __grants: [
-        { id: "g-album", user_id: "2", drive_id: "d1", path: "album", permission: "read" },
-        { id: "g-dcim", user_id: "2", drive_id: "d1", path: "album/dcim", permission: "write" },
+      __access: [
+        { id: "m-album", kind: "path", drive_id: "d1", path: "album", caps: "view" },
+        { id: "m-dcim", kind: "path", drive_id: "d1", path: "album/dcim", caps: "full" },
       ],
       "album/dcim": [{ name: "shot.jpg", kind: "file", size: 12, modified: 0, hidden: false }],
     });
