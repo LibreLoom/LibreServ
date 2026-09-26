@@ -33,12 +33,50 @@ const POINTER_THROTTLE_MS = 50;
  * second — smooth for watchers, and a fraction of per-frame writes on
  * 120/144Hz screens. The local canvas never waits on it. */
 const LOCAL_SYNC_MS = 32;
+/** Alone in the room nobody watches the stroke live, so the doc is written
+ * once the canvas goes quiet (like excalidraw.com's own local save) —
+ * nothing runs mid-gesture. SOLO_SYNC_MAX_MS bounds how stale the doc (and
+ * the unsaved-changes flag) may get while the pointer never rests. */
+const SOLO_SYNC_IDLE_MS = 250;
+const SOLO_SYNC_MAX_MS = 1_000;
+/** Longest we hold the canvas back for an entrance animation. */
+const SETTLE_TIMEOUT_MS = 1_000;
 /** Give a silent room this long to answer the sync handshake before
  * mounting whatever the doc holds (the in-sync fallback seeds anyway). */
 const HYDRATE_TIMEOUT_MS = 10_000;
 const HYDRATE_POLL_MS = 50;
 
 const EMPTY_OBJECT = Object.freeze({});
+
+/**
+ * Resolve once every running animation on an ancestor of `el` (the
+ * fullscreen frame's zoom-in) has finished. Excalidraw measures its
+ * container once on mount with getBoundingClientRect, which includes
+ * ancestor transforms — mounting mid-zoom leaves a canvas a few pixels
+ * short and fractionally sized for good (a transform ending fires no
+ * resize), so the browser resamples it every frame and pointer math runs
+ * off a stale offset.
+ * @param {Element | null} el
+ */
+function ancestorAnimationsSettled(el) {
+  if (!el || typeof document.getAnimations !== "function") return Promise.resolve();
+  const running = document.getAnimations().filter((anim) => {
+    const target = /** @type {KeyframeEffect | null} */ (anim.effect)?.target;
+    const timing = anim.effect?.getTiming?.();
+    return (
+      anim.playState === "running" &&
+      timing?.iterations !== Infinity &&
+      target instanceof Element &&
+      target !== el &&
+      target.contains(el)
+    );
+  });
+  if (!running.length) return Promise.resolve();
+  return Promise.race([
+    Promise.all(running.map((anim) => anim.finished.catch(() => {}))),
+    new Promise((resolve) => setTimeout(resolve, SETTLE_TIMEOUT_MS)),
+  ]);
+}
 
 const UI_OPTIONS = Object.freeze({
   canvasActions: {
@@ -330,6 +368,7 @@ function EditorSession({
   }, []);
 
   const isApplyingSceneRef = useRef(false);
+  const hostRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const selectedElementIdsRef = useRef(EMPTY_OBJECT);
 
   /** Push the shared doc into the mounted canvas — remote path. */
@@ -474,6 +513,8 @@ function EditorSession({
       if (cancelled) return;
       const mod = await loadExcalidraw();
       if (cancelled) return;
+      await ancestorAnimationsSettled(hostRef.current);
+      if (cancelled) return;
       const scene = readScene(session.ydoc);
       const restored = mod.restore
         ? mod.restore(
@@ -508,6 +549,7 @@ function EditorSession({
   const pendingSceneRef = useRef(null);
   const syncTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const lastSyncRef = useRef(0);
+  const pendingSinceRef = useRef(0);
 
   const flushScene = useCallback(() => {
     if (syncTimerRef.current != null) {
@@ -517,6 +559,7 @@ function EditorSession({
     const pending = pendingSceneRef.current;
     if (!pending) return;
     pendingSceneRef.current = null;
+    pendingSinceRef.current = 0;
     lastSyncRef.current = performance.now();
     const session = syncRef.current;
     // No isApplyingSceneRef check here: the pending scene was captured from
@@ -536,8 +579,9 @@ function EditorSession({
    * drag. Writing the doc each time costs a stringify per moved element
    * plus a Yjs update and a socket frame, and doing it in a rAF callback
    * put that cost in front of every paint. Instead the latest scene is
-   * parked and written at most every LOCAL_SYNC_MS from a timer task,
-   * between frames. Saves flush synchronously, so nothing is lost.
+   * parked and written from a timer task, between frames: at most every
+   * LOCAL_SYNC_MS while peers watch, or once the canvas goes quiet when
+   * alone. Saves flush synchronously, so nothing is lost.
    */
   const onSceneChange = useCallback(
     (elements, appState, files) => {
@@ -550,13 +594,25 @@ function EditorSession({
       }
       if (!canWrite) return;
       pendingSceneRef.current = { elements, appState, files };
-      if (syncTimerRef.current == null) {
-        const wait = Math.max(0, LOCAL_SYNC_MS - (performance.now() - lastSyncRef.current));
-        syncTimerRef.current = setTimeout(() => {
-          syncTimerRef.current = null;
-          flushScene();
-        }, wait);
+      const now = performance.now();
+      if (!pendingSinceRef.current) pendingSinceRef.current = now;
+      let wait;
+      if (session.otherPeers().length > 0) {
+        // Throttle: a queued write already carries this change.
+        if (syncTimerRef.current != null) return;
+        wait = Math.max(0, LOCAL_SYNC_MS - (now - lastSyncRef.current));
+      } else {
+        // Debounce, capped so a never-resting pointer still syncs.
+        if (syncTimerRef.current != null) clearTimeout(syncTimerRef.current);
+        wait = Math.max(
+          0,
+          Math.min(SOLO_SYNC_IDLE_MS, SOLO_SYNC_MAX_MS - (now - pendingSinceRef.current)),
+        );
       }
+      syncTimerRef.current = setTimeout(() => {
+        syncTimerRef.current = null;
+        flushScene();
+      }, wait);
     },
     [canWrite, flushScene],
   );
@@ -568,6 +624,7 @@ function EditorSession({
       if (syncTimerRef.current != null) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
       pendingSceneRef.current = null;
+      pendingSinceRef.current = 0;
     },
     [],
   );
@@ -694,7 +751,7 @@ function EditorSession({
   const showLoading = phase === "loading" || !initialData || !editorReady;
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-primary">
+    <div ref={hostRef} className="relative flex min-h-0 flex-1 flex-col bg-primary">
       {showLoading ? (
         <DocumentLoadingScreen
           label={`Opening ${name}`}

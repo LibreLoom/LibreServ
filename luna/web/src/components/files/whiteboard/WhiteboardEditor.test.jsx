@@ -52,9 +52,10 @@ vi.mock("@excalidraw/excalidraw", async () => {
   };
 });
 
-/** Remote applies wait for an animation frame; local edits reach the doc
- * on a short timer. Long enough for both. */
-const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 60));
+/** Remote applies wait for an animation frame; a solo session's local
+ * edits reach the doc once the canvas has been quiet for 250ms. Long
+ * enough for both. */
+const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 300));
 
 const sockets = [];
 
