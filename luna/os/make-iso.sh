@@ -66,11 +66,14 @@ if [ "$IN_CONTAINER" = 1 ]; then
 		podman build -t "$LB_IMAGE" -f "$ROOT/os/iso/Containerfile.live-build" "$ROOT/os/iso" || \
 		die "could not build $LB_IMAGE"
 	# The repo is mounted at the same absolute path so staged paths resolve
-	# unchanged; rootless container root maps to the calling user.
+	# unchanged; rootless container root maps to the calling user. The chroot
+	# workspace must live on container-local storage: debootstrap needs mknod
+	# and a rootless bind mount is nodev. Only the finished ISO travels back
+	# through $OUT on the repo mount.
 	if ! podman run --rm --privileged \
-		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK="$WORK" \
+		-e ARCH="$ARCH" -e OUT="$OUT" -e WORK=/work -e STAGED="$WORK" -e BUILD="$BUILD" \
 		-v "$ROOT:$ROOT:z" \
-		"$LB_IMAGE" bash "$BUILD"; then
+		"$LB_IMAGE" bash -c 'mkdir -p "$WORK" && cp -a "$STAGED/." "$WORK/" && bash "$BUILD"; rc=$?; cp -f "$WORK/build.log" "$STAGED/build.log" 2>/dev/null; exit $rc'; then
 		echo "==> ISO build failed; see $WORK/build.log" >&2
 		if [ -f "$WORK/build.log" ]; then
 			tail -30 "$WORK/build.log" >&2
