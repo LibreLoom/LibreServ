@@ -1031,6 +1031,12 @@ export default function FileBrowser({
   const wellBg = well === "primary" ? "bg-primary" : "bg-secondary";
   const wellFg = well === "primary" ? "text-secondary" : "text-primary";
   const hairline = surface === "primary" ? "border-secondary" : "border-primary";
+  // Soft alternating rows, the same mix Table's `striped` uses — tinted
+  // toward the opposite surface so it reads as a whisper, not a divider.
+  // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+  const stripeBg = surface === "primary"
+    ? "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]"
+    : "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
 
   return (
     <div
@@ -1575,7 +1581,7 @@ export default function FileBrowser({
                 />
                 <Button
                   variant="ghost"
-                  surface={well}
+                  surface={surface}
                   size="iconSm"
                   aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
                   aria-pressed={showHidden}
@@ -1631,7 +1637,7 @@ export default function FileBrowser({
                     // (border-b kept transparent so the row height doesn't shift).
                     isTrashDrop
                       ? "bg-accent/20 ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
-                      : `border-b ${hairline}/15 last:border-b-0 last:rounded-b-large-element`,
+                      : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                   ].join(" ")}
                   onDragOver={(e) => {
@@ -1700,12 +1706,15 @@ export default function FileBrowser({
                 </li>
               );
             })() : null}
-            {visibleEntries.map((entry) => {
+            {visibleEntries.map((entry, rowIndex) => {
               const ctx = rowContext(entry);
               const isSelected = selectedPaths.includes(ctx.fullPath);
               const isDrop = dropTarget === ctx.fullPath;
               const openable = canOpenEntry(ctx);
               const canDragRow = !isPicker && Boolean(onInternalMove);
+              // Trash counts as the first row when shown, so the striping
+              // stays on the same visual parity either way.
+              const striped = (rowIndex + (showTrashEntry ? 1 : 0)) % 2 === 1;
 
               return (
                 <li
@@ -1714,16 +1723,23 @@ export default function FileBrowser({
                   className={[
                     "flex items-center gap-2 px-3",
                     padY,
-                    `${cardBg} ${fg}`,
-                    isSelected ? "bg-accent/20" : "",
+                    // The stripe IS the row's background — the only place it
+                    // may ever paint. Selection and drop-target states own the
+                    // whole row color, so the stripe is omitted there rather
+                    // than stacked under them (two bg-* utilities resolve by
+                    // stylesheet order, not class order). bg-clip-padding keeps
+                    // the fill out of the border box, so the translucent
+                    // divider always blends over the card behind it instead of
+                    // being tinted by the stripe/selection color.
+                    `bg-clip-padding ${isSelected || isDrop ? "bg-accent/20" : striped ? stripeBg : cardBg} ${fg}`,
                     // One outline: the drop ring replaces the row separator
                     // (border-b kept transparent so the row height doesn't
                     // shift). The last row always rounds to hug the card's
                     // bottom edge — same geometry whether or not it's the
                     // drop target.
                     isDrop
-                      ? "bg-accent/20 ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
-                      : `border-b ${hairline}/15 last:border-b-0 last:rounded-b-large-element`,
+                      ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
+                      : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
                     "motion-safe:transition-colors",
                     canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
                   ].filter(Boolean).join(" ")}
