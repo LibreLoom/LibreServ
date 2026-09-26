@@ -81,21 +81,17 @@ describe("PlacePopupContent", () => {
     expect(screen.queryByText(/^11$/)).not.toBeInTheDocument();
   });
 
-  it("offers Draw a custom area button in popup when onDrawArea is provided", async () => {
-    const user = userEvent.setup();
-    const onDrawArea = vi.fn();
+  it("does not offer Draw a custom area button in popup", () => {
     render(
       <PlacePopupContent
         place={{ key: "p1", label: "Yosemite", count: 11, cover_thumb: "" }}
         onSelect={vi.fn()}
-        onDrawArea={onDrawArea}
       />,
     );
 
-    const drawBtn = screen.getByRole("button", { name: /Draw a custom area…/i });
-    expect(drawBtn).toBeInTheDocument();
-    await user.click(drawBtn);
-    expect(onDrawArea).toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: /Draw a custom area/i }),
+    ).not.toBeInTheDocument();
   });
 });
 

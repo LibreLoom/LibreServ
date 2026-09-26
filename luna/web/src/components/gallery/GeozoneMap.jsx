@@ -118,10 +118,10 @@ export default function GeozoneMap({
               center={[p.lat, p.lon]}
               radius={4}
               pathOptions={{
-                color: "var(--color-secondary)",
-                fillColor: "var(--color-accent)",
-                fillOpacity: 0.8,
-                weight: 1,
+                color: "var(--color-primary)",
+                fillColor: "var(--color-secondary)",
+                fillOpacity: 1,
+                weight: 1.5,
               }}
             />
           ))}

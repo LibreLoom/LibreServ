@@ -53,7 +53,7 @@ function fmtDuration(secs) {
 function Section({ icon: Icon, title, children }) {
   return (
     <section className="rounded-large-element bg-primary text-secondary p-3.5 space-y-2.5">
-      <h3 className="flex items-center gap-2 font-mono text-xs text-accent">
+      <h3 className="flex items-center gap-2 font-mono text-xs text-secondary">
         <Icon size={14} className="shrink-0" aria-hidden="true" />
         {title}
       </h3>
@@ -228,13 +228,13 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
           {photo.size != null && (
             <>
-              <dt className="text-accent">Size</dt>
+              <dt className="text-secondary">Size</dt>
               <dd className="font-mono">{fmtSize(photo.size)}</dd>
             </>
           )}
           {(photo.width > 0 || photo.height > 0) && (
             <>
-              <dt className="text-accent">Dimensions</dt>
+              <dt className="text-secondary">Dimensions</dt>
               <dd className="font-mono">
                 {photo.width} × {photo.height}
               </dd>
@@ -242,7 +242,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
           )}
           {duration && (
             <>
-              <dt className="flex items-center gap-1 text-accent">
+              <dt className="flex items-center gap-1 text-secondary">
                 <Clock size={12} aria-hidden="true" />
                 Length
               </dt>
@@ -251,7 +251,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
           )}
           {photo.drive_id && (
             <>
-              <dt className="flex items-center gap-1 text-accent">
+              <dt className="flex items-center gap-1 text-secondary">
                 <FolderOpen size={12} aria-hidden="true" />
                 Folder
               </dt>

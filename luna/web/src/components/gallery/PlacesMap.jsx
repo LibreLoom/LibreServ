@@ -143,7 +143,7 @@ function clusterToPlace(cluster, index) {
   };
 }
 
-export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
+export function PlacePopupContent({ place, onSelect }) {
   const photoWord = place.count === 1 ? "photo" : "photos";
   const countText = `${place.count} ${photoWord}`;
   // Clustering may already set label to "N photos"; avoid showing that twice.
@@ -195,22 +195,6 @@ export function PlacePopupContent({ place, onSelect, onDrawArea = undefined }) {
           Open
         </Button>
       </div>
-      {onDrawArea && (
-        <div className="mt-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              haptic("light");
-              onDrawArea();
-            }}
-          >
-            Draw a custom area…
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
@@ -223,10 +207,9 @@ PlacePopupContent.propTypes = {
     cover_thumb: PropTypes.string,
   }).isRequired,
   onSelect: PropTypes.func,
-  onDrawArea: PropTypes.func,
 };
 
-function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
+function ClusterMarkers({ markers, onSelect }) {
   const map = useMap();
   const [clusters, setClusters] = useState([]);
   const [zoom, setZoom] = useState(() => map.getZoom());
@@ -302,10 +285,10 @@ function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
               },
             }}
             pathOptions={{
-              color: "var(--secondary)",
-              fillColor: isCluster ? "var(--accent)" : "var(--secondary)",
-              fillOpacity: isCluster ? 0.9 : 0.75,
-              weight: isCluster ? 2.5 : 2,
+              color: "var(--primary)",
+              fillColor: "var(--secondary)",
+              fillOpacity: 1,
+              weight: isCluster ? 3 : 2.5,
             }}
           >
             {isCluster && count > 1 && (
@@ -324,7 +307,7 @@ function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
               minWidth={0}
               maxWidth={280}
             >
-              <PlacePopupContent place={place} onSelect={onSelect} onDrawArea={onDrawArea} />
+              <PlacePopupContent place={place} onSelect={onSelect} />
             </Popup>
           </CircleMarker>
         );
@@ -336,7 +319,6 @@ function ClusterMarkers({ markers, onSelect, onDrawArea = undefined }) {
 ClusterMarkers.propTypes = {
   markers: PropTypes.arrayOf(PropTypes.object).isRequired,
   onSelect: PropTypes.func,
-  onDrawArea: PropTypes.func,
 };
 
 /**
@@ -558,7 +540,7 @@ export default function PlacesMap({
         <InvalidateOnResize />
         <FitBounds points={markers} />
         <EscapeDismiss onCancel={handleCancelDraw} />
-        <ClusterMarkers markers={markers} onSelect={onSelect} onDrawArea={handleStartDraw} />
+        <ClusterMarkers markers={markers} onSelect={onSelect} />
         <MapAreaDraw
           active={isDrawMode}
           value={drawnBbox}
