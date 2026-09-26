@@ -81,13 +81,21 @@ function DriveStatusPill({ drive }) {
     <LayeredPill
       icon={<span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />}
       actionIcon={<House size={11} />}
-      actionLabel={memberHome ? (drive.member_home_auto ? "Member home · auto" : "Member home") : null}
-      title={
-        memberHome
-          ? drive.member_home_auto
-            ? "Members' private Home folders live on this drive — Luna picked it automatically. Choose a different drive in Settings → Users."
-            : "Members' private Home folders live on this drive. Choose a different drive in Settings → Users."
-          : undefined
+      actionLabel={
+        memberHome ? (
+          <>
+            <TermHint
+              content={
+                drive.member_home_auto
+                  ? "Members' private Home folders live on this drive — Luna picked it automatically. Choose a different drive on the Users page."
+                  : "Members' private Home folders live on this drive. Choose a different drive on the Users page."
+              }
+            >
+              Member home
+            </TermHint>
+            {drive.member_home_auto ? " · auto" : ""}
+          </>
+        ) : null
       }
     >
       {plainDriveState(drive.state)}
